@@ -169,7 +169,9 @@ export const notifications = pgTable("notifications", {
 
 export const courts = pgTable("courts", {
   id: uuid("id").primaryKey().defaultRandom(),
-  number: integer("number").notNull(),
+  // Unique so the idempotent seed can't create duplicate court numbers; the set
+  // of active courts is the capacity source for the per-hour confirmation limit.
+  number: integer("number").notNull().unique(),
   status: entityStatus("status").notNull().default("active")
 });
 
