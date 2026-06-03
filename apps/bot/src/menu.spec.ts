@@ -2,9 +2,15 @@ import { describe, expect, it } from "vitest";
 import { MENU_ACTIONS, mainMenuKeyboard } from "./menu";
 
 describe("mainMenuKeyboard", () => {
-  it("renders all five main-menu actions", () => {
+  it("renders the five entry actions (the home/back action is not shown on the home screen)", () => {
     const rows = mainMenuKeyboard().inline_keyboard;
     const callbacks = rows.flat().map((b) => ("callback_data" in b ? b.callback_data : undefined));
-    expect(callbacks).toEqual(Object.values(MENU_ACTIONS));
+    expect(callbacks).toEqual([
+      MENU_ACTIONS.availableTrainings,
+      MENU_ACTIONS.todayFreeSlots,
+      MENU_ACTIONS.joinGroup,
+      MENU_ACTIONS.myBookings,
+      MENU_ACTIONS.contactManager
+    ]);
   });
 });

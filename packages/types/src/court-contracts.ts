@@ -61,3 +61,23 @@ export const confirmCourtRequestSchema = z.object({
   courtId: uuid,
   decidedBy: z.number().int()
 });
+
+/** C3 — court availability read. Query a single date for offerable start times. */
+export const courtAvailabilityQuerySchema = z.object({
+  date: dateString
+});
+export type CourtAvailabilityQuery = z.infer<typeof courtAvailabilityQuerySchema>;
+
+/** One offerable start hour and how many courts are still free for it. Never exposes a court id. */
+export const hourAvailabilitySchema = z.object({
+  hour: z.number().int(),
+  startTime: timeString,
+  freeCourts: z.number().int().nonnegative()
+});
+export type HourAvailability = z.infer<typeof hourAvailabilitySchema>;
+
+export const courtAvailabilitySchema = z.object({
+  date: dateString,
+  hours: z.array(hourAvailabilitySchema)
+});
+export type CourtAvailability = z.infer<typeof courtAvailabilitySchema>;

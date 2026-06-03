@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import {
   courtHoursCovered,
   courtPriceRsd,
+  freeCourtsByHour,
   freeSeats,
   isBookable,
   monthTrainingDates,
@@ -54,5 +55,69 @@ describe("court pricing", () => {
   it("covers the right clock hours", () => {
     expect(courtHoursCovered("14:00", 2)).toEqual([14, 15]);
     expect(courtHoursCovered("19:00", 1)).toEqual([19]);
+  });
+});
+
+describe("freeCourtsByHour", () => {
+  const base = { activeCourtCount: 6, openHour: 8, closeHour: 21 };
+
+  it("returns the full active count for every working hour with no occupants", () => {
+    const free = freeCourtsByHour({ ...base, confirmed: [], blocks: [] });
+    expect(free.get(8)).toBe(6);
+    expect(free.get(20)).toBe(6);
+    // close hour itself is not a working start hour
+    expect(free.has(21)).toBe(false);
+    expect(free.has(7)).toBe(false);
+  });
+
+  it("a confirmed 1h request reduces only its single covered hour", () => {
+    const free = freeCourtsByHour({
+      ...base,
+      confirmed: [{ startTime: "10:00", durationHours: 1 }],
+      blocks: []
+    });
+    expect(free.get(10)).toBe(5);
+    expect(free.get(11)).toBe(6);
+  });
+
+  it("a confirmed 2h request reduces both covered hours", () => {
+    const free = freeCourtsByHour({
+      ...base,
+      confirmed: [{ startTime: "10:00", durationHours: 2 }],
+      blocks: []
+    });
+    expect(free.get(10)).toBe(5);
+    expect(free.get(11)).toBe(5);
+    expect(free.get(12)).toBe(6);
+  });
+
+  it("blocks reduce an hour the same way confirmed requests do", () => {
+    const free = freeCourtsByHour({
+      ...base,
+      confirmed: [],
+      blocks: [{ startTime: "09:00", durationHours: 1 }]
+    });
+    expect(free.get(9)).toBe(5);
+  });
+
+  it("floors free courts at 0 (no negative) once an hour is overfull", () => {
+    const confirmed = Array.from({ length: 7 }, () => ({
+      startTime: "10:00" as const,
+      durationHours: 1 as const
+    }));
+    const free = freeCourtsByHour({ ...base, confirmed, blocks: [] });
+    expect(free.get(10)).toBe(0);
+  });
+
+  it("the 6th confirmed leaves 0 free — the 7th is impossible (min over covered hours)", () => {
+    const confirmed = Array.from({ length: 6 }, () => ({
+      startTime: "10:00" as const,
+      durationHours: 1 as const
+    }));
+    const free = freeCourtsByHour({ ...base, confirmed, blocks: [] });
+    expect(free.get(10)).toBe(0);
+    // a 2h slot at 09:00 covers hour 10 too, so its min free is 0
+    const min2h = Math.min(free.get(9) ?? 0, free.get(10) ?? 0);
+    expect(min2h).toBe(0);
   });
 });

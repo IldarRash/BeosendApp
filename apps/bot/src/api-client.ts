@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { courtAvailabilitySchema, type CourtAvailability } from "@beosand/types";
 
 const healthSchema = z.object({ status: z.literal("ok"), service: z.string() });
 
@@ -23,5 +24,15 @@ export class ApiClient {
 
   health(): Promise<z.infer<typeof healthSchema>> {
     return this.request("/health", healthSchema);
+  }
+
+  /**
+   * Offerable court start times + free-court counts for one date (C3). The API
+   * computes the per-hour limit; the bot only renders the returned hours and
+   * never sees a court number. Response is validated against the shared contract.
+   */
+  getCourtAvailability(date: string): Promise<CourtAvailability> {
+    const query = new URLSearchParams({ date }).toString();
+    return this.request(`/court-requests/availability?${query}`, courtAvailabilitySchema);
   }
 }

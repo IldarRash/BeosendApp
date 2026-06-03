@@ -75,3 +75,41 @@ export function courtHoursCovered(startTime: string, durationHours: CourtDuratio
   const startHour = Number(startTime.slice(0, 2));
   return Array.from({ length: durationHours }, (_, i) => startHour + i);
 }
+
+/** A court occupant (confirmed request or block) by its start time and duration in whole hours. */
+export interface CourtOccupant {
+  startTime: string;
+  durationHours: CourtDurationHours;
+}
+
+/**
+ * Free courts per working clock hour (Edition 2 — max 6 confirmed per hour).
+ * free(h) = activeCourtCount − confirmed covering h − blocks covering h, floored at 0.
+ * Shared by the availability read (C3) and the confirm re-check (C4); the limit
+ * logic lives only here so the two paths can never diverge.
+ */
+export function freeCourtsByHour(input: {
+  activeCourtCount: number;
+  openHour: number;
+  closeHour: number;
+  confirmed: readonly CourtOccupant[];
+  blocks: readonly CourtOccupant[];
+}): Map<number, number> {
+  const occupiedCount = new Map<number, number>();
+  const tally = (occupants: readonly CourtOccupant[]): void => {
+    for (const occupant of occupants) {
+      for (const hour of courtHoursCovered(occupant.startTime, occupant.durationHours)) {
+        occupiedCount.set(hour, (occupiedCount.get(hour) ?? 0) + 1);
+      }
+    }
+  };
+  tally(input.confirmed);
+  tally(input.blocks);
+
+  const result = new Map<number, number>();
+  for (let hour = input.openHour; hour < input.closeHour; hour += 1) {
+    const free = input.activeCourtCount - (occupiedCount.get(hour) ?? 0);
+    result.set(hour, Math.max(0, free));
+  }
+  return result;
+}

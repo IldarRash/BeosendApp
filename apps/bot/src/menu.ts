@@ -6,7 +6,9 @@ export const MENU_ACTIONS = {
   todayFreeSlots: "menu:today",
   joinGroup: "menu:group",
   myBookings: "menu:bookings",
-  contactManager: "menu:contact"
+  contactManager: "menu:contact",
+  /** Back/home path from any sub-flow (UX section 16). */
+  backToMenu: "menu:home"
 } as const;
 
 export type MenuAction = (typeof MENU_ACTIONS)[keyof typeof MENU_ACTIONS];

@@ -14,6 +14,12 @@ async function main(): Promise<void> {
     await ctx.reply(WELCOME_TEXT, { reply_markup: mainMenuKeyboard() });
   });
 
+  // Back/home path from any sub-flow returns to the main menu.
+  bot.callbackQuery(MENU_ACTIONS.backToMenu, async (ctx) => {
+    await ctx.answerCallbackQuery();
+    await ctx.reply(WELCOME_TEXT, { reply_markup: mainMenuKeyboard() });
+  });
+
   bot.callbackQuery(Object.values(MENU_ACTIONS), async (ctx) => {
     await ctx.answerCallbackQuery();
     await ctx.reply("Раздел скоро будет доступен.", { reply_markup: mainMenuKeyboard() });
