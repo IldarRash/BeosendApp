@@ -2,6 +2,7 @@ import { loadEnv } from "@beosand/config";
 import { Bot, session } from "grammy";
 import { ApiClient } from "./api-client";
 import { resolveCallback } from "./navigation";
+import { parseBookStart } from "./slots";
 import {
   handleLevelCallback,
   handleNameText,
@@ -15,7 +16,7 @@ async function main(): Promise<void> {
   const env = loadEnv();
   const api = new ApiClient(env.API_URL);
   const bot = new Bot<BotContext>(env.TELEGRAM_BOT_TOKEN);
-  const deps = { managerContact: env.MANAGER_CONTACT };
+  const deps = { managerContact: env.MANAGER_CONTACT, api };
 
   // Onboarding is multi-step, so the bot holds the conversation state (the API
   // owns persistence). Session is keyed per chat by grammY's default key.
@@ -38,6 +39,12 @@ async function main(): Promise<void> {
   bot.on("callback_query:data", async (ctx) => {
     await ctx.answerCallbackQuery();
     if (await handleLevelCallback(ctx, api)) {
+      return;
+    }
+    // "Записаться" from a slot card: real booking lands in T1.8. Acknowledge with
+    // a placeholder so the per-slot button never dead-ends or errors.
+    if (parseBookStart(ctx.callbackQuery.data) !== undefined) {
+      await ctx.reply("Запись на тренировку скоро будет доступна.");
       return;
     }
     const handler = resolveCallback(ctx.callbackQuery.data);

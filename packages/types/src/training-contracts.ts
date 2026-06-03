@@ -115,6 +115,14 @@ export const slotCardSchema = z.object({
 });
 export type SlotCard = z.infer<typeof slotCardSchema>;
 
+/** Client query for bookable slots (GET /trainings/available); all fields optional. */
+export const availableSlotsQuerySchema = z.object({
+  from: dateString.optional(),
+  to: dateString.optional(),
+  levelId: uuid.optional()
+});
+export type AvailableSlotsQuery = z.infer<typeof availableSlotsQuerySchema>;
+
 // --- Bookings (3.6) ---
 export const bookingType = z.enum(["single", "group"]);
 export const bookingStatus = z.enum([

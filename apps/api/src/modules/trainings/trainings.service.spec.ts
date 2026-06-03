@@ -3,9 +3,9 @@ import type { Env } from "@beosand/config";
 import type { Database } from "@beosand/db";
 import { tables } from "@beosand/db";
 import type { Group, Training } from "@beosand/types";
-import { beforeEach, describe, expect, it } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 import { TrainingsService } from "./trainings.service";
-import type { TrainingsRepository } from "./trainings.repository";
+import type { AvailableSlotRow, TrainingsRepository } from "./trainings.repository";
 import type { GroupsRepository } from "../groups/groups.repository";
 
 const ADMIN_ID = 111;
@@ -71,6 +71,22 @@ class FakeTrainingsRepository {
   async listInRange(from: string, to: string, groupId?: string): Promise<Training[]> {
     return this.rows
       .filter((r) => r.date >= from && r.date <= to && (!groupId || r.groupId === groupId))
+      .sort((a, b) => a.date.localeCompare(b.date) || a.startTime.localeCompare(b.startTime));
+  }
+
+  // Mirrors the real SQL: open + free seats + active joins, in [from, to],
+  // optional level filter, ordered by date then start time.
+  available: AvailableSlotRow[] = [];
+  async listAvailable(from: string, to: string, levelId?: string): Promise<AvailableSlotRow[]> {
+    return this.available
+      .filter(
+        (r) =>
+          r.date >= from &&
+          r.date <= to &&
+          r.status === "open" &&
+          r.bookedCount < r.capacity &&
+          (!levelId || r.levelName === levelId)
+      )
       .sort((a, b) => a.date.localeCompare(b.date) || a.startTime.localeCompare(b.startTime));
   }
 }
@@ -164,5 +180,94 @@ describe("TrainingsService", () => {
       groupId: GROUP_ID
     });
     expect(listed).toHaveLength(9);
+  });
+
+  describe("listAvailable", () => {
+    // today is 2026-06-03 (see workflow context); these dates fall in the
+    // default today..today+14 window.
+    const slot = (over: Partial<AvailableSlotRow>): AvailableSlotRow => ({
+      trainingId: "aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa",
+      date: "2026-06-05",
+      startTime: "20:00",
+      endTime: "21:30",
+      trainerName: "Coach",
+      levelName: "Intermediate",
+      capacity: 6,
+      bookedCount: 2,
+      status: "open",
+      priceSingleRsd: 1500,
+      ...over
+    });
+
+    it("maps a bookable row to a SlotCard with server-computed free seats, price and weekday", async () => {
+      trainingsRepo.available = [slot({ bookedCount: 4, capacity: 6 })];
+      const cards = await service.listAvailable({});
+      expect(cards).toHaveLength(1);
+      expect(cards[0]).toMatchObject({
+        freeSeats: 2,
+        priceSingleRsd: 1500,
+        trainerName: "Coach",
+        levelName: "Intermediate",
+        dayOfWeek: 5 // 2026-06-05 is a Friday
+      });
+    });
+
+    it("never returns a full slot, but it reappears once a seat is freed", async () => {
+      const full = slot({ bookedCount: 6, capacity: 6, status: "open" });
+      trainingsRepo.available = [full];
+      expect(await service.listAvailable({})).toHaveLength(0);
+
+      full.bookedCount = 5; // one seat freed
+      const after = await service.listAvailable({});
+      expect(after).toHaveLength(1);
+      expect(after[0].freeSeats).toBe(1);
+    });
+
+    it("excludes cancelled and completed trainings even if the repo were to leak them", async () => {
+      trainingsRepo.available = [
+        slot({ status: "cancelled", bookedCount: 0 }),
+        slot({ status: "completed", bookedCount: 0 })
+      ];
+      expect(await service.listAvailable({})).toHaveLength(0);
+    });
+
+    it("excludes past trainings by clamping `from` to today", async () => {
+      trainingsRepo.available = [slot({ date: "2026-05-01" })];
+      expect(await service.listAvailable({ from: "2026-05-01" })).toHaveLength(0);
+    });
+
+    it("orders results by date then start time", async () => {
+      trainingsRepo.available = [
+        slot({ trainingId: "bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb", date: "2026-06-07", startTime: "18:00" }),
+        slot({ trainingId: "cccccccc-cccc-cccc-cccc-cccccccccccc", date: "2026-06-05", startTime: "20:00" }),
+        slot({ trainingId: "dddddddd-dddd-dddd-dddd-dddddddddddd", date: "2026-06-05", startTime: "08:00" })
+      ];
+      const cards = await service.listAvailable({});
+      expect(cards.map((c) => c.startTime)).toEqual(["08:00", "20:00", "18:00"]);
+    });
+
+    it("rejects to < from with BadRequestException", async () => {
+      await expect(
+        service.listAvailable({ from: "2026-06-10", to: "2026-06-05" })
+      ).rejects.toBeInstanceOf(BadRequestException);
+    });
+
+    it("passes the levelId filter through to the repository", async () => {
+      const spy = vi.spyOn(trainingsRepo, "listAvailable");
+      await service.listAvailable({ levelId: "22222222-2222-2222-2222-222222222222" });
+      expect(spy).toHaveBeenCalledWith(
+        expect.any(String),
+        expect.any(String),
+        "22222222-2222-2222-2222-222222222222"
+      );
+    });
+
+    // Defence in depth: the bot must only ever receive contract-valid cards.
+    // A repo row that would map to an invalid SlotCard (e.g. negative price)
+    // is rejected by the output schema, never silently returned.
+    it("rejects a row that would map to a contract-invalid SlotCard", async () => {
+      trainingsRepo.available = [slot({ priceSingleRsd: -100 })];
+      await expect(service.listAvailable({})).rejects.toThrow();
+    });
   });
 });

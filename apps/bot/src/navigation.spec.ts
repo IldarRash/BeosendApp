@@ -1,8 +1,11 @@
 import { describe, expect, it, vi } from "vitest";
 import { MENU_ACTIONS, NAV_ACTIONS, WELCOME_TEXT } from "./menu";
-import { menuHandlers, resolveCallback, type MenuReplyCtx } from "./navigation";
+import { menuHandlers, resolveCallback, type MenuHandlerDeps, type MenuReplyCtx } from "./navigation";
 
-const deps = { managerContact: "@test_manager" };
+const deps: MenuHandlerDeps = {
+  managerContact: "@test_manager",
+  api: { listAvailableSlots: vi.fn().mockResolvedValue([]) }
+};
 
 function fakeCtx(): { ctx: MenuReplyCtx; reply: ReturnType<typeof vi.fn> } {
   const reply = vi.fn().mockResolvedValue(undefined);
@@ -39,6 +42,32 @@ describe("menu dispatch table", () => {
       expect(reply).toHaveBeenCalledOnce();
       expect(callbacksOf(reply)).toEqual([NAV_ACTIONS.back, NAV_ACTIONS.home]);
     }
+  });
+
+  it("lists bookable slots from the API for menu:available with a per-slot book button", async () => {
+    const card = {
+      trainingId: "11111111-1111-1111-1111-111111111111",
+      date: "2026-06-10",
+      dayOfWeek: 3 as const,
+      startTime: "18:00",
+      endTime: "19:30",
+      trainerName: "Марко",
+      levelName: "Начинающий",
+      freeSeats: 4,
+      priceSingleRsd: 1500
+    };
+    const { ctx, reply } = fakeCtx();
+    const localDeps: MenuHandlerDeps = {
+      managerContact: "@m",
+      api: { listAvailableSlots: vi.fn().mockResolvedValue([card]) }
+    };
+    await menuHandlers[MENU_ACTIONS.availableTrainings](ctx, localDeps);
+    expect(localDeps.api.listAvailableSlots).toHaveBeenCalledOnce();
+    expect(reply).toHaveBeenCalledOnce();
+    const callbacks = callbacksOf(reply);
+    expect(callbacks).toContain(`book:start:${card.trainingId}`);
+    // The back/home footer is always present so the journey never dead-ends.
+    expect(callbacks.slice(-2)).toEqual([NAV_ACTIONS.back, NAV_ACTIONS.home]);
   });
 
   it("renders the manager contact (from config) for menu:contact", async () => {

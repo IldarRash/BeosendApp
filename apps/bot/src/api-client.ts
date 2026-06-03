@@ -2,14 +2,17 @@ import {
   clientSchema,
   groupSchema,
   levelSchema,
+  slotCardSchema,
   trainerSchema,
   trainingSchema,
+  type AvailableSlotsQuery,
   type Client,
   type GenerateMonthInput,
   type Group,
   type Level,
   type ListTrainingsQuery,
   type OnboardClientInput,
+  type SlotCard,
   type Trainer,
   type Training
 } from "@beosand/types";
@@ -21,6 +24,7 @@ const levelsSchema = z.array(levelSchema);
 const trainersSchema = z.array(trainerSchema);
 const groupsSchema = z.array(groupSchema);
 const trainingsSchema = z.array(trainingSchema);
+const slotCardsSchema = z.array(slotCardSchema);
 
 /**
  * Thin typed client the bot uses to reach apps/api. The bot is an interaction
@@ -129,6 +133,28 @@ export class ApiClient {
       headers: { "x-telegram-id": String(actorTelegramId) },
       body: JSON.stringify(input)
     });
+  }
+
+  /**
+   * Client-facing bookable-slot catalogue (T1.5). The API returns only
+   * `isBookable` slots (status `open` + free seats), defaulting to a 14-day
+   * window, with server-computed free seats and RSD prices. Public read — same
+   * catalogue for every client, no per-user data — so no auth header is sent.
+   * The bot only displays these cards; it never computes seats or price.
+   */
+  listAvailableSlots(query: AvailableSlotsQuery = {}): Promise<SlotCard[]> {
+    const params = new URLSearchParams();
+    if (query.from) {
+      params.set("from", query.from);
+    }
+    if (query.to) {
+      params.set("to", query.to);
+    }
+    if (query.levelId) {
+      params.set("levelId", query.levelId);
+    }
+    const qs = params.toString();
+    return this.request(`/trainings/available${qs ? `?${qs}` : ""}`, slotCardsSchema);
   }
 
   /** Admin-only (deferred to the admin UI): list trainings in a date range. */

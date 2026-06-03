@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
+  availableSlotsQuerySchema,
   createGroupSchema,
   generateMonthSchema,
   listTrainingsQuerySchema,
@@ -115,5 +116,26 @@ describe("listTrainingsQuerySchema", () => {
     expect(
       listTrainingsQuerySchema.safeParse({ from: "07/01/2026", to: "2026-07-31" }).success
     ).toBe(false);
+  });
+});
+
+describe("availableSlotsQuerySchema", () => {
+  it("accepts an empty query (all fields optional)", () => {
+    expect(availableSlotsQuerySchema.safeParse({}).success).toBe(true);
+  });
+
+  it("accepts partial from/to/levelId", () => {
+    expect(availableSlotsQuerySchema.safeParse({ from: "2026-07-01" }).success).toBe(true);
+    expect(
+      availableSlotsQuerySchema.safeParse({
+        to: "2026-07-31",
+        levelId: "11111111-1111-1111-1111-111111111111"
+      }).success
+    ).toBe(true);
+  });
+
+  it("rejects a malformed date or non-uuid levelId", () => {
+    expect(availableSlotsQuerySchema.safeParse({ from: "07-01-2026" }).success).toBe(false);
+    expect(availableSlotsQuerySchema.safeParse({ levelId: "nope" }).success).toBe(false);
   });
 });

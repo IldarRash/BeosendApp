@@ -41,6 +41,11 @@ const isoWeekday = (date: Date): DayOfWeek => {
   return (day === 0 ? 7 : day) as DayOfWeek;
 };
 
+/** ISO weekday (1 = Monday … 7 = Sunday) for a "YYYY-MM-DD" date string. */
+export function isoWeekdayOf(isoDate: string): DayOfWeek {
+  return isoWeekday(new Date(`${isoDate}T00:00:00Z`));
+}
+
 /**
  * All ISO dates ("YYYY-MM-DD") in a given month whose weekday is in `days`
  * (15.1 — monthly training generation from a group).

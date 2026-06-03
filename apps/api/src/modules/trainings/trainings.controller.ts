@@ -1,7 +1,9 @@
 import { BadRequestException, Body, Controller, Get, Headers, Post, Query } from "@nestjs/common";
 import {
+  availableSlotsQuerySchema,
   generateMonthSchema,
   listTrainingsQuerySchema,
+  type SlotCard,
   type Training
 } from "@beosand/types";
 import type { ZodSchema } from "zod";
@@ -21,6 +23,13 @@ export class TrainingsController {
     const actorTelegramId = parseTelegramId(telegramIdHeader);
     const input = validate(generateMonthSchema, body ?? {});
     return this.trainings.generateMonth(actorTelegramId, input);
+  }
+
+  /** Client: bookable slot cards (section 5). Public — same catalogue for every client. */
+  @Get("available")
+  available(@Query() query: unknown): Promise<SlotCard[]> {
+    const parsed = validate(availableSlotsQuerySchema, query ?? {});
+    return this.trainings.listAvailable(parsed);
   }
 
   /** Admin: trainings in a date range, optionally for one group. */

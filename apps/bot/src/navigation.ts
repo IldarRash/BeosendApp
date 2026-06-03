@@ -1,5 +1,7 @@
 import { backHomeKeyboard, MENU_ACTIONS, mainMenuKeyboard, WELCOME_TEXT } from "./menu";
 import type { MenuAction } from "./menu";
+import { renderSlotsText, slotsKeyboard } from "./slots";
+import type { ApiClient } from "./api-client";
 
 /**
  * Minimal surface a menu/nav handler needs from a grammY callback context.
@@ -12,6 +14,8 @@ export interface MenuReplyCtx {
 export interface MenuHandlerDeps {
   /** Manager contact handle/text, read from the env contract at startup. */
   managerContact: string;
+  /** Typed API client; the only way handlers reach domain data. */
+  api: Pick<ApiClient, "listAvailableSlots">;
 }
 
 export type MenuHandler = (ctx: MenuReplyCtx, deps: MenuHandlerDeps) => Promise<void>;
@@ -36,7 +40,12 @@ function stub(text: string): MenuHandler {
  * explicit stub). Routing completeness is asserted in the spec.
  */
 export const menuHandlers: Record<MenuAction, MenuHandler> = {
-  [MENU_ACTIONS.availableTrainings]: stub("Доступные тренировки скоро будут здесь."),
+  // Headline client flow (T1.5): list only bookable slots. The API decides what
+  // is bookable and computes seats/price; the bot just renders the cards.
+  [MENU_ACTIONS.availableTrainings]: async (ctx, deps) => {
+    const cards = await deps.api.listAvailableSlots();
+    await ctx.reply(renderSlotsText(cards), { reply_markup: slotsKeyboard(cards) });
+  },
   [MENU_ACTIONS.todayFreeSlots]: stub("Свободные места на сегодня скоро будут здесь."),
   [MENU_ACTIONS.joinGroup]: stub("Запись в группу скоро будет доступна."),
   [MENU_ACTIONS.myBookings]: stub("Ваши записи скоро будут здесь."),

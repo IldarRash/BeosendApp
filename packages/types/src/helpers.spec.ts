@@ -4,6 +4,7 @@ import {
   courtPriceRsd,
   freeSeats,
   isBookable,
+  isoWeekdayOf,
   monthTrainingDates,
   recomputeTrainingStatus
 } from "./helpers";
@@ -42,6 +43,15 @@ describe("monthTrainingDates", () => {
     expect(dates).not.toContain("2026-06-02"); // Tuesday
     // 5 Mondays + 4 Wednesdays in June 2026
     expect(dates).toHaveLength(9);
+  });
+});
+
+describe("isoWeekdayOf", () => {
+  it("maps a date string to ISO weekday (Mon=1 … Sun=7)", () => {
+    expect(isoWeekdayOf("2026-06-01")).toBe(1); // Monday
+    expect(isoWeekdayOf("2026-06-03")).toBe(3); // Wednesday
+    expect(isoWeekdayOf("2026-06-06")).toBe(6); // Saturday
+    expect(isoWeekdayOf("2026-06-07")).toBe(7); // Sunday → 7, not 0
   });
 });
 

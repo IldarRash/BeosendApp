@@ -2,8 +2,22 @@ import { BadRequestException, ForbiddenException, Inject, Injectable } from "@ne
 import { NotFoundException } from "@nestjs/common";
 import type { Env } from "@beosand/config";
 import { isAdmin } from "@beosand/config";
-import type { DayOfWeek, GenerateMonthInput, ListTrainingsQuery, Training } from "@beosand/types";
-import { monthTrainingDates } from "@beosand/types";
+import type {
+  AvailableSlotsQuery,
+  DayOfWeek,
+  GenerateMonthInput,
+  ListTrainingsQuery,
+  SlotCard,
+  Training
+} from "@beosand/types";
+import {
+  freeSeats,
+  isBookable,
+  isoWeekdayOf,
+  monthTrainingDates,
+  slotCardSchema
+} from "@beosand/types";
+import { z } from "zod";
 import { ENV } from "../../config/config.module";
 import { GroupsRepository } from "../groups/groups.repository";
 import { TrainingsRepository } from "./trainings.repository";
@@ -77,9 +91,57 @@ export class TrainingsService {
     return this.trainings.listInRange(query.from, query.to, query.groupId);
   }
 
+  /**
+   * Public client catalogue (section 5): only bookable slots as SlotCards.
+   * Window defaults to today..today+14d; `from` is clamped to today so past
+   * trainings are never offered. The repo already filters open + free seats,
+   * but the open/full + free-seats invariant lives here: every row is
+   * re-asserted with isBookable, and free seats + price are computed
+   * server-side. Output is validated against the contract before returning.
+   */
+  async listAvailable(query: AvailableSlotsQuery): Promise<SlotCard[]> {
+    const today = new Date().toISOString().slice(0, 10);
+    const from = query.from && query.from > today ? query.from : today;
+    const to = query.to ?? addDays(today, 14);
+    if (to < from) {
+      throw new BadRequestException("`to` must be on or after `from`");
+    }
+
+    const rows = await this.trainings.listAvailable(from, to, query.levelId);
+
+    const cards = rows
+      .filter((row) =>
+        isBookable({ capacity: row.capacity, bookedCount: row.bookedCount, status: row.status })
+      )
+      .map<SlotCard>((row) => ({
+        trainingId: row.trainingId,
+        date: row.date,
+        dayOfWeek: isoWeekdayOf(row.date),
+        startTime: row.startTime,
+        endTime: row.endTime,
+        trainerName: row.trainerName,
+        levelName: row.levelName,
+        freeSeats: freeSeats({
+          capacity: row.capacity,
+          bookedCount: row.bookedCount,
+          status: row.status
+        }),
+        priceSingleRsd: row.priceSingleRsd
+      }));
+
+    return z.array(slotCardSchema).parse(cards);
+  }
+
   private assertAdmin(actorTelegramId: number): void {
     if (!isAdmin(this.env, actorTelegramId)) {
       throw new ForbiddenException("Admin privileges required");
     }
   }
+}
+
+/** Add whole days to a "YYYY-MM-DD" date, returning the same ISO format. */
+function addDays(isoDate: string, days: number): string {
+  const cursor = new Date(`${isoDate}T00:00:00Z`);
+  cursor.setUTCDate(cursor.getUTCDate() + days);
+  return cursor.toISOString().slice(0, 10);
 }
