@@ -3,11 +3,15 @@ import {
   groupSchema,
   levelSchema,
   trainerSchema,
+  trainingSchema,
   type Client,
+  type GenerateMonthInput,
   type Group,
   type Level,
+  type ListTrainingsQuery,
   type OnboardClientInput,
-  type Trainer
+  type Trainer,
+  type Training
 } from "@beosand/types";
 import { z } from "zod";
 
@@ -16,6 +20,7 @@ const healthSchema = z.object({ status: z.literal("ok"), service: z.string() });
 const levelsSchema = z.array(levelSchema);
 const trainersSchema = z.array(trainerSchema);
 const groupsSchema = z.array(groupSchema);
+const trainingsSchema = z.array(trainingSchema);
 
 /**
  * Thin typed client the bot uses to reach apps/api. The bot is an interaction
@@ -109,6 +114,31 @@ export class ApiClient {
       method: "POST",
       headers: { "x-telegram-id": String(input.telegramId) },
       body: JSON.stringify(input)
+    });
+  }
+
+  /**
+   * Admin-only (A1, deferred to the admin UI): generate one training per group
+   * weekday across a month. The API authorizes via ADMIN_TELEGRAM_IDS, copies
+   * the group's capacity/trainer/times, and is idempotent; the bot only renders
+   * the count of created trainings it returns.
+   */
+  generateMonth(input: GenerateMonthInput, actorTelegramId: number): Promise<Training[]> {
+    return this.request("/trainings/generate", trainingsSchema, {
+      method: "POST",
+      headers: { "x-telegram-id": String(actorTelegramId) },
+      body: JSON.stringify(input)
+    });
+  }
+
+  /** Admin-only (deferred to the admin UI): list trainings in a date range. */
+  listTrainings(query: ListTrainingsQuery, actorTelegramId: number): Promise<Training[]> {
+    const params = new URLSearchParams({ from: query.from, to: query.to });
+    if (query.groupId) {
+      params.set("groupId", query.groupId);
+    }
+    return this.request(`/trainings?${params.toString()}`, trainingsSchema, {
+      headers: { "x-telegram-id": String(actorTelegramId) }
     });
   }
 }

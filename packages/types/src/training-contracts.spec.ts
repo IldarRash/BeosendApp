@@ -1,5 +1,10 @@
 import { describe, expect, it } from "vitest";
-import { createGroupSchema, updateGroupSchema } from "./training-contracts";
+import {
+  createGroupSchema,
+  generateMonthSchema,
+  listTrainingsQuerySchema,
+  updateGroupSchema
+} from "./training-contracts";
 
 const valid = {
   name: "Intermediate",
@@ -64,5 +69,51 @@ describe("updateGroupSchema", () => {
   it("still validates field shapes when present", () => {
     expect(updateGroupSchema.safeParse({ capacity: 0 }).success).toBe(false);
     expect(updateGroupSchema.safeParse({ daysOfWeek: [9] }).success).toBe(false);
+  });
+});
+
+describe("generateMonthSchema", () => {
+  const validBody = {
+    groupId: "11111111-1111-1111-1111-111111111111",
+    year: 2026,
+    month: 7
+  };
+
+  it("accepts a valid body", () => {
+    expect(generateMonthSchema.safeParse(validBody).success).toBe(true);
+  });
+
+  it("rejects month 13 and month 0", () => {
+    expect(generateMonthSchema.safeParse({ ...validBody, month: 13 }).success).toBe(false);
+    expect(generateMonthSchema.safeParse({ ...validBody, month: 0 }).success).toBe(false);
+  });
+
+  it("rejects a year before 2024", () => {
+    expect(generateMonthSchema.safeParse({ ...validBody, year: 2023 }).success).toBe(false);
+  });
+
+  it("rejects a non-uuid groupId", () => {
+    expect(generateMonthSchema.safeParse({ ...validBody, groupId: "nope" }).success).toBe(false);
+  });
+});
+
+describe("listTrainingsQuerySchema", () => {
+  it("accepts from/to with optional groupId", () => {
+    expect(
+      listTrainingsQuerySchema.safeParse({ from: "2026-07-01", to: "2026-07-31" }).success
+    ).toBe(true);
+    expect(
+      listTrainingsQuerySchema.safeParse({
+        from: "2026-07-01",
+        to: "2026-07-31",
+        groupId: "11111111-1111-1111-1111-111111111111"
+      }).success
+    ).toBe(true);
+  });
+
+  it("rejects a bad date string", () => {
+    expect(
+      listTrainingsQuerySchema.safeParse({ from: "07/01/2026", to: "2026-07-31" }).success
+    ).toBe(false);
   });
 });

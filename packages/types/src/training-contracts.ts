@@ -91,6 +91,15 @@ export const generateMonthSchema = z.object({
   year: z.number().int().min(2024),
   month: z.number().int().min(1).max(12)
 });
+export type GenerateMonthInput = z.infer<typeof generateMonthSchema>;
+
+/** Admin range query for trainings (GET /trainings). */
+export const listTrainingsQuerySchema = z.object({
+  from: dateString,
+  to: dateString,
+  groupId: uuid.optional()
+});
+export type ListTrainingsQuery = z.infer<typeof listTrainingsQuerySchema>;
 
 /** Slot card shown to a client (section 5). */
 export const slotCardSchema = z.object({
