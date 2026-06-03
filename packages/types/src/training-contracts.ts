@@ -49,24 +49,6 @@ export type Trainer = z.infer<typeof trainerSchema>;
 export type CreateTrainerInput = z.infer<typeof createTrainerSchema>;
 export type UpdateTrainerInput = z.infer<typeof updateTrainerSchema>;
 
-// --- Clients (3.1) ---
-export const clientSchema = z.object({
-  id: uuid,
-  name: z.string().min(1),
-  telegramId: z.number().int(),
-  telegramUsername: z.string().nullable(),
-  levelId: uuid.nullable(),
-  registeredAt: z.string().datetime(),
-  status: entityStatus
-});
-export const onboardClientSchema = z.object({
-  telegramId: z.number().int(),
-  telegramUsername: z.string().nullable().optional(),
-  name: z.string().min(1),
-  levelId: uuid.nullable().optional()
-});
-export type Client = z.infer<typeof clientSchema>;
-
 // --- Groups (3.4): a recurring training slot ---
 export const groupSchema = z.object({
   id: uuid,

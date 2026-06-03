@@ -1,0 +1,179 @@
+import { BadRequestException, ForbiddenException, NotFoundException } from "@nestjs/common";
+import type { Env } from "@beosand/config";
+import type { Client, Level } from "@beosand/types";
+import { beforeEach, describe, expect, it, vi } from "vitest";
+import { ClientsService } from "./clients.service";
+import type { ClientsRepository } from "./clients.repository";
+import type { LevelsRepository } from "../levels/levels.repository";
+import type { DatabaseService } from "../../db/database.service";
+
+const TELEGRAM_ID = 4242;
+const ADMIN_ID = 9999;
+const LEVEL_ID = "11111111-1111-1111-1111-111111111111";
+
+const env = { ADMIN_TELEGRAM_IDS: [String(ADMIN_ID)] } as unknown as Env;
+
+const existingClient: Client = {
+  id: "22222222-2222-2222-2222-222222222222",
+  name: "Ana",
+  telegramId: TELEGRAM_ID,
+  telegramUsername: "ana",
+  levelId: LEVEL_ID,
+  registeredAt: "2026-01-01T00:00:00.000Z",
+  status: "active"
+};
+
+const beginner: Level = { id: LEVEL_ID, name: "Beginner", status: "active" };
+
+// The service runs its read-or-insert inside db.transaction; the fake just
+// invokes the callback with a stub tx so the repo mocks receive a handle.
+function makeDatabase(): DatabaseService {
+  const tx = {} as never;
+  return {
+    db: {
+      transaction: vi.fn(async (cb: (tx: unknown) => unknown) => cb(tx))
+    }
+  } as unknown as DatabaseService;
+}
+
+function makeClientsRepo(overrides: Partial<ClientsRepository> = {}): ClientsRepository {
+  return {
+    findByTelegramId: vi.fn(async () => undefined),
+    insertIgnoreConflict: vi.fn(async (values: { telegramId: number; name: string; levelId: string | null; telegramUsername: string | null }) => ({
+      ...existingClient,
+      name: values.name,
+      telegramUsername: values.telegramUsername,
+      levelId: values.levelId
+    })),
+    ...overrides
+  } as unknown as ClientsRepository;
+}
+
+function makeLevelsRepo(overrides: Partial<LevelsRepository> = {}): LevelsRepository {
+  return {
+    findById: vi.fn(async () => beginner),
+    ...overrides
+  } as unknown as LevelsRepository;
+}
+
+describe("ClientsService", () => {
+  let clientsRepo: ClientsRepository;
+  let levelsRepo: LevelsRepository;
+  let service: ClientsService;
+
+  beforeEach(() => {
+    clientsRepo = makeClientsRepo();
+    levelsRepo = makeLevelsRepo();
+    service = new ClientsService(clientsRepo, levelsRepo, makeDatabase(), env);
+  });
+
+  it("404s when no client exists for the telegram id", async () => {
+    await expect(service.getByTelegramId(TELEGRAM_ID, TELEGRAM_ID)).rejects.toBeInstanceOf(
+      NotFoundException
+    );
+  });
+
+  it("returns the client when one exists", async () => {
+    clientsRepo = makeClientsRepo({ findByTelegramId: vi.fn(async () => existingClient) });
+    service = new ClientsService(clientsRepo, levelsRepo, makeDatabase(), env);
+    await expect(service.getByTelegramId(TELEGRAM_ID, TELEGRAM_ID)).resolves.toEqual(existingClient);
+  });
+
+  it("forbids reading another client's record (no DB read)", async () => {
+    clientsRepo = makeClientsRepo({ findByTelegramId: vi.fn(async () => existingClient) });
+    service = new ClientsService(clientsRepo, levelsRepo, makeDatabase(), env);
+    await expect(service.getByTelegramId(TELEGRAM_ID, 1111)).rejects.toBeInstanceOf(
+      ForbiddenException
+    );
+    expect(clientsRepo.findByTelegramId).not.toHaveBeenCalled();
+  });
+
+  it("lets an admin read any client's record", async () => {
+    clientsRepo = makeClientsRepo({ findByTelegramId: vi.fn(async () => existingClient) });
+    service = new ClientsService(clientsRepo, levelsRepo, makeDatabase(), env);
+    await expect(service.getByTelegramId(ADMIN_ID, TELEGRAM_ID)).resolves.toEqual(existingClient);
+  });
+
+  it("inserts a new client on first onboard", async () => {
+    const result = await service.onboard(TELEGRAM_ID, {
+      telegramId: TELEGRAM_ID,
+      name: "Ana",
+      levelId: LEVEL_ID
+    });
+    expect(result.name).toBe("Ana");
+    expect(clientsRepo.insertIgnoreConflict).toHaveBeenCalledOnce();
+  });
+
+  it("forbids onboarding a record for a different telegram id (account squatting), inserts nothing", async () => {
+    await expect(
+      service.onboard(TELEGRAM_ID, { telegramId: 1111, name: "Victim" })
+    ).rejects.toBeInstanceOf(ForbiddenException);
+    expect(clientsRepo.insertIgnoreConflict).not.toHaveBeenCalled();
+  });
+
+  it("is idempotent: a second onboard returns the existing row and inserts nothing", async () => {
+    clientsRepo = makeClientsRepo({ findByTelegramId: vi.fn(async () => existingClient) });
+    service = new ClientsService(clientsRepo, levelsRepo, makeDatabase(), env);
+    const result = await service.onboard(TELEGRAM_ID, {
+      telegramId: TELEGRAM_ID,
+      name: "Different Name",
+      levelId: null
+    });
+    expect(result).toEqual(existingClient);
+    expect(clientsRepo.insertIgnoreConflict).not.toHaveBeenCalled();
+  });
+
+  it("persists null level for the 'Не знаю' case (levelId null)", async () => {
+    const result = await service.onboard(TELEGRAM_ID, {
+      telegramId: TELEGRAM_ID,
+      name: "Ana",
+      levelId: null
+    });
+    expect(result.levelId).toBeNull();
+    expect(levelsRepo.findById).not.toHaveBeenCalled();
+  });
+
+  it("persists null level when levelId is omitted", async () => {
+    const result = await service.onboard(TELEGRAM_ID, { telegramId: TELEGRAM_ID, name: "Ana" });
+    expect(result.levelId).toBeNull();
+  });
+
+  it("omits username to null when not provided (user without a username)", async () => {
+    const result = await service.onboard(TELEGRAM_ID, { telegramId: TELEGRAM_ID, name: "Ana" });
+    expect(result.telegramUsername).toBeNull();
+  });
+
+  it("rejects an unknown levelId and inserts nothing", async () => {
+    levelsRepo = makeLevelsRepo({ findById: vi.fn(async () => undefined) });
+    service = new ClientsService(clientsRepo, levelsRepo, makeDatabase(), env);
+    await expect(
+      service.onboard(TELEGRAM_ID, { telegramId: TELEGRAM_ID, name: "Ana", levelId: LEVEL_ID })
+    ).rejects.toBeInstanceOf(BadRequestException);
+    expect(clientsRepo.insertIgnoreConflict).not.toHaveBeenCalled();
+  });
+
+  it("rejects an inactive levelId and inserts nothing", async () => {
+    levelsRepo = makeLevelsRepo({
+      findById: vi.fn(async () => ({ ...beginner, status: "inactive" }) as Level)
+    });
+    service = new ClientsService(clientsRepo, levelsRepo, makeDatabase(), env);
+    await expect(
+      service.onboard(TELEGRAM_ID, { telegramId: TELEGRAM_ID, name: "Ana", levelId: LEVEL_ID })
+    ).rejects.toBeInstanceOf(BadRequestException);
+    expect(clientsRepo.insertIgnoreConflict).not.toHaveBeenCalled();
+  });
+
+  it("returns the racer's row when a concurrent tap won the insert", async () => {
+    const findByTelegramId = vi
+      .fn(async (): Promise<Client | undefined> => undefined)
+      .mockResolvedValueOnce(undefined) // initial read inside tx: no row yet
+      .mockResolvedValueOnce(existingClient); // re-read after conflict
+    clientsRepo = makeClientsRepo({
+      findByTelegramId,
+      insertIgnoreConflict: vi.fn(async () => undefined) // conflict: another tap inserted
+    });
+    service = new ClientsService(clientsRepo, levelsRepo, makeDatabase(), env);
+    const result = await service.onboard(TELEGRAM_ID, { telegramId: TELEGRAM_ID, name: "Ana" });
+    expect(result).toEqual(existingClient);
+  });
+});

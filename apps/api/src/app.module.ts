@@ -2,6 +2,7 @@ import { Module } from "@nestjs/common";
 import { ConfigModule } from "./config/config.module";
 import { DbModule } from "./db/db.module";
 import { HealthModule } from "./health/health.module";
+import { ClientsModule } from "./modules/clients/clients.module";
 import { GroupsModule } from "./modules/groups/groups.module";
 import { LevelsModule } from "./modules/levels/levels.module";
 import { TrainersModule } from "./modules/trainers/trainers.module";
@@ -12,6 +13,14 @@ import { TrainersModule } from "./modules/trainers/trainers.module";
  * notifications, broadcasts, analytics, courts, court-requests, admin).
  */
 @Module({
-  imports: [ConfigModule, DbModule, HealthModule, LevelsModule, TrainersModule, GroupsModule]
+  imports: [
+    ConfigModule,
+    DbModule,
+    HealthModule,
+    LevelsModule,
+    TrainersModule,
+    GroupsModule,
+    ClientsModule
+  ]
 })
 export class AppModule {}
