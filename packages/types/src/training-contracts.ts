@@ -16,7 +16,14 @@ export const levelSchema = z.object({
   status: entityStatus
 });
 export const createLevelSchema = levelSchema.pick({ name: true });
+export const updateLevelSchema = z
+  .object({
+    name: z.string().min(1),
+    status: entityStatus
+  })
+  .partial();
 export type Level = z.infer<typeof levelSchema>;
+export type UpdateLevelInput = z.infer<typeof updateLevelSchema>;
 
 // --- Trainers (3.3) ---
 export const trainerType = z.enum(["main", "guest"]);
