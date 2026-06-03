@@ -523,3 +523,67 @@ describe("ApiClient.sendBroadcast", () => {
     await expect(new ApiClient("http://api.test").sendBroadcast("today", 777)).rejects.toThrow();
   });
 });
+
+const analyticsSummaryBody = {
+  from: "2026-05-04",
+  to: "2026-06-03",
+  totalBookings: 120,
+  averageFillRate: 0.75,
+  cancellationRate: 0.1,
+  noShowRate: 0.05,
+  activeClients: 34,
+  topSlot: { dayOfWeek: 3, startTime: "18:00", bookingsCount: 22 },
+  attributedBookings: 9
+};
+
+describe("ApiClient.getAnalyticsSummary", () => {
+  afterEach(() => {
+    vi.unstubAllGlobals();
+  });
+
+  it("GETs /analytics/summary with no params (API default range) + admin header", async () => {
+    const fetchMock = mockFetch(analyticsSummaryBody);
+    const result = await new ApiClient("http://api.test").getAnalyticsSummary(
+      undefined,
+      undefined,
+      777
+    );
+    expect(result).toEqual(analyticsSummaryBody);
+    const [rawUrl, init] = fetchMock.mock.calls[0] as [string, RequestInit];
+    const url = new URL(rawUrl);
+    expect(url.pathname).toBe("/analytics/summary");
+    expect(url.searchParams.has("from")).toBe(false);
+    expect(url.searchParams.has("to")).toBe(false);
+    expect((init.headers as Record<string, string>)["x-telegram-id"]).toBe("777");
+  });
+
+  it("forwards from/to bounds when provided", async () => {
+    const fetchMock = mockFetch(analyticsSummaryBody);
+    await new ApiClient("http://api.test").getAnalyticsSummary("2026-05-01", "2026-06-01", 777);
+    const url = new URL(fetchMock.mock.calls[0][0] as string);
+    expect(url.searchParams.get("from")).toBe("2026-05-01");
+    expect(url.searchParams.get("to")).toBe("2026-06-01");
+  });
+
+  // Admin gating: a non-admin is a 403, mapped to null so the bot hides the UI.
+  it("maps a 403 (not an admin) to null rather than throwing", async () => {
+    mockFetch({}, false, 403);
+    await expect(
+      new ApiClient("http://api.test").getAnalyticsSummary(undefined, undefined, 123)
+    ).resolves.toBeNull();
+  });
+
+  it("throws on any other non-2xx", async () => {
+    mockFetch({}, false, 500);
+    await expect(
+      new ApiClient("http://api.test").getAnalyticsSummary(undefined, undefined, 777)
+    ).rejects.toThrow(/500/);
+  });
+
+  it("rejects a body that violates the AnalyticsSummary contract", async () => {
+    mockFetch({ ...analyticsSummaryBody, averageFillRate: 1.5 });
+    await expect(
+      new ApiClient("http://api.test").getAnalyticsSummary(undefined, undefined, 777)
+    ).rejects.toThrow();
+  });
+});

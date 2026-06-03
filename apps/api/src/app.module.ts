@@ -3,6 +3,7 @@ import { ScheduleModule } from "@nestjs/schedule";
 import { ConfigModule } from "./config/config.module";
 import { DbModule } from "./db/db.module";
 import { HealthModule } from "./health/health.module";
+import { AnalyticsModule } from "./modules/analytics/analytics.module";
 import { BookingsModule } from "./modules/bookings/bookings.module";
 import { BroadcastsModule } from "./modules/broadcasts/broadcasts.module";
 import { ClientsModule } from "./modules/clients/clients.module";
@@ -32,7 +33,8 @@ import { WaitlistModule } from "./modules/waitlist/waitlist.module";
     NotificationsModule,
     WaitlistModule,
     BookingsModule,
-    BroadcastsModule
+    BroadcastsModule,
+    AnalyticsModule
   ]
 })
 export class AppModule {}

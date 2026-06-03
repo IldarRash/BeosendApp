@@ -1,4 +1,5 @@
 import {
+  analyticsSummarySchema,
   bookingSchema,
   broadcastPreviewSchema,
   broadcastSchema,
@@ -14,6 +15,7 @@ import {
   trainingRosterSchema,
   trainingSchema,
   waitlistEntrySchema,
+  type AnalyticsSummary,
   type AvailableSlotsQuery,
   type Booking,
   type Broadcast,
@@ -460,5 +462,43 @@ export class ApiClient {
       throw new Error(`API /broadcasts/send failed: ${res.status}`);
     }
     return broadcastSchema.parse(await res.json());
+  }
+
+  /**
+   * Admin-only (T3.1): the composite analytics headline summary for the manager
+   * screen. The API gates the caller via ADMIN_TELEGRAM_IDS, derives every figure
+   * server-side from the authoritative tables and echoes the resolved range. Both
+   * `from`/`to` are optional — omitting them lets the API default to the last 30
+   * days. A 403 (caller is not an admin) resolves to null so the bot can show the
+   * "managers only" message instead of erroring; non-admins never see the screen.
+   * The bot only renders the returned numbers; it never aggregates or computes.
+   */
+  async getAnalyticsSummary(
+    from: string | undefined,
+    to: string | undefined,
+    adminTelegramId: number
+  ): Promise<AnalyticsSummary | null> {
+    const params = new URLSearchParams();
+    if (from) {
+      params.set("from", from);
+    }
+    if (to) {
+      params.set("to", to);
+    }
+    const qs = params.toString();
+    const res = await fetch(`${this.baseUrl}/analytics/summary${qs ? `?${qs}` : ""}`, {
+      headers: {
+        "content-type": "application/json",
+        "x-telegram-id": String(adminTelegramId)
+      }
+    });
+    if (res.status === 403) {
+      // Caller is not an admin: the bot hides the stats UI rather than erroring.
+      return null;
+    }
+    if (!res.ok) {
+      throw new Error(`API /analytics/summary failed: ${res.status}`);
+    }
+    return analyticsSummarySchema.parse(await res.json());
   }
 }

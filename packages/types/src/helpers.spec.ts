@@ -1,12 +1,14 @@
 import { describe, expect, it } from "vitest";
 import {
+  averageFillRate,
   courtHoursCovered,
   courtPriceRsd,
   freeSeats,
   isBookable,
   isoWeekdayOf,
   monthTrainingDates,
-  recomputeTrainingStatus
+  recomputeTrainingStatus,
+  safeRatio
 } from "./helpers";
 
 describe("recomputeTrainingStatus", () => {
@@ -64,5 +66,19 @@ describe("court pricing", () => {
   it("covers the right clock hours", () => {
     expect(courtHoursCovered("14:00", 2)).toEqual([14, 15]);
     expect(courtHoursCovered("19:00", 1)).toEqual([19]);
+  });
+});
+
+describe("analytics aggregation math", () => {
+  it("computes a safe ratio and returns 0 for an empty denominator", () => {
+    expect(safeRatio(3, 4)).toBe(0.75);
+    expect(safeRatio(0, 10)).toBe(0);
+    expect(safeRatio(5, 0)).toBe(0);
+  });
+
+  it("averages fill rate as pooled booked/capacity", () => {
+    expect(averageFillRate(12, 24)).toBe(0.5);
+    expect(averageFillRate(0, 0)).toBe(0); // no trainings in range
+    expect(averageFillRate(8, 8)).toBe(1);
   });
 });

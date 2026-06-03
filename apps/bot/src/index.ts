@@ -41,6 +41,7 @@ import {
   parseBroadcastSend,
   parseBroadcastType
 } from "./broadcast";
+import { handleStatsMenu, STATS_ACTIONS } from "./stats";
 import {
   handleLevelCallback,
   handleNameText,
@@ -78,6 +79,13 @@ async function main(): Promise<void> {
   // see the broadcast UI. The client main menu stays client-only.
   bot.command("broadcast", async (ctx) => {
     await handleBroadcastMenu(ctx, api, ctx.from?.id);
+  });
+
+  // Manager-only entry (T3.1): the read-only analytics summary. Admin role is
+  // gated by the API (ADMIN_TELEGRAM_IDS); non-admins get a "managers only"
+  // message and never see the stats. The client main menu stays client-only.
+  bot.command("stats", async (ctx) => {
+    await handleStatsMenu(ctx, api, ctx.from?.id);
   });
 
   // Free text only matters while awaiting the onboarding name; otherwise ignore.
@@ -191,6 +199,13 @@ async function main(): Promise<void> {
     const broadcastSendType = parseBroadcastSend(ctx.callbackQuery.data);
     if (broadcastSendType !== undefined) {
       await handleBroadcastSend(ctx, api, ctx.from.id, broadcastSendType);
+      return;
+    }
+    // Analytics summary (T3.1): admin-gated by the API. Menu entry → server-
+    // composed headline figures. Non-admins never reach this screen (the API
+    // resolves their call to null → "managers only").
+    if (ctx.callbackQuery.data === STATS_ACTIONS.entry) {
+      await handleStatsMenu(ctx, api, ctx.from.id);
       return;
     }
     const handler = resolveCallback(ctx.callbackQuery.data);

@@ -80,3 +80,24 @@ export function courtHoursCovered(startTime: string, durationHours: CourtDuratio
   const startHour = Number(startTime.slice(0, 2));
   return Array.from({ length: durationHours }, (_, i) => startHour + i);
 }
+
+// --- Analytics aggregation math (T3.1, ТЗ §17) ---
+
+/**
+ * A safe 0..1 ratio of part/total; an empty denominator yields 0 (no activity,
+ * not an error). Shared by fill rate, cancellation, and no-show reports so the
+ * "divide by zero" rule lives in one tested place.
+ */
+export function safeRatio(part: number, total: number): number {
+  if (total <= 0) return 0;
+  return part / total;
+}
+
+/**
+ * Average fill rate across trainings: total booked seats over total capacity
+ * (acceptance §17 — booked/capacity averaged across trainings in range). Using
+ * pooled totals weights every seat equally and is undefined-free via safeRatio.
+ */
+export function averageFillRate(totalBooked: number, totalCapacity: number): number {
+  return safeRatio(totalBooked, totalCapacity);
+}
