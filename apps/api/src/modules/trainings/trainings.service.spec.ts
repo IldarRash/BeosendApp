@@ -1,4 +1,9 @@
-import { BadRequestException, ForbiddenException, NotFoundException } from "@nestjs/common";
+import {
+  BadRequestException,
+  ConflictException,
+  ForbiddenException,
+  NotFoundException
+} from "@nestjs/common";
 import type { Env } from "@beosand/config";
 import type { Database } from "@beosand/db";
 import { tables } from "@beosand/db";
@@ -10,9 +15,11 @@ import type {
   RosterRow,
   TrainerTrainingRow,
   TrainingHeaderRow,
+  TrainingLockRow,
   TrainingsRepository
 } from "./trainings.repository";
 import type { GroupsRepository } from "../groups/groups.repository";
+import type { NotificationsService } from "../notifications/notifications.service";
 import type { TrainersRepository } from "../trainers/trainers.repository";
 import type { Trainer } from "@beosand/types";
 
@@ -120,6 +127,58 @@ class FakeTrainingsRepository {
   async listRoster(_trainingId: string): Promise<RosterRow[]> {
     return this.roster;
   }
+
+  // --- Admin manager writes (cancel / change capacity) ---
+  lock: TrainingLockRow | undefined;
+  cancelBookedCalls = 0;
+  cancelledClientIds: string[] = [];
+
+  async findForUpdate(_tx: Database, id: string): Promise<TrainingLockRow | undefined> {
+    return this.lock && this.lock.id === id ? this.lock : undefined;
+  }
+
+  async markCancelled(_tx: Database, id: string): Promise<Training> {
+    const lock = this.requireLock(id);
+    this.lock = { ...lock, status: "cancelled" };
+    return this.lockToTraining(this.lock);
+  }
+
+  async cancelBookedBookingsForTraining(_tx: Database, _id: string): Promise<string[]> {
+    this.cancelBookedCalls += 1;
+    return this.cancelledClientIds;
+  }
+
+  async updateCapacity(
+    _tx: Database,
+    id: string,
+    capacity: number,
+    status: TrainingLockRow["status"]
+  ): Promise<Training> {
+    const lock = this.requireLock(id);
+    this.lock = { ...lock, capacity, status };
+    return this.lockToTraining(this.lock);
+  }
+
+  private requireLock(id: string): TrainingLockRow {
+    if (!this.lock || this.lock.id !== id) {
+      throw new Error("lock not set");
+    }
+    return this.lock;
+  }
+
+  private lockToTraining(lock: TrainingLockRow): Training {
+    return {
+      id: lock.id,
+      groupId: null,
+      date: "2099-06-01",
+      startTime: "20:00",
+      endTime: "21:30",
+      trainerId: lock.trainerId,
+      capacity: lock.capacity,
+      bookedCount: lock.bookedCount,
+      status: lock.status
+    };
+  }
 }
 
 class FakeTrainersRepository {
@@ -142,16 +201,19 @@ describe("TrainingsService", () => {
   let trainingsRepo: FakeTrainingsRepository;
   let groupsRepo: FakeGroupsRepository;
   let trainersRepo: FakeTrainersRepository;
+  let notifications: { sendTrainingCancelled: ReturnType<typeof vi.fn> };
   let service: TrainingsService;
 
   beforeEach(() => {
     trainingsRepo = new FakeTrainingsRepository();
     groupsRepo = new FakeGroupsRepository();
     trainersRepo = new FakeTrainersRepository();
+    notifications = { sendTrainingCancelled: vi.fn().mockResolvedValue(0) };
     service = new TrainingsService(
       trainingsRepo as unknown as TrainingsRepository,
       groupsRepo as unknown as GroupsRepository,
       trainersRepo as unknown as TrainersRepository,
+      notifications as unknown as NotificationsService,
       env
     );
   });
@@ -478,6 +540,189 @@ describe("TrainingsService", () => {
       await expect(
         service.getRoster(TRAINER_TG, "00000000-0000-0000-0000-000000000000")
       ).rejects.toBeInstanceOf(NotFoundException);
+    });
+  });
+
+  describe("cancelTraining (A1 manager console)", () => {
+    const TRAINING_ID = "aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa";
+    const TRAINER_ID = "33333333-3333-3333-3333-333333333333";
+
+    it("cancels the training, flips its booked bookings, and notifies the affected clients", async () => {
+      trainingsRepo.lock = {
+        id: TRAINING_ID,
+        capacity: 12,
+        bookedCount: 3,
+        status: "open",
+        trainerId: TRAINER_ID
+      };
+      trainingsRepo.cancelledClientIds = ["client-a", "client-b", "client-c"];
+
+      const result = await service.cancelTraining(ADMIN_ID, TRAINING_ID);
+
+      expect(result.status).toBe("cancelled");
+      expect(trainingsRepo.cancelBookedCalls).toBe(1);
+      // The clientIds captured inside the tx (before/while bookings flip) are passed
+      // to the fan-out, so the notify never runs against zero booked rows.
+      expect(notifications.sendTrainingCancelled).toHaveBeenCalledWith(TRAINING_ID, [
+        "client-a",
+        "client-b",
+        "client-c"
+      ]);
+    });
+
+    it("rejects a non-admin with 403 and changes nothing", async () => {
+      trainingsRepo.lock = {
+        id: TRAINING_ID,
+        capacity: 12,
+        bookedCount: 3,
+        status: "open",
+        trainerId: TRAINER_ID
+      };
+
+      await expect(service.cancelTraining(NON_ADMIN_ID, TRAINING_ID)).rejects.toBeInstanceOf(
+        ForbiddenException
+      );
+      expect(trainingsRepo.cancelBookedCalls).toBe(0);
+      expect(notifications.sendTrainingCancelled).not.toHaveBeenCalled();
+      expect(trainingsRepo.lock.status).toBe("open");
+    });
+
+    it("404s a missing training", async () => {
+      await expect(service.cancelTraining(ADMIN_ID, TRAINING_ID)).rejects.toBeInstanceOf(
+        NotFoundException
+      );
+    });
+
+    it("409s an already-cancelled training (idempotent guard)", async () => {
+      trainingsRepo.lock = {
+        id: TRAINING_ID,
+        capacity: 12,
+        bookedCount: 0,
+        status: "cancelled",
+        trainerId: TRAINER_ID
+      };
+
+      await expect(service.cancelTraining(ADMIN_ID, TRAINING_ID)).rejects.toBeInstanceOf(
+        ConflictException
+      );
+      expect(trainingsRepo.cancelBookedCalls).toBe(0);
+    });
+
+    it("keeps the committed cancel even when the notification send fails", async () => {
+      trainingsRepo.lock = {
+        id: TRAINING_ID,
+        capacity: 12,
+        bookedCount: 1,
+        status: "open",
+        trainerId: TRAINER_ID
+      };
+      notifications.sendTrainingCancelled.mockRejectedValue(new Error("telegram down"));
+
+      const result = await service.cancelTraining(ADMIN_ID, TRAINING_ID);
+
+      expect(result.status).toBe("cancelled");
+    });
+  });
+
+  describe("changeCapacity (A1 manager console)", () => {
+    const TRAINING_ID = "aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa";
+    const TRAINER_ID = "33333333-3333-3333-3333-333333333333";
+
+    it("flips status to full when new capacity equals bookedCount", async () => {
+      trainingsRepo.lock = {
+        id: TRAINING_ID,
+        capacity: 12,
+        bookedCount: 5,
+        status: "open",
+        trainerId: TRAINER_ID
+      };
+
+      const result = await service.changeCapacity(ADMIN_ID, TRAINING_ID, { capacity: 5 });
+
+      expect(result.capacity).toBe(5);
+      expect(result.status).toBe("full");
+    });
+
+    it("flips status back to open when capacity is raised above bookedCount", async () => {
+      trainingsRepo.lock = {
+        id: TRAINING_ID,
+        capacity: 5,
+        bookedCount: 5,
+        status: "full",
+        trainerId: TRAINER_ID
+      };
+
+      const result = await service.changeCapacity(ADMIN_ID, TRAINING_ID, { capacity: 8 });
+
+      expect(result.capacity).toBe(8);
+      expect(result.status).toBe("open");
+    });
+
+    it("rejects capacity below bookedCount and leaves the training unchanged", async () => {
+      trainingsRepo.lock = {
+        id: TRAINING_ID,
+        capacity: 12,
+        bookedCount: 6,
+        status: "open",
+        trainerId: TRAINER_ID
+      };
+
+      await expect(
+        service.changeCapacity(ADMIN_ID, TRAINING_ID, { capacity: 4 })
+      ).rejects.toBeInstanceOf(BadRequestException);
+      expect(trainingsRepo.lock.capacity).toBe(12);
+      expect(trainingsRepo.lock.status).toBe("open");
+    });
+
+    it("rejects a non-admin with 403 and leaves capacity unchanged", async () => {
+      trainingsRepo.lock = {
+        id: TRAINING_ID,
+        capacity: 12,
+        bookedCount: 0,
+        status: "open",
+        trainerId: TRAINER_ID
+      };
+
+      await expect(
+        service.changeCapacity(NON_ADMIN_ID, TRAINING_ID, { capacity: 20 })
+      ).rejects.toBeInstanceOf(ForbiddenException);
+      expect(trainingsRepo.lock.capacity).toBe(12);
+    });
+
+    it("404s a missing training", async () => {
+      await expect(
+        service.changeCapacity(ADMIN_ID, TRAINING_ID, { capacity: 20 })
+      ).rejects.toBeInstanceOf(NotFoundException);
+    });
+
+    it("409s a cancelled training and leaves capacity unchanged", async () => {
+      trainingsRepo.lock = {
+        id: TRAINING_ID,
+        capacity: 12,
+        bookedCount: 0,
+        status: "cancelled",
+        trainerId: TRAINER_ID
+      };
+
+      await expect(
+        service.changeCapacity(ADMIN_ID, TRAINING_ID, { capacity: 20 })
+      ).rejects.toBeInstanceOf(ConflictException);
+      expect(trainingsRepo.lock.capacity).toBe(12);
+    });
+
+    it("409s a completed training and leaves capacity unchanged", async () => {
+      trainingsRepo.lock = {
+        id: TRAINING_ID,
+        capacity: 12,
+        bookedCount: 3,
+        status: "completed",
+        trainerId: TRAINER_ID
+      };
+
+      await expect(
+        service.changeCapacity(ADMIN_ID, TRAINING_ID, { capacity: 20 })
+      ).rejects.toBeInstanceOf(ConflictException);
+      expect(trainingsRepo.lock.capacity).toBe(12);
     });
   });
 });

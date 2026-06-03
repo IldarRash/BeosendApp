@@ -20,7 +20,7 @@ interface RepoMock {
   hasBeenSent: ReturnType<typeof vi.fn>;
   logSent: ReturnType<typeof vi.fn>;
   findDueReminders: ReturnType<typeof vi.fn>;
-  findBookedRecipientsForTraining: ReturnType<typeof vi.fn>;
+  findRecipientsByClientIds: ReturnType<typeof vi.fn>;
   findClientTrainingRecipients: ReturnType<typeof vi.fn>;
 }
 
@@ -29,7 +29,7 @@ function makeRepo(): RepoMock {
     hasBeenSent: vi.fn().mockResolvedValue(false),
     logSent: vi.fn().mockResolvedValue(undefined),
     findDueReminders: vi.fn().mockResolvedValue([]),
-    findBookedRecipientsForTraining: vi.fn().mockResolvedValue([]),
+    findRecipientsByClientIds: vi.fn().mockResolvedValue([]),
     findClientTrainingRecipients: vi.fn().mockResolvedValue([])
   };
 }
@@ -166,26 +166,27 @@ describe("NotificationsService", () => {
   });
 
   describe("sendTrainingCancelled", () => {
-    it("fans out one per booked client and logs each", async () => {
-      repo.findBookedRecipientsForTraining.mockResolvedValue([
+    it("fans out one per just-cancelled client and logs each", async () => {
+      repo.findRecipientsByClientIds.mockResolvedValue([
         recipient({ clientId: "a" }),
         recipient({ clientId: "b" })
       ]);
 
-      const sent = await service.sendTrainingCancelled("training-1");
+      const sent = await service.sendTrainingCancelled("training-1", ["a", "b"]);
 
       expect(sent).toBe(2);
-      expect(repo.findBookedRecipientsForTraining).toHaveBeenCalledWith(
+      expect(repo.findRecipientsByClientIds).toHaveBeenCalledWith(
         "training-1",
+        ["a", "b"],
         "training-cancelled"
       );
       expect(repo.logSent).toHaveBeenCalledTimes(2);
     });
 
     it("is idempotent: an already-logged client is not returned, so nothing is sent", async () => {
-      repo.findBookedRecipientsForTraining.mockResolvedValue([]);
+      repo.findRecipientsByClientIds.mockResolvedValue([]);
 
-      const sent = await service.sendTrainingCancelled("training-1");
+      const sent = await service.sendTrainingCancelled("training-1", ["a"]);
 
       expect(sent).toBe(0);
       expect(sender.sendMessage).not.toHaveBeenCalled();

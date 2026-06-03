@@ -36,9 +36,10 @@ of scope here; the `(clientId, trainingId, type)` triple plus a per-window `sent
     `cancelled|completed`), each `booked` booking's `clientId` + the client's `telegramId` +
     training render fields (date, start/end, trainer name, level name) **left-joined to the
     `notifications` log so already-sent rows for that `type` are excluded in SQL**.
-  - `findBookedRecipientsForTraining(trainingId, type)` — booked clients of one training with
-    `telegramId` + render fields, excluding those already logged for `type` (used by the
-    cancellation fan-out and confirmation render).
+  - `findRecipientsByClientIds(trainingId, clientIds, type)` — render fields + `telegramId` for the
+    given clients on one training, **regardless of current booking status** (the cancel tx flips the
+    bookings to `cancelled` before the fan-out runs), excluding those already logged for `type` (used
+    by the cancellation fan-out with the clientIds the cancel tx captured).
 - **`TelegramSender`** (small provider) — `sendMessage(telegramId, text)` via a `fetch` POST to
   `https://api.telegram.org/bot<token>/sendMessage`. Token from injected `Env`. No grammY dependency
   in the API. Never logs the token; logs failures via Nest `Logger`.

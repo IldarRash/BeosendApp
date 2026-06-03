@@ -47,6 +47,21 @@ import {
 } from "./broadcast";
 import { handleStatsMenu, STATS_ACTIONS } from "./stats";
 import {
+  handleCancelConfirm as handleManagerCancelConfirm,
+  handleCancelDo,
+  handleCancelPickList,
+  handleCapPicker,
+  handleCapPickList,
+  handleCapSet,
+  handleManagerMenu,
+  handleManagerOverview,
+  MANAGER_ACTIONS,
+  parseCancelOk,
+  parseCancelPick,
+  parseCapPick,
+  parseCapSet
+} from "./manager-menu";
+import {
   applyFilterEdit,
   FILTER_ACTIONS,
   parseFilterSet,
@@ -101,6 +116,14 @@ async function main(): Promise<void> {
   // message and never see the stats. The client main menu stays client-only.
   bot.command("stats", async (ctx) => {
     await handleStatsMenu(ctx, api, ctx.from?.id);
+  });
+
+  // Manager-only entry (A1): the consolidated manager console. Admin role is
+  // gated by the API (ADMIN_TELEGRAM_IDS) via a probe; non-admins get the
+  // "managers only" message and never see the menu. The client main menu stays
+  // client-only — clients never reach these screens.
+  bot.command("manage", async (ctx) => {
+    await handleManagerMenu(ctx, api, ctx.from?.id);
   });
 
   // Free text only matters while awaiting the onboarding name; otherwise ignore.
@@ -232,6 +255,47 @@ async function main(): Promise<void> {
     // resolves their call to null → "managers only").
     if (ctx.callbackQuery.data === STATS_ACTIONS.entry) {
       await handleStatsMenu(ctx, api, ctx.from.id);
+      return;
+    }
+    // Manager console (A1): admin-gated by the API (a non-admin probe resolves to
+    // null → "managers only"). The menu surfaces the already-built flows
+    // (broadcasts, stats) plus the fill overview and the two new writes
+    // (cancel a training, change capacity) — every decision lives in the API; the
+    // bot only forwards ids/ints and renders. Clients never reach these screens.
+    if (ctx.callbackQuery.data === MANAGER_ACTIONS.entry) {
+      await handleManagerMenu(ctx, api, ctx.from.id);
+      return;
+    }
+    if (ctx.callbackQuery.data === MANAGER_ACTIONS.overview) {
+      await handleManagerOverview(ctx, api, ctx.from.id);
+      return;
+    }
+    if (ctx.callbackQuery.data === MANAGER_ACTIONS.cancelEntry) {
+      await handleCancelPickList(ctx, api, ctx.from.id);
+      return;
+    }
+    const cancelPickId = parseCancelPick(ctx.callbackQuery.data);
+    if (cancelPickId !== undefined) {
+      await handleManagerCancelConfirm(ctx, api, ctx.from.id, cancelPickId);
+      return;
+    }
+    const cancelOkId = parseCancelOk(ctx.callbackQuery.data);
+    if (cancelOkId !== undefined) {
+      await handleCancelDo(ctx, api, ctx.from.id, cancelOkId);
+      return;
+    }
+    if (ctx.callbackQuery.data === MANAGER_ACTIONS.capEntry) {
+      await handleCapPickList(ctx, api, ctx.from.id);
+      return;
+    }
+    const capPickId = parseCapPick(ctx.callbackQuery.data);
+    if (capPickId !== undefined) {
+      await handleCapPicker(ctx, api, ctx.from.id, capPickId);
+      return;
+    }
+    const capChange = parseCapSet(ctx.callbackQuery.data);
+    if (capChange !== undefined) {
+      await handleCapSet(ctx, api, ctx.from.id, capChange);
       return;
     }
     // Client slot filters (T3.2): chips on the available-slots screen. The bot

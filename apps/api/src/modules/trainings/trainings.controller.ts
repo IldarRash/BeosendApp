@@ -5,11 +5,14 @@ import {
   Get,
   Headers,
   Param,
+  Patch,
   Post,
   Query
 } from "@nestjs/common";
 import {
   availableSlotsQuerySchema,
+  cancelTrainingSchema,
+  changeCapacitySchema,
   generateMonthSchema,
   listTrainingsQuerySchema,
   trainerTodayQuerySchema,
@@ -65,6 +68,32 @@ export class TrainingsController {
     const actorTelegramId = parseTelegramId(telegramIdHeader);
     const trainingId = validate(uuid, id);
     return this.trainings.getRoster(actorTelegramId, trainingId);
+  }
+
+  /** Admin: cancel a training and notify its booked clients. Gated in the service. */
+  @Post(":id/cancel")
+  cancel(
+    @Headers("x-telegram-id") telegramIdHeader: string | undefined,
+    @Param("id") id: string,
+    @Body() body: unknown
+  ): Promise<Training> {
+    const actorTelegramId = parseTelegramId(telegramIdHeader);
+    const trainingId = validate(uuid, id);
+    validate(cancelTrainingSchema, body ?? {});
+    return this.trainings.cancelTraining(actorTelegramId, trainingId);
+  }
+
+  /** Admin: change a training's capacity (recomputes open/full). Gated in the service. */
+  @Patch(":id/capacity")
+  changeCapacity(
+    @Headers("x-telegram-id") telegramIdHeader: string | undefined,
+    @Param("id") id: string,
+    @Body() body: unknown
+  ): Promise<Training> {
+    const actorTelegramId = parseTelegramId(telegramIdHeader);
+    const trainingId = validate(uuid, id);
+    const input = validate(changeCapacitySchema, body ?? {});
+    return this.trainings.changeCapacity(actorTelegramId, trainingId, input);
   }
 }
 

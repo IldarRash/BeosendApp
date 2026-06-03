@@ -3,6 +3,7 @@ import {
   bookingSchema,
   broadcastPreviewSchema,
   broadcastSchema,
+  changeCapacitySchema,
   clientSchema,
   groupBookingResultSchema,
   groupSchema,
@@ -22,6 +23,7 @@ import {
   type BroadcastAudience,
   type BroadcastPreview,
   type BroadcastType,
+  type ChangeCapacityInput,
   type Client,
   type CreateGroupBookingInput,
   type CreateSingleBookingInput,
@@ -72,6 +74,29 @@ export type JoinWaitlistResult =
 export type AcceptWaitlistResult =
   | { ok: true; booking: Booking }
   | { ok: false; reason: "conflict" };
+
+/**
+ * Outcome of an admin capacity change (A1). `forbidden` maps the API's 403
+ * (caller not an admin) so the bot hides the manager action; `belowBooked` maps
+ * the 400 the service raises when the requested capacity is under the training's
+ * current bookedCount, so the handler can show a distinct guidance message
+ * instead of a generic error. The below-booked guard and the open↔full recompute
+ * are decided server-side; the bot only renders the result.
+ */
+export type ChangeCapacityResult =
+  | { ok: true; training: Training }
+  | { ok: false; reason: "forbidden" | "belowBooked" };
+
+/**
+ * Outcome of an admin training cancel (A1). `forbidden` maps the 403 (caller not
+ * an admin); `notFound` maps the 404 (no such training); `alreadyCancelled` maps
+ * the 409 the service raises for an idempotent re-cancel, so the handler can show
+ * a distinct message. The status flip to `cancelled`, the move of booked bookings
+ * to `cancelled`, and the client notifications all happen server-side.
+ */
+export type CancelTrainingResult =
+  | { ok: true; training: Training }
+  | { ok: false; reason: "forbidden" | "notFound" | "alreadyCancelled" };
 
 const levelsSchema = z.array(levelSchema);
 const trainersSchema = z.array(trainerSchema);
@@ -358,7 +383,7 @@ export class ApiClient {
     return { ok: true, booking: bookingSchema.parse(await res.json()) };
   }
 
-  /** Admin-only (deferred to the admin UI): list trainings in a date range. */
+  /** Admin-only (A1): list trainings in a date range (fill overview). */
   listTrainings(query: ListTrainingsQuery, actorTelegramId: number): Promise<Training[]> {
     const params = new URLSearchParams({ from: query.from, to: query.to });
     if (query.groupId) {
@@ -367,6 +392,77 @@ export class ApiClient {
     return this.request(`/trainings?${params.toString()}`, trainingsSchema, {
       headers: { "x-telegram-id": String(actorTelegramId) }
     });
+  }
+
+  /**
+   * Admin-only (A1): cancel a training. The API gates the caller via
+   * ADMIN_TELEGRAM_IDS, flips the training to `cancelled`, moves its still-booked
+   * bookings to `cancelled` (never deletes them) and notifies the affected
+   * clients — all server-side. A 403 (not an admin) → `forbidden` so the bot can
+   * hide the action; a 404 → `notFound`; a 409 (already cancelled) →
+   * `alreadyCancelled`. The bot only forwards the id and renders the result.
+   */
+  async cancelTraining(
+    trainingId: string,
+    adminTelegramId: number
+  ): Promise<CancelTrainingResult> {
+    const res = await fetch(`${this.baseUrl}/trainings/${trainingId}/cancel`, {
+      method: "POST",
+      headers: {
+        "content-type": "application/json",
+        "x-telegram-id": String(adminTelegramId)
+      },
+      body: JSON.stringify({})
+    });
+    if (res.status === 403) {
+      return { ok: false, reason: "forbidden" };
+    }
+    if (res.status === 404) {
+      return { ok: false, reason: "notFound" };
+    }
+    if (res.status === 409) {
+      return { ok: false, reason: "alreadyCancelled" };
+    }
+    if (!res.ok) {
+      throw new Error(`API /trainings/${trainingId}/cancel failed: ${res.status}`);
+    }
+    return { ok: true, training: trainingSchema.parse(await res.json()) };
+  }
+
+  /**
+   * Admin-only (A1): change a training's capacity. The API gates the caller via
+   * ADMIN_TELEGRAM_IDS, rejects a value below the current bookedCount (400) and
+   * recomputes open/full from the new capacity — all server-side. A 403 (not an
+   * admin) → `forbidden` so the bot can hide the action; a 400 → `belowBooked`
+   * so the handler shows the guidance message. The capacity is re-validated with
+   * the shared contract before the request; the bot does no seat math.
+   */
+  async changeTrainingCapacity(
+    trainingId: string,
+    capacity: number,
+    adminTelegramId: number
+  ): Promise<ChangeCapacityResult> {
+    const body: ChangeCapacityInput = changeCapacitySchema.parse({ capacity });
+    const res = await fetch(`${this.baseUrl}/trainings/${trainingId}/capacity`, {
+      method: "PATCH",
+      headers: {
+        "content-type": "application/json",
+        "x-telegram-id": String(adminTelegramId)
+      },
+      body: JSON.stringify(body)
+    });
+    if (res.status === 403) {
+      return { ok: false, reason: "forbidden" };
+    }
+    if (res.status === 400) {
+      // The service rejects capacity < bookedCount; surfaced distinctly so the bot
+      // can guide the manager instead of showing a generic error.
+      return { ok: false, reason: "belowBooked" };
+    }
+    if (!res.ok) {
+      throw new Error(`API /trainings/${trainingId}/capacity failed: ${res.status}`);
+    }
+    return { ok: true, training: trainingSchema.parse(await res.json()) };
   }
 
   /**

@@ -4,6 +4,7 @@ import type {
   MyBookingItem,
   SlotCard,
   TrainerTodayItem,
+  Training,
   TrainingRoster
 } from "@beosand/types";
 import { ApiClient } from "./api-client";
@@ -631,5 +632,103 @@ describe("ApiClient.getAnalyticsSummary", () => {
     await expect(
       new ApiClient("http://api.test").getAnalyticsSummary(undefined, undefined, 777)
     ).rejects.toThrow();
+  });
+});
+
+const trainingBody: Training = {
+  id: TRAINING_ID,
+  groupId: "55555555-5555-5555-5555-555555555555",
+  date: "2026-06-10",
+  startTime: "18:00",
+  endTime: "19:30",
+  trainerId: "66666666-6666-6666-6666-666666666666",
+  capacity: 8,
+  bookedCount: 3,
+  status: "open"
+};
+
+describe("ApiClient.cancelTraining", () => {
+  afterEach(() => {
+    vi.unstubAllGlobals();
+  });
+
+  it("POSTs to /trainings/:id/cancel with the admin header and returns the training", async () => {
+    const fetchMock = mockFetch({ ...trainingBody, status: "cancelled" });
+    const result = await new ApiClient("http://api.test").cancelTraining(TRAINING_ID, 777);
+    expect(result).toEqual({ ok: true, training: { ...trainingBody, status: "cancelled" } });
+    const [rawUrl, init] = fetchMock.mock.calls[0] as [string, RequestInit];
+    expect(rawUrl).toBe(`http://api.test/trainings/${TRAINING_ID}/cancel`);
+    expect(init.method).toBe("POST");
+    expect((init.headers as Record<string, string>)["x-telegram-id"]).toBe("777");
+  });
+
+  // Unsafe path: a non-admin is a 403, mapped to a distinct outcome (no throw).
+  it("maps a 403 to forbidden", async () => {
+    mockFetch({}, false, 403);
+    await expect(
+      new ApiClient("http://api.test").cancelTraining(TRAINING_ID, 123)
+    ).resolves.toEqual({ ok: false, reason: "forbidden" });
+  });
+
+  it("maps a 404 to notFound and a 409 to alreadyCancelled", async () => {
+    mockFetch({}, false, 404);
+    await expect(
+      new ApiClient("http://api.test").cancelTraining(TRAINING_ID, 777)
+    ).resolves.toEqual({ ok: false, reason: "notFound" });
+    mockFetch({}, false, 409);
+    await expect(
+      new ApiClient("http://api.test").cancelTraining(TRAINING_ID, 777)
+    ).resolves.toEqual({ ok: false, reason: "alreadyCancelled" });
+  });
+
+  it("throws on any other non-2xx", async () => {
+    mockFetch({}, false, 500);
+    await expect(
+      new ApiClient("http://api.test").cancelTraining(TRAINING_ID, 777)
+    ).rejects.toThrow(/500/);
+  });
+});
+
+describe("ApiClient.changeTrainingCapacity", () => {
+  afterEach(() => {
+    vi.unstubAllGlobals();
+  });
+
+  it("PATCHes /trainings/:id/capacity with the contract-validated body", async () => {
+    const fetchMock = mockFetch({ ...trainingBody, capacity: 10 });
+    const result = await new ApiClient("http://api.test").changeTrainingCapacity(
+      TRAINING_ID,
+      10,
+      777
+    );
+    expect(result).toEqual({ ok: true, training: { ...trainingBody, capacity: 10 } });
+    const [rawUrl, init] = fetchMock.mock.calls[0] as [string, RequestInit];
+    expect(rawUrl).toBe(`http://api.test/trainings/${TRAINING_ID}/capacity`);
+    expect(init.method).toBe("PATCH");
+    expect(JSON.parse(init.body as string)).toEqual({ capacity: 10 });
+    expect((init.headers as Record<string, string>)["x-telegram-id"]).toBe("777");
+  });
+
+  // Unsafe path: capacity < bookedCount → 400 → distinct belowBooked outcome.
+  it("maps a 400 to belowBooked (never silently applied)", async () => {
+    mockFetch({}, false, 400);
+    await expect(
+      new ApiClient("http://api.test").changeTrainingCapacity(TRAINING_ID, 1, 777)
+    ).resolves.toEqual({ ok: false, reason: "belowBooked" });
+  });
+
+  it("maps a 403 to forbidden", async () => {
+    mockFetch({}, false, 403);
+    await expect(
+      new ApiClient("http://api.test").changeTrainingCapacity(TRAINING_ID, 9, 123)
+    ).resolves.toEqual({ ok: false, reason: "forbidden" });
+  });
+
+  it("rejects a non-positive capacity before reaching the network", async () => {
+    const fetchMock = mockFetch({});
+    await expect(
+      new ApiClient("http://api.test").changeTrainingCapacity(TRAINING_ID, 0, 777)
+    ).rejects.toThrow();
+    expect(fetchMock).not.toHaveBeenCalled();
   });
 });

@@ -1,6 +1,8 @@
 import { describe, expect, it } from "vitest";
 import {
   availableSlotsQuerySchema,
+  cancelTrainingSchema,
+  changeCapacitySchema,
   createGroupBookingSchema,
   createGroupSchema,
   createSingleBookingSchema,
@@ -29,6 +31,32 @@ const valid = {
   priceSingleRsd: 1500,
   priceMonthRsd: 10000
 };
+
+describe("cancelTrainingSchema", () => {
+  it("accepts an empty body (id is the path param)", () => {
+    expect(cancelTrainingSchema.safeParse({}).success).toBe(true);
+  });
+
+  it("rejects any extra field", () => {
+    expect(cancelTrainingSchema.safeParse({ reason: "x" }).success).toBe(false);
+  });
+});
+
+describe("changeCapacitySchema", () => {
+  it("accepts a positive integer capacity", () => {
+    expect(changeCapacitySchema.safeParse({ capacity: 10 }).success).toBe(true);
+  });
+
+  it("rejects zero, negative, or fractional capacity", () => {
+    expect(changeCapacitySchema.safeParse({ capacity: 0 }).success).toBe(false);
+    expect(changeCapacitySchema.safeParse({ capacity: -3 }).success).toBe(false);
+    expect(changeCapacitySchema.safeParse({ capacity: 1.5 }).success).toBe(false);
+  });
+
+  it("rejects extra fields", () => {
+    expect(changeCapacitySchema.safeParse({ capacity: 10, status: "open" }).success).toBe(false);
+  });
+});
 
 describe("createGroupSchema", () => {
   it("accepts a structurally valid group", () => {

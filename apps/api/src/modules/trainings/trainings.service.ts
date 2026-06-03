@@ -1,9 +1,17 @@
-import { BadRequestException, ForbiddenException, Inject, Injectable } from "@nestjs/common";
-import { NotFoundException } from "@nestjs/common";
+import {
+  BadRequestException,
+  ConflictException,
+  ForbiddenException,
+  Inject,
+  Injectable,
+  Logger,
+  NotFoundException
+} from "@nestjs/common";
 import type { Env } from "@beosand/config";
 import { isAdmin } from "@beosand/config";
 import type {
   AvailableSlotsQuery,
+  ChangeCapacityInput,
   DayOfWeek,
   GenerateMonthInput,
   ListTrainingsQuery,
@@ -18,13 +26,16 @@ import {
   isoWeekdayOf,
   matchesSlotFilters,
   monthTrainingDates,
+  recomputeTrainingStatus,
   slotCardSchema,
   trainerTodayItemSchema,
-  trainingRosterSchema
+  trainingRosterSchema,
+  trainingSchema
 } from "@beosand/types";
 import { z } from "zod";
 import { ENV } from "../../config/config.module";
 import { GroupsRepository } from "../groups/groups.repository";
+import { NotificationsService } from "../notifications/notifications.service";
 import { TrainersRepository } from "../trainers/trainers.repository";
 import { TrainingsRepository } from "./trainings.repository";
 
@@ -38,10 +49,13 @@ import { TrainingsRepository } from "./trainings.repository";
  */
 @Injectable()
 export class TrainingsService {
+  private readonly logger = new Logger(TrainingsService.name);
+
   constructor(
     private readonly trainings: TrainingsRepository,
     private readonly groups: GroupsRepository,
     private readonly trainers: TrainersRepository,
+    private readonly notifications: NotificationsService,
     @Inject(ENV) private readonly env: Env
   ) {}
 
@@ -221,6 +235,95 @@ export class TrainingsService {
       levelName: header.levelName,
       participants
     });
+  }
+
+  /**
+   * Admin: cancel a training (manager console). In one transaction the training is
+   * locked FOR UPDATE (404 if missing), guarded against a double-cancel (409 if
+   * already cancelled), set to status="cancelled" (the row is kept, never deleted),
+   * and its still-`booked` bookings are flipped to "cancelled" (siblings of a
+   * monthly batch on other dates, plus attended/no_show, are untouched). After the
+   * commit the affected clients are notified; a Telegram failure is logged and
+   * swallowed so it never undoes the committed cancel.
+   */
+  async cancelTraining(actorTelegramId: number, id: string): Promise<Training> {
+    this.assertAdmin(actorTelegramId);
+
+    const { updated, cancelledClientIds } = await this.trainings.transaction(async (tx) => {
+      const locked = await this.trainings.findForUpdate(tx, id);
+      if (!locked) {
+        throw new NotFoundException(`Training ${id} not found`);
+      }
+      if (locked.status === "cancelled") {
+        throw new ConflictException("Training is already cancelled");
+      }
+      const cancelledClientIds = await this.trainings.cancelBookedBookingsForTraining(tx, id);
+      const marked = await this.trainings.markCancelled(tx, id);
+      return { updated: marked, cancelledClientIds };
+    });
+
+    await this.notifyCancelledSafely(id, cancelledClientIds);
+
+    return trainingSchema.parse(updated);
+  }
+
+  /**
+   * Admin: change a training's capacity (manager console). The training is locked
+   * FOR UPDATE (404 if missing); a terminal training (cancelled/completed) is
+   * rejected (409) so its frozen state is never mutated; a new capacity below the
+   * current bookedCount is rejected (the below-booked guard) so seats are never
+   * oversold; otherwise the capacity is persisted and status recomputed (open↔full)
+   * from the new capacity.
+   */
+  async changeCapacity(
+    actorTelegramId: number,
+    id: string,
+    input: ChangeCapacityInput
+  ): Promise<Training> {
+    this.assertAdmin(actorTelegramId);
+
+    const updated = await this.trainings.transaction(async (tx) => {
+      const locked = await this.trainings.findForUpdate(tx, id);
+      if (!locked) {
+        throw new NotFoundException(`Training ${id} not found`);
+      }
+      if (locked.status === "cancelled" || locked.status === "completed") {
+        throw new ConflictException(`Cannot change capacity of a ${locked.status} training`);
+      }
+      if (input.capacity < locked.bookedCount) {
+        throw new BadRequestException(
+          `Capacity ${input.capacity} is below the ${locked.bookedCount} already-booked seats`
+        );
+      }
+      const status = recomputeTrainingStatus({
+        capacity: input.capacity,
+        bookedCount: locked.bookedCount,
+        status: locked.status
+      });
+      return this.trainings.updateCapacity(tx, id, input.capacity, status);
+    });
+
+    return trainingSchema.parse(updated);
+  }
+
+  /**
+   * Notify cancelled-training clients without ever undoing the committed cancel.
+   * Mirrors BookingsService.sendConfirmationSafely: the notifications service is
+   * idempotent and swallows per-send errors, but we still guard the lookup so a
+   * DB/Telegram hiccup cannot 500 a cancellation that already stands.
+   */
+  private async notifyCancelledSafely(
+    trainingId: string,
+    clientIds: string[]
+  ): Promise<void> {
+    try {
+      await this.notifications.sendTrainingCancelled(trainingId, clientIds);
+    } catch (error) {
+      this.logger.error(
+        "Training-cancelled notification failed (cancellation stands): " +
+          (error instanceof Error ? error.message : String(error))
+      );
+    }
   }
 
   /**

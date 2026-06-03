@@ -8,6 +8,15 @@ import { DatabaseService } from "../../db/database.service";
 type TrainingRow = typeof tables.trainings.$inferSelect;
 type TrainingInsert = typeof tables.trainings.$inferInsert;
 
+/** A training row locked FOR UPDATE, carrying just what the admin manager writes need. */
+export interface TrainingLockRow {
+  id: string;
+  capacity: number;
+  bookedCount: number;
+  status: TrainingStatus;
+  trainerId: string;
+}
+
 /** A bookable-slot row joined across group/trainer/level — no business rules applied. */
 export interface AvailableSlotRow {
   trainingId: string;
@@ -85,6 +94,66 @@ export class TrainingsRepository {
   /** Run a transaction with the trainings repo's DB handle. */
   transaction<T>(work: (tx: Database) => Promise<T>): Promise<T> {
     return this.database.db.transaction(work);
+  }
+
+  /**
+   * The training row selected FOR UPDATE so the admin cancel / capacity write and
+   * its status recompute run against a row no concurrent booking/cancel is also
+   * mutating. Caller must hold a tx.
+   */
+  async findForUpdate(tx: Database, id: string): Promise<TrainingLockRow | undefined> {
+    const [row] = await tx
+      .select({
+        id: tables.trainings.id,
+        capacity: tables.trainings.capacity,
+        bookedCount: tables.trainings.bookedCount,
+        status: tables.trainings.status,
+        trainerId: tables.trainings.trainerId
+      })
+      .from(tables.trainings)
+      .where(eq(tables.trainings.id, id))
+      .limit(1)
+      .for("update");
+    return row;
+  }
+
+  /** Set a training to cancelled (row kept, never deleted); returns the updated row. */
+  async markCancelled(tx: Database, id: string): Promise<Training> {
+    const [row] = await tx
+      .update(tables.trainings)
+      .set({ status: "cancelled" })
+      .where(eq(tables.trainings.id, id))
+      .returning();
+    return toTraining(row);
+  }
+
+  /**
+   * Flip this training's still-`booked` bookings to `cancelled` (siblings,
+   * attended, no_show, waitlist are untouched) and return the affected clientIds.
+   * Bookings move status; they are never deleted. Caller must hold a tx.
+   */
+  async cancelBookedBookingsForTraining(tx: Database, id: string): Promise<string[]> {
+    const rows = await tx
+      .update(tables.bookings)
+      .set({ status: "cancelled" })
+      .where(and(eq(tables.bookings.trainingId, id), eq(tables.bookings.status, "booked")))
+      .returning({ clientId: tables.bookings.clientId });
+    return rows.map((row) => row.clientId);
+  }
+
+  /** Persist a new capacity + recomputed status onto the training inside the caller's tx. */
+  async updateCapacity(
+    tx: Database,
+    id: string,
+    capacity: number,
+    status: TrainingStatus
+  ): Promise<Training> {
+    const [row] = await tx
+      .update(tables.trainings)
+      .set({ capacity, status })
+      .where(eq(tables.trainings.id, id))
+      .returning();
+    return toTraining(row);
   }
 
   /** Trainings whose date is in [from, to], optionally for one group, ordered for admin views. */

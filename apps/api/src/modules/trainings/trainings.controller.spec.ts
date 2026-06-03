@@ -1,4 +1,9 @@
-import { BadRequestException, ForbiddenException, NotFoundException } from "@nestjs/common";
+import {
+  BadRequestException,
+  ConflictException,
+  ForbiddenException,
+  NotFoundException
+} from "@nestjs/common";
 import type { Env } from "@beosand/config";
 import type { Group, Trainer, Training } from "@beosand/types";
 import { beforeEach, describe, expect, it, vi } from "vitest";
@@ -8,9 +13,11 @@ import type {
   RosterRow,
   TrainerTrainingRow,
   TrainingHeaderRow,
+  TrainingLockRow,
   TrainingsRepository
 } from "./trainings.repository";
 import type { GroupsRepository } from "../groups/groups.repository";
+import type { NotificationsService } from "../notifications/notifications.service";
 import type { TrainersRepository } from "../trainers/trainers.repository";
 
 const ADMIN_ID = 111;
@@ -74,6 +81,12 @@ function makeTrainersRepo(overrides: Partial<TrainersRepository> = {}): Trainers
   } as unknown as TrainersRepository;
 }
 
+function makeNotifications(): NotificationsService {
+  return {
+    sendTrainingCancelled: vi.fn(async () => 0)
+  } as unknown as NotificationsService;
+}
+
 /**
  * Controller-boundary tests for the admin-only trainings endpoints. The actor id
  * arrives only on the x-telegram-id header; a real service + fake repos exercises
@@ -90,7 +103,7 @@ describe("TrainingsController", () => {
     trainingsRepo = makeTrainingsRepo();
     groupsRepo = makeGroupsRepo();
     controller = new TrainingsController(
-      new TrainingsService(trainingsRepo, groupsRepo, makeTrainersRepo(), env)
+      new TrainingsService(trainingsRepo, groupsRepo, makeTrainersRepo(), makeNotifications(), env)
     );
   });
 
@@ -219,7 +232,7 @@ describe("Trainer-scoped reads (T2.3)", () => {
         trainers.find((t) => t.telegramId === tg && t.status === "active")
       )
     } as unknown as Partial<TrainersRepository>);
-    return new TrainingsService(repo, makeGroupsRepo(), trainersRepo, env);
+    return new TrainingsService(repo, makeGroupsRepo(), trainersRepo, makeNotifications(), env);
   }
 
   describe("GET /trainings/:id/roster", () => {
@@ -323,6 +336,235 @@ describe("Trainer-scoped reads (T2.3)", () => {
       const controller = new TrainerTodayController(makeService([trainer()]));
       expect(() =>
         controller.today(String(TRAINER_TG), { telegramId: String(TRAINER_TG), extra: 1 })
+      ).toThrow(BadRequestException);
+    });
+  });
+});
+
+// A1 manager writes at the controller boundary. The actor id arrives only on the
+// x-telegram-id header; a real service + a fake repo whose lock mutators record
+// whether they ran exercises the genuine admin gate. The invariant: every manager
+// write is admin-gated in the service (never only in the controller / future admin
+// UI). The unsafe paths: a non-admin POST /trainings/:id/cancel or PATCH
+// /trainings/:id/capacity is 403 and writes nothing; and PATCH .../capacity with a
+// value below the live bookedCount is 400 and changes nothing — never silently
+// applied. Header/body are parsed + Zod-validated before any service work.
+describe("Admin manager writes (A1)", () => {
+  const TRAINING_ID = "aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa";
+  const TRAINER_ID = "33333333-3333-3333-3333-333333333333";
+
+  /**
+   * A trainings repo with the cancel/capacity lock mutators. `lock` is the row the
+   * transaction reads FOR UPDATE; the mutators mutate it in place so a test can
+   * assert the row was (or was not) touched. `cancelBookedCalls` proves bookings
+   * were only flipped on a committed cancel.
+   */
+  function makeManagerRepo(lock: TrainingLockRow | undefined): {
+    repo: TrainingsRepository;
+    lockRef: { current: TrainingLockRow | undefined };
+    cancelBookedCalls: () => number;
+  } {
+    const lockRef = { current: lock };
+    let cancelBookedCalls = 0;
+    const lockToTraining = (row: TrainingLockRow): Training => ({
+      id: row.id,
+      groupId: null,
+      date: "2099-06-01",
+      startTime: "20:00",
+      endTime: "21:30",
+      trainerId: row.trainerId,
+      capacity: row.capacity,
+      bookedCount: row.bookedCount,
+      status: row.status
+    });
+    const repo = makeTrainingsRepo({
+      transaction: vi.fn(async (work: (tx: unknown) => Promise<unknown>) => work({})),
+      findForUpdate: vi.fn(async (_tx: unknown, id: string) =>
+        lockRef.current && lockRef.current.id === id ? lockRef.current : undefined
+      ),
+      cancelBookedBookingsForTraining: vi.fn(async () => {
+        cancelBookedCalls += 1;
+        return ["client-a", "client-b"];
+      }),
+      markCancelled: vi.fn(async (_tx: unknown, id: string) => {
+        if (!lockRef.current || lockRef.current.id !== id) throw new Error("lock not set");
+        lockRef.current = { ...lockRef.current, status: "cancelled" };
+        return lockToTraining(lockRef.current);
+      }),
+      updateCapacity: vi.fn(
+        async (_tx: unknown, id: string, capacity: number, status: TrainingLockRow["status"]) => {
+          if (!lockRef.current || lockRef.current.id !== id) throw new Error("lock not set");
+          lockRef.current = { ...lockRef.current, capacity, status };
+          return lockToTraining(lockRef.current);
+        }
+      )
+    } as unknown as Partial<TrainingsRepository>);
+    return { repo, lockRef, cancelBookedCalls: () => cancelBookedCalls };
+  }
+
+  function makeController(lock: TrainingLockRow | undefined): {
+    controller: TrainingsController;
+    lockRef: { current: TrainingLockRow | undefined };
+    cancelBookedCalls: () => number;
+    notify: ReturnType<typeof vi.fn>;
+  } {
+    const { repo, lockRef, cancelBookedCalls } = makeManagerRepo(lock);
+    const notify = vi.fn(async () => 0);
+    const notifications = { sendTrainingCancelled: notify } as unknown as NotificationsService;
+    const controller = new TrainingsController(
+      new TrainingsService(repo, makeGroupsRepo(), makeTrainersRepo(), notifications, env)
+    );
+    return { controller, lockRef, cancelBookedCalls, notify };
+  }
+
+  const openLock = (): TrainingLockRow => ({
+    id: TRAINING_ID,
+    capacity: 12,
+    bookedCount: 3,
+    status: "open",
+    trainerId: TRAINER_ID
+  });
+
+  describe("POST /trainings/:id/cancel", () => {
+    it("an admin header cancels the training, flips its bookings, and notifies clients", async () => {
+      const { controller, lockRef, cancelBookedCalls, notify } = makeController(openLock());
+      const result = await controller.cancel(String(ADMIN_ID), TRAINING_ID, {});
+      expect(result.status).toBe("cancelled");
+      expect(lockRef.current?.status).toBe("cancelled");
+      expect(cancelBookedCalls()).toBe(1);
+      expect(notify).toHaveBeenCalledWith(TRAINING_ID, ["client-a", "client-b"]);
+    });
+
+    // Unsafe path: a non-admin header is 403 and nothing is cancelled / notified.
+    it("rejects a non-admin header with 403 and changes nothing", async () => {
+      const { controller, lockRef, cancelBookedCalls, notify } = makeController(openLock());
+      await expect(controller.cancel(String(NON_ADMIN_ID), TRAINING_ID, {})).rejects.toBeInstanceOf(
+        ForbiddenException
+      );
+      expect(lockRef.current?.status).toBe("open");
+      expect(cancelBookedCalls()).toBe(0);
+      expect(notify).not.toHaveBeenCalled();
+    });
+
+    it("404s an unknown training", async () => {
+      const { controller } = makeController(undefined);
+      await expect(controller.cancel(String(ADMIN_ID), TRAINING_ID, {})).rejects.toBeInstanceOf(
+        NotFoundException
+      );
+    });
+
+    it("409s an already-cancelled training and flips no bookings", async () => {
+      const { controller, cancelBookedCalls } = makeController({
+        ...openLock(),
+        status: "cancelled"
+      });
+      await expect(controller.cancel(String(ADMIN_ID), TRAINING_ID, {})).rejects.toBeInstanceOf(
+        ConflictException
+      );
+      expect(cancelBookedCalls()).toBe(0);
+    });
+
+    it("rejects a missing/invalid x-telegram-id header (400) before any work", () => {
+      const { controller, cancelBookedCalls } = makeController(openLock());
+      expect(() => controller.cancel(undefined, TRAINING_ID, {})).toThrow(BadRequestException);
+      expect(() => controller.cancel("not-a-number", TRAINING_ID, {})).toThrow(BadRequestException);
+      expect(cancelBookedCalls()).toBe(0);
+    });
+
+    it("rejects a non-uuid path id (Zod) (400)", () => {
+      const { controller } = makeController(openLock());
+      expect(() => controller.cancel(String(ADMIN_ID), "nope", {})).toThrow(BadRequestException);
+    });
+
+    it("rejects a non-empty body (cancel takes no fields) (400)", () => {
+      const { controller } = makeController(openLock());
+      expect(() => controller.cancel(String(ADMIN_ID), TRAINING_ID, { reason: "x" })).toThrow(
+        BadRequestException
+      );
+    });
+  });
+
+  describe("PATCH /trainings/:id/capacity", () => {
+    it("an admin header lowers capacity to bookedCount and flips status to full", async () => {
+      const { controller, lockRef } = makeController({ ...openLock(), bookedCount: 5 });
+      const result = await controller.changeCapacity(String(ADMIN_ID), TRAINING_ID, {
+        capacity: 5
+      });
+      expect(result.capacity).toBe(5);
+      expect(result.status).toBe("full");
+      expect(lockRef.current?.capacity).toBe(5);
+    });
+
+    it("an admin header raising capacity above bookedCount flips a full slot back to open", async () => {
+      const { controller } = makeController({
+        ...openLock(),
+        capacity: 5,
+        bookedCount: 5,
+        status: "full"
+      });
+      const result = await controller.changeCapacity(String(ADMIN_ID), TRAINING_ID, {
+        capacity: 8
+      });
+      expect(result.capacity).toBe(8);
+      expect(result.status).toBe("open");
+    });
+
+    // Unsafe path: capacity below the live bookedCount is 400 and never applied.
+    it("rejects capacity below bookedCount with 400 and leaves the training unchanged", async () => {
+      const { controller, lockRef } = makeController({ ...openLock(), bookedCount: 6 });
+      await expect(
+        controller.changeCapacity(String(ADMIN_ID), TRAINING_ID, { capacity: 4 })
+      ).rejects.toBeInstanceOf(BadRequestException);
+      expect(lockRef.current?.capacity).toBe(12);
+      expect(lockRef.current?.status).toBe("open");
+    });
+
+    // Unsafe path: a non-admin header is 403 and capacity is untouched.
+    it("rejects a non-admin header with 403 and leaves capacity unchanged", async () => {
+      const { controller, lockRef } = makeController(openLock());
+      await expect(
+        controller.changeCapacity(String(NON_ADMIN_ID), TRAINING_ID, { capacity: 20 })
+      ).rejects.toBeInstanceOf(ForbiddenException);
+      expect(lockRef.current?.capacity).toBe(12);
+    });
+
+    it("404s an unknown training", async () => {
+      const { controller } = makeController(undefined);
+      await expect(
+        controller.changeCapacity(String(ADMIN_ID), TRAINING_ID, { capacity: 20 })
+      ).rejects.toBeInstanceOf(NotFoundException);
+    });
+
+    it("rejects a missing/invalid x-telegram-id header (400) before any work", () => {
+      const { controller } = makeController(openLock());
+      expect(() => controller.changeCapacity(undefined, TRAINING_ID, { capacity: 8 })).toThrow(
+        BadRequestException
+      );
+      expect(() => controller.changeCapacity("12.5", TRAINING_ID, { capacity: 8 })).toThrow(
+        BadRequestException
+      );
+    });
+
+    it("rejects a non-uuid path id (Zod) (400)", () => {
+      const { controller } = makeController(openLock());
+      expect(() => controller.changeCapacity(String(ADMIN_ID), "nope", { capacity: 8 })).toThrow(
+        BadRequestException
+      );
+    });
+
+    it("rejects an invalid capacity body (zero / negative / fractional / extra field) (400)", () => {
+      const { controller } = makeController(openLock());
+      expect(() => controller.changeCapacity(String(ADMIN_ID), TRAINING_ID, { capacity: 0 })).toThrow(
+        BadRequestException
+      );
+      expect(() =>
+        controller.changeCapacity(String(ADMIN_ID), TRAINING_ID, { capacity: -3 })
+      ).toThrow(BadRequestException);
+      expect(() =>
+        controller.changeCapacity(String(ADMIN_ID), TRAINING_ID, { capacity: 1.5 })
+      ).toThrow(BadRequestException);
+      expect(() =>
+        controller.changeCapacity(String(ADMIN_ID), TRAINING_ID, { capacity: 8, status: "open" })
       ).toThrow(BadRequestException);
     });
   });

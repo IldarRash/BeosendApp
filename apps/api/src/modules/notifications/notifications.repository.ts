@@ -167,6 +167,51 @@ export class NotificationsRepository {
   }
 
   /**
+   * Render fields + Telegram id for the given clients on one training, regardless
+   * of current booking status. The cancellation fan-out flips bookings to
+   * `cancelled` before notifying, so the booked-only lookup would return nobody;
+   * this resolves recipients from the just-cancelled clientIds the cancel tx
+   * captured. The `notifications` log is anti-joined per (client, training, type)
+   * so the fan-out stays idempotent.
+   */
+  async findRecipientsByClientIds(
+    trainingId: string,
+    clientIds: string[],
+    type: NotificationType
+  ): Promise<NotificationRecipient[]> {
+    if (clientIds.length === 0) {
+      return [];
+    }
+    const rows = await this.database.db
+      .select({
+        clientId: tables.clients.id,
+        trainingId: tables.trainings.id,
+        telegramId: tables.clients.telegramId,
+        date: tables.trainings.date,
+        startTime: tables.trainings.startTime,
+        endTime: tables.trainings.endTime,
+        trainerName: tables.trainers.name,
+        levelName: tables.levels.name
+      })
+      .from(tables.trainings)
+      .innerJoin(tables.trainers, eq(tables.trainings.trainerId, tables.trainers.id))
+      .innerJoin(tables.clients, inArray(tables.clients.id, clientIds))
+      .leftJoin(tables.groups, eq(tables.trainings.groupId, tables.groups.id))
+      .leftJoin(tables.levels, eq(tables.groups.levelId, tables.levels.id))
+      .leftJoin(
+        tables.notifications,
+        and(
+          eq(tables.notifications.clientId, tables.clients.id),
+          eq(tables.notifications.trainingId, tables.trainings.id),
+          eq(tables.notifications.type, type)
+        )
+      )
+      .where(and(eq(tables.trainings.id, trainingId), isNull(tables.notifications.id)));
+
+    return rows.map((row) => normalizeRecipient(row));
+  }
+
+  /**
    * Render fields + Telegram id for one (client, training) pair regardless of any
    * booking — the waitlist-slot send (T2.1) targets a client who is waiting, not
    * booked, so the booked-only lookups don't fit. No log anti-join: the waitlist
@@ -195,51 +240,6 @@ export class NotificationsRepository {
       .where(eq(tables.trainings.id, trainingId))
       .limit(1);
     return row ? normalizeRecipient(row) : undefined;
-  }
-
-  /**
-   * Booked clients of one training (render fields + Telegram id) that have not
-   * yet been logged for `type`. Used by the cancellation fan-out (T1.12) and the
-   * confirmation render; the log anti-join keeps the fan-out idempotent.
-   */
-  async findBookedRecipientsForTraining(
-    trainingId: string,
-    type: NotificationType
-  ): Promise<NotificationRecipient[]> {
-    const rows = await this.database.db
-      .select({
-        clientId: tables.bookings.clientId,
-        trainingId: tables.trainings.id,
-        telegramId: tables.clients.telegramId,
-        date: tables.trainings.date,
-        startTime: tables.trainings.startTime,
-        endTime: tables.trainings.endTime,
-        trainerName: tables.trainers.name,
-        levelName: tables.levels.name
-      })
-      .from(tables.bookings)
-      .innerJoin(tables.trainings, eq(tables.bookings.trainingId, tables.trainings.id))
-      .innerJoin(tables.clients, eq(tables.bookings.clientId, tables.clients.id))
-      .innerJoin(tables.trainers, eq(tables.trainings.trainerId, tables.trainers.id))
-      .leftJoin(tables.groups, eq(tables.trainings.groupId, tables.groups.id))
-      .leftJoin(tables.levels, eq(tables.groups.levelId, tables.levels.id))
-      .leftJoin(
-        tables.notifications,
-        and(
-          eq(tables.notifications.clientId, tables.bookings.clientId),
-          eq(tables.notifications.trainingId, tables.trainings.id),
-          eq(tables.notifications.type, type)
-        )
-      )
-      .where(
-        and(
-          eq(tables.bookings.trainingId, trainingId),
-          eq(tables.bookings.status, "booked"),
-          isNull(tables.notifications.id)
-        )
-      );
-
-    return rows.map((row) => normalizeRecipient(row));
   }
 }
 

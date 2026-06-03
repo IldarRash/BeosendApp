@@ -100,14 +100,17 @@ export class NotificationsService {
   }
 
   /**
-   * Fan out a training cancellation to every booked client, idempotent per
-   * (clientId, trainingId, 'training-cancelled') via the log anti-join. Exposed
-   * for T1.12 (the training-cancel write); not triggered by any endpoint here.
-   * Returns the number notified.
+   * Fan out a training cancellation to the clients whose bookings were just
+   * cancelled, idempotent per (clientId, trainingId, 'training-cancelled') via the
+   * log anti-join. The cancel tx flips those bookings to `cancelled` before this
+   * runs, so recipients are resolved from the captured `clientIds` (a booked-only
+   * lookup would now return nobody). Exposed for T1.12 (the training-cancel
+   * write); not triggered by any endpoint here. Returns the number notified.
    */
-  async sendTrainingCancelled(trainingId: string): Promise<number> {
-    const recipients = await this.repo.findBookedRecipientsForTraining(
+  async sendTrainingCancelled(trainingId: string, clientIds: string[]): Promise<number> {
+    const recipients = await this.repo.findRecipientsByClientIds(
       trainingId,
+      clientIds,
       "training-cancelled"
     );
     let sent = 0;

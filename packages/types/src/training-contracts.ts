@@ -94,6 +94,23 @@ export const generateMonthSchema = z.object({
 });
 export type GenerateMonthInput = z.infer<typeof generateMonthSchema>;
 
+/**
+ * Body for POST /trainings/:id/cancel (admin manager console). The training id is
+ * the path param; the body carries nothing today. Kept as an explicit `.strict()`
+ * empty object so an accidental field is rejected and a future optional `reason`
+ * can be added in one place.
+ */
+export const cancelTrainingSchema = z.object({}).strict();
+export type CancelTrainingInput = z.infer<typeof cancelTrainingSchema>;
+
+/**
+ * Body for PATCH /trainings/:id/capacity (admin manager console). A positive seat
+ * count; the service rejects any value below the training's current bookedCount and
+ * recomputes open/full from the new capacity. Strict so stray fields are rejected.
+ */
+export const changeCapacitySchema = z.object({ capacity: z.number().int().positive() }).strict();
+export type ChangeCapacityInput = z.infer<typeof changeCapacitySchema>;
+
 /** Admin range query for trainings (GET /trainings). */
 export const listTrainingsQuerySchema = z.object({
   from: dateString,
