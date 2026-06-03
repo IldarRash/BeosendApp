@@ -1,7 +1,19 @@
 import { Injectable } from "@nestjs/common";
 import { tables } from "@beosand/db";
 import type { Broadcast, TrainingStatus } from "@beosand/types";
-import { and, asc, count, eq, gte, isNotNull, lte, sql } from "drizzle-orm";
+import {
+  and,
+  asc,
+  count,
+  eq,
+  gte,
+  inArray,
+  isNotNull,
+  lte,
+  ne,
+  notInArray,
+  sql
+} from "drizzle-orm";
 import { DatabaseService } from "../../db/database.service";
 
 type BroadcastRow = typeof tables.broadcasts.$inferSelect;
@@ -79,7 +91,7 @@ export class BroadcastsRepository {
     }));
   }
 
-  /** Telegram ids of every active client — the broadcast audience. */
+  /** Telegram ids of every active client — the default ("all") audience. */
   async listActiveRecipients(): Promise<BroadcastRecipient[]> {
     return this.database.db
       .select({ telegramId: tables.clients.telegramId })
@@ -87,7 +99,72 @@ export class BroadcastsRepository {
       .where(eq(tables.clients.status, "active"));
   }
 
-  /** Count of active clients (audience size) for the preview's recipientsCount. */
+  /** Active clients of one level (T3.2 `level` segment). */
+  async listActiveRecipientsByLevel(levelId: string): Promise<BroadcastRecipient[]> {
+    return this.database.db
+      .select({ telegramId: tables.clients.telegramId })
+      .from(tables.clients)
+      .where(and(eq(tables.clients.status, "active"), eq(tables.clients.levelId, levelId)));
+  }
+
+  /**
+   * Active clients with at least one non-cancelled booking created on/after
+   * `cutoff` (T3.2 `active` segment). DISTINCT via an inner join on a subquery
+   * of qualifying client ids keeps each recipient once.
+   */
+  async listActiveRecipientsBookedSince(cutoff: Date): Promise<BroadcastRecipient[]> {
+    const recentClientIds = this.database.db
+      .selectDistinct({ clientId: tables.bookings.clientId })
+      .from(tables.bookings)
+      .where(
+        and(
+          gte(tables.bookings.createdAt, cutoff),
+          ne(tables.bookings.status, "cancelled")
+        )
+      );
+
+    const ids = (await recentClientIds).map((row) => row.clientId);
+    if (ids.length === 0) {
+      return [];
+    }
+    return this.database.db
+      .select({ telegramId: tables.clients.telegramId })
+      .from(tables.clients)
+      .where(and(eq(tables.clients.status, "active"), inArray(tables.clients.id, ids)));
+  }
+
+  /**
+   * Active clients with NO non-cancelled booking on/after `cutoff` (T3.2
+   * `lapsed` segment — the inverse of `active`). Computed by excluding the
+   * recent-booker client ids from the active set.
+   */
+  async listActiveRecipientsNotBookedSince(cutoff: Date): Promise<BroadcastRecipient[]> {
+    const recentClientIds = (
+      await this.database.db
+        .selectDistinct({ clientId: tables.bookings.clientId })
+        .from(tables.bookings)
+        .where(
+          and(
+            gte(tables.bookings.createdAt, cutoff),
+            ne(tables.bookings.status, "cancelled")
+          )
+        )
+    ).map((row) => row.clientId);
+
+    const where = recentClientIds.length
+      ? and(
+          eq(tables.clients.status, "active"),
+          notInArray(tables.clients.id, recentClientIds)
+        )
+      : eq(tables.clients.status, "active");
+
+    return this.database.db
+      .select({ telegramId: tables.clients.telegramId })
+      .from(tables.clients)
+      .where(where);
+  }
+
+  /** Count of active clients (audience size) for the default-audience preview. */
   async countActiveRecipients(): Promise<number> {
     const [row] = await this.database.db
       .select({ value: count() })

@@ -3,6 +3,7 @@ import type { Context, SessionFlavor } from "grammy";
 import type { Level, OnboardClientInput } from "@beosand/types";
 import type { ApiClient } from "./api-client";
 import { mainMenuKeyboard, WELCOME_TEXT } from "./menu";
+import type { SlotFilterState } from "./slot-filters";
 
 /**
  * Onboarding (T1.6). The bot holds the multi-step conversation state; the API
@@ -18,6 +19,12 @@ export interface SessionData {
   step?: OnboardingStep;
   /** Captured free-text name, carried from the name step to the level step. */
   name?: string;
+  /**
+   * The client's chosen available-slot filters (T3.2), held across taps so the
+   * slots screen can re-query as chips toggle. Absent until the first filter is
+   * set; the bot never filters locally — these are forwarded to the API.
+   */
+  slotFilters?: SlotFilterState;
 }
 
 export type BotContext = Context & SessionFlavor<SessionData>;

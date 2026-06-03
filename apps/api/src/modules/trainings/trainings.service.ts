@@ -16,6 +16,7 @@ import {
   freeSeats,
   isBookable,
   isoWeekdayOf,
+  matchesSlotFilters,
   monthTrainingDates,
   slotCardSchema,
   trainerTodayItemSchema,
@@ -103,7 +104,10 @@ export class TrainingsService {
    * trainings are never offered. The repo already filters open + free seats,
    * but the open/full + free-seats invariant lives here: every row is
    * re-asserted with isBookable, and free seats + price are computed
-   * server-side. Output is validated against the contract before returning.
+   * server-side. T3.2 client filters (weekday / timeOfDay / trainer / level)
+   * are applied via matchesSlotFilters AFTER isBookable, so a filter can only
+   * ever narrow the bookable set — never surface a full/cancelled/completed
+   * slot. Output is validated against the contract before returning.
    */
   async listAvailable(query: AvailableSlotsQuery): Promise<SlotCard[]> {
     const today = new Date().toISOString().slice(0, 10);
@@ -113,11 +117,27 @@ export class TrainingsService {
       throw new BadRequestException("`to` must be on or after `from`");
     }
 
-    const rows = await this.trainings.listAvailable(from, to, query.levelId);
+    const rows = await this.trainings.listAvailable(from, to, query.levelId, query.trainerId);
 
     const cards = rows
       .filter((row) =>
         isBookable({ capacity: row.capacity, bookedCount: row.bookedCount, status: row.status })
+      )
+      .filter((row) =>
+        matchesSlotFilters(
+          {
+            dayOfWeek: isoWeekdayOf(row.date),
+            startTime: row.startTime,
+            trainerId: row.trainerId,
+            levelId: row.levelId
+          },
+          {
+            weekday: query.weekday,
+            timeOfDay: query.timeOfDay,
+            trainerId: query.trainerId,
+            levelId: query.levelId
+          }
+        )
       )
       .map<SlotCard>((row) => ({
         trainingId: row.trainingId,

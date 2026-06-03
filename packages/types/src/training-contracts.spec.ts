@@ -149,6 +149,23 @@ describe("availableSlotsQuerySchema", () => {
     expect(availableSlotsQuerySchema.safeParse({ from: "07-01-2026" }).success).toBe(false);
     expect(availableSlotsQuerySchema.safeParse({ levelId: "nope" }).success).toBe(false);
   });
+
+  it("accepts the T3.2 weekday/timeOfDay/trainerId filters", () => {
+    expect(
+      availableSlotsQuerySchema.safeParse({
+        weekday: 3,
+        timeOfDay: "evening",
+        trainerId: "33333333-3333-3333-3333-333333333333"
+      }).success
+    ).toBe(true);
+  });
+
+  it("rejects a bad weekday or timeOfDay value", () => {
+    expect(availableSlotsQuerySchema.safeParse({ weekday: 0 }).success).toBe(false);
+    expect(availableSlotsQuerySchema.safeParse({ weekday: 8 }).success).toBe(false);
+    expect(availableSlotsQuerySchema.safeParse({ timeOfDay: "midnight" }).success).toBe(false);
+    expect(availableSlotsQuerySchema.safeParse({ trainerId: "nope" }).success).toBe(false);
+  });
 });
 
 describe("createSingleBookingSchema", () => {

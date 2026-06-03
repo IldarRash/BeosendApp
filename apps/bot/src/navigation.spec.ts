@@ -11,7 +11,9 @@ function makeDeps(): MenuHandlerDeps {
       listAvailableSlots: vi.fn().mockResolvedValue([]),
       listGroups: vi.fn().mockResolvedValue([]),
       getClientByTelegramId: vi.fn().mockResolvedValue(CLIENT),
-      listMyBookings: vi.fn().mockResolvedValue([])
+      listMyBookings: vi.fn().mockResolvedValue([]),
+      listTrainers: vi.fn().mockResolvedValue([]),
+      listLevels: vi.fn().mockResolvedValue([])
     }
   };
 }
@@ -52,11 +54,14 @@ describe("menu dispatch table", () => {
       await menuHandlers[action](ctx, deps);
       expect(reply).toHaveBeenCalledOnce();
       // Every sub-screen ends with a home shortcut; most also offer "back". The
-      // empty "my bookings" screen swaps "back" for a "book a training" CTA but
-      // still leaves home as the last button — never a dead-end.
+      // empty "my bookings" screen swaps "back" for a "book a training" CTA, and
+      // the available-slots screen (T3.2) prepends filter chips above the slot
+      // cards — but both still leave the back/home footer last, never a dead-end.
       const callbacks = callbacksOf(reply);
       expect(callbacks).toContain(NAV_ACTIONS.home);
-      if (action !== MENU_ACTIONS.myBookings) {
+      if (action === MENU_ACTIONS.availableTrainings) {
+        expect(callbacks.slice(-2)).toEqual([NAV_ACTIONS.back, NAV_ACTIONS.home]);
+      } else if (action !== MENU_ACTIONS.myBookings) {
         expect(callbacks).toEqual([NAV_ACTIONS.back, NAV_ACTIONS.home]);
       }
     }

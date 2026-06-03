@@ -1,8 +1,9 @@
 import { backHomeKeyboard, MENU_ACTIONS, mainMenuKeyboard, WELCOME_TEXT } from "./menu";
 import type { MenuAction } from "./menu";
-import { renderSlotsText, slotsKeyboard } from "./slots";
 import { handleGroupList } from "./group-booking";
 import { handleMyBookings } from "./my-bookings";
+import { showFilteredSlots } from "./slot-filters";
+import type { SlotFilterState } from "./slot-filters";
 import type { ApiClient } from "./api-client";
 
 /**
@@ -22,8 +23,19 @@ export interface MenuHandlerDeps {
   /** Typed API client; the only way handlers reach domain data. */
   api: Pick<
     ApiClient,
-    "listAvailableSlots" | "listGroups" | "getClientByTelegramId" | "listMyBookings"
+    | "listAvailableSlots"
+    | "listGroups"
+    | "getClientByTelegramId"
+    | "listMyBookings"
+    | "listTrainers"
+    | "listLevels"
   >;
+  /**
+   * The caller's current available-slot filters (T3.2), read from session by the
+   * dispatcher. Absent ⇒ no filter (the full bookable list). The bot forwards
+   * these to the API; it never filters locally.
+   */
+  slotFilters?: SlotFilterState;
 }
 
 export type MenuHandler = (ctx: MenuReplyCtx, deps: MenuHandlerDeps) => Promise<void>;
@@ -48,11 +60,12 @@ function stub(text: string): MenuHandler {
  * explicit stub). Routing completeness is asserted in the spec.
  */
 export const menuHandlers: Record<MenuAction, MenuHandler> = {
-  // Headline client flow (T1.5): list only bookable slots. The API decides what
-  // is bookable and computes seats/price; the bot just renders the cards.
+  // Headline client flow (T1.5 + T3.2 filters): list only bookable slots,
+  // narrowed by the caller's chosen filter chips (held in session, applied by
+  // the API). The API decides what is bookable and computes seats/price; the bot
+  // just renders the cards and the chip bar.
   [MENU_ACTIONS.availableTrainings]: async (ctx, deps) => {
-    const cards = await deps.api.listAvailableSlots();
-    await ctx.reply(renderSlotsText(cards), { reply_markup: slotsKeyboard(cards) });
+    await showFilteredSlots(ctx, deps.api, deps.slotFilters ?? {});
   },
   [MENU_ACTIONS.todayFreeSlots]: stub("Свободные места на сегодня скоро будут здесь."),
   // Monthly group booking (T1.9): render the group list; picking a group leads

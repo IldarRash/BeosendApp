@@ -6,9 +6,12 @@ import {
   freeSeats,
   isBookable,
   isoWeekdayOf,
+  matchesSlotFilters,
   monthTrainingDates,
   recomputeTrainingStatus,
-  safeRatio
+  safeRatio,
+  timeOfDayOf,
+  type FilterableSlot
 } from "./helpers";
 
 describe("recomputeTrainingStatus", () => {
@@ -80,5 +83,55 @@ describe("analytics aggregation math", () => {
     expect(averageFillRate(12, 24)).toBe(0.5);
     expect(averageFillRate(0, 0)).toBe(0); // no trainings in range
     expect(averageFillRate(8, 8)).toBe(1);
+  });
+});
+
+describe("timeOfDayOf", () => {
+  it("maps the hour to a band at the documented boundaries", () => {
+    expect(timeOfDayOf("00:00")).toBe("morning");
+    expect(timeOfDayOf("11:59")).toBe("morning");
+    expect(timeOfDayOf("12:00")).toBe("afternoon"); // boundary: afternoon starts at 12:00
+    expect(timeOfDayOf("16:59")).toBe("afternoon");
+    expect(timeOfDayOf("17:00")).toBe("evening"); // boundary: evening starts at 17:00
+    expect(timeOfDayOf("23:00")).toBe("evening");
+  });
+});
+
+describe("matchesSlotFilters", () => {
+  const slot: FilterableSlot = {
+    dayOfWeek: 3, // Wednesday
+    startTime: "18:00", // evening
+    trainerId: "33333333-3333-3333-3333-333333333333",
+    levelId: "22222222-2222-2222-2222-222222222222"
+  };
+
+  it("matches when no filters are supplied", () => {
+    expect(matchesSlotFilters(slot, {})).toBe(true);
+  });
+
+  it("narrows by weekday", () => {
+    expect(matchesSlotFilters(slot, { weekday: 3 })).toBe(true);
+    expect(matchesSlotFilters(slot, { weekday: 1 })).toBe(false);
+  });
+
+  it("narrows by time of day via the boundary helper", () => {
+    expect(matchesSlotFilters(slot, { timeOfDay: "evening" })).toBe(true);
+    expect(matchesSlotFilters(slot, { timeOfDay: "morning" })).toBe(false);
+  });
+
+  it("narrows by trainer and level", () => {
+    expect(matchesSlotFilters(slot, { trainerId: slot.trainerId })).toBe(true);
+    expect(matchesSlotFilters(slot, { trainerId: "00000000-0000-0000-0000-000000000000" })).toBe(
+      false
+    );
+    expect(matchesSlotFilters(slot, { levelId: slot.levelId })).toBe(true);
+    expect(matchesSlotFilters(slot, { levelId: "00000000-0000-0000-0000-000000000000" })).toBe(
+      false
+    );
+  });
+
+  it("requires every supplied filter to match (AND semantics)", () => {
+    expect(matchesSlotFilters(slot, { weekday: 3, timeOfDay: "evening" })).toBe(true);
+    expect(matchesSlotFilters(slot, { weekday: 3, timeOfDay: "morning" })).toBe(false);
   });
 });

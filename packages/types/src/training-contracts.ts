@@ -5,6 +5,7 @@ import {
   dayOfWeek,
   entityStatus,
   rsd,
+  timeOfDay,
   timeString,
   uuid
 } from "./common";
@@ -115,11 +116,18 @@ export const slotCardSchema = z.object({
 });
 export type SlotCard = z.infer<typeof slotCardSchema>;
 
-/** Client query for bookable slots (GET /trainings/available); all fields optional. */
+/**
+ * Client query for bookable slots (GET /trainings/available); all fields
+ * optional. T3.2 adds weekday / timeOfDay / trainerId on top of the existing
+ * level/date window. No `.strict()` so query-string coercion stays lenient.
+ */
 export const availableSlotsQuerySchema = z.object({
   from: dateString.optional(),
   to: dateString.optional(),
-  levelId: uuid.optional()
+  levelId: uuid.optional(),
+  weekday: dayOfWeek.optional(),
+  timeOfDay: timeOfDay.optional(),
+  trainerId: uuid.optional()
 });
 export type AvailableSlotsQuery = z.infer<typeof availableSlotsQuerySchema>;
 
@@ -308,10 +316,26 @@ export const broadcastSchema = z.object({
 });
 export type Broadcast = z.infer<typeof broadcastSchema>;
 
-/** Query for GET /broadcasts/preview: which free-slot set to compose. */
+/**
+ * Audience segment for a broadcast (T3.2). A read-only narrowing of the active
+ * client base — it may only ever reduce who is reached, never widen it. Absent ⇒
+ * `{ kind: "all" }` (T2.4 behaviour). `active` = clients with a non-cancelled
+ * booking in the last `days`; `lapsed` = active clients with no such recent
+ * booking (the inverse of `active`); `level` = active clients of that level.
+ */
+export const broadcastAudienceSchema = z.discriminatedUnion("kind", [
+  z.object({ kind: z.literal("all") }).strict(),
+  z.object({ kind: z.literal("level"), levelId: uuid }).strict(),
+  z.object({ kind: z.literal("active"), days: z.number().int().min(1).max(365) }).strict(),
+  z.object({ kind: z.literal("lapsed"), days: z.number().int().min(1).max(365) }).strict()
+]);
+export type BroadcastAudience = z.infer<typeof broadcastAudienceSchema>;
+
+/** Query for GET /broadcasts/preview: which free-slot set + audience to compose. */
 export const broadcastPreviewQuerySchema = z
   .object({
-    type: broadcastType
+    type: broadcastType,
+    audience: broadcastAudienceSchema.optional()
   })
   .strict();
 export type BroadcastPreviewQuery = z.infer<typeof broadcastPreviewQuerySchema>;
@@ -330,10 +354,11 @@ export const broadcastPreviewSchema = z.object({
 });
 export type BroadcastPreview = z.infer<typeof broadcastPreviewSchema>;
 
-/** Body for POST /broadcasts/send: which free-slot set to broadcast. */
+/** Body for POST /broadcasts/send: which free-slot set + audience to broadcast. */
 export const sendBroadcastSchema = z
   .object({
-    type: broadcastType
+    type: broadcastType,
+    audience: broadcastAudienceSchema.optional()
   })
   .strict();
 export type SendBroadcastInput = z.infer<typeof sendBroadcastSchema>;

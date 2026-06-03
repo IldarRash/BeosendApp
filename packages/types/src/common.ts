@@ -19,4 +19,12 @@ export const rsd = z.number().int().nonnegative();
 export const entityStatus = z.enum(["active", "inactive"]);
 export type EntityStatus = z.infer<typeof entityStatus>;
 
+/**
+ * Coarse time-of-day band for client slot filtering (T3.2). Boundaries are
+ * documented and enforced in the pure helper `timeOfDayOf`:
+ * morning <12:00, afternoon 12:00–16:59, evening ≥17:00.
+ */
+export const timeOfDay = z.enum(["morning", "afternoon", "evening"]);
+export type TimeOfDay = z.infer<typeof timeOfDay>;
+
 export const bookingSource = z.literal("telegram");

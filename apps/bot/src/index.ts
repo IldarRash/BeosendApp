@@ -35,13 +35,29 @@ import {
 } from "./trainer-today";
 import {
   BROADCAST_ACTIONS,
+  handleBroadcastAudiencePicker,
+  handleBroadcastLevelPick,
   handleBroadcastMenu,
   handleBroadcastPreview,
   handleBroadcastSend,
+  parseBroadcastAudience,
+  parseBroadcastLevelPick,
   parseBroadcastSend,
   parseBroadcastType
 } from "./broadcast";
 import { handleStatsMenu, STATS_ACTIONS } from "./stats";
+import {
+  applyFilterEdit,
+  FILTER_ACTIONS,
+  parseFilterSet,
+  showFilteredSlots,
+  showLevelPicker,
+  showTrainerPicker,
+  timeOfDayPickerKeyboard,
+  weekdayPickerKeyboard,
+  PICK_TIME_OF_DAY_TEXT,
+  PICK_WEEKDAY_TEXT
+} from "./slot-filters";
 import {
   handleLevelCallback,
   handleNameText,
@@ -55,7 +71,6 @@ async function main(): Promise<void> {
   const env = loadEnv();
   const api = new ApiClient(env.API_URL);
   const bot = new Bot<BotContext>(env.TELEGRAM_BOT_TOKEN);
-  const deps = { managerContact: env.MANAGER_CONTACT, api };
 
   // Onboarding is multi-step, so the bot holds the conversation state (the API
   // owns persistence). Session is keyed per chat by grammY's default key.
@@ -184,8 +199,9 @@ async function main(): Promise<void> {
       await handleMarkAttendance(ctx, api, ctx.from.id, attendMark);
       return;
     }
-    // Free-slot broadcasts (T2.4): admin-gated by the API. Menu entry → type
-    // picker → preview (per-slot book:slot deep links) → send. Non-admins never
+    // Free-slot broadcasts (T2.4 + T3.2 segments): admin-gated by the API. Menu
+    // entry → type picker → audience picker (all/level/active/lapsed) → preview
+    // (per-slot book:slot deep links + segment count) → send. Non-admins never
     // reach these screens (the API resolves their call to null).
     if (ctx.callbackQuery.data === BROADCAST_ACTIONS.entry) {
       await handleBroadcastMenu(ctx, api, ctx.from.id);
@@ -193,12 +209,22 @@ async function main(): Promise<void> {
     }
     const broadcastType = parseBroadcastType(ctx.callbackQuery.data);
     if (broadcastType !== undefined) {
-      await handleBroadcastPreview(ctx, api, ctx.from.id, broadcastType);
+      await handleBroadcastAudiencePicker(ctx, api, ctx.from.id, broadcastType);
       return;
     }
-    const broadcastSendType = parseBroadcastSend(ctx.callbackQuery.data);
-    if (broadcastSendType !== undefined) {
-      await handleBroadcastSend(ctx, api, ctx.from.id, broadcastSendType);
+    const broadcastLevelPickType = parseBroadcastLevelPick(ctx.callbackQuery.data);
+    if (broadcastLevelPickType !== undefined) {
+      await handleBroadcastLevelPick(ctx, api, ctx.from.id, broadcastLevelPickType);
+      return;
+    }
+    const broadcastSelection = parseBroadcastAudience(ctx.callbackQuery.data);
+    if (broadcastSelection !== undefined) {
+      await handleBroadcastPreview(ctx, api, ctx.from.id, broadcastSelection);
+      return;
+    }
+    const broadcastSendSelection = parseBroadcastSend(ctx.callbackQuery.data);
+    if (broadcastSendSelection !== undefined) {
+      await handleBroadcastSend(ctx, api, ctx.from.id, broadcastSendSelection);
       return;
     }
     // Analytics summary (T3.1): admin-gated by the API. Menu entry → server-
@@ -208,8 +234,21 @@ async function main(): Promise<void> {
       await handleStatsMenu(ctx, api, ctx.from.id);
       return;
     }
+    // Client slot filters (T3.2): chips on the available-slots screen. The bot
+    // holds the chosen axes in session state and forwards them to the API, which
+    // applies the filters server-side (it can only narrow the bookable set). No
+    // filtering math runs here.
+    if (await routeSlotFilter(ctx, api)) {
+      return;
+    }
+    // Default menu dispatch. The available-slots handler reads the session
+    // filters so a return to the list keeps the client's chosen narrowing.
     const handler = resolveCallback(ctx.callbackQuery.data);
-    await handler(ctx, deps);
+    await handler(ctx, {
+      managerContact: env.MANAGER_CONTACT,
+      api,
+      slotFilters: ctx.session.slotFilters
+    });
   });
 
   bot.catch((err) => {
@@ -224,6 +263,55 @@ async function main(): Promise<void> {
 
   console.log("BeoSand bot started (long polling)");
   await bot.start();
+}
+
+/**
+ * Route a slot-filter callback (T3.2): open the filtered list, open a sub-picker,
+ * set/clear one axis (persisted in session), or clear all. Re-renders the
+ * filtered slots screen after a state change. Returns true when it handled the
+ * callback so the caller can stop further routing. The bot only forwards the
+ * chosen filters to the API; it never filters locally.
+ */
+async function routeSlotFilter(
+  ctx: BotContext,
+  api: ApiClient
+): Promise<boolean> {
+  const data = ctx.callbackQuery?.data;
+  if (data === undefined) {
+    return false;
+  }
+  const state = ctx.session.slotFilters ?? {};
+  switch (data) {
+    case FILTER_ACTIONS.open:
+      await showFilteredSlots(ctx, api, state);
+      return true;
+    case FILTER_ACTIONS.clear:
+      ctx.session.slotFilters = {};
+      await showFilteredSlots(ctx, api, {});
+      return true;
+    case FILTER_ACTIONS.pickWeekday:
+      await ctx.reply(PICK_WEEKDAY_TEXT, { reply_markup: weekdayPickerKeyboard() });
+      return true;
+    case FILTER_ACTIONS.pickTimeOfDay:
+      await ctx.reply(PICK_TIME_OF_DAY_TEXT, { reply_markup: timeOfDayPickerKeyboard() });
+      return true;
+    case FILTER_ACTIONS.pickTrainer:
+      await showTrainerPicker(ctx, api);
+      return true;
+    case FILTER_ACTIONS.pickLevel:
+      await showLevelPicker(ctx, api);
+      return true;
+    default:
+      break;
+  }
+  const edit = parseFilterSet(data);
+  if (edit !== undefined) {
+    const next = applyFilterEdit(state, edit);
+    ctx.session.slotFilters = next;
+    await showFilteredSlots(ctx, api, next);
+    return true;
+  }
+  return false;
 }
 
 void main();

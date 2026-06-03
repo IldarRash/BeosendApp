@@ -35,6 +35,9 @@ function makeService(repoOverrides: Partial<BroadcastsRepository> = {}): {
   const repo = {
     listSlots: vi.fn().mockResolvedValue([]),
     listActiveRecipients: vi.fn().mockResolvedValue([]),
+    listActiveRecipientsByLevel: vi.fn().mockResolvedValue([]),
+    listActiveRecipientsBookedSince: vi.fn().mockResolvedValue([]),
+    listActiveRecipientsNotBookedSince: vi.fn().mockResolvedValue([]),
     countActiveRecipients: vi.fn().mockResolvedValue(0),
     insertBroadcast: vi.fn().mockResolvedValue({
       id: "22222222-2222-2222-2222-222222222222",
@@ -107,17 +110,83 @@ describe("BroadcastsService", () => {
 
   describe("preview composition", () => {
     it("returns recipient count and renders the price/free seats in text", async () => {
+      const fortyTwo = Array.from({ length: 42 }, (_, i) => ({ telegramId: i + 1 }));
       const { service } = makeService({
         listSlots: vi.fn().mockResolvedValue([slotRow()]) as unknown as
           BroadcastsRepository["listSlots"],
-        countActiveRecipients: vi.fn().mockResolvedValue(42) as unknown as
-          BroadcastsRepository["countActiveRecipients"]
+        listActiveRecipients: vi.fn().mockResolvedValue(fortyTwo) as unknown as
+          BroadcastsRepository["listActiveRecipients"]
       });
 
       const preview = await service.preview(ADMIN_ID, "today");
+      // Default audience (absent) preserves T2.4: every active client.
       expect(preview.recipientsCount).toBe(42);
       expect(preview.text).toContain("1500 RSD");
       expect(preview.text).toContain("5 мест");
+    });
+  });
+
+  describe("audience segments (T3.2)", () => {
+    it("routes 'level' to the level-scoped recipients and counts them in preview", async () => {
+      const levelRecipients = [{ telegramId: 10 }, { telegramId: 11 }];
+      const { service, repo } = makeService({
+        listActiveRecipientsByLevel: vi.fn().mockResolvedValue(levelRecipients) as unknown as
+          BroadcastsRepository["listActiveRecipientsByLevel"]
+      });
+
+      const preview = await service.preview(ADMIN_ID, "today", {
+        kind: "level",
+        levelId: "11111111-1111-1111-1111-111111111111"
+      });
+      expect(preview.recipientsCount).toBe(2);
+      expect(repo.listActiveRecipientsByLevel).toHaveBeenCalledWith(
+        "11111111-1111-1111-1111-111111111111"
+      );
+      expect(repo.listActiveRecipients).not.toHaveBeenCalled();
+    });
+
+    it("sends 'active' to exactly the recent bookers and records that count", async () => {
+      const recent = [{ telegramId: 1 }, { telegramId: 2 }];
+      const { service, repo, sender } = makeService({
+        listSlots: vi.fn().mockResolvedValue([slotRow()]) as unknown as
+          BroadcastsRepository["listSlots"],
+        listActiveRecipientsBookedSince: vi.fn().mockResolvedValue(recent) as unknown as
+          BroadcastsRepository["listActiveRecipientsBookedSince"]
+      });
+
+      await service.send(ADMIN_ID, "today", { kind: "active", days: 30 });
+
+      expect(repo.listActiveRecipientsBookedSince).toHaveBeenCalledTimes(1);
+      expect(sender.sendMessage).toHaveBeenCalledTimes(2);
+      expect(repo.insertBroadcast.mock.calls[0][0].recipientsCount).toBe(2);
+    });
+
+    it("routes 'lapsed' to the not-recently-booked recipients", async () => {
+      const lapsed = [{ telegramId: 7 }];
+      const { service, repo } = makeService({
+        listSlots: vi.fn().mockResolvedValue([slotRow()]) as unknown as
+          BroadcastsRepository["listSlots"],
+        listActiveRecipientsNotBookedSince: vi.fn().mockResolvedValue(lapsed) as unknown as
+          BroadcastsRepository["listActiveRecipientsNotBookedSince"]
+      });
+
+      await service.send(ADMIN_ID, "today", { kind: "lapsed", days: 30 });
+      expect(repo.listActiveRecipientsNotBookedSince).toHaveBeenCalledTimes(1);
+      expect(repo.insertBroadcast.mock.calls[0][0].recipientsCount).toBe(1);
+    });
+
+    it("rejects a non-admin segmented send and reaches nobody", async () => {
+      const { service, repo, sender } = makeService({
+        listActiveRecipientsBookedSince: vi.fn().mockResolvedValue([{ telegramId: 1 }]) as unknown as
+          BroadcastsRepository["listActiveRecipientsBookedSince"]
+      });
+
+      await expect(
+        service.send(NON_ADMIN_ID, "today", { kind: "active", days: 30 })
+      ).rejects.toBeInstanceOf(ForbiddenException);
+      expect(repo.listActiveRecipientsBookedSince).not.toHaveBeenCalled();
+      expect(repo.insertBroadcast).not.toHaveBeenCalled();
+      expect(sender.sendMessage).not.toHaveBeenCalled();
     });
   });
 

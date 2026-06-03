@@ -21,26 +21,29 @@ import { BroadcastsService } from "./broadcasts.service";
 export class BroadcastsController {
   constructor(private readonly broadcasts: BroadcastsService) {}
 
-  /** Admin: preview the free-slot broadcast for a type. Admin gate is in the service. */
+  /** Admin: preview the free-slot broadcast for a type + audience. Gate in service. */
   @Get("preview")
   preview(
     @Headers("x-telegram-id") telegramIdHeader: string | undefined,
     @Query() query: unknown
   ): Promise<BroadcastPreview> {
     const actorTelegramId = parseTelegramId(telegramIdHeader);
-    const { type } = validate(broadcastPreviewQuerySchema, query ?? {});
-    return this.broadcasts.preview(actorTelegramId, type);
+    const { type, audience } = validate(
+      broadcastPreviewQuerySchema,
+      coerceAudienceQuery(query ?? {})
+    );
+    return this.broadcasts.preview(actorTelegramId, type, audience);
   }
 
-  /** Admin: send the free-slot broadcast; writes one broadcasts row. Gate in service. */
+  /** Admin: send the free-slot broadcast to an audience; writes one broadcasts row. */
   @Post("send")
   send(
     @Headers("x-telegram-id") telegramIdHeader: string | undefined,
     @Body() body: unknown
   ): Promise<Broadcast> {
     const actorTelegramId = parseTelegramId(telegramIdHeader);
-    const { type } = validate(sendBroadcastSchema, body ?? {});
-    return this.broadcasts.send(actorTelegramId, type);
+    const { type, audience } = validate(sendBroadcastSchema, body ?? {});
+    return this.broadcasts.send(actorTelegramId, type, audience);
   }
 }
 
@@ -51,6 +54,30 @@ function parseTelegramId(header: string | undefined): number {
     throw new BadRequestException("Missing or invalid x-telegram-id header");
   }
   return value;
+}
+
+/**
+ * On the preview GET the `audience` segment arrives as a JSON-encoded query
+ * string (a structured discriminated union can't ride a flat query). Decode it
+ * to an object so Zod can validate the union; leave a non-string (e.g. an object
+ * from a direct unit-test call) and an absent audience untouched. A malformed
+ * JSON string surfaces as a 400.
+ */
+function coerceAudienceQuery(query: unknown): unknown {
+  if (typeof query !== "object" || query === null) {
+    return query;
+  }
+  const record = query as Record<string, unknown>;
+  if (typeof record.audience !== "string") {
+    return query;
+  }
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(record.audience);
+  } catch {
+    throw new BadRequestException("Invalid audience query parameter");
+  }
+  return { ...record, audience: parsed };
 }
 
 /** Zod-validate at the boundary; surface failures as 400 instead of 500. */

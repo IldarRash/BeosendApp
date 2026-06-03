@@ -1,9 +1,12 @@
 import { describe, expect, it } from "vitest";
 import {
+  broadcastAudienceSchema,
   broadcastPreviewQuerySchema,
   broadcastPreviewSchema,
   sendBroadcastSchema
 } from "./training-contracts";
+
+const LEVEL_ID = "11111111-1111-1111-1111-111111111111";
 
 describe("broadcast contracts", () => {
   describe("broadcastPreviewQuerySchema", () => {
@@ -65,6 +68,67 @@ describe("broadcast contracts", () => {
         recipientsCount: -1
       });
       expect(result.success).toBe(false);
+    });
+  });
+
+  describe("broadcastAudienceSchema (T3.2)", () => {
+    it("accepts each variant", () => {
+      expect(broadcastAudienceSchema.safeParse({ kind: "all" }).success).toBe(true);
+      expect(
+        broadcastAudienceSchema.safeParse({ kind: "level", levelId: LEVEL_ID }).success
+      ).toBe(true);
+      expect(broadcastAudienceSchema.safeParse({ kind: "active", days: 30 }).success).toBe(true);
+      expect(broadcastAudienceSchema.safeParse({ kind: "lapsed", days: 30 }).success).toBe(true);
+    });
+
+    it("rejects an unknown kind", () => {
+      expect(broadcastAudienceSchema.safeParse({ kind: "vip" }).success).toBe(false);
+    });
+
+    it("requires the variant's own fields", () => {
+      expect(broadcastAudienceSchema.safeParse({ kind: "level" }).success).toBe(false);
+      expect(broadcastAudienceSchema.safeParse({ kind: "active" }).success).toBe(false);
+      expect(broadcastAudienceSchema.safeParse({ kind: "level", levelId: "nope" }).success).toBe(
+        false
+      );
+    });
+
+    it("bounds the days window to 1..365", () => {
+      expect(broadcastAudienceSchema.safeParse({ kind: "active", days: 0 }).success).toBe(false);
+      expect(broadcastAudienceSchema.safeParse({ kind: "active", days: 366 }).success).toBe(false);
+      expect(broadcastAudienceSchema.safeParse({ kind: "active", days: 1.5 }).success).toBe(false);
+    });
+
+    it("rejects unknown fields within a variant", () => {
+      expect(
+        broadcastAudienceSchema.safeParse({ kind: "all", extra: 1 }).success
+      ).toBe(false);
+    });
+  });
+
+  describe("audience on preview/send", () => {
+    it("accepts preview/send with an audience", () => {
+      expect(
+        broadcastPreviewQuerySchema.safeParse({
+          type: "today",
+          audience: { kind: "level", levelId: LEVEL_ID }
+        }).success
+      ).toBe(true);
+      expect(
+        sendBroadcastSchema.safeParse({ type: "week", audience: { kind: "active", days: 30 } })
+          .success
+      ).toBe(true);
+    });
+
+    it("accepts preview/send without an audience (defaults to all)", () => {
+      expect(broadcastPreviewQuerySchema.safeParse({ type: "today" }).success).toBe(true);
+      expect(sendBroadcastSchema.safeParse({ type: "today" }).success).toBe(true);
+    });
+
+    it("rejects an invalid audience on send", () => {
+      expect(
+        sendBroadcastSchema.safeParse({ type: "today", audience: { kind: "vip" } }).success
+      ).toBe(false);
     });
   });
 });

@@ -85,7 +85,12 @@ class FakeTrainingsRepository {
   // Mirrors the real SQL: open + free seats + active joins, in [from, to],
   // optional level filter, ordered by date then start time.
   available: AvailableSlotRow[] = [];
-  async listAvailable(from: string, to: string, levelId?: string): Promise<AvailableSlotRow[]> {
+  async listAvailable(
+    from: string,
+    to: string,
+    levelId?: string,
+    trainerId?: string
+  ): Promise<AvailableSlotRow[]> {
     return this.available
       .filter(
         (r) =>
@@ -93,7 +98,8 @@ class FakeTrainingsRepository {
           r.date <= to &&
           r.status === "open" &&
           r.bookedCount < r.capacity &&
-          (!levelId || r.levelName === levelId)
+          (!levelId || r.levelId === levelId) &&
+          (!trainerId || r.trainerId === trainerId)
       )
       .sort((a, b) => a.date.localeCompare(b.date) || a.startTime.localeCompare(b.startTime));
   }
@@ -220,12 +226,16 @@ describe("TrainingsService", () => {
   describe("listAvailable", () => {
     // today is 2026-06-03 (see workflow context); these dates fall in the
     // default today..today+14 window.
+    const TRAINER_A = "33333333-3333-3333-3333-333333333333";
+    const LEVEL_A = "22222222-2222-2222-2222-222222222222";
     const slot = (over: Partial<AvailableSlotRow>): AvailableSlotRow => ({
       trainingId: "aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa",
       date: "2026-06-05",
       startTime: "20:00",
       endTime: "21:30",
+      trainerId: TRAINER_A,
       trainerName: "Coach",
+      levelId: LEVEL_A,
       levelName: "Intermediate",
       capacity: 6,
       bookedCount: 2,
@@ -287,14 +297,49 @@ describe("TrainingsService", () => {
       ).rejects.toBeInstanceOf(BadRequestException);
     });
 
-    it("passes the levelId filter through to the repository", async () => {
+    it("passes the levelId and trainerId filters through to the repository", async () => {
       const spy = vi.spyOn(trainingsRepo, "listAvailable");
-      await service.listAvailable({ levelId: "22222222-2222-2222-2222-222222222222" });
+      await service.listAvailable({
+        levelId: "22222222-2222-2222-2222-222222222222",
+        trainerId: TRAINER_A
+      });
       expect(spy).toHaveBeenCalledWith(
         expect.any(String),
         expect.any(String),
-        "22222222-2222-2222-2222-222222222222"
+        "22222222-2222-2222-2222-222222222222",
+        TRAINER_A
       );
+    });
+
+    it("narrows by weekday (T3.2) and never returns a non-matching slot", async () => {
+      // 2026-06-05 is Friday (5); 2026-06-08 is Monday (1).
+      trainingsRepo.available = [
+        slot({ trainingId: "bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb", date: "2026-06-05" }),
+        slot({ trainingId: "cccccccc-cccc-cccc-cccc-cccccccccccc", date: "2026-06-08" })
+      ];
+      const cards = await service.listAvailable({ weekday: 1 });
+      expect(cards).toHaveLength(1);
+      expect(cards[0].dayOfWeek).toBe(1);
+    });
+
+    it("narrows by timeOfDay (T3.2)", async () => {
+      trainingsRepo.available = [
+        slot({ trainingId: "bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb", startTime: "09:00" }),
+        slot({ trainingId: "cccccccc-cccc-cccc-cccc-cccccccccccc", startTime: "20:00" })
+      ];
+      const morning = await service.listAvailable({ timeOfDay: "morning" });
+      expect(morning.map((c) => c.startTime)).toEqual(["09:00"]);
+      const evening = await service.listAvailable({ timeOfDay: "evening" });
+      expect(evening.map((c) => c.startTime)).toEqual(["20:00"]);
+    });
+
+    it("returns an empty list when a filter matches nothing — never a non-bookable slot", async () => {
+      trainingsRepo.available = [
+        slot({ status: "cancelled", bookedCount: 0 }),
+        slot({ trainingId: "cccccccc-cccc-cccc-cccc-cccccccccccc", date: "2026-06-05" })
+      ];
+      // weekday 2 (Tuesday) matches neither; the cancelled slot is excluded by isBookable.
+      expect(await service.listAvailable({ weekday: 2 })).toHaveLength(0);
     });
 
     // Defence in depth: the bot must only ever receive contract-valid cards.

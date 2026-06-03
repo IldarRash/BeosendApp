@@ -19,6 +19,7 @@ import {
   type AvailableSlotsQuery,
   type Booking,
   type Broadcast,
+  type BroadcastAudience,
   type BroadcastPreview,
   type BroadcastType,
   type Client,
@@ -195,6 +196,12 @@ export class ApiClient {
    * window, with server-computed free seats and RSD prices. Public read — same
    * catalogue for every client, no per-user data — so no auth header is sent.
    * The bot only displays these cards; it never computes seats or price.
+   *
+   * T3.2: the query may also carry `weekday`, `timeOfDay` and `trainerId`
+   * filters (on top of `levelId`/`from`/`to`). The bot only forwards the chosen
+   * filters; the API applies them server-side and can only ever *narrow* the
+   * bookable set — a filter never surfaces a non-bookable slot. No filtering
+   * math runs here.
    */
   listAvailableSlots(query: AvailableSlotsQuery = {}): Promise<SlotCard[]> {
     const params = new URLSearchParams();
@@ -206,6 +213,15 @@ export class ApiClient {
     }
     if (query.levelId) {
       params.set("levelId", query.levelId);
+    }
+    if (query.weekday !== undefined) {
+      params.set("weekday", String(query.weekday));
+    }
+    if (query.timeOfDay) {
+      params.set("timeOfDay", query.timeOfDay);
+    }
+    if (query.trainerId) {
+      params.set("trainerId", query.trainerId);
     }
     const qs = params.toString();
     return this.request(`/trainings/available${qs ? `?${qs}` : ""}`, slotCardsSchema);
@@ -417,12 +433,22 @@ export class ApiClient {
    * not an admin) resolves to null so the bot can hide the broadcast UI instead of
    * erroring; non-admins never see a preview. The preview never books and never
    * writes a broadcasts row. The bot only renders what it returns.
+   *
+   * T3.2: an optional `audience` segment (`all`/`level`/`active`/`lapsed`)
+   * narrows the recipient set. Absent ⇒ the API defaults to `{ kind: "all" }`
+   * (T2.4 behaviour). The bot only forwards the chosen segment; the API resolves
+   * it to active clients and reports the exact `recipientsCount`.
    */
   async previewBroadcast(
     type: BroadcastType,
-    adminTelegramId: number
+    adminTelegramId: number,
+    audience?: BroadcastAudience
   ): Promise<BroadcastPreview | null> {
-    const res = await fetch(`${this.baseUrl}/broadcasts/preview?type=${type}`, {
+    const params = new URLSearchParams({ type });
+    if (audience) {
+      params.set("audience", JSON.stringify(audience));
+    }
+    const res = await fetch(`${this.baseUrl}/broadcasts/preview?${params.toString()}`, {
       headers: {
         "content-type": "application/json",
         "x-telegram-id": String(adminTelegramId)
@@ -445,15 +471,24 @@ export class ApiClient {
    * broadcasts row — all server-side. A 403 (caller is not an admin) resolves to
    * null so the bot can refuse instead of erroring. The bot only renders the
    * resulting row's recipient count; it never sends or books.
+   *
+   * T3.2: an optional `audience` segment narrows the recipient set (absent ⇒ the
+   * API defaults to `{ kind: "all" }`, preserving T2.4). The bot only forwards
+   * the chosen segment; the API re-resolves it to active clients server-side and
+   * records the dispatched count. Admin gating stays in the service.
    */
-  async sendBroadcast(type: BroadcastType, adminTelegramId: number): Promise<Broadcast | null> {
+  async sendBroadcast(
+    type: BroadcastType,
+    adminTelegramId: number,
+    audience?: BroadcastAudience
+  ): Promise<Broadcast | null> {
     const res = await fetch(`${this.baseUrl}/broadcasts/send`, {
       method: "POST",
       headers: {
         "content-type": "application/json",
         "x-telegram-id": String(adminTelegramId)
       },
-      body: JSON.stringify({ type })
+      body: JSON.stringify(audience ? { type, audience } : { type })
     });
     if (res.status === 403) {
       return null;

@@ -1,5 +1,5 @@
 import { COURT_RATE_RSD_PER_HOUR, type CourtDurationHours } from "./court-contracts";
-import type { DayOfWeek } from "./common";
+import type { DayOfWeek, TimeOfDay } from "./common";
 import type { TrainingStatus } from "./training-contracts";
 
 /**
@@ -100,4 +100,50 @@ export function safeRatio(part: number, total: number): number {
  */
 export function averageFillRate(totalBooked: number, totalCapacity: number): number {
   return safeRatio(totalBooked, totalCapacity);
+}
+
+// --- Client slot filters (T3.2, ТЗ §19) ---
+
+/**
+ * Map a "HH:MM" start time to its coarse time-of-day band (T3.2). The single
+ * tested place for the boundary rule: morning <12:00, afternoon 12:00–16:59,
+ * evening ≥17:00. Only the hour matters.
+ */
+export function timeOfDayOf(startTime: string): TimeOfDay {
+  const hour = Number(startTime.slice(0, 2));
+  if (hour < 12) return "morning";
+  if (hour < 17) return "afternoon";
+  return "evening";
+}
+
+/** The slot-identifying fields a filter predicate narrows over (T3.2). */
+export interface FilterableSlot {
+  dayOfWeek: DayOfWeek;
+  startTime: string;
+  trainerId: string;
+  levelId: string;
+}
+
+/** Optional client filters; an absent field means "no narrowing on that axis". */
+export interface SlotFilters {
+  weekday?: DayOfWeek;
+  timeOfDay?: TimeOfDay;
+  trainerId?: string;
+  levelId?: string;
+}
+
+/**
+ * Pure predicate: does a bookable slot match every supplied filter (T3.2)?
+ * A filter can only ever *narrow* the set — an absent filter axis is ignored,
+ * never widening visibility. Time-of-day is derived via `timeOfDayOf` so the
+ * boundary rule lives in one tested place.
+ */
+export function matchesSlotFilters(slot: FilterableSlot, filters: SlotFilters): boolean {
+  if (filters.weekday !== undefined && slot.dayOfWeek !== filters.weekday) return false;
+  if (filters.timeOfDay !== undefined && timeOfDayOf(slot.startTime) !== filters.timeOfDay) {
+    return false;
+  }
+  if (filters.trainerId !== undefined && slot.trainerId !== filters.trainerId) return false;
+  if (filters.levelId !== undefined && slot.levelId !== filters.levelId) return false;
+  return true;
 }

@@ -73,6 +73,19 @@ describe("ApiClient.listAvailableSlots", () => {
     expect(url.searchParams.has("to")).toBe(false);
   });
 
+  it("forwards the T3.2 weekday/timeOfDay/trainerId filters as query params", async () => {
+    const fetchMock = mockFetch([]);
+    await new ApiClient("http://api.test").listAvailableSlots({
+      weekday: 3,
+      timeOfDay: "evening",
+      trainerId: "33333333-3333-3333-3333-333333333333"
+    });
+    const url = new URL(fetchMock.mock.calls[0][0] as string);
+    expect(url.searchParams.get("weekday")).toBe("3");
+    expect(url.searchParams.get("timeOfDay")).toBe("evening");
+    expect(url.searchParams.get("trainerId")).toBe("33333333-3333-3333-3333-333333333333");
+  });
+
   it("returns an empty list unchanged (the empty-catalogue case)", async () => {
     mockFetch([]);
     await expect(new ApiClient("http://api.test").listAvailableSlots()).resolves.toEqual([]);
@@ -473,6 +486,26 @@ describe("ApiClient.previewBroadcast", () => {
     expect((init.headers as Record<string, string>)["x-telegram-id"]).toBe("777");
   });
 
+  it("encodes the T3.2 audience segment as a JSON query param", async () => {
+    const fetchMock = mockFetch(broadcastPreviewBody);
+    await new ApiClient("http://api.test").previewBroadcast("today", 777, {
+      kind: "active",
+      days: 30
+    });
+    const url = new URL(fetchMock.mock.calls[0][0] as string);
+    expect(JSON.parse(url.searchParams.get("audience") ?? "null")).toEqual({
+      kind: "active",
+      days: 30
+    });
+  });
+
+  it("omits the audience param when no segment is given (T2.4 default)", async () => {
+    const fetchMock = mockFetch(broadcastPreviewBody);
+    await new ApiClient("http://api.test").previewBroadcast("today", 777);
+    const url = new URL(fetchMock.mock.calls[0][0] as string);
+    expect(url.searchParams.has("audience")).toBe(false);
+  });
+
   // Admin gating: a non-admin is a 403, mapped to null so the bot hides the UI.
   it("maps a 403 (not an admin) to null rather than throwing", async () => {
     mockFetch({}, false, 403);
@@ -510,6 +543,19 @@ describe("ApiClient.sendBroadcast", () => {
     expect(init.method).toBe("POST");
     expect((init.headers as Record<string, string>)["x-telegram-id"]).toBe("777");
     expect(JSON.parse(init.body as string)).toEqual({ type: "today" });
+  });
+
+  it("includes the T3.2 audience segment in the send body when given", async () => {
+    const fetchMock = mockFetch(broadcastRow);
+    await new ApiClient("http://api.test").sendBroadcast("week", 777, {
+      kind: "level",
+      levelId: "44444444-4444-4444-4444-444444444444"
+    });
+    const [, init] = fetchMock.mock.calls[0] as [string, RequestInit];
+    expect(JSON.parse(init.body as string)).toEqual({
+      type: "week",
+      audience: { kind: "level", levelId: "44444444-4444-4444-4444-444444444444" }
+    });
   });
 
   // Unsafe path: a non-admin send is a 403, mapped to null — no broadcast UI.

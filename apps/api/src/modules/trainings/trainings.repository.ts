@@ -14,7 +14,9 @@ export interface AvailableSlotRow {
   date: string;
   startTime: string;
   endTime: string;
+  trainerId: string;
   trainerName: string;
+  levelId: string;
   levelName: string;
   capacity: number;
   bookedCount: number;
@@ -103,7 +105,12 @@ export class TrainingsRepository {
    * Joins to carry trainer/level names and the group's single price; ordered by
    * date then start time. Defence-in-depth (isBookable) lives in the service.
    */
-  async listAvailable(from: string, to: string, levelId?: string): Promise<AvailableSlotRow[]> {
+  async listAvailable(
+    from: string,
+    to: string,
+    levelId?: string,
+    trainerId?: string
+  ): Promise<AvailableSlotRow[]> {
     const filters = [
       gte(tables.trainings.date, from),
       lte(tables.trainings.date, to),
@@ -117,6 +124,9 @@ export class TrainingsRepository {
     if (levelId) {
       filters.push(eq(tables.groups.levelId, levelId));
     }
+    if (trainerId) {
+      filters.push(eq(tables.trainings.trainerId, trainerId));
+    }
 
     const rows = await this.database.db
       .select({
@@ -124,7 +134,9 @@ export class TrainingsRepository {
         date: tables.trainings.date,
         startTime: tables.trainings.startTime,
         endTime: tables.trainings.endTime,
+        trainerId: tables.trainings.trainerId,
         trainerName: tables.trainers.name,
+        levelId: tables.groups.levelId,
         levelName: tables.levels.name,
         capacity: tables.trainings.capacity,
         bookedCount: tables.trainings.bookedCount,
