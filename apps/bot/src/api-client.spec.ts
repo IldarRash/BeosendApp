@@ -1,6 +1,20 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-import type { SlotCard } from "@beosand/types";
+import type { Booking, SlotCard } from "@beosand/types";
 import { ApiClient } from "./api-client";
+
+const CLIENT_ID = "22222222-2222-2222-2222-222222222222";
+const TRAINING_ID = "11111111-1111-1111-1111-111111111111";
+
+const booking: Booking = {
+  id: "33333333-3333-3333-3333-333333333333",
+  clientId: CLIENT_ID,
+  trainingId: TRAINING_ID,
+  type: "single",
+  groupSubscriptionId: null,
+  createdAt: "2026-06-03T10:00:00.000Z",
+  status: "booked",
+  source: "telegram"
+};
 
 const card: SlotCard = {
   trainingId: "11111111-1111-1111-1111-111111111111",
@@ -74,5 +88,59 @@ describe("ApiClient.listAvailableSlots", () => {
   it("throws on a non-2xx response (surfaces the API failure)", async () => {
     mockFetch({}, false, 500);
     await expect(new ApiClient("http://api.test").listAvailableSlots()).rejects.toThrow(/500/);
+  });
+});
+
+describe("ApiClient.createSingleBooking", () => {
+  afterEach(() => {
+    vi.unstubAllGlobals();
+  });
+
+  it("POSTs the IDs with the caller's telegram id and returns a contract-valid booking", async () => {
+    const fetchMock = mockFetch(booking, true, 201);
+    const result = await new ApiClient("http://api.test").createSingleBooking(
+      { clientId: CLIENT_ID, trainingId: TRAINING_ID },
+      999
+    );
+    expect(result).toEqual({ ok: true, booking });
+    const [url, init] = fetchMock.mock.calls[0] as [string, RequestInit];
+    expect(url).toBe("http://api.test/bookings/single");
+    expect(init.method).toBe("POST");
+    expect((init.headers as Record<string, string>)["x-telegram-id"]).toBe("999");
+    expect(JSON.parse(init.body as string)).toEqual({
+      clientId: CLIENT_ID,
+      trainingId: TRAINING_ID
+    });
+  });
+
+  // Unsafe path: a 409 (full/cancelled or duplicate) is mapped to a distinct
+  // conflict result so the handler can branch to the waitlist instead of erroring.
+  it("maps a 409 to a conflict result rather than throwing", async () => {
+    mockFetch({}, false, 409);
+    const result = await new ApiClient("http://api.test").createSingleBooking(
+      { clientId: CLIENT_ID, trainingId: TRAINING_ID },
+      999
+    );
+    expect(result).toEqual({ ok: false, reason: "conflict" });
+  });
+
+  it("throws on any other non-2xx (e.g. 403 foreign client)", async () => {
+    mockFetch({}, false, 403);
+    await expect(
+      new ApiClient("http://api.test").createSingleBooking(
+        { clientId: CLIENT_ID, trainingId: TRAINING_ID },
+        999
+      )
+    ).rejects.toThrow(/403/);
+  });
+
+  it("rejects a 2xx body that violates the Booking contract", async () => {
+    mockFetch({ ...booking, status: "nonsense" }, true, 201);
+    await expect(
+      new ApiClient("http://api.test").createSingleBooking(
+        { clientId: CLIENT_ID, trainingId: TRAINING_ID },
+        999
+      )
+    ).rejects.toThrow();
   });
 });

@@ -144,10 +144,13 @@ export const bookingSchema = z.object({
 });
 export type Booking = z.infer<typeof bookingSchema>;
 
-export const createSingleBookingSchema = z.object({
-  clientId: uuid,
-  trainingId: uuid
-});
+export const createSingleBookingSchema = z
+  .object({
+    clientId: uuid,
+    trainingId: uuid
+  })
+  .strict();
+export type CreateSingleBookingInput = z.infer<typeof createSingleBookingSchema>;
 export const createGroupBookingSchema = z.object({
   clientId: uuid,
   groupId: uuid,

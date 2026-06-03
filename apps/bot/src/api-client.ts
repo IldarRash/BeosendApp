@@ -1,4 +1,5 @@
 import {
+  bookingSchema,
   clientSchema,
   groupSchema,
   levelSchema,
@@ -6,7 +7,9 @@ import {
   trainerSchema,
   trainingSchema,
   type AvailableSlotsQuery,
+  type Booking,
   type Client,
+  type CreateSingleBookingInput,
   type GenerateMonthInput,
   type Group,
   type Level,
@@ -19,6 +22,15 @@ import {
 import { z } from "zod";
 
 const healthSchema = z.object({ status: z.literal("ok"), service: z.string() });
+
+/**
+ * Discriminated outcome of a single-booking attempt. `conflict` maps the API's
+ * 409 (slot full/cancelled, or already booked) to the bot's waitlist/full
+ * branch; any other non-2xx is a real error and throws.
+ */
+export type CreateSingleBookingResult =
+  | { ok: true; booking: Booking }
+  | { ok: false; reason: "conflict" };
 
 const levelsSchema = z.array(levelSchema);
 const trainersSchema = z.array(trainerSchema);
@@ -155,6 +167,36 @@ export class ApiClient {
     }
     const qs = params.toString();
     return this.request(`/trainings/available${qs ? `?${qs}` : ""}`, slotCardsSchema);
+  }
+
+  /**
+   * Book a single training seat (T1.8). Ownership and capacity are enforced
+   * server-side; the bot only forwards the IDs and renders the outcome. A 409
+   * (slot full/cancelled, or already booked) is surfaced as a distinct result so
+   * the handler can branch to the waitlist/full message instead of a generic
+   * error. The actor's telegram_id is the identity the API re-resolves the
+   * client from; clientId/trainingId are never trusted on their own.
+   */
+  async createSingleBooking(
+    input: CreateSingleBookingInput,
+    actorTelegramId: number
+  ): Promise<CreateSingleBookingResult> {
+    const res = await fetch(`${this.baseUrl}/bookings/single`, {
+      method: "POST",
+      headers: {
+        "content-type": "application/json",
+        "x-telegram-id": String(actorTelegramId)
+      },
+      body: JSON.stringify(input)
+    });
+    if (res.status === 409) {
+      // Slot is full/cancelled or already booked: the caller offers the waitlist.
+      return { ok: false, reason: "conflict" };
+    }
+    if (!res.ok) {
+      throw new Error(`API /bookings/single failed: ${res.status}`);
+    }
+    return { ok: true, booking: bookingSchema.parse(await res.json()) };
   }
 
   /** Admin-only (deferred to the admin UI): list trainings in a date range. */

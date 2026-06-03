@@ -1,0 +1,107 @@
+import { Injectable } from "@nestjs/common";
+import { type Database, tables } from "@beosand/db";
+import type { Booking, TrainingStatus } from "@beosand/types";
+import { and, eq } from "drizzle-orm";
+import { DatabaseService } from "../../db/database.service";
+
+type BookingRow = typeof tables.bookings.$inferSelect;
+type NewBookingRow = typeof tables.bookings.$inferInsert;
+
+/** A training row's capacity state, read FOR UPDATE so recompute is race-safe. */
+export interface TrainingLockRow {
+  id: string;
+  capacity: number;
+  bookedCount: number;
+  status: TrainingStatus;
+}
+
+/** Only place bookings DB access lives. Returns typed rows; no business rules. */
+@Injectable()
+export class BookingsRepository {
+  constructor(private readonly database: DatabaseService) {}
+
+  /** Run a transaction with the bookings repo's DB handle. */
+  transaction<T>(work: (tx: Database) => Promise<T>): Promise<T> {
+    return this.database.db.transaction(work);
+  }
+
+  /**
+   * The training row selected FOR UPDATE so the concurrent capacity/status
+   * recompute that follows cannot oversell the slot. Caller must hold a tx.
+   */
+  async findTrainingForUpdate(tx: Database, trainingId: string): Promise<TrainingLockRow | undefined> {
+    const [row] = await tx
+      .select({
+        id: tables.trainings.id,
+        capacity: tables.trainings.capacity,
+        bookedCount: tables.trainings.bookedCount,
+        status: tables.trainings.status
+      })
+      .from(tables.trainings)
+      .where(eq(tables.trainings.id, trainingId))
+      .limit(1)
+      .for("update");
+    return row;
+  }
+
+  /** An existing active ('booked') booking for this client + training — drives the duplicate check. */
+  async findActiveBookingForClient(
+    tx: Database,
+    clientId: string,
+    trainingId: string
+  ): Promise<Booking | undefined> {
+    const [row] = await tx
+      .select()
+      .from(tables.bookings)
+      .where(
+        and(
+          eq(tables.bookings.clientId, clientId),
+          eq(tables.bookings.trainingId, trainingId),
+          eq(tables.bookings.status, "booked")
+        )
+      )
+      .limit(1);
+    return row ? toBooking(row) : undefined;
+  }
+
+  /** Insert one booking inside the caller's transaction; returns the created row. */
+  async insertBooking(tx: Database, values: NewBookingRow): Promise<Booking> {
+    const [row] = await tx.insert(tables.bookings).values(values).returning();
+    return toBooking(row);
+  }
+
+  /** Persist the recomputed capacity/status onto the training inside the caller's transaction. */
+  async updateTrainingCount(
+    tx: Database,
+    trainingId: string,
+    bookedCount: number,
+    status: TrainingStatus
+  ): Promise<void> {
+    await tx
+      .update(tables.trainings)
+      .set({ bookedCount, status })
+      .where(eq(tables.trainings.id, trainingId));
+  }
+}
+
+/** The DB returns `createdAt` as a Date; the contract wants an ISO string. */
+function toBooking(row: BookingRow): Booking {
+  return {
+    id: row.id,
+    clientId: row.clientId,
+    trainingId: row.trainingId,
+    type: row.type,
+    groupSubscriptionId: row.groupSubscriptionId,
+    createdAt: row.createdAt.toISOString(),
+    status: row.status,
+    source: bookingSourceOf(row.source)
+  };
+}
+
+/** `source` is a free-text column; the contract only permits "telegram". */
+function bookingSourceOf(source: string): "telegram" {
+  if (source !== "telegram") {
+    throw new Error(`Unexpected booking source "${source}"`);
+  }
+  return source;
+}

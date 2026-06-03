@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import {
   availableSlotsQuerySchema,
   createGroupSchema,
+  createSingleBookingSchema,
   generateMonthSchema,
   listTrainingsQuerySchema,
   updateGroupSchema
@@ -137,5 +138,37 @@ describe("availableSlotsQuerySchema", () => {
   it("rejects a malformed date or non-uuid levelId", () => {
     expect(availableSlotsQuerySchema.safeParse({ from: "07-01-2026" }).success).toBe(false);
     expect(availableSlotsQuerySchema.safeParse({ levelId: "nope" }).success).toBe(false);
+  });
+});
+
+describe("createSingleBookingSchema", () => {
+  const validBody = {
+    clientId: "11111111-1111-1111-1111-111111111111",
+    trainingId: "22222222-2222-2222-2222-222222222222"
+  };
+
+  it("accepts a valid clientId + trainingId body", () => {
+    expect(createSingleBookingSchema.safeParse(validBody).success).toBe(true);
+  });
+
+  it("rejects a missing field", () => {
+    expect(createSingleBookingSchema.safeParse({ clientId: validBody.clientId }).success).toBe(
+      false
+    );
+    expect(createSingleBookingSchema.safeParse({ trainingId: validBody.trainingId }).success).toBe(
+      false
+    );
+  });
+
+  it("rejects a non-uuid id", () => {
+    expect(createSingleBookingSchema.safeParse({ ...validBody, clientId: "nope" }).success).toBe(
+      false
+    );
+  });
+
+  it("rejects unknown fields (strict)", () => {
+    expect(createSingleBookingSchema.safeParse({ ...validBody, source: "web" }).success).toBe(
+      false
+    );
   });
 });

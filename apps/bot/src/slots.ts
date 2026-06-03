@@ -1,6 +1,6 @@
 import { InlineKeyboard } from "grammy";
 import type { DayOfWeek, SlotCard } from "@beosand/types";
-import { backHomeKeyboard } from "./menu";
+import { backHomeKeyboard, MENU_ACTIONS, NAV_ACTIONS } from "./menu";
 
 /**
  * Available slots screen (T1.5). Pure render/keyboard helpers kept here so they
@@ -9,15 +9,22 @@ import { backHomeKeyboard } from "./menu";
  * computed here.
  */
 
-/** Per-slot "Записаться" action. Booking itself lands in T1.8. */
+/** Per-slot booking actions (T1.8). Payloads carry only the trainingId. */
 export const SLOT_ACTIONS = {
-  /** Build with bookStartData(trainingId); matched by the namespace prefix. */
-  bookStartPrefix: "book:start:"
+  /** Tap on a slot card → show the confirmation card. */
+  bookStartPrefix: "book:start:",
+  /** Tap "Подтвердить" on the confirmation card → create the booking. */
+  bookConfirmPrefix: "book:confirm:"
 } as const;
 
 /** prefix (11 bytes) + uuid (36 bytes) = 47 bytes, well under Telegram's 64. */
 export function bookStartData(trainingId: string): string {
   return `${SLOT_ACTIONS.bookStartPrefix}${trainingId}`;
+}
+
+/** prefix (13 bytes) + uuid (36 bytes) = 49 bytes, under Telegram's 64. */
+export function bookConfirmData(trainingId: string): string {
+  return `${SLOT_ACTIONS.bookConfirmPrefix}${trainingId}`;
 }
 
 /** Resolve a callback to the trainingId, or undefined if it's not a book:start action. */
@@ -26,6 +33,14 @@ export function parseBookStart(data: string | undefined): string | undefined {
     return undefined;
   }
   return data.slice(SLOT_ACTIONS.bookStartPrefix.length);
+}
+
+/** Resolve a callback to the trainingId, or undefined if it's not a book:confirm action. */
+export function parseBookConfirm(data: string | undefined): string | undefined {
+  if (data === undefined || !data.startsWith(SLOT_ACTIONS.bookConfirmPrefix)) {
+    return undefined;
+  }
+  return data.slice(SLOT_ACTIONS.bookConfirmPrefix.length);
 }
 
 const WEEKDAY_LABELS: Record<DayOfWeek, string> = {
@@ -73,13 +88,81 @@ export function slotsKeyboard(cards: SlotCard[]): InlineKeyboard {
     keyboard.text(label, bookStartData(card.trainingId)).row();
   }
   // Reuse the standard footer (back + home).
-  for (const row of backHomeKeyboard().inline_keyboard) {
-    keyboard.row();
+  appendKeyboard(keyboard, backHomeKeyboard());
+  return keyboard;
+}
+
+/** Copy another keyboard's text buttons onto `target` as fresh rows. */
+function appendKeyboard(target: InlineKeyboard, source: InlineKeyboard): void {
+  for (const row of source.inline_keyboard) {
+    target.row();
     for (const button of row) {
       if ("callback_data" in button && button.callback_data !== undefined) {
-        keyboard.text(button.text, button.callback_data);
+        target.text(button.text, button.callback_data);
       }
     }
   }
+}
+
+export const SLOT_NOT_FOUND_TEXT =
+  "Эта тренировка больше недоступна. Выберите другую из списка.";
+
+/**
+ * Confirmation card (step 2 of 3): the same human-readable details as the slot
+ * line, framed as a confirmation. All values are server-provided.
+ */
+export function renderConfirmText(card: SlotCard): string {
+  return [
+    "Подтвердите запись:",
+    "",
+    formatSlotLine(card),
+    "",
+    "Нажмите «Подтвердить запись», чтобы записаться."
+  ].join("\n");
+}
+
+/** "Подтвердить запись" (carrying the trainingId) plus the back/home footer. */
+export function confirmBookingKeyboard(trainingId: string): InlineKeyboard {
+  const keyboard = new InlineKeyboard()
+    .text("✅ Подтвердить запись", bookConfirmData(trainingId))
+    .row();
+  appendKeyboard(keyboard, backHomeKeyboard());
   return keyboard;
+}
+
+export function renderBookingSuccessText(card: SlotCard): string {
+  return [
+    "✅ Вы записаны!",
+    "",
+    formatSlotLine(card),
+    "",
+    "Мы пришлём напоминание перед тренировкой."
+  ].join("\n");
+}
+
+/** Post-booking footer: my bookings / more trainings / main menu. */
+export function bookingSuccessKeyboard(): InlineKeyboard {
+  return new InlineKeyboard()
+    .text("📋 Мои записи", MENU_ACTIONS.myBookings)
+    .row()
+    .text("🏐 Еще тренировки", MENU_ACTIONS.availableTrainings)
+    .row()
+    .text("🏠 Главное меню", NAV_ACTIONS.home);
+}
+
+export const BOOKING_FULL_TEXT = [
+  "К сожалению, мест на эту тренировку уже нет 😔",
+  "",
+  "Хотите записаться в лист ожидания? Мы сообщим, когда место освободится."
+].join("\n");
+
+/**
+ * Full-slot footer. Waitlist itself lands in T2.1; until then we offer a path
+ * back to the bookable list and the menu so the journey never dead-ends.
+ */
+export function bookingFullKeyboard(): InlineKeyboard {
+  return new InlineKeyboard()
+    .text("🏐 Другие тренировки", MENU_ACTIONS.availableTrainings)
+    .row()
+    .text("🏠 Главное меню", NAV_ACTIONS.home);
 }

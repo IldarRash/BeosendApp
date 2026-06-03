@@ -1,11 +1,18 @@
 import { describe, expect, it } from "vitest";
 import type { SlotCard } from "@beosand/types";
-import { NAV_ACTIONS } from "./menu";
+import { MENU_ACTIONS, NAV_ACTIONS } from "./menu";
 import {
   NO_SLOTS_TEXT,
+  bookConfirmData,
   bookStartData,
+  bookingFullKeyboard,
+  bookingSuccessKeyboard,
+  confirmBookingKeyboard,
   formatSlotLine,
+  parseBookConfirm,
   parseBookStart,
+  renderBookingSuccessText,
+  renderConfirmText,
   renderSlotsText,
   slotsKeyboard,
   SLOT_ACTIONS
@@ -84,5 +91,63 @@ describe("slotsKeyboard", () => {
 
   it("still offers the back/home footer when there are no cards (never dead-ends)", () => {
     expect(callbacksOf(slotsKeyboard([]))).toEqual([NAV_ACTIONS.back, NAV_ACTIONS.home]);
+  });
+});
+
+describe("bookConfirmData / parseBookConfirm", () => {
+  it("round-trips a trainingId and stays under Telegram's 64-byte cap", () => {
+    const data = bookConfirmData(card.trainingId);
+    expect(Buffer.byteLength(data, "utf8")).toBeLessThanOrEqual(64);
+    expect(parseBookConfirm(data)).toBe(card.trainingId);
+  });
+
+  it("does not confuse start and confirm namespaces", () => {
+    expect(parseBookConfirm(bookStartData(card.trainingId))).toBeUndefined();
+    expect(parseBookStart(bookConfirmData(card.trainingId))).toBeUndefined();
+  });
+});
+
+describe("confirmBookingKeyboard", () => {
+  it("offers confirm plus a back/home footer", () => {
+    const callbacks = callbacksOf(confirmBookingKeyboard(card.trainingId));
+    expect(callbacks[0]).toBe(`${SLOT_ACTIONS.bookConfirmPrefix}${card.trainingId}`);
+    expect(callbacks).toContain(NAV_ACTIONS.back);
+    expect(callbacks).toContain(NAV_ACTIONS.home);
+  });
+});
+
+describe("renderConfirmText", () => {
+  it("shows server-provided slot details and a confirm prompt", () => {
+    const text = renderConfirmText(card);
+    expect(text).toContain("Подтвердите запись");
+    expect(text).toContain("Марко");
+    expect(text).toContain("1500 RSD");
+  });
+});
+
+describe("bookingSuccessKeyboard", () => {
+  it("offers my bookings / more trainings / main menu", () => {
+    expect(callbacksOf(bookingSuccessKeyboard())).toEqual([
+      MENU_ACTIONS.myBookings,
+      MENU_ACTIONS.availableTrainings,
+      NAV_ACTIONS.home
+    ]);
+  });
+});
+
+describe("renderBookingSuccessText", () => {
+  it("confirms the booking with the slot details", () => {
+    const text = renderBookingSuccessText(card);
+    expect(text).toContain("Вы записаны");
+    expect(text).toContain("2026-06-10");
+  });
+});
+
+describe("bookingFullKeyboard", () => {
+  it("offers other trainings and the main menu (waitlist lands in T2.1)", () => {
+    expect(callbacksOf(bookingFullKeyboard())).toEqual([
+      MENU_ACTIONS.availableTrainings,
+      NAV_ACTIONS.home
+    ]);
   });
 });

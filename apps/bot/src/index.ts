@@ -2,7 +2,8 @@ import { loadEnv } from "@beosand/config";
 import { Bot, session } from "grammy";
 import { ApiClient } from "./api-client";
 import { resolveCallback } from "./navigation";
-import { parseBookStart } from "./slots";
+import { handleBookConfirm, handleBookStart } from "./booking";
+import { parseBookConfirm, parseBookStart } from "./slots";
 import {
   handleLevelCallback,
   handleNameText,
@@ -41,10 +42,18 @@ async function main(): Promise<void> {
     if (await handleLevelCallback(ctx, api)) {
       return;
     }
-    // "Записаться" from a slot card: real booking lands in T1.8. Acknowledge with
-    // a placeholder so the per-slot button never dead-ends or errors.
-    if (parseBookStart(ctx.callbackQuery.data) !== undefined) {
-      await ctx.reply("Запись на тренировку скоро будет доступна.");
+    // "Записаться" from a slot card → confirmation card (step 2 of 3).
+    const startTrainingId = parseBookStart(ctx.callbackQuery.data);
+    if (startTrainingId !== undefined) {
+      await handleBookStart(ctx, api, startTrainingId);
+      return;
+    }
+    // "Подтвердить запись" → create the booking (step 3 of 3). Identity is the
+    // caller's telegram_id; clientId is re-resolved here and re-checked by the API.
+    const confirmTrainingId = parseBookConfirm(ctx.callbackQuery.data);
+    if (confirmTrainingId !== undefined) {
+      const client = await api.getClientByTelegramId(ctx.from.id);
+      await handleBookConfirm(ctx, api, ctx.from.id, client?.id ?? null, confirmTrainingId);
       return;
     }
     const handler = resolveCallback(ctx.callbackQuery.data);
