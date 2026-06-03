@@ -21,7 +21,9 @@ const envSchema = z.object({
         .split(",")
         .map((part) => part.trim())
         .filter(Boolean)
-    )
+    ),
+  /** Contact handle/text shown by the bot's "Связаться с менеджером" action. */
+  MANAGER_CONTACT: z.string().min(1).default("@beosand_manager")
 });
 
 export type Env = z.infer<typeof envSchema>;
