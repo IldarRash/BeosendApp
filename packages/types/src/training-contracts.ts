@@ -297,6 +297,7 @@ export type CreateWaitlistInput = z.infer<typeof createWaitlistEntrySchema>;
 
 // --- Broadcasts (section 12) ---
 export const broadcastType = z.enum(["today", "tomorrow", "week", "freed-up"]);
+export type BroadcastType = z.infer<typeof broadcastType>;
 export const broadcastSchema = z.object({
   id: uuid,
   type: broadcastType,
@@ -306,6 +307,36 @@ export const broadcastSchema = z.object({
   recipientsCount: z.number().int().nonnegative()
 });
 export type Broadcast = z.infer<typeof broadcastSchema>;
+
+/** Query for GET /broadcasts/preview: which free-slot set to compose. */
+export const broadcastPreviewQuerySchema = z
+  .object({
+    type: broadcastType
+  })
+  .strict();
+export type BroadcastPreviewQuery = z.infer<typeof broadcastPreviewQuerySchema>;
+
+/**
+ * Preview response (T2.4): the composed message text plus the bookable slot
+ * cards it advertises (reuses slotCardSchema; each carries a trainingId the bot
+ * turns into a `book:slot:<id>` deep link) and the active-client recipient count.
+ * Computed server-side; the bot only renders it.
+ */
+export const broadcastPreviewSchema = z.object({
+  type: broadcastType,
+  text: z.string(),
+  slots: z.array(slotCardSchema),
+  recipientsCount: z.number().int().nonnegative()
+});
+export type BroadcastPreview = z.infer<typeof broadcastPreviewSchema>;
+
+/** Body for POST /broadcasts/send: which free-slot set to broadcast. */
+export const sendBroadcastSchema = z
+  .object({
+    type: broadcastType
+  })
+  .strict();
+export type SendBroadcastInput = z.infer<typeof sendBroadcastSchema>;
 
 // --- Notifications (section 16) ---
 export const notificationType = z.enum([

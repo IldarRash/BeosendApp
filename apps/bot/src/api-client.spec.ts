@@ -440,3 +440,86 @@ describe("ApiClient.markAttendance", () => {
     ).rejects.toThrow();
   });
 });
+
+const broadcastPreviewBody = {
+  type: "today" as const,
+  text: "Свободные места сегодня",
+  slots: [card],
+  recipientsCount: 7
+};
+
+const broadcastRow = {
+  id: "44444444-4444-4444-4444-444444444444",
+  type: "today" as const,
+  payload: "Свободные места сегодня",
+  createdBy: 777,
+  sentAt: "2026-06-03T10:00:00.000Z",
+  recipientsCount: 7
+};
+
+describe("ApiClient.previewBroadcast", () => {
+  afterEach(() => {
+    vi.unstubAllGlobals();
+  });
+
+  it("GETs /broadcasts/preview with the type query + admin header and returns the preview", async () => {
+    const fetchMock = mockFetch(broadcastPreviewBody);
+    const result = await new ApiClient("http://api.test").previewBroadcast("today", 777);
+    expect(result).toEqual(broadcastPreviewBody);
+    const [rawUrl, init] = fetchMock.mock.calls[0] as [string, RequestInit];
+    const url = new URL(rawUrl);
+    expect(url.pathname).toBe("/broadcasts/preview");
+    expect(url.searchParams.get("type")).toBe("today");
+    expect((init.headers as Record<string, string>)["x-telegram-id"]).toBe("777");
+  });
+
+  // Admin gating: a non-admin is a 403, mapped to null so the bot hides the UI.
+  it("maps a 403 (not an admin) to null rather than throwing", async () => {
+    mockFetch({}, false, 403);
+    await expect(
+      new ApiClient("http://api.test").previewBroadcast("today", 123)
+    ).resolves.toBeNull();
+  });
+
+  it("throws on any other non-2xx", async () => {
+    mockFetch({}, false, 500);
+    await expect(
+      new ApiClient("http://api.test").previewBroadcast("today", 777)
+    ).rejects.toThrow(/500/);
+  });
+
+  it("rejects a body that violates the BroadcastPreview contract", async () => {
+    mockFetch({ ...broadcastPreviewBody, recipientsCount: -1 });
+    await expect(
+      new ApiClient("http://api.test").previewBroadcast("today", 777)
+    ).rejects.toThrow();
+  });
+});
+
+describe("ApiClient.sendBroadcast", () => {
+  afterEach(() => {
+    vi.unstubAllGlobals();
+  });
+
+  it("POSTs /broadcasts/send with the type body + admin header and returns the row", async () => {
+    const fetchMock = mockFetch(broadcastRow);
+    const result = await new ApiClient("http://api.test").sendBroadcast("today", 777);
+    expect(result).toEqual(broadcastRow);
+    const [url, init] = fetchMock.mock.calls[0] as [string, RequestInit];
+    expect(url).toBe("http://api.test/broadcasts/send");
+    expect(init.method).toBe("POST");
+    expect((init.headers as Record<string, string>)["x-telegram-id"]).toBe("777");
+    expect(JSON.parse(init.body as string)).toEqual({ type: "today" });
+  });
+
+  // Unsafe path: a non-admin send is a 403, mapped to null — no broadcast UI.
+  it("maps a 403 (not an admin) to null rather than throwing", async () => {
+    mockFetch({}, false, 403);
+    await expect(new ApiClient("http://api.test").sendBroadcast("today", 123)).resolves.toBeNull();
+  });
+
+  it("rejects a 2xx body that violates the Broadcast contract", async () => {
+    mockFetch({ ...broadcastRow, recipientsCount: -1 });
+    await expect(new ApiClient("http://api.test").sendBroadcast("today", 777)).rejects.toThrow();
+  });
+});

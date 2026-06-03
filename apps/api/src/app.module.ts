@@ -4,6 +4,7 @@ import { ConfigModule } from "./config/config.module";
 import { DbModule } from "./db/db.module";
 import { HealthModule } from "./health/health.module";
 import { BookingsModule } from "./modules/bookings/bookings.module";
+import { BroadcastsModule } from "./modules/broadcasts/broadcasts.module";
 import { ClientsModule } from "./modules/clients/clients.module";
 import { GroupsModule } from "./modules/groups/groups.module";
 import { LevelsModule } from "./modules/levels/levels.module";
@@ -30,7 +31,8 @@ import { WaitlistModule } from "./modules/waitlist/waitlist.module";
     ClientsModule,
     NotificationsModule,
     WaitlistModule,
-    BookingsModule
+    BookingsModule,
+    BroadcastsModule
   ]
 })
 export class AppModule {}

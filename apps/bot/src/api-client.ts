@@ -1,5 +1,7 @@
 import {
   bookingSchema,
+  broadcastPreviewSchema,
+  broadcastSchema,
   clientSchema,
   groupBookingResultSchema,
   groupSchema,
@@ -14,6 +16,9 @@ import {
   waitlistEntrySchema,
   type AvailableSlotsQuery,
   type Booking,
+  type Broadcast,
+  type BroadcastPreview,
+  type BroadcastType,
   type Client,
   type CreateGroupBookingInput,
   type CreateSingleBookingInput,
@@ -401,5 +406,59 @@ export class ApiClient {
       headers: { "x-telegram-id": String(actorTelegramId) },
       body: JSON.stringify(body)
     });
+  }
+
+  /**
+   * Admin-only (T2.4): preview a free-slot broadcast of one type. The API gates
+   * the caller via ADMIN_TELEGRAM_IDS, selects only bookable slots, composes the
+   * Russian text and counts active recipients — all server-side. A 403 (caller is
+   * not an admin) resolves to null so the bot can hide the broadcast UI instead of
+   * erroring; non-admins never see a preview. The preview never books and never
+   * writes a broadcasts row. The bot only renders what it returns.
+   */
+  async previewBroadcast(
+    type: BroadcastType,
+    adminTelegramId: number
+  ): Promise<BroadcastPreview | null> {
+    const res = await fetch(`${this.baseUrl}/broadcasts/preview?type=${type}`, {
+      headers: {
+        "content-type": "application/json",
+        "x-telegram-id": String(adminTelegramId)
+      }
+    });
+    if (res.status === 403) {
+      // Caller is not an admin: the bot hides the broadcast UI rather than erroring.
+      return null;
+    }
+    if (!res.ok) {
+      throw new Error(`API /broadcasts/preview failed: ${res.status}`);
+    }
+    return broadcastPreviewSchema.parse(await res.json());
+  }
+
+  /**
+   * Admin-only (T2.4): send a free-slot broadcast of one type. The API gates the
+   * caller via ADMIN_TELEGRAM_IDS, re-selects bookable slots at send time, fans
+   * the send out to active clients via its own bot token, and writes exactly one
+   * broadcasts row — all server-side. A 403 (caller is not an admin) resolves to
+   * null so the bot can refuse instead of erroring. The bot only renders the
+   * resulting row's recipient count; it never sends or books.
+   */
+  async sendBroadcast(type: BroadcastType, adminTelegramId: number): Promise<Broadcast | null> {
+    const res = await fetch(`${this.baseUrl}/broadcasts/send`, {
+      method: "POST",
+      headers: {
+        "content-type": "application/json",
+        "x-telegram-id": String(adminTelegramId)
+      },
+      body: JSON.stringify({ type })
+    });
+    if (res.status === 403) {
+      return null;
+    }
+    if (!res.ok) {
+      throw new Error(`API /broadcasts/send failed: ${res.status}`);
+    }
+    return broadcastSchema.parse(await res.json());
   }
 }

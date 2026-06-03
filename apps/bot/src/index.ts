@@ -6,6 +6,7 @@ import { handleBookConfirm, handleBookStart } from "./booking";
 import { handleWaitlistAccept, handleWaitlistJoin } from "./waitlist";
 import {
   parseBookConfirm,
+  parseBookSlot,
   parseBookStart,
   parseWaitlistAccept,
   parseWaitlistJoin
@@ -32,6 +33,14 @@ import {
   parseRoster,
   TRAINER_ACTIONS
 } from "./trainer-today";
+import {
+  BROADCAST_ACTIONS,
+  handleBroadcastMenu,
+  handleBroadcastPreview,
+  handleBroadcastSend,
+  parseBroadcastSend,
+  parseBroadcastType
+} from "./broadcast";
 import {
   handleLevelCallback,
   handleNameText,
@@ -64,6 +73,13 @@ async function main(): Promise<void> {
     await handleTrainerToday(ctx, api, ctx.from?.id);
   });
 
+  // Manager-only entry (T2.4): free-slot broadcasts. Admin role is gated by the
+  // API (ADMIN_TELEGRAM_IDS); non-admins get a "managers only" message and never
+  // see the broadcast UI. The client main menu stays client-only.
+  bot.command("broadcast", async (ctx) => {
+    await handleBroadcastMenu(ctx, api, ctx.from?.id);
+  });
+
   // Free text only matters while awaiting the onboarding name; otherwise ignore.
   bot.on("message:text", async (ctx) => {
     await handleNameText(ctx, api);
@@ -77,8 +93,11 @@ async function main(): Promise<void> {
     if (await handleLevelCallback(ctx, api)) {
       return;
     }
-    // "Записаться" from a slot card → confirmation card (step 2 of 3).
-    const startTrainingId = parseBookStart(ctx.callbackQuery.data);
+    // "Записаться" from a slot card → confirmation card (step 2 of 3). The sent
+    // free-slot broadcast (T2.4) carries `book:slot:<id>`; both prefixes funnel
+    // into the same T1.8 entry, which re-checks availability before booking.
+    const startTrainingId =
+      parseBookStart(ctx.callbackQuery.data) ?? parseBookSlot(ctx.callbackQuery.data);
     if (startTrainingId !== undefined) {
       await handleBookStart(ctx, api, startTrainingId);
       return;
@@ -155,6 +174,23 @@ async function main(): Promise<void> {
     const attendMark = parseAttend(ctx.callbackQuery.data);
     if (attendMark !== undefined) {
       await handleMarkAttendance(ctx, api, ctx.from.id, attendMark);
+      return;
+    }
+    // Free-slot broadcasts (T2.4): admin-gated by the API. Menu entry → type
+    // picker → preview (per-slot book:slot deep links) → send. Non-admins never
+    // reach these screens (the API resolves their call to null).
+    if (ctx.callbackQuery.data === BROADCAST_ACTIONS.entry) {
+      await handleBroadcastMenu(ctx, api, ctx.from.id);
+      return;
+    }
+    const broadcastType = parseBroadcastType(ctx.callbackQuery.data);
+    if (broadcastType !== undefined) {
+      await handleBroadcastPreview(ctx, api, ctx.from.id, broadcastType);
+      return;
+    }
+    const broadcastSendType = parseBroadcastSend(ctx.callbackQuery.data);
+    if (broadcastSendType !== undefined) {
+      await handleBroadcastSend(ctx, api, ctx.from.id, broadcastSendType);
       return;
     }
     const handler = resolveCallback(ctx.callbackQuery.data);

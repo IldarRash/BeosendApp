@@ -16,6 +16,6 @@ import { TelegramSender } from "./telegram-sender";
     TelegramSender,
     NotificationsScheduler
   ],
-  exports: [NotificationsService]
+  exports: [NotificationsService, TelegramSender]
 })
 export class NotificationsModule {}

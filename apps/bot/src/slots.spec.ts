@@ -10,6 +10,7 @@ import {
   confirmBookingKeyboard,
   formatSlotLine,
   parseBookConfirm,
+  parseBookSlot,
   parseBookStart,
   parseWaitlistAccept,
   parseWaitlistJoin,
@@ -55,6 +56,20 @@ describe("bookStartData / parseBookStart", () => {
     expect(parseBookStart(undefined)).toBeUndefined();
     expect(parseBookStart("menu:available")).toBeUndefined();
     expect(parseBookStart(NAV_ACTIONS.home)).toBeUndefined();
+  });
+});
+
+describe("parseBookSlot", () => {
+  it("resolves a T2.4 broadcast deep link to the trainingId, under 64 bytes", () => {
+    const data = `${SLOT_ACTIONS.bookSlotPrefix}${card.trainingId}`;
+    expect(data.length).toBeLessThanOrEqual(64);
+    expect(parseBookSlot(data)).toBe(card.trainingId);
+  });
+
+  it("returns undefined for non-book:slot callbacks", () => {
+    expect(parseBookSlot(undefined)).toBeUndefined();
+    expect(parseBookSlot(bookStartData(card.trainingId))).toBeUndefined();
+    expect(parseBookSlot(NAV_ACTIONS.home)).toBeUndefined();
   });
 });
 

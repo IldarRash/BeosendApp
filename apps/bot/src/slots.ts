@@ -13,6 +13,12 @@ import { backHomeKeyboard, MENU_ACTIONS, NAV_ACTIONS } from "./menu";
 export const SLOT_ACTIONS = {
   /** Tap on a slot card → show the confirmation card. */
   bookStartPrefix: "book:start:",
+  /**
+   * Tap "Записаться" inside a sent free-slot broadcast (T2.4) → the same T1.8
+   * confirmation card as `book:start:`. The broadcast composes this prefix
+   * server-side; the bot routes it into the existing single-booking entry.
+   */
+  bookSlotPrefix: "book:slot:",
   /** Tap "Подтвердить" on the confirmation card → create the booking. */
   bookConfirmPrefix: "book:confirm:",
   /** Tap "Встать в лист ожидания" on a full slot → join the waitlist (T2.1). */
@@ -37,6 +43,18 @@ export function parseBookStart(data: string | undefined): string | undefined {
     return undefined;
   }
   return data.slice(SLOT_ACTIONS.bookStartPrefix.length);
+}
+
+/**
+ * Resolve a `book:slot:<trainingId>` callback (the T2.4 broadcast deep link) to
+ * the trainingId, or undefined. Routes into the same T1.8 confirmation flow as
+ * `book:start:`.
+ */
+export function parseBookSlot(data: string | undefined): string | undefined {
+  if (data === undefined || !data.startsWith(SLOT_ACTIONS.bookSlotPrefix)) {
+    return undefined;
+  }
+  return data.slice(SLOT_ACTIONS.bookSlotPrefix.length);
 }
 
 /** Resolve a callback to the trainingId, or undefined if it's not a book:confirm action. */
