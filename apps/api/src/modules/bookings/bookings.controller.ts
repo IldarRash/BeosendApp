@@ -1,11 +1,21 @@
-import { BadRequestException, Body, Controller, Get, Headers, Post, Query } from "@nestjs/common";
+import {
+  BadRequestException,
+  Body,
+  Controller,
+  Get,
+  Headers,
+  Param,
+  Post,
+  Query
+} from "@nestjs/common";
 import {
   type Booking,
   type GroupBookingResult,
   type MyBookingItem,
   createGroupBookingSchema,
   createSingleBookingSchema,
-  myBookingsQuerySchema
+  myBookingsQuerySchema,
+  uuid
 } from "@beosand/types";
 import type { ZodSchema } from "zod";
 import { BookingsService } from "./bookings.service";
@@ -46,6 +56,17 @@ export class BookingsController {
     const actorTelegramId = parseTelegramId(telegramIdHeader);
     const { clientId, scope } = validate(myBookingsQuerySchema, query ?? {});
     return this.bookings.listMine(actorTelegramId, clientId, scope);
+  }
+
+  /** Client: cancel one of their own bookings (T1.11). Ownership in the service. */
+  @Post(":id/cancel")
+  cancel(
+    @Headers("x-telegram-id") telegramIdHeader: string | undefined,
+    @Param("id") id: string
+  ): Promise<Booking> {
+    const actorTelegramId = parseTelegramId(telegramIdHeader);
+    const bookingId = validate(uuid, id);
+    return this.bookings.cancelBooking(actorTelegramId, bookingId);
   }
 }
 

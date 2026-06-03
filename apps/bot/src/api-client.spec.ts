@@ -145,6 +145,39 @@ describe("ApiClient.createSingleBooking", () => {
   });
 });
 
+describe("ApiClient.cancelBooking", () => {
+  afterEach(() => {
+    vi.unstubAllGlobals();
+  });
+
+  it("POSTs /bookings/:id/cancel with the caller's telegram header and returns the cancelled booking", async () => {
+    const cancelled: Booking = { ...booking, status: "cancelled" };
+    const fetchMock = mockFetch(cancelled);
+    const result = await new ApiClient("http://api.test").cancelBooking(booking.id, 999);
+    expect(result).toEqual(cancelled);
+    const [url, init] = fetchMock.mock.calls[0] as [string, RequestInit];
+    expect(url).toBe(`http://api.test/bookings/${booking.id}/cancel`);
+    expect(init.method).toBe("POST");
+    expect((init.headers as Record<string, string>)["x-telegram-id"]).toBe("999");
+  });
+
+  // Unsafe path: cancelling another client's booking is rejected server-side
+  // with 403 — the client surfaces it as an error and changes nothing.
+  it("throws on a 403 (foreign booking)", async () => {
+    mockFetch({}, false, 403);
+    await expect(
+      new ApiClient("http://api.test").cancelBooking(booking.id, 999)
+    ).rejects.toThrow(/403/);
+  });
+
+  it("rejects a 2xx body that violates the Booking contract", async () => {
+    mockFetch({ ...booking, status: "nonsense" });
+    await expect(
+      new ApiClient("http://api.test").cancelBooking(booking.id, 999)
+    ).rejects.toThrow();
+  });
+});
+
 describe("ApiClient.listMyBookings", () => {
   afterEach(() => {
     vi.unstubAllGlobals();

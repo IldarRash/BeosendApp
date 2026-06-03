@@ -285,6 +285,66 @@ export class BookingsService {
   }
 
   /**
+   * Cancel exactly one booking (T1.11) — one training, or one date of a monthly
+   * group without dropping the rest. Invariants enforced here:
+   * - Ownership: the booking's clientId must resolve from the caller's
+   *   telegram_id; ADMIN_TELEGRAM_IDS may cancel any. A booking that isn't the
+   *   caller's (and the caller isn't admin) is rejected with a 403 that leaks
+   *   nothing and changes no seat count.
+   * - Only a still-`booked` booking is cancellable; an already
+   *   cancelled/attended/no_show/waitlist booking is a typed 409.
+   * - Atomic seat free: in one transaction the booking and its training are locked
+   *   FOR UPDATE, the single booking row (matched by id only) is set `cancelled`,
+   *   the training's bookedCount is decremented by exactly 1 (floored at 0), and
+   *   the status is recomputed (full → open when a seat frees; cancelled/completed
+   *   stay terminal). The write targets the one id, so group-subscription siblings
+   *   stay `booked`.
+   * - Waitlist promotion (T2.1) is not built yet; the recompute precedes any future
+   *   promotion because the seat is freed inside this tx. See the post-commit seam.
+   */
+  async cancelBooking(actorTelegramId: number, bookingId: string): Promise<Booking> {
+    const cancelled = await this.bookings.transaction(async (tx) => {
+      const booking = await this.bookings.findBookingForUpdate(tx, bookingId);
+      if (!booking) {
+        throw new NotFoundException(`Booking ${bookingId} not found`);
+      }
+
+      await this.assertOwnsClient(actorTelegramId, booking.clientId);
+
+      if (booking.status !== "booked") {
+        // Already cancelled/attended/no_show/waitlist — nothing to free; typed 409.
+        throw new ConflictException(`Booking is not cancellable (status ${booking.status})`);
+      }
+
+      const training = await this.bookings.findTrainingForUpdate(tx, booking.trainingId);
+      if (!training) {
+        throw new NotFoundException(`Training ${booking.trainingId} not found`);
+      }
+
+      const updated = await this.bookings.markCancelled(tx, bookingId);
+
+      const newCount = Math.max(0, training.bookedCount - 1);
+      const newStatus = recomputeTrainingStatus({
+        capacity: training.capacity,
+        bookedCount: newCount,
+        status: training.status
+      });
+      await this.bookings.updateTrainingCount(tx, booking.trainingId, newCount, newStatus);
+
+      this.logger.log(
+        `Cancelled booking ${bookingId} on training ${booking.trainingId} (${newCount}/${training.capacity}, ${newStatus})`
+      );
+      return updated;
+    });
+
+    // Post-commit seam for waitlist promotion (T2.1): the seat is already freed and
+    // the status recomputed inside the committed tx, so a future promotion call
+    // belongs here (after commit). Not wired yet — do not call a non-existent service.
+
+    return bookingSchema.parse(cancelled);
+  }
+
+  /**
    * Run a post-commit confirmation send without ever letting its failure escape
    * into the booking response: a committed booking is authoritative, so a Telegram
    * (or notifications-repo) failure is logged and swallowed, never rolled back.

@@ -242,6 +242,20 @@ export class ApiClient {
     });
   }
 
+  /**
+   * Cancel one of the caller's bookings (T1.11). The booking is matched by id;
+   * ownership, the seat free, status recompute and (later) waitlist promotion are
+   * all decided server-side from the caller's telegram_id. Cancelling one date of
+   * a monthly group leaves the sibling bookings intact — the API targets the id
+   * only. The bot only forwards the id and renders the cancelled booking.
+   */
+  cancelBooking(bookingId: string, actorTelegramId: number): Promise<Booking> {
+    return this.request(`/bookings/${bookingId}/cancel`, bookingSchema, {
+      method: "POST",
+      headers: { "x-telegram-id": String(actorTelegramId) }
+    });
+  }
+
   /** Admin-only (deferred to the admin UI): list trainings in a date range. */
   listTrainings(query: ListTrainingsQuery, actorTelegramId: number): Promise<Training[]> {
     const params = new URLSearchParams({ from: query.from, to: query.to });

@@ -12,8 +12,12 @@ import {
   parseGroupMonth,
   parseGroupPick
 } from "./group-booking";
-import { backHomeKeyboard } from "./menu";
-import { parseBookingCancel } from "./my-bookings";
+import {
+  handleCancelConfirm,
+  handleCancelPrompt,
+  parseBookingCancel,
+  parseBookingCancelConfirm
+} from "./my-bookings";
 import {
   handleLevelCallback,
   handleNameText,
@@ -89,14 +93,17 @@ async function main(): Promise<void> {
       );
       return;
     }
-    // My bookings cancel (T1.10 exposes the button; the cancel write is T1.11).
-    // Until then, acknowledge with a clean placeholder so the journey never
-    // dead-ends — never silently drop the tap.
+    // My bookings cancel (T1.11): tapping a cancel button shows the "are you
+    // sure?" prompt; confirming performs the write via the API. The bot never
+    // decides ownership or cancellability — the API owns both.
     const cancelBookingId = parseBookingCancel(ctx.callbackQuery.data);
     if (cancelBookingId !== undefined) {
-      await ctx.reply("Отмена записи скоро появится здесь.", {
-        reply_markup: backHomeKeyboard()
-      });
+      await handleCancelPrompt(ctx, cancelBookingId);
+      return;
+    }
+    const confirmCancelId = parseBookingCancelConfirm(ctx.callbackQuery.data);
+    if (confirmCancelId !== undefined) {
+      await handleCancelConfirm(ctx, api, ctx.from.id, confirmCancelId);
       return;
     }
     const handler = resolveCallback(ctx.callbackQuery.data);

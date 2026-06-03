@@ -1,5 +1,5 @@
 import { BadRequestException, ForbiddenException } from "@nestjs/common";
-import type { MyBookingItem } from "@beosand/types";
+import type { Booking, MyBookingItem } from "@beosand/types";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { BookingsController } from "./bookings.controller";
 import type { BookingsService } from "./bookings.service";
@@ -23,11 +23,23 @@ const item: MyBookingItem = {
   canCancel: true
 };
 
+const cancelledBooking: Booking = {
+  id: "33333333-3333-3333-3333-333333333333",
+  clientId: CLIENT_ID,
+  trainingId: "44444444-4444-4444-4444-444444444444",
+  type: "single",
+  groupSubscriptionId: null,
+  createdAt: "2099-01-01T00:00:00.000Z",
+  status: "cancelled",
+  source: "telegram"
+};
+
 function makeService(overrides: Partial<BookingsService> = {}): BookingsService {
   return {
     createSingle: vi.fn(),
     createGroupBooking: vi.fn(),
     listMine: vi.fn(async () => [item]),
+    cancelBooking: vi.fn(async () => cancelledBooking),
     ...overrides
   } as unknown as BookingsService;
 }
@@ -110,5 +122,41 @@ describe("BookingsController.listMine (GET /bookings/mine)", () => {
       controller.listMine(HEADER, { clientId: CLIENT_ID, scope: "upcoming", actor: OWNER_ID })
     ).toThrow(BadRequestException);
     expect(service.listMine).not.toHaveBeenCalled();
+  });
+});
+
+describe("BookingsController.cancel (POST /bookings/:id/cancel)", () => {
+  const BOOKING_ID = "33333333-3333-3333-3333-333333333333";
+  let service: BookingsService;
+  let controller: BookingsController;
+
+  beforeEach(() => {
+    service = makeService();
+    controller = new BookingsController(service);
+  });
+
+  it("forwards the HEADER actor and the path id to the service", async () => {
+    await expect(controller.cancel(HEADER, BOOKING_ID)).resolves.toEqual(cancelledBooking);
+    expect(service.cancelBooking).toHaveBeenCalledWith(OWNER_ID, BOOKING_ID);
+  });
+
+  it("surfaces a 403 ForbiddenException for a booking the caller does not own", async () => {
+    service = makeService({
+      cancelBooking: vi.fn(async () => {
+        throw new ForbiddenException("Cannot book on behalf of another client");
+      })
+    });
+    controller = new BookingsController(service);
+    await expect(controller.cancel(HEADER, BOOKING_ID)).rejects.toBeInstanceOf(ForbiddenException);
+  });
+
+  it("rejects a missing x-telegram-id header before calling the service", () => {
+    expect(() => controller.cancel(undefined, BOOKING_ID)).toThrow(BadRequestException);
+    expect(service.cancelBooking).not.toHaveBeenCalled();
+  });
+
+  it("rejects a non-uuid path id (Zod) before calling the service", () => {
+    expect(() => controller.cancel(HEADER, "nope")).toThrow(BadRequestException);
+    expect(service.cancelBooking).not.toHaveBeenCalled();
   });
 });

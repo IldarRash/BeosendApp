@@ -12,14 +12,25 @@ import { showMainMenu, type MenuReplyCtx } from "./navigation";
  * exposes the button on `canCancel` items.
  */
 
-/** Cancel action (write lands in T1.11). Carries only the bookingId. */
+/**
+ * Cancel actions (T1.11), both carrying only the bookingId.
+ * - `cancelPrefix` (the per-item button) opens the "are you sure?" prompt.
+ * - `confirmPrefix` (the prompt's "Да, отменить" button) performs the write.
+ * The confirm prefix is intentionally short so prefix + uuid stays under 64 bytes.
+ */
 export const MY_BOOKINGS_ACTIONS = {
   /** prefix (15 bytes) + uuid (36 bytes) = 51 bytes, under Telegram's 64. */
-  cancelPrefix: "booking:cancel:"
+  cancelPrefix: "booking:cancel:",
+  /** prefix (9 bytes) + uuid (36 bytes) = 45 bytes, under Telegram's 64. */
+  confirmPrefix: "bk:cxlok:"
 } as const;
 
 export function cancelBookingData(bookingId: string): string {
   return `${MY_BOOKINGS_ACTIONS.cancelPrefix}${bookingId}`;
+}
+
+export function confirmCancelData(bookingId: string): string {
+  return `${MY_BOOKINGS_ACTIONS.confirmPrefix}${bookingId}`;
 }
 
 /** Resolve a callback to the bookingId, or undefined if it's not a cancel action. */
@@ -28,6 +39,14 @@ export function parseBookingCancel(data: string | undefined): string | undefined
     return undefined;
   }
   return data.slice(MY_BOOKINGS_ACTIONS.cancelPrefix.length);
+}
+
+/** Resolve a callback to the bookingId for the confirm step, or undefined. */
+export function parseBookingCancelConfirm(data: string | undefined): string | undefined {
+  if (data === undefined || !data.startsWith(MY_BOOKINGS_ACTIONS.confirmPrefix)) {
+    return undefined;
+  }
+  return data.slice(MY_BOOKINGS_ACTIONS.confirmPrefix.length);
 }
 
 const WEEKDAY_LABELS: Record<DayOfWeek, string> = {
@@ -172,4 +191,68 @@ export async function handleMyBookings(
   await ctx.reply(renderMyBookingsText(upcoming, past), {
     reply_markup: myBookingsKeyboard(upcoming)
   });
+}
+
+// --- Cancellation flow (T1.11) ---
+
+export const CANCEL_CONFIRM_TEXT =
+  "Вы уверены, что хотите отменить запись? Место снова станет доступным для других.";
+
+export const CANCEL_DONE_TEXT = "✅ Запись отменена.";
+
+/**
+ * The "Вы уверены?" prompt keyboard: confirm (carrying the bookingId) plus a way
+ * back to the bookings list. No domain logic — the write happens only on confirm.
+ */
+export function cancelConfirmKeyboard(bookingId: string): InlineKeyboard {
+  return new InlineKeyboard()
+    .text("✅ Да, отменить", confirmCancelData(bookingId))
+    .row()
+    .text("⬅️ Назад", MENU_ACTIONS.myBookings)
+    .row()
+    .text("🏠 Главное меню", NAV_ACTIONS.home);
+}
+
+/** Post-cancel footer: book again / my bookings / main menu (UX §11). */
+export function cancelDoneKeyboard(): InlineKeyboard {
+  return new InlineKeyboard()
+    .text("🏐 Записаться снова", MENU_ACTIONS.availableTrainings)
+    .row()
+    .text("📋 Мои записи", MENU_ACTIONS.myBookings)
+    .row()
+    .text("🏠 Главное меню", NAV_ACTIONS.home);
+}
+
+/** The slice of ApiClient the cancellation confirm handler needs. */
+export type CancelBookingApi = Pick<ApiClient, "cancelBooking">;
+
+/**
+ * Step 1: show the confirmation prompt for a tapped cancel button. No write yet —
+ * the bot only renders the "are you sure?" screen carrying the bookingId.
+ */
+export async function handleCancelPrompt(
+  ctx: MenuReplyCtx,
+  bookingId: string
+): Promise<void> {
+  await ctx.reply(CANCEL_CONFIRM_TEXT, { reply_markup: cancelConfirmKeyboard(bookingId) });
+}
+
+/**
+ * Step 2: perform the cancellation. Identity is the caller's telegram_id; the API
+ * owns ownership, the seat free and the status recompute. The bot only forwards
+ * the id and renders the result. A not-yet-onboarded / identity-less caller is
+ * sent back to the menu.
+ */
+export async function handleCancelConfirm(
+  ctx: MenuReplyCtx,
+  api: CancelBookingApi,
+  telegramId: number | undefined,
+  bookingId: string
+): Promise<void> {
+  if (telegramId === undefined) {
+    await showMainMenu(ctx);
+    return;
+  }
+  await api.cancelBooking(bookingId, telegramId);
+  await ctx.reply(CANCEL_DONE_TEXT, { reply_markup: cancelDoneKeyboard() });
 }

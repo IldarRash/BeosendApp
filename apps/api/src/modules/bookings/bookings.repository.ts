@@ -16,6 +16,14 @@ export interface TrainingLockRow {
   status: TrainingStatus;
 }
 
+/** A booking row locked FOR UPDATE, carrying just what the cancel write needs. */
+export interface BookingLockRow {
+  id: string;
+  clientId: string;
+  trainingId: string;
+  status: BookingStatus;
+}
+
 /** A month training instance locked FOR UPDATE, carrying its date for skip reporting. */
 export interface GroupTrainingLockRow extends TrainingLockRow {
   date: string;
@@ -167,6 +175,43 @@ export class BookingsRepository {
       )
       .limit(1);
     return row ? toBooking(row) : undefined;
+  }
+
+  /**
+   * The booking row selected FOR UPDATE so the cancel write and the training's
+   * capacity/status recompute happen against a row no concurrent cancel can also
+   * be mutating. Caller must hold a tx. Returns only the fields the cancel needs.
+   */
+  async findBookingForUpdate(
+    tx: Database,
+    bookingId: string
+  ): Promise<BookingLockRow | undefined> {
+    const [row] = await tx
+      .select({
+        id: tables.bookings.id,
+        clientId: tables.bookings.clientId,
+        trainingId: tables.bookings.trainingId,
+        status: tables.bookings.status
+      })
+      .from(tables.bookings)
+      .where(eq(tables.bookings.id, bookingId))
+      .limit(1)
+      .for("update");
+    return row;
+  }
+
+  /**
+   * Mark exactly one booking (matched by id only) cancelled inside the caller's
+   * transaction and return the updated row. Targeting the id alone leaves every
+   * sibling sharing the same groupSubscriptionId untouched.
+   */
+  async markCancelled(tx: Database, bookingId: string): Promise<Booking> {
+    const [row] = await tx
+      .update(tables.bookings)
+      .set({ status: "cancelled" })
+      .where(eq(tables.bookings.id, bookingId))
+      .returning();
+    return toBooking(row);
   }
 
   /** Insert one booking inside the caller's transaction; returns the created row. */

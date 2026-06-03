@@ -54,6 +54,8 @@ class FakeBookingsRepository {
   bookings: Booking[] = [];
   /** When set, the next insertBooking throws to exercise transaction rollback. */
   failInsertOnTrainingId: string | undefined;
+  /** When set, updateTrainingCount throws for this training to exercise cancel rollback. */
+  failUpdateCountOnTrainingId: string | undefined;
   private seq = 0;
 
   transaction<T>(work: (tx: Database) => Promise<T>): Promise<T> {
@@ -125,12 +127,41 @@ class FakeBookingsRepository {
     return booking;
   }
 
+  async findBookingForUpdate(
+    _tx: Database,
+    bookingId: string
+  ): Promise<
+    { id: string; clientId: string; trainingId: string; status: Booking["status"] } | undefined
+  > {
+    const booking = this.bookings.find((b) => b.id === bookingId);
+    return booking
+      ? {
+          id: booking.id,
+          clientId: booking.clientId,
+          trainingId: booking.trainingId,
+          status: booking.status
+        }
+      : undefined;
+  }
+
+  async markCancelled(_tx: Database, bookingId: string): Promise<Booking> {
+    const booking = this.bookings.find((b) => b.id === bookingId);
+    if (!booking) {
+      throw new Error(`booking ${bookingId} missing in fake`);
+    }
+    booking.status = "cancelled";
+    return booking;
+  }
+
   async updateTrainingCount(
     _tx: Database,
     trainingId: string,
     bookedCount: number,
     status: TrainingLockRow["status"]
   ): Promise<void> {
+    if (this.failUpdateCountOnTrainingId && trainingId === this.failUpdateCountOnTrainingId) {
+      throw new Error("simulated DB failure persisting recompute");
+    }
     if (this.training && this.training.id === trainingId) {
       this.training.bookedCount = bookedCount;
       this.training.status = status;
@@ -615,5 +646,136 @@ describe("BookingsService.listMine", () => {
     bookingsRepo.myRows = [row()];
     const items = await service.listMine(ADMIN_ID, OTHER_CLIENT_ID, "upcoming");
     expect(items).toHaveLength(1);
+  });
+});
+
+describe("BookingsService.cancelBooking", () => {
+  let bookingsRepo: FakeBookingsRepository;
+  let clientsRepo: FakeClientsRepository;
+  let service: BookingsService;
+
+  const BOOKING_ID = "dddddddd-dddd-dddd-dddd-dddddddddddd";
+  const SIBLING_ID = "eeeeeeee-eeee-eeee-eeee-eeeeeeeeeeee";
+  const SUB_ID = "ffffffff-ffff-ffff-ffff-ffffffffffff";
+  const OTHER_TRAINING_ID = "99999999-9999-9999-9999-999999999999";
+
+  beforeEach(() => {
+    bookingsRepo = new FakeBookingsRepository();
+    clientsRepo = new FakeClientsRepository();
+    service = new BookingsService(
+      bookingsRepo as unknown as BookingsRepository,
+      clientsRepo as unknown as ClientsRepository,
+      new FakeGroupsRepository() as unknown as GroupsRepository,
+      fakeNotifications,
+      env
+    );
+  });
+
+  const booking = (over: Partial<Booking> = {}): Booking => ({
+    id: BOOKING_ID,
+    clientId: CLIENT_ID,
+    trainingId: TRAINING_ID,
+    type: "single",
+    groupSubscriptionId: null,
+    createdAt: new Date().toISOString(),
+    status: "booked",
+    source: "telegram",
+    ...over
+  });
+
+  it("frees exactly one seat and flips a full training back to open", async () => {
+    bookingsRepo.bookings = [booking()];
+    bookingsRepo.training = { id: TRAINING_ID, capacity: 6, bookedCount: 6, status: "full" };
+
+    const result = await service.cancelBooking(OWNER_ID, BOOKING_ID);
+
+    expect(result.status).toBe("cancelled");
+    expect(bookingsRepo.training.bookedCount).toBe(5);
+    expect(bookingsRepo.training.status).toBe("open");
+  });
+
+  it("cancelling one group date leaves siblings sharing the subscription booked", async () => {
+    bookingsRepo.bookings = [
+      booking({ id: BOOKING_ID, type: "group", groupSubscriptionId: SUB_ID }),
+      booking({
+        id: SIBLING_ID,
+        type: "group",
+        groupSubscriptionId: SUB_ID,
+        trainingId: OTHER_TRAINING_ID
+      })
+    ];
+    bookingsRepo.training = { id: TRAINING_ID, capacity: 6, bookedCount: 3, status: "open" };
+
+    await service.cancelBooking(OWNER_ID, BOOKING_ID);
+
+    const sibling = bookingsRepo.bookings.find((b) => b.id === SIBLING_ID);
+    expect(sibling?.status).toBe("booked");
+    // Still linked to the same subscription — cancelling one date never unlinks the rest.
+    expect(sibling?.groupSubscriptionId).toBe(SUB_ID);
+    expect(bookingsRepo.training.bookedCount).toBe(2);
+    // Exactly one booking of the batch is cancelled; every other sibling stays booked.
+    const cancelled = bookingsRepo.bookings.filter((b) => b.status === "cancelled");
+    expect(cancelled).toHaveLength(1);
+    expect(cancelled[0].id).toBe(BOOKING_ID);
+  });
+
+  // Atomicity: the seat free and the status recompute are one transaction. If
+  // persisting the recompute fails, the whole cancel must abort and surface the
+  // error — the booking is never left "cancelled" with the count un-updated.
+  it("propagates a failure persisting the recompute (seat free + recompute are atomic)", async () => {
+    bookingsRepo.bookings = [booking()];
+    bookingsRepo.training = { id: TRAINING_ID, capacity: 6, bookedCount: 6, status: "full" };
+    bookingsRepo.failUpdateCountOnTrainingId = TRAINING_ID;
+
+    await expect(service.cancelBooking(OWNER_ID, BOOKING_ID)).rejects.toThrow();
+    // The recompute never persisted, so the real tx would roll the cancel back too.
+    expect(bookingsRepo.training.bookedCount).toBe(6);
+    expect(bookingsRepo.training.status).toBe("full");
+  });
+
+  it("rejects cancelling another client's booking with a 403, changing no seat count", async () => {
+    bookingsRepo.bookings = [booking({ clientId: OTHER_CLIENT_ID })];
+    bookingsRepo.training = { id: TRAINING_ID, capacity: 6, bookedCount: 4, status: "open" };
+
+    await expect(service.cancelBooking(OWNER_ID, BOOKING_ID)).rejects.toBeInstanceOf(
+      ForbiddenException
+    );
+    expect(bookingsRepo.bookings[0].status).toBe("booked");
+    expect(bookingsRepo.training.bookedCount).toBe(4);
+  });
+
+  it("lets an admin cancel any client's booking", async () => {
+    bookingsRepo.bookings = [booking({ clientId: OTHER_CLIENT_ID })];
+    bookingsRepo.training = { id: TRAINING_ID, capacity: 6, bookedCount: 2, status: "open" };
+
+    const result = await service.cancelBooking(ADMIN_ID, BOOKING_ID);
+    expect(result.status).toBe("cancelled");
+    expect(bookingsRepo.training.bookedCount).toBe(1);
+  });
+
+  it("rejects cancelling a non-booked booking with a 409", async () => {
+    bookingsRepo.bookings = [booking({ status: "cancelled" })];
+    bookingsRepo.training = { id: TRAINING_ID, capacity: 6, bookedCount: 4, status: "open" };
+
+    await expect(service.cancelBooking(OWNER_ID, BOOKING_ID)).rejects.toBeInstanceOf(
+      ConflictException
+    );
+    expect(bookingsRepo.training.bookedCount).toBe(4);
+  });
+
+  it("404s an unknown booking", async () => {
+    bookingsRepo.bookings = [];
+    await expect(service.cancelBooking(OWNER_ID, BOOKING_ID)).rejects.toBeInstanceOf(
+      NotFoundException
+    );
+  });
+
+  it("floors bookedCount at 0 on an inconsistent count", async () => {
+    bookingsRepo.bookings = [booking()];
+    bookingsRepo.training = { id: TRAINING_ID, capacity: 6, bookedCount: 0, status: "open" };
+
+    await service.cancelBooking(OWNER_ID, BOOKING_ID);
+    expect(bookingsRepo.training.bookedCount).toBe(0);
+    expect(bookingsRepo.training.status).toBe("open");
   });
 });

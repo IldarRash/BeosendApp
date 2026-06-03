@@ -1,16 +1,26 @@
 import { describe, expect, it, vi } from "vitest";
 import type { MyBookingItem } from "@beosand/types";
-import { NAV_ACTIONS } from "./menu";
+import type { Booking } from "@beosand/types";
+import { MENU_ACTIONS, NAV_ACTIONS } from "./menu";
 import {
+  CANCEL_CONFIRM_TEXT,
+  CANCEL_DONE_TEXT,
   cancelBookingData,
+  cancelConfirmKeyboard,
+  cancelDoneKeyboard,
+  confirmCancelData,
+  handleCancelConfirm,
+  handleCancelPrompt,
   handleMyBookings,
   myBookingsKeyboard,
   NO_BOOKINGS_TEXT,
   NOT_ONBOARDED_TEXT,
   parseBookingCancel,
+  parseBookingCancelConfirm,
   PAST_HEADER,
   renderMyBookingsText,
   UPCOMING_HEADER,
+  type CancelBookingApi,
   type MyBookingsApi
 } from "./my-bookings";
 import type { MenuReplyCtx } from "./navigation";
@@ -54,6 +64,21 @@ describe("cancel callback data", () => {
   it("ignores non-cancel callbacks", () => {
     expect(parseBookingCancel("book:start:abc")).toBeUndefined();
     expect(parseBookingCancel(undefined)).toBeUndefined();
+  });
+});
+
+describe("confirm-cancel callback data", () => {
+  it("round-trips the bookingId and stays under Telegram's 64-byte cap", () => {
+    const data = confirmCancelData(CLIENT.id);
+    expect(Buffer.byteLength(data, "utf8")).toBeLessThanOrEqual(64);
+    expect(parseBookingCancelConfirm(data)).toBe(CLIENT.id);
+  });
+
+  it("keeps the prompt and confirm namespaces disjoint", () => {
+    // A prompt callback must not be read as a confirm and vice versa.
+    expect(parseBookingCancelConfirm(cancelBookingData(CLIENT.id))).toBeUndefined();
+    expect(parseBookingCancel(confirmCancelData(CLIENT.id))).toBeUndefined();
+    expect(parseBookingCancelConfirm(undefined)).toBeUndefined();
   });
 });
 
@@ -156,5 +181,53 @@ describe("handleMyBookings", () => {
     const { ctx } = fakeCtx(undefined);
     await handleMyBookings(ctx, api, undefined);
     expect(api.getClientByTelegramId).not.toHaveBeenCalled();
+  });
+});
+
+describe("cancel flow keyboards", () => {
+  it("confirm prompt carries the bookingId confirm action plus a path home", () => {
+    const callbacks = callbacksOf(cancelConfirmKeyboard(CLIENT.id));
+    expect(callbacks).toContain(confirmCancelData(CLIENT.id));
+    expect(callbacks).toContain(MENU_ACTIONS.myBookings);
+    expect(callbacks).toContain(NAV_ACTIONS.home);
+  });
+
+  it("done keyboard offers book again / my bookings / home", () => {
+    expect(callbacksOf(cancelDoneKeyboard())).toEqual([
+      MENU_ACTIONS.availableTrainings,
+      MENU_ACTIONS.myBookings,
+      NAV_ACTIONS.home
+    ]);
+  });
+});
+
+describe("handleCancelPrompt", () => {
+  it("shows the are-you-sure prompt and performs no write", async () => {
+    const reply = vi.fn().mockResolvedValue(undefined);
+    const ctx: MenuReplyCtx = { reply, from: { id: 999 } };
+    await handleCancelPrompt(ctx, CLIENT.id);
+    expect(reply).toHaveBeenCalledOnce();
+    expect(reply.mock.calls[0][0]).toBe(CANCEL_CONFIRM_TEXT);
+  });
+});
+
+describe("handleCancelConfirm", () => {
+  it("forwards the bookingId + telegram id and renders the done screen", async () => {
+    const cancelBooking = vi.fn().mockResolvedValue({} as Booking);
+    const api: CancelBookingApi = { cancelBooking };
+    const reply = vi.fn().mockResolvedValue(undefined);
+    const ctx: MenuReplyCtx = { reply, from: { id: 999 } };
+    await handleCancelConfirm(ctx, api, 999, CLIENT.id);
+    expect(cancelBooking).toHaveBeenCalledWith(CLIENT.id, 999);
+    expect(reply.mock.calls[0][0]).toBe(CANCEL_DONE_TEXT);
+  });
+
+  it("never calls the API when the caller has no telegram id", async () => {
+    const cancelBooking = vi.fn();
+    const api: CancelBookingApi = { cancelBooking };
+    const reply = vi.fn().mockResolvedValue(undefined);
+    const ctx: MenuReplyCtx = { reply };
+    await handleCancelConfirm(ctx, api, undefined, CLIENT.id);
+    expect(cancelBooking).not.toHaveBeenCalled();
   });
 });
