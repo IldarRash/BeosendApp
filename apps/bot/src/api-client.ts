@@ -1,9 +1,17 @@
-import { levelSchema, trainerSchema, type Level, type Trainer } from "@beosand/types";
+import {
+  groupSchema,
+  levelSchema,
+  trainerSchema,
+  type Group,
+  type Level,
+  type Trainer
+} from "@beosand/types";
 import { z } from "zod";
 
 const healthSchema = z.object({ status: z.literal("ok"), service: z.string() });
 const levelsSchema = z.array(levelSchema);
 const trainersSchema = z.array(trainerSchema);
+const groupsSchema = z.array(groupSchema);
 
 /**
  * Thin typed client the bot uses to reach apps/api. The bot is an interaction
@@ -44,5 +52,16 @@ export class ApiClient {
    */
   listTrainers(): Promise<Trainer[]> {
     return this.request("/trainers", trainersSchema);
+  }
+
+  /**
+   * Active groups (recurring slots: level, weekdays, time, trainer, capacity,
+   * RSD prices). Reference data the client "join a group" flow (T1.9) and the
+   * admin authoring UI (A1) will consume; groups have no standalone client bot
+   * screen in this slice. Prices are server-computed integer RSD; the bot only
+   * displays them.
+   */
+  listGroups(): Promise<Group[]> {
+    return this.request("/groups", groupsSchema);
   }
 }

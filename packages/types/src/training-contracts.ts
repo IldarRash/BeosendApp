@@ -82,7 +82,10 @@ export const groupSchema = z.object({
   status: entityStatus
 });
 export const createGroupSchema = groupSchema.omit({ id: true, status: true });
+export const updateGroupSchema = groupSchema.omit({ id: true }).partial();
 export type Group = z.infer<typeof groupSchema>;
+export type CreateGroupInput = z.infer<typeof createGroupSchema>;
+export type UpdateGroupInput = z.infer<typeof updateGroupSchema>;
 
 // --- Trainings (3.5): a concrete date/time instance ---
 export const trainingStatus = z.enum(["open", "full", "cancelled", "completed"]);
