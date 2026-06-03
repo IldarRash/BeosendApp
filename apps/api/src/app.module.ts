@@ -7,6 +7,8 @@ import { AnalyticsModule } from "./modules/analytics/analytics.module";
 import { BookingsModule } from "./modules/bookings/bookings.module";
 import { BroadcastsModule } from "./modules/broadcasts/broadcasts.module";
 import { ClientsModule } from "./modules/clients/clients.module";
+import { CourtsModule } from "./modules/courts/courts.module";
+import { CourtRequestsModule } from "./modules/court-requests/court-requests.module";
 import { GroupsModule } from "./modules/groups/groups.module";
 import { LevelsModule } from "./modules/levels/levels.module";
 import { NotificationsModule } from "./modules/notifications/notifications.module";
@@ -34,7 +36,9 @@ import { WaitlistModule } from "./modules/waitlist/waitlist.module";
     WaitlistModule,
     BookingsModule,
     BroadcastsModule,
-    AnalyticsModule
+    AnalyticsModule,
+    CourtsModule,
+    CourtRequestsModule
   ]
 })
 export class AppModule {}

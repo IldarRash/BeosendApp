@@ -82,7 +82,11 @@ export function levelKeyboard(levels: Level[]): InlineKeyboard {
  * /start: branch on whether the caller already has a client record. New users
  * (API 404) enter onboarding; returning users land on the main menu.
  */
-export async function handleStart(ctx: BotContext, api: ApiClient): Promise<void> {
+export async function handleStart(
+  ctx: BotContext,
+  api: ApiClient,
+  menu: InlineKeyboard = mainMenuKeyboard()
+): Promise<void> {
   const telegramId = ctx.from?.id;
   if (telegramId === undefined) {
     return;
@@ -90,7 +94,7 @@ export async function handleStart(ctx: BotContext, api: ApiClient): Promise<void
   const client = await api.getClientByTelegramId(telegramId);
   if (client) {
     ctx.session = initialSession();
-    await ctx.reply(WELCOME_TEXT, { reply_markup: mainMenuKeyboard() });
+    await ctx.reply(WELCOME_TEXT, { reply_markup: menu });
     return;
   }
   ctx.session = { step: "awaiting_name" };
@@ -122,7 +126,11 @@ export async function handleNameText(ctx: BotContext, api: ApiClient): Promise<b
  * telegram_id), clears the onboarding step, and lands on the main menu. Returns
  * true when it handled the callback.
  */
-export async function handleLevelCallback(ctx: BotContext, api: ApiClient): Promise<boolean> {
+export async function handleLevelCallback(
+  ctx: BotContext,
+  api: ApiClient,
+  menu: InlineKeyboard = mainMenuKeyboard()
+): Promise<boolean> {
   const levelId = parseLevelCallback(ctx.callbackQuery?.data);
   if (levelId === undefined) {
     return false;
@@ -144,6 +152,6 @@ export async function handleLevelCallback(ctx: BotContext, api: ApiClient): Prom
   };
   await api.onboardClient(input);
   ctx.session = initialSession();
-  await ctx.reply(WELCOME_TEXT, { reply_markup: mainMenuKeyboard() });
+  await ctx.reply(WELCOME_TEXT, { reply_markup: menu });
   return true;
 }

@@ -2,6 +2,15 @@ import { describe, expect, it, vi } from "vitest";
 import { MENU_ACTIONS, NAV_ACTIONS, WELCOME_TEXT } from "./menu";
 import { menuHandlers, resolveCallback, type MenuHandlerDeps, type MenuReplyCtx } from "./navigation";
 
+// The court rental entry (menu:court) and the back-to-menu action (menu:home) are
+// routed by dedicated handlers in index.ts, not through the generic dispatch table,
+// so the table covers the remaining client routes. The six client menu buttons
+// (everything except the home/back action) are what mainMenuKeyboard renders.
+const DISPATCHED_ACTIONS = Object.values(MENU_ACTIONS).filter(
+  (a) => a !== MENU_ACTIONS.rentCourt && a !== MENU_ACTIONS.backToMenu
+);
+const MENU_BUTTON_ACTIONS = Object.values(MENU_ACTIONS).filter((a) => a !== MENU_ACTIONS.backToMenu);
+
 const CLIENT = { id: "22222222-2222-2222-2222-222222222222" };
 
 function makeDeps(): MenuHandlerDeps {
@@ -38,20 +47,20 @@ function callbacksOf(reply: ReturnType<typeof vi.fn>, callIndex = 0): (string | 
 }
 
 describe("menu dispatch table", () => {
-  it("maps every main-menu action to a defined handler (routing completeness)", () => {
-    for (const action of Object.values(MENU_ACTIONS)) {
+  it("maps every dispatched main-menu action to a defined handler (routing completeness)", () => {
+    for (const action of DISPATCHED_ACTIONS) {
       expect(typeof menuHandlers[action]).toBe("function");
     }
   });
 
-  it("covers exactly the five main-menu actions (no missing or extra routes)", () => {
-    expect(Object.keys(menuHandlers).sort()).toEqual([...Object.values(MENU_ACTIONS)].sort());
+  it("covers exactly the dispatched main-menu actions (no missing or extra routes)", () => {
+    expect(Object.keys(menuHandlers).sort()).toEqual([...DISPATCHED_ACTIONS].sort());
   });
 
   it("gives every sub-screen a back/home path so navigation never dead-ends", async () => {
-    for (const action of Object.values(MENU_ACTIONS)) {
+    for (const action of DISPATCHED_ACTIONS) {
       const { ctx, reply } = fakeCtx();
-      await menuHandlers[action](ctx, deps);
+      await menuHandlers[action]!(ctx, deps);
       expect(reply).toHaveBeenCalledOnce();
       // Every sub-screen ends with a home shortcut; most also offer "back". The
       // empty "my bookings" screen swaps "back" for a "book a training" CTA, and
@@ -87,7 +96,7 @@ describe("menu dispatch table", () => {
       async (_clientId: string, scope: string) =>
         scope === "upcoming" ? [upcoming] : []
     );
-    await menuHandlers[MENU_ACTIONS.myBookings](ctx, localDeps);
+    await menuHandlers[MENU_ACTIONS.myBookings]!(ctx, localDeps);
     expect(localDeps.api.getClientByTelegramId).toHaveBeenCalledWith(999);
     expect(localDeps.api.listMyBookings).toHaveBeenCalledWith(CLIENT.id, "upcoming", 999);
     expect(localDeps.api.listMyBookings).toHaveBeenCalledWith(CLIENT.id, "past", 999);
@@ -111,7 +120,7 @@ describe("menu dispatch table", () => {
     const { ctx, reply } = fakeCtx();
     const localDeps = makeDeps();
     (localDeps.api.listAvailableSlots as ReturnType<typeof vi.fn>).mockResolvedValue([card]);
-    await menuHandlers[MENU_ACTIONS.availableTrainings](ctx, localDeps);
+    await menuHandlers[MENU_ACTIONS.availableTrainings]!(ctx, localDeps);
     expect(localDeps.api.listAvailableSlots).toHaveBeenCalledOnce();
     expect(reply).toHaveBeenCalledOnce();
     const callbacks = callbacksOf(reply);
@@ -122,7 +131,7 @@ describe("menu dispatch table", () => {
 
   it("renders the manager contact (from config) for menu:contact", async () => {
     const { ctx, reply } = fakeCtx();
-    await menuHandlers[MENU_ACTIONS.contactManager](ctx, deps);
+    await menuHandlers[MENU_ACTIONS.contactManager]!(ctx, deps);
     expect(reply).toHaveBeenCalledOnce();
     expect(reply.mock.calls[0][0]).toContain("@test_manager");
     expect(callbacksOf(reply)).toEqual([NAV_ACTIONS.back, NAV_ACTIONS.home]);
@@ -130,8 +139,8 @@ describe("menu dispatch table", () => {
 });
 
 describe("resolveCallback", () => {
-  it("resolves each known menu action to its handler", () => {
-    for (const action of Object.values(MENU_ACTIONS)) {
+  it("resolves each dispatched menu action to its handler", () => {
+    for (const action of DISPATCHED_ACTIONS) {
       expect(resolveCallback(action)).toBe(menuHandlers[action]);
     }
   });
@@ -160,6 +169,6 @@ describe("resolveCallback", () => {
     expect(reply).toHaveBeenCalledOnce();
     expect(reply.mock.calls[0][0]).toBe(WELCOME_TEXT);
     // The fallback re-renders the full main menu, not a dead-end screen.
-    expect(callbacksOf(reply)).toEqual(Object.values(MENU_ACTIONS));
+    expect(callbacksOf(reply)).toEqual(MENU_BUTTON_ACTIONS);
   });
 });

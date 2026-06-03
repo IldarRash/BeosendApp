@@ -22,7 +22,7 @@ async function main(): Promise<void> {
   await db
     .insert(courts)
     .values(Array.from({ length: 6 }, (_, i) => ({ number: i + 1 })))
-    .onConflictDoNothing();
+    .onConflictDoNothing({ target: courts.number });
 
   const [{ count }] = await db
     .select({ count: sql<number>`count(*)::int` })

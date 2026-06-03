@@ -15,6 +15,13 @@
       "when": 1780516091748,
       "tag": "0001_red_gamora",
       "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "7",
+      "when": 1780527920597,
+      "tag": "0002_faithful_wendell_rand",
+      "breakpoints": true
     }
   ]
 }

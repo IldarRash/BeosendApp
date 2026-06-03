@@ -56,10 +56,13 @@ function stub(text: string): MenuHandler {
 }
 
 /**
- * Central routing table: every MENU_ACTION maps to a defined handler (real or
- * explicit stub). Routing completeness is asserted in the spec.
+ * Central routing table for the menu actions handled by the generic dispatcher.
+ * The court rental entry (`menu:court`) and the back-to-menu action (`menu:home`)
+ * are routed by dedicated callbackQuery handlers in index.ts before this table is
+ * consulted, so they are intentionally absent here; `resolveCallback` falls back
+ * to the main menu for any action without an entry. Routing is asserted in the spec.
  */
-export const menuHandlers: Record<MenuAction, MenuHandler> = {
+export const menuHandlers: Partial<Record<MenuAction, MenuHandler>> = {
   // Headline client flow (T1.5 + T3.2 filters): list only bookable slots,
   // narrowed by the caller's chosen filter chips (held in session, applied by
   // the API). The API decides what is bookable and computes seats/price; the bot
@@ -94,7 +97,7 @@ const menuActions = new Set<string>(Object.values(MENU_ACTIONS));
  */
 export function resolveCallback(data: string | undefined): MenuHandler {
   if (data !== undefined && menuActions.has(data)) {
-    return menuHandlers[data as MenuAction];
+    return menuHandlers[data as MenuAction] ?? showMainMenu;
   }
   return showMainMenu;
 }

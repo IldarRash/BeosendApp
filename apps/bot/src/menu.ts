@@ -6,7 +6,11 @@ export const MENU_ACTIONS = {
   todayFreeSlots: "menu:today",
   joinGroup: "menu:group",
   myBookings: "menu:bookings",
-  contactManager: "menu:contact"
+  /** Court rental request flow (Edition 2, C2). */
+  rentCourt: "menu:court",
+  contactManager: "menu:contact",
+  /** Back/home path from any sub-flow (UX section 16). */
+  backToMenu: "menu:home"
 } as const;
 
 export type MenuAction = (typeof MENU_ACTIONS)[keyof typeof MENU_ACTIONS];
@@ -29,6 +33,8 @@ export function mainMenuKeyboard(): InlineKeyboard {
     .row()
     .text("📋 Мои записи", MENU_ACTIONS.myBookings)
     .row()
+    .text("🏖 Арендовать корт", MENU_ACTIONS.rentCourt)
+    .row()
     .text("ℹ️ Связаться с менеджером", MENU_ACTIONS.contactManager);
 }
 
@@ -40,6 +46,25 @@ export function backHomeKeyboard(): InlineKeyboard {
   return new InlineKeyboard()
     .text("⬅️ Назад", NAV_ACTIONS.back)
     .text("🏠 Главное меню", NAV_ACTIONS.home);
+}
+
+/**
+ * Admin-only entry to the court moderation queue (C4), appended below the main
+ * menu for admins. The keyboard is rendered only when the caller is an admin
+ * (decided in the bot via config), and every action is re-gated by the API.
+ */
+export const ADMIN_ACTIONS = {
+  courtModeration: "court_mod:queue",
+  /** C6 — read-only per-day court load grid (admin). */
+  courtLoad: "court_load:open"
+} as const;
+
+export function adminMenuKeyboard(): InlineKeyboard {
+  return mainMenuKeyboard()
+    .row()
+    .text("🛠 Заявки на корт (админ)", ADMIN_ACTIONS.courtModeration)
+    .row()
+    .text("📊 Загрузка кортов (админ)", ADMIN_ACTIONS.courtLoad);
 }
 
 export const WELCOME_TEXT = [

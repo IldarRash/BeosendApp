@@ -1,0 +1,169 @@
+import {
+  BadRequestException,
+  Body,
+  Controller,
+  Get,
+  Headers,
+  Param,
+  Post,
+  Query
+} from "@nestjs/common";
+import { z } from "zod";
+import {
+  confirmCourtRequestSchema,
+  courtAvailabilityQuerySchema,
+  courtRequestQueueQuerySchema,
+  createCourtRequestSchema,
+  previewCourtRequestSchema,
+  rejectCourtRequestSchema,
+  uuid,
+  type Court,
+  type CourtAvailability,
+  type CourtRequest,
+  type CourtRequestAdminView,
+  type CourtRequestPreview
+} from "@beosand/types";
+import { CourtRequestsService } from "./court-requests.service";
+
+/** Caller identity convention shared across apps: numeric Telegram id in a header. */
+const telegramIdHeader = z.coerce.number().int();
+
+@Controller("court-requests")
+export class CourtRequestsController {
+  constructor(private readonly service: CourtRequestsService) {}
+
+  /**
+   * Offerable start times + free-court counts for a date. Read-only; never
+   * returns a court id/number. The bot renders only the returned hours.
+   */
+  @Get("availability")
+  async availability(@Query() query: Record<string, unknown>): Promise<CourtAvailability> {
+    const parsed = courtAvailabilityQuerySchema.safeParse(query);
+    if (!parsed.success) {
+      throw new BadRequestException("Invalid availability query: expected date=YYYY-MM-DD.");
+    }
+    return this.service.getAvailability(parsed.data.date);
+  }
+
+  /**
+   * C2 — server-computed price + availability for a desired slot. No write. The
+   * body carries telegram_id (never a clientId); any client-sent amount is ignored.
+   */
+  @Post("preview")
+  async preview(@Body() body: unknown): Promise<CourtRequestPreview> {
+    const parsed = previewCourtRequestSchema.safeParse(body);
+    if (!parsed.success) {
+      throw new BadRequestException(
+        "Invalid preview body: expected { telegramId, date, startTime, durationHours: 1|2 }."
+      );
+    }
+    return this.service.previewRequest(parsed.data);
+  }
+
+  /**
+   * C2 — create a pending court request for the caller's own client (resolved by
+   * telegram_id). Price is computed server-side; no court is assigned until admin.
+   */
+  @Post()
+  async create(@Body() body: unknown): Promise<CourtRequest> {
+    const parsed = createCourtRequestSchema.safeParse(body);
+    if (!parsed.success) {
+      throw new BadRequestException(
+        "Invalid request body: expected { telegramId, date, startTime, durationHours: 1|2 }."
+      );
+    }
+    return this.service.createRequest(parsed.data);
+  }
+
+  /**
+   * C4 — admin moderation queue (default status=pending), joined with client
+   * name/telegram. Admin-only (enforced in the service by x-telegram-id).
+   */
+  @Get()
+  async queue(
+    @Headers("x-telegram-id") rawTelegramId: string | undefined,
+    @Query() query: Record<string, unknown>
+  ): Promise<CourtRequestAdminView[]> {
+    const telegramId = parseTelegramId(rawTelegramId);
+    const parsed = courtRequestQueueQuerySchema.safeParse(query);
+    if (!parsed.success) {
+      throw new BadRequestException(
+        "Invalid queue query: status must be pending|confirmed|rejected|cancelled."
+      );
+    }
+    return this.service.listQueue(telegramId, parsed.data.status);
+  }
+
+  /**
+   * C4 — active courts free for every hour the request covers. Admin-only; never
+   * exposed to a client path (the court number is only learned on confirmation).
+   */
+  @Get(":id/free-courts")
+  async freeCourts(
+    @Headers("x-telegram-id") rawTelegramId: string | undefined,
+    @Param("id") rawId: string
+  ): Promise<Court[]> {
+    const telegramId = parseTelegramId(rawTelegramId);
+    const id = parseRequestId(rawId);
+    return this.service.freeCourts(telegramId, id);
+  }
+
+  /**
+   * C4 — confirm a pending request onto a chosen court. Admin-only; re-checks the
+   * per-hour limit and chosen-court freeness atomically before assigning.
+   */
+  @Post(":id/confirm")
+  async confirm(
+    @Headers("x-telegram-id") rawTelegramId: string | undefined,
+    @Param("id") rawId: string,
+    @Body() body: unknown
+  ): Promise<CourtRequest> {
+    const telegramId = parseTelegramId(rawTelegramId);
+    const id = parseRequestId(rawId);
+    const parsed = confirmCourtRequestSchema.safeParse(body);
+    if (!parsed.success) {
+      throw new BadRequestException(
+        "Invalid confirm body: expected { requestId, courtId, decidedBy }."
+      );
+    }
+    if (parsed.data.requestId !== id) {
+      throw new BadRequestException("Path id and body requestId must match.");
+    }
+    return this.service.confirmRequest(telegramId, parsed.data);
+  }
+
+  /** C4 — reject a pending request. Admin-only; notifies the client to retry. */
+  @Post(":id/reject")
+  async reject(
+    @Headers("x-telegram-id") rawTelegramId: string | undefined,
+    @Param("id") rawId: string,
+    @Body() body: unknown
+  ): Promise<CourtRequest> {
+    const telegramId = parseTelegramId(rawTelegramId);
+    const id = parseRequestId(rawId);
+    const parsed = rejectCourtRequestSchema.safeParse(body);
+    if (!parsed.success) {
+      throw new BadRequestException("Invalid reject body: expected { requestId, decidedBy }.");
+    }
+    if (parsed.data.requestId !== id) {
+      throw new BadRequestException("Path id and body requestId must match.");
+    }
+    return this.service.rejectRequest(telegramId, parsed.data);
+  }
+}
+
+function parseTelegramId(raw: string | undefined): number {
+  const parsed = telegramIdHeader.safeParse(raw);
+  if (!parsed.success) {
+    throw new BadRequestException("Missing or invalid x-telegram-id header.");
+  }
+  return parsed.data;
+}
+
+function parseRequestId(raw: string): string {
+  const parsed = uuid.safeParse(raw);
+  if (!parsed.success) {
+    throw new BadRequestException("Invalid court request id.");
+  }
+  return parsed.data;
+}
