@@ -1,6 +1,7 @@
 import { z } from "zod";
 import {
   courtAvailabilitySchema,
+  courtLoadGridSchema,
   courtRequestAdminViewSchema,
   courtRequestPreviewSchema,
   courtRequestSchema,
@@ -8,6 +9,7 @@ import {
   type Court,
   type CourtAvailability,
   type CourtDurationHours,
+  type CourtLoadGrid,
   type CourtRequest,
   type CourtRequestAdminView,
   type CourtRequestPreview
@@ -120,6 +122,19 @@ export class ApiClient {
       method: "POST",
       headers: { [TELEGRAM_ID_HEADER]: String(adminId) },
       body: JSON.stringify({ requestId, courtId, decidedBy: adminId })
+    });
+  }
+
+  /**
+   * C6 — read-only court load grid (confirmed requests + blocks) for one date.
+   * Admin-only: the response carries court ids/numbers, so the API gates the read
+   * by x-telegram-id (403 for non-admins) before any DB access; the bot only
+   * forwards the caller's id and renders the validated grid.
+   */
+  getCourtLoad(adminId: number, date: string): Promise<CourtLoadGrid> {
+    const query = new URLSearchParams({ date }).toString();
+    return this.request(`/courts/load?${query}`, courtLoadGridSchema, {
+      headers: { [TELEGRAM_ID_HEADER]: String(adminId) }
     });
   }
 

@@ -133,3 +133,37 @@ export const courtAvailabilitySchema = z.object({
   hours: z.array(hourAvailabilitySchema)
 });
 export type CourtAvailability = z.infer<typeof courtAvailabilitySchema>;
+
+/**
+ * C6 — admin-only per-day court load grid (courts × working hours). It carries
+ * court ids and numbers, so — like `courtRequestAdminViewSchema` — it MUST never
+ * be returned on a client path. Reuse `courtAvailabilityQuerySchema` for the date
+ * query; do not add a second date-only schema.
+ */
+export const courtLoadCellState = z.enum(["free", "request", "block"]);
+export type CourtLoadCellState = z.infer<typeof courtLoadCellState>;
+
+/** One court/hour cell: what (if anything) holds it. */
+export const courtLoadCellSchema = z.object({
+  hour: z.number().int(),
+  startTime: timeString,
+  state: courtLoadCellState
+});
+export type CourtLoadCell = z.infer<typeof courtLoadCellSchema>;
+
+/** One court's row across the working hours. */
+export const courtLoadRowSchema = z.object({
+  courtId: uuid,
+  courtNumber: z.number().int().min(1),
+  cells: z.array(courtLoadCellSchema)
+});
+export type CourtLoadRow = z.infer<typeof courtLoadRowSchema>;
+
+/** The full grid for a date across the 08:00–21:00 working window. */
+export const courtLoadGridSchema = z.object({
+  date: dateString,
+  openHour: z.number().int(),
+  closeHour: z.number().int(),
+  rows: z.array(courtLoadRowSchema)
+});
+export type CourtLoadGrid = z.infer<typeof courtLoadGridSchema>;

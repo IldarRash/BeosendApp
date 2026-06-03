@@ -1,4 +1,8 @@
-import { COURT_RATE_RSD_PER_HOUR, type CourtDurationHours } from "./court-contracts";
+import {
+  COURT_RATE_RSD_PER_HOUR,
+  type CourtDurationHours,
+  type CourtLoadCellState
+} from "./court-contracts";
 import type { DayOfWeek } from "./common";
 import type { TrainingStatus } from "./training-contracts";
 
@@ -98,6 +102,66 @@ export function hourRangesOverlap(
   const b0 = Number(bStart.slice(0, 2));
   const b1 = Number(bEnd.slice(0, 2));
   return a0 < b1 && b0 < a1;
+}
+
+/** A court occupant tied to a specific court (confirmed request or block) on a date. */
+export interface CourtCellOccupant {
+  courtId: string;
+  startTime: string;
+  /** Whole clock hours held. Blocks may span >2h; confirmed requests are 1 or 2. */
+  durationHours: number;
+}
+
+/**
+ * C6 — per-day court load grid (admin). For each active court and each hour in
+ * [openHour, closeHour): `block` if a block covers that court/hour, else `request`
+ * if a confirmed request covers it, else `free`. This is the per-court analogue of
+ * `freeCourtsByHour` and uses the same occupancy notion as the C4 confirm re-check,
+ * so a `free` cell is exactly a court/hour C3 counts as free. Pure: no Nest/DB.
+ */
+export function courtLoadGrid(input: {
+  courts: readonly { id: string; number: number }[];
+  openHour: number;
+  closeHour: number;
+  confirmed: readonly CourtCellOccupant[];
+  blocks: readonly CourtCellOccupant[];
+}): { courtId: string; courtNumber: number; cells: { hour: number; state: CourtLoadCellState }[] }[] {
+  const blockHours = occupiedHoursByCourt(input.blocks);
+  const requestHours = occupiedHoursByCourt(input.confirmed);
+
+  return input.courts.map((court) => {
+    const blocked = blockHours.get(court.id);
+    const requested = requestHours.get(court.id);
+    const cells: { hour: number; state: CourtLoadCellState }[] = [];
+    for (let hour = input.openHour; hour < input.closeHour; hour += 1) {
+      const state: CourtLoadCellState = blocked?.has(hour)
+        ? "block"
+        : requested?.has(hour)
+          ? "request"
+          : "free";
+      cells.push({ hour, state });
+    }
+    return { courtId: court.id, courtNumber: court.number, cells };
+  });
+}
+
+/** Map each court id to the set of whole clock hours its occupants cover. */
+function occupiedHoursByCourt(
+  occupants: readonly CourtCellOccupant[]
+): Map<string, Set<number>> {
+  const byCourt = new Map<string, Set<number>>();
+  for (const occupant of occupants) {
+    const startHour = Number(occupant.startTime.slice(0, 2));
+    let hours = byCourt.get(occupant.courtId);
+    if (!hours) {
+      hours = new Set<number>();
+      byCourt.set(occupant.courtId, hours);
+    }
+    for (let i = 0; i < occupant.durationHours; i += 1) {
+      hours.add(startHour + i);
+    }
+  }
+  return byCourt;
 }
 
 /**

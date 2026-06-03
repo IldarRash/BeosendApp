@@ -17,12 +17,14 @@ describe("mainMenuKeyboard", () => {
 });
 
 describe("adminMenuKeyboard", () => {
-  it("appends the admin court-moderation entry below the main menu", () => {
+  it("appends the admin court entries below the main menu", () => {
     const rows = adminMenuKeyboard().inline_keyboard;
     const callbacks = rows.flat().map((b) => ("callback_data" in b ? b.callback_data : undefined));
     expect(callbacks).toContain(ADMIN_ACTIONS.courtModeration);
-    // The standard client actions are still present and the admin entry is last.
+    expect(callbacks).toContain(ADMIN_ACTIONS.courtLoad);
+    // The standard client actions are still present; admin entries follow them,
+    // with the read-only load grid last.
     expect(callbacks[0]).toBe(MENU_ACTIONS.availableTrainings);
-    expect(callbacks.at(-1)).toBe(ADMIN_ACTIONS.courtModeration);
+    expect(callbacks.at(-1)).toBe(ADMIN_ACTIONS.courtLoad);
   });
 });

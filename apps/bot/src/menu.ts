@@ -36,11 +36,17 @@ export function mainMenuKeyboard(): InlineKeyboard {
  * (decided in the bot via config), and every action is re-gated by the API.
  */
 export const ADMIN_ACTIONS = {
-  courtModeration: "court_mod:queue"
+  courtModeration: "court_mod:queue",
+  /** C6 — read-only per-day court load grid (admin). */
+  courtLoad: "court_load:open"
 } as const;
 
 export function adminMenuKeyboard(): InlineKeyboard {
-  return mainMenuKeyboard().row().text("🛠 Заявки на корт (админ)", ADMIN_ACTIONS.courtModeration);
+  return mainMenuKeyboard()
+    .row()
+    .text("🛠 Заявки на корт (админ)", ADMIN_ACTIONS.courtModeration)
+    .row()
+    .text("📊 Загрузка кортов (админ)", ADMIN_ACTIONS.courtLoad);
 }
 
 export const WELCOME_TEXT = [

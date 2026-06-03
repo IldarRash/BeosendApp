@@ -18,6 +18,15 @@ import {
   parseReject
 } from "./court-moderation";
 import {
+  COURT_LOAD_ACTIONS,
+  COURT_LOAD_NOT_ADMIN_TEXT,
+  COURT_LOAD_PICK_DATE_TEXT,
+  courtLoadDateKeyboard,
+  courtLoadGridKeyboard,
+  courtLoadGridText,
+  parseLoadDate
+} from "./court-load";
+import {
   COURT_ACTIONS,
   COURT_NO_SLOTS_TEXT,
   COURT_OPEN_TEXT,
@@ -196,6 +205,39 @@ async function main(): Promise<void> {
     await api.rejectCourtRequest(ctx.from.id, requestId);
     freeCourtsCache.delete(cacheKey(ctx.from.id, requestId));
     await ctx.reply(COURT_MOD_REJECTED_TEXT, { reply_markup: courtModQueueKeyboard([]) });
+  });
+
+  // --- C6 court load grid (admin). Read-only: the bot shows a date picker, fetches
+  // the API-built occupancy grid (confirmed requests + blocks) for the chosen date,
+  // and renders it as a compact monospace text grid. Admin-gated client-side to
+  // decide whether to show the UI; the API re-gates the read by x-telegram-id and
+  // returns no court data to non-admins. ---
+
+  // Open the load view → show the date picker.
+  bot.callbackQuery(COURT_LOAD_ACTIONS.open, async (ctx) => {
+    await ctx.answerCallbackQuery();
+    if (!isAdmin(env, ctx.from.id)) {
+      await ctx.reply(COURT_LOAD_NOT_ADMIN_TEXT, { reply_markup: mainMenuKeyboard() });
+      return;
+    }
+    await ctx.reply(COURT_LOAD_PICK_DATE_TEXT, {
+      reply_markup: courtLoadDateKeyboard(courtDateOptions(new Date()))
+    });
+  });
+
+  // Date picked → fetch the grid and render it.
+  bot.callbackQuery(new RegExp(`^${COURT_LOAD_ACTIONS.datePrefix}`), async (ctx) => {
+    await ctx.answerCallbackQuery();
+    if (!isAdmin(env, ctx.from.id)) {
+      await ctx.reply(COURT_LOAD_NOT_ADMIN_TEXT, { reply_markup: mainMenuKeyboard() });
+      return;
+    }
+    const date = parseLoadDate(ctx.callbackQuery.data);
+    const grid = await api.getCourtLoad(ctx.from.id, date);
+    await ctx.reply(courtLoadGridText(grid), {
+      parse_mode: "HTML",
+      reply_markup: courtLoadGridKeyboard()
+    });
   });
 
   bot.callbackQuery(Object.values(MENU_ACTIONS), async (ctx) => {

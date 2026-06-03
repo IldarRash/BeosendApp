@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
   courtHoursCovered,
+  courtLoadGrid,
   courtPriceRsd,
   freeCourtsByHour,
   freeSeats,
@@ -137,5 +138,105 @@ describe("freeCourtsByHour", () => {
     // a 2h slot at 09:00 covers hour 10 too, so its min free is 0
     const min2h = Math.min(free.get(9) ?? 0, free.get(10) ?? 0);
     expect(min2h).toBe(0);
+  });
+});
+
+describe("courtLoadGrid", () => {
+  const courtA = "aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa";
+  const courtB = "bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb";
+  const courts = [
+    { id: courtA, number: 1 },
+    { id: courtB, number: 2 }
+  ];
+  const window = { openHour: 8, closeHour: 21 };
+
+  const cellAt = (
+    rows: ReturnType<typeof courtLoadGrid>,
+    courtId: string,
+    hour: number
+  ): string => {
+    const row = rows.find((r) => r.courtId === courtId);
+    return row?.cells.find((c) => c.hour === hour)?.state ?? "missing";
+  };
+
+  it("marks every cell free with no occupancy across the full working window", () => {
+    const rows = courtLoadGrid({ courts, ...window, confirmed: [], blocks: [] });
+    expect(rows).toHaveLength(2);
+    expect(rows[0].cells).toHaveLength(21 - 8);
+    expect(rows[0].cells[0].hour).toBe(8);
+    expect(rows[0].cells.at(-1)?.hour).toBe(20);
+    expect(rows.every((r) => r.cells.every((c) => c.state === "free"))).toBe(true);
+  });
+
+  it("renders a confirmed request and a block on the right court/hours; spans fill every hour", () => {
+    const rows = courtLoadGrid({
+      courts,
+      ...window,
+      confirmed: [{ courtId: courtA, startTime: "10:00", durationHours: 2 }],
+      blocks: [{ courtId: courtB, startTime: "09:00", durationHours: 3 }]
+    });
+
+    expect(cellAt(rows, courtA, 10)).toBe("request");
+    expect(cellAt(rows, courtA, 11)).toBe("request");
+    expect(cellAt(rows, courtA, 12)).toBe("free");
+    expect(cellAt(rows, courtA, 9)).toBe("free");
+
+    expect(cellAt(rows, courtB, 9)).toBe("block");
+    expect(cellAt(rows, courtB, 10)).toBe("block");
+    expect(cellAt(rows, courtB, 11)).toBe("block");
+    expect(cellAt(rows, courtB, 12)).toBe("free");
+  });
+
+  it("leaves a court fully free when it has no confirmed request or block", () => {
+    // Only occupants passed in confirmed/blocks reserve a cell. The helper has no
+    // notion of pending/rejected/cancelled, so the caller (repo) filtering to
+    // status='confirmed' is the single gate — a court absent from both is all free.
+    const rows = courtLoadGrid({
+      courts,
+      ...window,
+      confirmed: [{ courtId: courtA, startTime: "10:00", durationHours: 1 }],
+      blocks: []
+    });
+    const rowB = rows.find((r) => r.courtId === courtB);
+    expect(rowB?.cells.every((c) => c.state === "free")).toBe(true);
+    // and courtA is only held at the single confirmed hour, free everywhere else
+    expect(cellAt(rows, courtA, 10)).toBe("request");
+    expect(rows.find((r) => r.courtId === courtA)?.cells.filter((c) => c.state !== "free")).toHaveLength(
+      1
+    );
+  });
+
+  it("lets a block win over a confirmed request on the same court/hour", () => {
+    const rows = courtLoadGrid({
+      courts,
+      ...window,
+      confirmed: [{ courtId: courtA, startTime: "10:00", durationHours: 1 }],
+      blocks: [{ courtId: courtA, startTime: "10:00", durationHours: 1 }]
+    });
+    expect(cellAt(rows, courtA, 10)).toBe("block");
+  });
+
+  it("free-cell count per hour matches freeCourtsByHour for the same data (C3 consistency)", () => {
+    const confirmed = [
+      { courtId: courtA, startTime: "10:00", durationHours: 2 as const }
+    ];
+    const blocks = [{ courtId: courtB, startTime: "09:00", durationHours: 3 }];
+
+    const rows = courtLoadGrid({ courts, ...window, confirmed, blocks });
+    const free = freeCourtsByHour({
+      activeCourtCount: courts.length,
+      ...window,
+      confirmed: confirmed.map((c) => ({ startTime: c.startTime, durationHours: c.durationHours })),
+      // expand the 3h block into three 1h occupants (mirrors the service)
+      blocks: [9, 10, 11].map((h) => ({
+        startTime: `${String(h).padStart(2, "0")}:00`,
+        durationHours: 1 as const
+      }))
+    });
+
+    for (let hour = window.openHour; hour < window.closeHour; hour += 1) {
+      const freeCells = rows.filter((r) => cellAt(rows, r.courtId, hour) === "free").length;
+      expect(freeCells).toBe(free.get(hour));
+    }
   });
 });
