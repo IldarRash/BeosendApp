@@ -30,7 +30,7 @@ All commands run from the repo root. Package manager is **pnpm 10** (via corepac
 
 ```text
 corepack pnpm install     # install all workspaces
-pnpm dev                  # run full dev stack (turbo dev) — API :3000, bot (long polling)
+pnpm dev                  # run full dev stack (turbo dev) — API :3000, bot (long polling), admin :5173
 pnpm lint                 # eslint across workspaces (--max-warnings=0, so warnings fail)
 pnpm typecheck            # tsc --noEmit across workspaces
 pnpm test                 # vitest run across workspaces
@@ -52,6 +52,7 @@ Scope to one package/app and run the **narrowest useful** check after a change:
 ```text
 corepack pnpm --filter @beosand/api typecheck
 corepack pnpm --filter @beosand/api test
+corepack pnpm --filter @beosand/admin dev          # admin console at http://localhost:5173 (needs API + VITE_API_URL)
 corepack pnpm --filter @beosand/types exec vitest run src/helpers.spec.ts
 ```
 
@@ -63,6 +64,7 @@ another; cross-cutting code goes through `packages/*`.
 ```text
 apps/api        NestJS modular monolith (:3000) — domain source of truth, scheduler, outbound Telegram sends
 apps/bot        grammY Telegram bot — interaction layer; calls apps/api via a typed ApiClient
+apps/admin      React + Vite admin console (:5173) — interaction layer; calls apps/api via a typed ApiClient. Reuses packages/types; never imports packages/config (server secrets)
 packages/types  Shared Zod contracts + pure domain helpers (the contract source of truth)
 packages/db     Drizzle schema + migrations (the only place schema/migrations live) + Postgres compose
 packages/config Shared tsconfig + fail-closed env contract (Zod)
@@ -81,6 +83,15 @@ repositories own DB access.** Validate all API inputs and bot-facing outputs wit
 grammY, long polling in dev. Handlers are thin: parse the update, call the `ApiClient`, render
 keyboards/messages. No domain logic, no DB access, no money math in the bot. Conversation/flow state
 (onboarding, multi-step booking) lives in the bot; the *decisions* live in `apps/api`.
+
+### The admin console (apps/admin)
+
+React + Vite SPA for the manager/admin, the web counterpart to the bot and subject to the same rule:
+an **interaction layer only** — no domain logic, money, or availability math. It calls `apps/api` via a
+typed `ApiClient` and validates every rendered value against a `packages/types` contract. It reads
+browser config from `import.meta.env` (`VITE_*`) and **must never import `@beosand/config`**, which
+loads server secrets from `process.env`. Currently a scaffolded shell (live `/health` panel); real
+admin auth and endpoints are a follow-up feature. See `.claude/rules/frontend.md`.
 
 ### Notifications & schedule
 
@@ -116,10 +127,11 @@ by name in your final summary.
 
 This repo ships a Claude operating layer under `.claude/`:
 
-- `.claude/agents/*` — specialized subagents (planner, backend/bot implementers, test-writer,
-  reviewer, security-reviewer, app-runner). Delegate role-specific work to them via the Agent tool.
-- `.claude/skills/*` — invocable workflows (backend / bot-flow implementation, feature planning, test
-  writing, security review).
+- `.claude/agents/*` — specialized subagents (planner, backend/bot/frontend implementers, ui-designer,
+  test-writer, reviewer, security-reviewer, app-runner). Delegate role-specific work to them via the
+  Agent tool.
+- `.claude/skills/*` — invocable workflows (backend / bot-flow / frontend implementation,
+  frontend-design, feature planning, test writing, security review).
 - `.claude/rules/*` — detailed style/security/layering rules; consult the relevant file when working
   in its area.
 

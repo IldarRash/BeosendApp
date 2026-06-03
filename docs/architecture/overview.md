@@ -16,7 +16,10 @@ apps/bot   grammY Telegram bot — the only user touchpoint. Renders menus/keybo
 apps/api   NestJS modular monolith (:3000) — domain source of truth. One module per domain;
            controller → service → repository. Hosts the scheduler (reminders, waitlist) and sends
            outbound Telegram messages (notifications, broadcasts).
-packages/types   Zod contracts + pure domain helpers shared by api and bot.
+apps/admin React + Vite admin console (:5173) — manager/admin web counterpart to the bot. Interaction
+           layer; calls apps/api via a typed ApiClient. Reuses packages/types; never imports
+           packages/config (server secrets). Currently a scaffolded shell (auth + screens are a follow-up).
+packages/types   Zod contracts + pure domain helpers shared by api, bot, and admin.
 packages/db      Drizzle schema + migrations + Postgres compose. Only place the schema lives.
 packages/config  Shared tsconfig + fail-closed env contract.
 ```

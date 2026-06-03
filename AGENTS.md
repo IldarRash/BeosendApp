@@ -11,6 +11,8 @@ subagent does the work.
 | `planner` | Clarify scope, pick the smallest correct slice, write the feature brief. Delegates; does not implement. |
 | `backend-implementer` | `apps/api` modules + `packages/types` contracts + `packages/db` schema/migrations. |
 | `bot-implementer` | `apps/bot` flows/keyboards calling the API. No domain logic in the bot. |
+| `ui-designer` | Visual/UX quality of `apps/admin`: design system, typography, layout, components, accessibility. |
+| `frontend-implementer` | `apps/admin` (React+Vite) screens calling the API. No domain logic in the frontend. |
 | `test-writer` | Vitest unit/integration tests for the changed behavior. |
 | `reviewer` | Correctness + invariant review of the diff. |
 | `security-reviewer` | Authz (telegram_id ownership/role), input validation, secrets, money/availability integrity. |
@@ -23,8 +25,11 @@ flowchart LR
   P[planner\nfeature brief] --> C[contracts\npackages/types]
   C --> B[backend-implementer\napps/api + db]
   C --> T[bot-implementer\napps/bot]
+  C --> UI[ui-designer\ndesign system]
+  UI --> F[frontend-implementer\napps/admin]
   B --> TW[test-writer]
   T --> TW
+  F --> TW
   TW --> R[reviewer]
   R --> SR[security-reviewer]
   SR --> AR[app-runner\nend-to-end check]
@@ -38,8 +43,10 @@ flowchart LR
    bot flow, acceptance criteria, tests, dependencies).
 2. **Contracts first.** Add/adjust Zod contracts in `packages/types` and any schema in `packages/db`
    (with a generated migration) before wiring services — they are the source of truth.
-3. **Implement.** Backend and bot in parallel against the agreed contracts. Backend owns all domain
-   decisions, recompute, and money/availability; the bot only renders and calls the API.
+3. **Implement.** Backend, bot, and (for web admin work) frontend in parallel against the agreed
+   contracts. Backend owns all domain decisions, recompute, and money/availability; the bot and the
+   `apps/admin` console only render and call the API. For frontend work, `ui-designer` shapes the
+   design system and `frontend-implementer` wires the screens.
 4. **Test.** Cover valid input, invalid input, the unsafe/forbidden case, and the invariant the
    feature touches (capacity recompute, status flip, monthly batch, single-date cancel, 6-per-hour).
 5. **Review → security review.**
@@ -48,7 +55,8 @@ flowchart LR
 
 ## Definition of done
 
-- `pnpm typecheck && pnpm lint && pnpm test && pnpm build` green.
+- `pnpm typecheck && pnpm lint && pnpm test && pnpm build` green (turbo runs every workspace,
+  including `@beosand/admin`).
 - Behavior verified in the running app (or a precise blocker documented).
 - Superseded code removed; remaining legacy named in the summary.
 - The feature brief's acceptance criteria are all met.

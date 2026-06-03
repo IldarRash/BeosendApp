@@ -34,5 +34,9 @@ the below-booked guard.
 
 **Dependencies.** T1.1–T1.5, T2.2, T2.4, T3.1.
 
-**Open questions.** Whether to add a web admin later. Default: bot-only for MVP; the API is already
-web-ready.
+**Open questions.** Whether to add a web admin later. **Decided: yes** — a React + Vite console
+(`apps/admin`) has been scaffolded as the web counterpart to the bot menu (the API is already
+web-ready). The scaffold is a shell wired to `GET /health`; the admin-facing API endpoints above and
+the browser auth they require (no token/session auth exists today — admin is `ADMIN_TELEGRAM_IDS`
+checked with a telegram_id) are a separate follow-up feature. Bot-based manager control remains the
+MVP path and must keep working regardless.

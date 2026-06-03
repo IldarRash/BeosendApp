@@ -1,0 +1,248 @@
+/*
+ * BeoSand admin design system.
+ * Direction: warm editorial-utilitarian. A sand/bone canvas, deep ink text, and a
+ * single sunset-coral accent. Characterful serif display paired with a tight mono
+ * for figures — a data-dense console that still reads as a designed product, not a
+ * generic dashboard template. No Inter/Roboto, no purple-on-white.
+ */
+
+:root {
+  --sand-50: #f7f3ec;
+  --sand-100: #efe7d8;
+  --sand-200: #e3d6bf;
+  --ink-900: #1c1a17;
+  --ink-700: #3a352e;
+  --ink-500: #6b6358;
+  --line: #d8cbb4;
+  --coral: #e1543f;
+  --coral-ink: #b23a2a;
+  --teal: #1f7a6d;
+  --paper: #fffdf8;
+  --shadow: 0 1px 0 rgba(28, 26, 23, 0.04), 0 12px 32px -18px rgba(28, 26, 23, 0.35);
+
+  --font-display: "Iowan Old Style", "Palatino Linotype", "Book Antiqua", Palatino, Georgia, serif;
+  --font-body: ui-sans-serif, "Segoe UI", "Helvetica Neue", Arial, sans-serif;
+  --font-mono: "JetBrains Mono", "SFMono-Regular", "Cascadia Code", Consolas, monospace;
+
+  --radius: 10px;
+  --gap: 20px;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html,
+body,
+#root {
+  height: 100%;
+}
+
+body {
+  margin: 0;
+  background: radial-gradient(120% 120% at 100% 0%, var(--sand-50) 0%, var(--sand-100) 60%, var(--sand-200) 100%);
+  color: var(--ink-900);
+  font-family: var(--font-body);
+  font-size: 15px;
+  line-height: 1.5;
+  -webkit-font-smoothing: antialiased;
+}
+
+h1,
+h2,
+h3 {
+  font-family: var(--font-display);
+  font-weight: 600;
+  letter-spacing: -0.01em;
+  margin: 0;
+}
+
+.app {
+  display: grid;
+  grid-template-columns: 248px 1fr;
+  min-height: 100%;
+}
+
+.sidebar {
+  border-right: 1px solid var(--line);
+  padding: 28px 20px;
+  display: flex;
+  flex-direction: column;
+  gap: 28px;
+}
+
+.brand {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+}
+
+.brand__mark {
+  font-family: var(--font-display);
+  font-size: 26px;
+  font-weight: 700;
+}
+
+.brand__mark em {
+  color: var(--coral);
+  font-style: normal;
+}
+
+.brand__sub {
+  font-family: var(--font-mono);
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.18em;
+  color: var(--ink-500);
+}
+
+.nav {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.nav__item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 9px 12px;
+  border-radius: 8px;
+  color: var(--ink-700);
+  font-weight: 500;
+  cursor: pointer;
+  user-select: none;
+}
+
+.nav__item[aria-current="true"] {
+  background: var(--ink-900);
+  color: var(--sand-50);
+}
+
+.nav__item[aria-disabled="true"] {
+  color: var(--ink-500);
+  cursor: not-allowed;
+}
+
+.nav__soon {
+  font-family: var(--font-mono);
+  font-size: 10px;
+  text-transform: uppercase;
+  letter-spacing: 0.12em;
+  color: var(--ink-500);
+}
+
+.main {
+  padding: 40px 48px;
+  display: flex;
+  flex-direction: column;
+  gap: 32px;
+}
+
+.page-head {
+  display: flex;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: 24px;
+  border-bottom: 1px solid var(--line);
+  padding-bottom: 20px;
+}
+
+.page-head h1 {
+  font-size: 34px;
+}
+
+.page-head p {
+  margin: 6px 0 0;
+  color: var(--ink-500);
+  max-width: 52ch;
+}
+
+.health {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  font-family: var(--font-mono);
+  font-size: 12px;
+  padding: 7px 12px;
+  border-radius: 999px;
+  border: 1px solid var(--line);
+  background: var(--paper);
+  white-space: nowrap;
+}
+
+.dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--ink-500);
+}
+
+.dot--ok {
+  background: var(--teal);
+  box-shadow: 0 0 0 3px rgba(31, 122, 109, 0.18);
+}
+
+.dot--down {
+  background: var(--coral);
+  box-shadow: 0 0 0 3px rgba(225, 84, 63, 0.18);
+}
+
+.grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
+  gap: var(--gap);
+}
+
+.card {
+  background: var(--paper);
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  padding: 20px;
+  box-shadow: var(--shadow);
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.card__label {
+  font-family: var(--font-mono);
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.14em;
+  color: var(--ink-500);
+}
+
+.card__value {
+  font-family: var(--font-mono);
+  font-size: 30px;
+  font-weight: 600;
+  letter-spacing: -0.02em;
+}
+
+.card__hint {
+  font-size: 13px;
+  color: var(--ink-500);
+}
+
+.note {
+  background: var(--paper);
+  border: 1px solid var(--line);
+  border-left: 3px solid var(--coral);
+  border-radius: var(--radius);
+  padding: 18px 20px;
+  color: var(--ink-700);
+}
+
+.note h3 {
+  font-size: 16px;
+  margin-bottom: 6px;
+}
+
+.note code {
+  font-family: var(--font-mono);
+  font-size: 12px;
+  background: var(--sand-100);
+  padding: 1px 5px;
+  border-radius: 4px;
+}

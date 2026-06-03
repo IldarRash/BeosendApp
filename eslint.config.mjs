@@ -1,4 +1,6 @@
 import js from "@eslint/js";
+import globals from "globals";
+import reactHooks from "eslint-plugin-react-hooks";
 import tseslint from "typescript-eslint";
 
 export default tseslint.config(
@@ -23,6 +25,17 @@ export default tseslint.config(
         { argsIgnorePattern: "^_", varsIgnorePattern: "^_" }
       ],
       "@typescript-eslint/no-explicit-any": "warn"
+    }
+  },
+  // Browser + React rules for the admin SPA only.
+  {
+    files: ["apps/admin/**/*.{ts,tsx}"],
+    plugins: { "react-hooks": reactHooks },
+    languageOptions: {
+      globals: globals.browser
+    },
+    rules: {
+      ...reactHooks.configs.recommended.rules
     }
   }
 );
