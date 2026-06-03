@@ -22,6 +22,7 @@ import {
 import { ENV } from "../../config/config.module";
 import { ClientsRepository } from "../clients/clients.repository";
 import { GroupsRepository } from "../groups/groups.repository";
+import { NotificationsService } from "../notifications/notifications.service";
 import { BookingsRepository } from "./bookings.repository";
 
 interface CreateSingleInput {
@@ -58,6 +59,7 @@ export class BookingsService {
     private readonly bookings: BookingsRepository,
     private readonly clients: ClientsRepository,
     private readonly groups: GroupsRepository,
+    private readonly notifications: NotificationsService,
     @Inject(ENV) private readonly env: Env
   ) {}
 
@@ -112,6 +114,14 @@ export class BookingsService {
       );
       return created;
     });
+
+    // After the commit, fire-and-forget: a confirmation failure must never undo
+    // the booking or surface as an error to the caller. The notifications service
+    // is idempotent and swallows send errors; we still guard here so a failure in
+    // the pre-send dedupe/lookup (e.g. a DB hiccup) cannot 500 a committed booking.
+    await this.sendConfirmationSafely(() =>
+      this.notifications.sendBookingConfirmation(input.clientId, input.trainingId)
+    );
 
     return bookingSchema.parse(booking);
   }
@@ -222,6 +232,16 @@ export class BookingsService {
         `${input.year}-${input.month}: ${result.created.length} created, ${result.skipped.length} skipped`
     );
 
+    // After the commit, one batch-summary confirmation for the dates created.
+    // Fire-and-forget and idempotent; a failure never undoes the batch nor 500s
+    // the committed booking — see sendConfirmationSafely.
+    await this.sendConfirmationSafely(() =>
+      this.notifications.sendGroupBookingConfirmation(
+        input.clientId,
+        result.created.map((booking) => booking.trainingId)
+      )
+    );
+
     return groupBookingResultSchema.parse(result);
   }
 
@@ -262,6 +282,22 @@ export class BookingsService {
         canCancel
       });
     });
+  }
+
+  /**
+   * Run a post-commit confirmation send without ever letting its failure escape
+   * into the booking response: a committed booking is authoritative, so a Telegram
+   * (or notifications-repo) failure is logged and swallowed, never rolled back.
+   */
+  private async sendConfirmationSafely(send: () => Promise<void>): Promise<void> {
+    try {
+      await send();
+    } catch (error) {
+      this.logger.error(
+        "Booking confirmation send failed (booking stands): " +
+          (error instanceof Error ? error.message : String(error))
+      );
+    }
   }
 
   /**

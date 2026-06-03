@@ -17,6 +17,13 @@ import type {
 } from "./bookings.repository";
 import type { ClientsRepository } from "../clients/clients.repository";
 import type { GroupsRepository } from "../groups/groups.repository";
+import type { NotificationsService } from "../notifications/notifications.service";
+
+/** No-op notifications double: confirmation sends are fire-and-forget here. */
+const fakeNotifications = {
+  sendBookingConfirmation: async (): Promise<void> => undefined,
+  sendGroupBookingConfirmation: async (): Promise<void> => undefined
+} as unknown as NotificationsService;
 
 const ADMIN_ID = 111;
 const OWNER_ID = 222;
@@ -178,6 +185,7 @@ describe("BookingsService.createSingle", () => {
       bookingsRepo as unknown as BookingsRepository,
       clientsRepo as unknown as ClientsRepository,
       new FakeGroupsRepository() as unknown as GroupsRepository,
+      fakeNotifications,
       env
     );
   });
@@ -319,6 +327,7 @@ describe("BookingsService.createGroupBooking", () => {
       bookingsRepo as unknown as BookingsRepository,
       clientsRepo as unknown as ClientsRepository,
       groupsRepo as unknown as GroupsRepository,
+      fakeNotifications,
       env
     );
   });
@@ -452,6 +461,77 @@ describe("BookingsService.createGroupBooking", () => {
   });
 });
 
+// A committed booking must NEVER be undone because the post-commit Telegram
+// confirmation failed (T2.2 invariant). The notifications double here throws on
+// every send; the booking call must still resolve with the persisted booking.
+describe("BookingsService confirmation hook is failure-tolerant", () => {
+  const throwingNotifications = {
+    sendBookingConfirmation: async (): Promise<void> => {
+      throw new Error("telegram unreachable");
+    },
+    sendGroupBookingConfirmation: async (): Promise<void> => {
+      throw new Error("telegram unreachable");
+    }
+  } as unknown as NotificationsService;
+
+  let bookingsRepo: FakeBookingsRepository;
+  let service: BookingsService;
+
+  beforeEach(() => {
+    bookingsRepo = new FakeBookingsRepository();
+    service = new BookingsService(
+      bookingsRepo as unknown as BookingsRepository,
+      new FakeClientsRepository() as unknown as ClientsRepository,
+      new FakeGroupsRepository() as unknown as GroupsRepository,
+      throwingNotifications,
+      env
+    );
+  });
+
+  it("returns the persisted single booking even when the confirmation send throws", async () => {
+    bookingsRepo.training = { id: TRAINING_ID, capacity: 6, bookedCount: 0, status: "open" };
+
+    const booking = await service.createSingle(OWNER_ID, {
+      clientId: CLIENT_ID,
+      trainingId: TRAINING_ID
+    });
+
+    // The booking is committed and the count incremented despite the failed send.
+    expect(booking.status).toBe("booked");
+    expect(bookingsRepo.bookings).toHaveLength(1);
+    expect(bookingsRepo.training.bookedCount).toBe(1);
+  });
+
+  it("returns the persisted group batch even when the confirmation send throws", async () => {
+    bookingsRepo.monthTrainings = [
+      {
+        id: "a1111111-1111-1111-1111-111111111111",
+        date: "2099-06-01",
+        capacity: 6,
+        bookedCount: 0,
+        status: "open"
+      },
+      {
+        id: "a2222222-2222-2222-2222-222222222222",
+        date: "2099-06-03",
+        capacity: 6,
+        bookedCount: 0,
+        status: "open"
+      }
+    ];
+
+    const result = await service.createGroupBooking(OWNER_ID, {
+      clientId: CLIENT_ID,
+      groupId: GROUP_ID,
+      year: FUTURE_YEAR,
+      month: FUTURE_MONTH
+    });
+
+    expect(result.created).toHaveLength(2);
+    expect(bookingsRepo.bookings).toHaveLength(2);
+  });
+});
+
 describe("BookingsService.listMine", () => {
   let bookingsRepo: FakeBookingsRepository;
   let clientsRepo: FakeClientsRepository;
@@ -464,6 +544,7 @@ describe("BookingsService.listMine", () => {
       bookingsRepo as unknown as BookingsRepository,
       clientsRepo as unknown as ClientsRepository,
       new FakeGroupsRepository() as unknown as GroupsRepository,
+      fakeNotifications,
       env
     );
   });

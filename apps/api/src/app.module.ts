@@ -1,4 +1,5 @@
 import { Module } from "@nestjs/common";
+import { ScheduleModule } from "@nestjs/schedule";
 import { ConfigModule } from "./config/config.module";
 import { DbModule } from "./db/db.module";
 import { HealthModule } from "./health/health.module";
@@ -6,6 +7,7 @@ import { BookingsModule } from "./modules/bookings/bookings.module";
 import { ClientsModule } from "./modules/clients/clients.module";
 import { GroupsModule } from "./modules/groups/groups.module";
 import { LevelsModule } from "./modules/levels/levels.module";
+import { NotificationsModule } from "./modules/notifications/notifications.module";
 import { TrainersModule } from "./modules/trainers/trainers.module";
 import { TrainingsModule } from "./modules/trainings/trainings.module";
 
@@ -16,6 +18,7 @@ import { TrainingsModule } from "./modules/trainings/trainings.module";
  */
 @Module({
   imports: [
+    ScheduleModule.forRoot(),
     ConfigModule,
     DbModule,
     HealthModule,
@@ -24,6 +27,7 @@ import { TrainingsModule } from "./modules/trainings/trainings.module";
     GroupsModule,
     TrainingsModule,
     ClientsModule,
+    NotificationsModule,
     BookingsModule
   ]
 })
