@@ -4,6 +4,7 @@ import {
   courtPriceRsd,
   freeCourtsByHour,
   freeSeats,
+  hourRangesOverlap,
   isBookable,
   monthTrainingDates,
   recomputeTrainingStatus
@@ -55,6 +56,23 @@ describe("court pricing", () => {
   it("covers the right clock hours", () => {
     expect(courtHoursCovered("14:00", 2)).toEqual([14, 15]);
     expect(courtHoursCovered("19:00", 1)).toEqual([19]);
+  });
+});
+
+describe("hourRangesOverlap", () => {
+  it("detects overlapping ranges on the same court", () => {
+    expect(hourRangesOverlap("18:00", "20:00", "19:00", "21:00")).toBe(true);
+    expect(hourRangesOverlap("18:00", "20:00", "18:00", "19:00")).toBe(true);
+    expect(hourRangesOverlap("18:00", "20:00", "17:00", "21:00")).toBe(true);
+  });
+
+  it("treats abutting ranges as non-overlapping (half-open)", () => {
+    expect(hourRangesOverlap("18:00", "20:00", "20:00", "21:00")).toBe(false);
+    expect(hourRangesOverlap("18:00", "20:00", "16:00", "18:00")).toBe(false);
+  });
+
+  it("returns false for fully disjoint ranges", () => {
+    expect(hourRangesOverlap("08:00", "10:00", "14:00", "16:00")).toBe(false);
   });
 });
 

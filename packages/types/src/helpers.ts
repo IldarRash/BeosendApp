@@ -83,6 +83,24 @@ export interface CourtOccupant {
 }
 
 /**
+ * True when two whole-hour ranges on the same court overlap (C5 block guard).
+ * Ranges are half-open [start, end): 09:00–11:00 and 11:00–12:00 do not overlap.
+ * Inputs are "HH:MM"; only the hour component is significant.
+ */
+export function hourRangesOverlap(
+  aStart: string,
+  aEnd: string,
+  bStart: string,
+  bEnd: string
+): boolean {
+  const a0 = Number(aStart.slice(0, 2));
+  const a1 = Number(aEnd.slice(0, 2));
+  const b0 = Number(bStart.slice(0, 2));
+  const b1 = Number(bEnd.slice(0, 2));
+  return a0 < b1 && b0 < a1;
+}
+
+/**
  * Free courts per working clock hour (Edition 2 — max 6 confirmed per hour).
  * free(h) = activeCourtCount − confirmed covering h − blocks covering h, floored at 0.
  * Shared by the availability read (C3) and the confirm re-check (C4); the limit

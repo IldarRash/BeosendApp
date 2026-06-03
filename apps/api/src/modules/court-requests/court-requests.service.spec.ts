@@ -144,6 +144,74 @@ describe("CourtRequestsService.getAvailability", () => {
   });
 });
 
+describe("C5 court block reduces availability via the same getAvailability math", () => {
+  // Brief acceptance criterion: blocking a court for 18:00–20:00 makes exactly
+  // those hours show one fewer free court, and removing the block restores it.
+  // A block is expanded to one 1h occupant per covered hour, so a 2h block must
+  // reduce BOTH covered hours — never a neighbouring hour.
+  const block18to20: OccupantRow = { startTime: "18:00", durationHours: 2 };
+
+  function freeAt(result: { hours: { hour: number; freeCourts: number }[] }, hour: number): number {
+    // An hour dropped from the list has zero free courts left.
+    return result.hours.find((h) => h.hour === hour)?.freeCourts ?? 0;
+  }
+
+  it("reduces exactly the covered hours by one and leaves neighbours untouched", async () => {
+    const withBlock = await new CourtRequestsService(
+      makeRepo({ activeCourtCount: 6, blocks: [block18to20] })
+    ).getAvailability(date);
+
+    // The two covered hours each lose exactly one free court...
+    expect(freeAt(withBlock, 18)).toBe(5);
+    expect(freeAt(withBlock, 19)).toBe(5);
+    // ...while the hours abutting the block keep the full active count.
+    expect(freeAt(withBlock, 17)).toBe(6);
+    expect(freeAt(withBlock, 20)).toBe(6);
+  });
+
+  it("a block sits on TOP of confirmed requests for the same hour (server-side, additive)", async () => {
+    // The block and a confirmed request both occupy hour 18 → two fewer free.
+    const result = await new CourtRequestsService(
+      makeRepo({
+        activeCourtCount: 6,
+        confirmed: [{ startTime: "18:00", durationHours: 1 }],
+        blocks: [block18to20]
+      })
+    ).getAvailability(date);
+
+    expect(freeAt(result, 18)).toBe(4); // 6 − 1 confirmed − 1 block
+    expect(freeAt(result, 19)).toBe(5); // block only
+  });
+
+  it("removing the block fully restores availability to the no-block baseline", async () => {
+    const baseline = await new CourtRequestsService(
+      makeRepo({ activeCourtCount: 6, blocks: [] })
+    ).getAvailability(date);
+    const restored = await new CourtRequestsService(
+      // The same repo state once the block row is gone (delete restores availability).
+      makeRepo({ activeCourtCount: 6, blocks: [] })
+    ).getAvailability(date);
+
+    // Both covered hours are back to the full count, identical to never blocking.
+    expect(freeAt(restored, 18)).toBe(6);
+    expect(freeAt(restored, 19)).toBe(6);
+    expect(restored).toEqual(baseline);
+  });
+
+  it("on a single-court date the block drops exactly its covered hours from the offer", async () => {
+    // With one active court, the block fully occupies hours 18 and 19, so neither
+    // is offered, but 17:00 and 20:00 remain offerable — the reduction is local.
+    const result = await new CourtRequestsService(
+      makeRepo({ activeCourtCount: 1, blocks: [block18to20] })
+    ).getAvailability(date);
+
+    expect(result.hours.find((h) => h.hour === 18)).toBeUndefined();
+    expect(result.hours.find((h) => h.hour === 19)).toBeUndefined();
+    expect(freeAt(result, 17)).toBe(1);
+    expect(freeAt(result, 20)).toBe(1);
+  });
+});
+
 describe("freeForDuration (min over covered hours — the rule C4 re-checks)", () => {
   it("a 1h slot's availability is exactly its single covered hour", () => {
     const freeByHour = new Map<number, number>([

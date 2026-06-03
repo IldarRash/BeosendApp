@@ -29,6 +29,7 @@ export const courtBlockSchema = z.object({
 });
 export const createCourtBlockSchema = courtBlockSchema.omit({ id: true });
 export type CourtBlock = z.infer<typeof courtBlockSchema>;
+export type CreateCourtBlock = z.infer<typeof createCourtBlockSchema>;
 
 export const courtRequestStatus = z.enum(["pending", "confirmed", "rejected", "cancelled"]);
 export type CourtRequestStatus = z.infer<typeof courtRequestStatus>;
