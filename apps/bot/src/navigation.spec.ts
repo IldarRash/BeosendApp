@@ -2,17 +2,25 @@ import { describe, expect, it, vi } from "vitest";
 import { MENU_ACTIONS, NAV_ACTIONS, WELCOME_TEXT } from "./menu";
 import { menuHandlers, resolveCallback, type MenuHandlerDeps, type MenuReplyCtx } from "./navigation";
 
-const deps: MenuHandlerDeps = {
-  managerContact: "@test_manager",
-  api: {
-    listAvailableSlots: vi.fn().mockResolvedValue([]),
-    listGroups: vi.fn().mockResolvedValue([])
-  }
-};
+const CLIENT = { id: "22222222-2222-2222-2222-222222222222" };
+
+function makeDeps(): MenuHandlerDeps {
+  return {
+    managerContact: "@test_manager",
+    api: {
+      listAvailableSlots: vi.fn().mockResolvedValue([]),
+      listGroups: vi.fn().mockResolvedValue([]),
+      getClientByTelegramId: vi.fn().mockResolvedValue(CLIENT),
+      listMyBookings: vi.fn().mockResolvedValue([])
+    }
+  };
+}
+
+const deps: MenuHandlerDeps = makeDeps();
 
 function fakeCtx(): { ctx: MenuReplyCtx; reply: ReturnType<typeof vi.fn> } {
   const reply = vi.fn().mockResolvedValue(undefined);
-  return { ctx: { reply }, reply };
+  return { ctx: { reply, from: { id: 999 } }, reply };
 }
 
 /** Extract the callback_data of every button in a reply's keyboard. */
@@ -38,13 +46,49 @@ describe("menu dispatch table", () => {
     expect(Object.keys(menuHandlers).sort()).toEqual([...Object.values(MENU_ACTIONS)].sort());
   });
 
-  it("gives every sub-screen a back+home footer so navigation never dead-ends", async () => {
+  it("gives every sub-screen a back/home path so navigation never dead-ends", async () => {
     for (const action of Object.values(MENU_ACTIONS)) {
       const { ctx, reply } = fakeCtx();
       await menuHandlers[action](ctx, deps);
       expect(reply).toHaveBeenCalledOnce();
-      expect(callbacksOf(reply)).toEqual([NAV_ACTIONS.back, NAV_ACTIONS.home]);
+      // Every sub-screen ends with a home shortcut; most also offer "back". The
+      // empty "my bookings" screen swaps "back" for a "book a training" CTA but
+      // still leaves home as the last button — never a dead-end.
+      const callbacks = callbacksOf(reply);
+      expect(callbacks).toContain(NAV_ACTIONS.home);
+      if (action !== MENU_ACTIONS.myBookings) {
+        expect(callbacks).toEqual([NAV_ACTIONS.back, NAV_ACTIONS.home]);
+      }
     }
+  });
+
+  it("renders my bookings sections from the API with a cancel button only on canCancel items", async () => {
+    const upcoming = {
+      bookingId: "33333333-3333-3333-3333-333333333333",
+      trainingId: "11111111-1111-1111-1111-111111111111",
+      date: "2026-06-10",
+      dayOfWeek: 3 as const,
+      startTime: "18:00",
+      endTime: "19:30",
+      trainerName: "Марко",
+      levelName: "Начинающий",
+      bookingStatus: "booked" as const,
+      trainingStatus: "open" as const,
+      canCancel: true
+    };
+    const { ctx, reply } = fakeCtx();
+    const localDeps = makeDeps();
+    (localDeps.api.listMyBookings as ReturnType<typeof vi.fn>).mockImplementation(
+      async (_clientId: string, scope: string) =>
+        scope === "upcoming" ? [upcoming] : []
+    );
+    await menuHandlers[MENU_ACTIONS.myBookings](ctx, localDeps);
+    expect(localDeps.api.getClientByTelegramId).toHaveBeenCalledWith(999);
+    expect(localDeps.api.listMyBookings).toHaveBeenCalledWith(CLIENT.id, "upcoming", 999);
+    expect(localDeps.api.listMyBookings).toHaveBeenCalledWith(CLIENT.id, "past", 999);
+    const callbacks = callbacksOf(reply);
+    expect(callbacks).toContain(`booking:cancel:${upcoming.bookingId}`);
+    expect(callbacks.slice(-2)).toEqual([NAV_ACTIONS.back, NAV_ACTIONS.home]);
   });
 
   it("lists bookable slots from the API for menu:available with a per-slot book button", async () => {
@@ -60,13 +104,8 @@ describe("menu dispatch table", () => {
       priceSingleRsd: 1500
     };
     const { ctx, reply } = fakeCtx();
-    const localDeps: MenuHandlerDeps = {
-      managerContact: "@m",
-      api: {
-        listAvailableSlots: vi.fn().mockResolvedValue([card]),
-        listGroups: vi.fn().mockResolvedValue([])
-      }
-    };
+    const localDeps = makeDeps();
+    (localDeps.api.listAvailableSlots as ReturnType<typeof vi.fn>).mockResolvedValue([card]);
     await menuHandlers[MENU_ACTIONS.availableTrainings](ctx, localDeps);
     expect(localDeps.api.listAvailableSlots).toHaveBeenCalledOnce();
     expect(reply).toHaveBeenCalledOnce();

@@ -2,21 +2,28 @@ import { backHomeKeyboard, MENU_ACTIONS, mainMenuKeyboard, WELCOME_TEXT } from "
 import type { MenuAction } from "./menu";
 import { renderSlotsText, slotsKeyboard } from "./slots";
 import { handleGroupList } from "./group-booking";
+import { handleMyBookings } from "./my-bookings";
 import type { ApiClient } from "./api-client";
 
 /**
  * Minimal surface a menu/nav handler needs from a grammY callback context.
  * Defined locally so the dispatch table can be unit-tested without a live bot.
+ * `from` carries the numeric telegram_id for the per-user flows (My bookings);
+ * it is optional because purely public screens never read it.
  */
 export interface MenuReplyCtx {
   reply(text: string, other?: { reply_markup?: unknown }): Promise<unknown>;
+  from?: { id: number };
 }
 
 export interface MenuHandlerDeps {
   /** Manager contact handle/text, read from the env contract at startup. */
   managerContact: string;
   /** Typed API client; the only way handlers reach domain data. */
-  api: Pick<ApiClient, "listAvailableSlots" | "listGroups">;
+  api: Pick<
+    ApiClient,
+    "listAvailableSlots" | "listGroups" | "getClientByTelegramId" | "listMyBookings"
+  >;
 }
 
 export type MenuHandler = (ctx: MenuReplyCtx, deps: MenuHandlerDeps) => Promise<void>;
@@ -53,7 +60,11 @@ export const menuHandlers: Record<MenuAction, MenuHandler> = {
   [MENU_ACTIONS.joinGroup]: async (ctx, deps) => {
     await handleGroupList(ctx, deps.api);
   },
-  [MENU_ACTIONS.myBookings]: stub("Ваши записи скоро будут здесь."),
+  // My bookings (T1.10): resolve the caller's client from telegram_id, then list
+  // upcoming + past. Ownership lives in the API; the bot only renders.
+  [MENU_ACTIONS.myBookings]: async (ctx, deps) => {
+    await handleMyBookings(ctx, deps.api, ctx.from?.id);
+  },
   [MENU_ACTIONS.contactManager]: async (ctx, deps) => {
     await ctx.reply(`Связаться с менеджером: ${deps.managerContact}`, {
       reply_markup: backHomeKeyboard()

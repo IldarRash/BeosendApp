@@ -132,6 +132,7 @@ export const bookingStatus = z.enum([
   "no_show",
   "waitlist"
 ]);
+export type BookingStatus = z.infer<typeof bookingStatus>;
 export const bookingSchema = z.object({
   id: uuid,
   clientId: uuid,
@@ -172,6 +173,42 @@ export const groupBookingResultSchema = z.object({
   skipped: z.array(dateString)
 });
 export type GroupBookingResult = z.infer<typeof groupBookingResultSchema>;
+
+// --- My bookings (T1.10): a client's own upcoming / past trainings ---
+
+/** Split a client's bookings relative to today; computed server-side. */
+export const myBookingScope = z.enum(["upcoming", "past"]);
+export type MyBookingScope = z.infer<typeof myBookingScope>;
+
+/** Client query for their own bookings (GET /bookings/mine). */
+export const myBookingsQuerySchema = z
+  .object({
+    clientId: uuid,
+    scope: myBookingScope
+  })
+  .strict();
+export type MyBookingsQuery = z.infer<typeof myBookingsQuerySchema>;
+
+/**
+ * One row in a client's "My bookings" view (T1.10): the booking joined to its
+ * training and the trainer/level names the bot renders. `canCancel` is
+ * server-computed (true only for a future, still-`booked` item on a non-terminal
+ * training) and never trusted from the bot.
+ */
+export const myBookingItemSchema = z.object({
+  bookingId: uuid,
+  trainingId: uuid,
+  date: dateString,
+  dayOfWeek,
+  startTime: timeString,
+  endTime: timeString,
+  trainerName: z.string(),
+  levelName: z.string(),
+  bookingStatus,
+  trainingStatus,
+  canCancel: z.boolean()
+});
+export type MyBookingItem = z.infer<typeof myBookingItemSchema>;
 
 // --- Waitlist (section 9) ---
 export const waitlistStatus = z.enum(["waiting", "notified", "promoted", "expired", "cancelled"]);

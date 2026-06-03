@@ -10,11 +10,13 @@ import {
 } from "@nestjs/common";
 import type { Env } from "@beosand/config";
 import { isAdmin } from "@beosand/config";
-import type { Booking, GroupBookingResult } from "@beosand/types";
+import type { Booking, GroupBookingResult, MyBookingItem, MyBookingScope } from "@beosand/types";
 import {
   bookingSchema,
   groupBookingResultSchema,
   isBookable,
+  isoWeekdayOf,
+  myBookingItemSchema,
   recomputeTrainingStatus
 } from "@beosand/types";
 import { ENV } from "../../config/config.module";
@@ -221,6 +223,45 @@ export class BookingsService {
     );
 
     return groupBookingResultSchema.parse(result);
+  }
+
+  /**
+   * A client's own bookings split into upcoming / past (T1.10), read-only.
+   * Ownership is the primary invariant: the supplied clientId must resolve from
+   * the caller's telegram_id (admins may act on any) or it is rejected with a 403
+   * leaking nothing. `canCancel` is computed server-side — true only for a future
+   * (`date >= today`), still-`booked` item whose training is non-terminal
+   * (open|full) — and is never trusted from the bot. The cancel write is T1.11.
+   */
+  async listMine(
+    actorTelegramId: number,
+    clientId: string,
+    scope: MyBookingScope
+  ): Promise<MyBookingItem[]> {
+    await this.assertOwnsClient(actorTelegramId, clientId);
+
+    const today = new Date().toISOString().slice(0, 10);
+    const rows = await this.bookings.listForClient(clientId, scope, today);
+
+    return rows.map((row) => {
+      const canCancel =
+        row.bookingStatus === "booked" &&
+        row.date >= today &&
+        (row.trainingStatus === "open" || row.trainingStatus === "full");
+      return myBookingItemSchema.parse({
+        bookingId: row.bookingId,
+        trainingId: row.trainingId,
+        date: row.date,
+        dayOfWeek: isoWeekdayOf(row.date),
+        startTime: row.startTime,
+        endTime: row.endTime,
+        trainerName: row.trainerName,
+        levelName: row.levelName,
+        bookingStatus: row.bookingStatus,
+        trainingStatus: row.trainingStatus,
+        canCancel
+      });
+    });
   }
 
   /**

@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-import type { Booking, SlotCard } from "@beosand/types";
+import type { Booking, MyBookingItem, SlotCard } from "@beosand/types";
 import { ApiClient } from "./api-client";
 
 const CLIENT_ID = "22222222-2222-2222-2222-222222222222";
@@ -142,5 +142,55 @@ describe("ApiClient.createSingleBooking", () => {
         999
       )
     ).rejects.toThrow();
+  });
+});
+
+describe("ApiClient.listMyBookings", () => {
+  afterEach(() => {
+    vi.unstubAllGlobals();
+  });
+
+  const mineItem: MyBookingItem = {
+    bookingId: "33333333-3333-3333-3333-333333333333",
+    trainingId: TRAINING_ID,
+    date: "2026-06-10",
+    dayOfWeek: 3,
+    startTime: "18:00",
+    endTime: "19:30",
+    trainerName: "Марко",
+    levelName: "Начинающий",
+    bookingStatus: "booked",
+    trainingStatus: "open",
+    canCancel: true
+  };
+
+  it("GETs /bookings/mine with clientId+scope and the caller's telegram id header", async () => {
+    const fetchMock = mockFetch([mineItem]);
+    const items = await new ApiClient("http://api.test").listMyBookings(CLIENT_ID, "upcoming", 999);
+    expect(items).toEqual([mineItem]);
+    const [rawUrl, init] = fetchMock.mock.calls[0] as [string, RequestInit];
+    const url = new URL(rawUrl);
+    expect(url.pathname).toBe("/bookings/mine");
+    expect(url.searchParams.get("clientId")).toBe(CLIENT_ID);
+    expect(url.searchParams.get("scope")).toBe("upcoming");
+    expect((init.headers as Record<string, string>)["x-telegram-id"]).toBe("999");
+  });
+
+  // Invariant boundary: canCancel and the statuses are server-computed; a body
+  // that violates the contract is rejected, never rendered.
+  it("rejects a response whose item violates the MyBookingItem contract", async () => {
+    mockFetch([{ ...mineItem, canCancel: "yes" }]);
+    await expect(
+      new ApiClient("http://api.test").listMyBookings(CLIENT_ID, "upcoming", 999)
+    ).rejects.toThrow();
+  });
+
+  // Unsafe path: a foreign clientId is rejected by the API with 403 — the client
+  // surfaces it as an error and leaks no data.
+  it("throws on a 403 (foreign clientId)", async () => {
+    mockFetch({}, false, 403);
+    await expect(
+      new ApiClient("http://api.test").listMyBookings(CLIENT_ID, "upcoming", 999)
+    ).rejects.toThrow(/403/);
   });
 });

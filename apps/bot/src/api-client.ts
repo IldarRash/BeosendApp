@@ -4,6 +4,7 @@ import {
   groupBookingResultSchema,
   groupSchema,
   levelSchema,
+  myBookingItemSchema,
   slotCardSchema,
   trainerSchema,
   trainingSchema,
@@ -17,6 +18,8 @@ import {
   type GroupBookingResult,
   type Level,
   type ListTrainingsQuery,
+  type MyBookingItem,
+  type MyBookingScope,
   type OnboardClientInput,
   type SlotCard,
   type Trainer,
@@ -40,6 +43,7 @@ const trainersSchema = z.array(trainerSchema);
 const groupsSchema = z.array(groupSchema);
 const trainingsSchema = z.array(trainingSchema);
 const slotCardsSchema = z.array(slotCardSchema);
+const myBookingsSchema = z.array(myBookingItemSchema);
 
 /**
  * Thin typed client the bot uses to reach apps/api. The bot is an interaction
@@ -217,6 +221,24 @@ export class ApiClient {
       method: "POST",
       headers: { "x-telegram-id": String(actorTelegramId) },
       body: JSON.stringify(input)
+    });
+  }
+
+  /**
+   * A client's own bookings for one scope (T1.10): `upcoming` or `past`, already
+   * split, ordered and `canCancel`-flagged server-side. Identity is the caller's
+   * telegram_id (sent as the `x-telegram-id` header); the API re-resolves the
+   * client and rejects a `clientId` that isn't the caller's (admins excepted).
+   * The bot only renders these items — it never decides scope or cancellability.
+   */
+  listMyBookings(
+    clientId: string,
+    scope: MyBookingScope,
+    actorTelegramId: number
+  ): Promise<MyBookingItem[]> {
+    const params = new URLSearchParams({ clientId, scope });
+    return this.request(`/bookings/mine?${params.toString()}`, myBookingsSchema, {
+      headers: { "x-telegram-id": String(actorTelegramId) }
     });
   }
 

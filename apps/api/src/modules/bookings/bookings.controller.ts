@@ -1,9 +1,11 @@
-import { BadRequestException, Body, Controller, Headers, Post } from "@nestjs/common";
+import { BadRequestException, Body, Controller, Get, Headers, Post, Query } from "@nestjs/common";
 import {
   type Booking,
   type GroupBookingResult,
+  type MyBookingItem,
   createGroupBookingSchema,
-  createSingleBookingSchema
+  createSingleBookingSchema,
+  myBookingsQuerySchema
 } from "@beosand/types";
 import type { ZodSchema } from "zod";
 import { BookingsService } from "./bookings.service";
@@ -33,6 +35,17 @@ export class BookingsController {
     const actorTelegramId = parseTelegramId(telegramIdHeader);
     const input = validate(createGroupBookingSchema, body ?? {});
     return this.bookings.createGroupBooking(actorTelegramId, input);
+  }
+
+  /** Client: list their own upcoming or past bookings (T1.10). Ownership in the service. */
+  @Get("mine")
+  listMine(
+    @Headers("x-telegram-id") telegramIdHeader: string | undefined,
+    @Query() query: unknown
+  ): Promise<MyBookingItem[]> {
+    const actorTelegramId = parseTelegramId(telegramIdHeader);
+    const { clientId, scope } = validate(myBookingsQuerySchema, query ?? {});
+    return this.bookings.listMine(actorTelegramId, clientId, scope);
   }
 }
 

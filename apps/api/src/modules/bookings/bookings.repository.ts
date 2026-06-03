@@ -1,7 +1,8 @@
 import { Injectable } from "@nestjs/common";
 import { type Database, tables } from "@beosand/db";
-import type { Booking, TrainingStatus } from "@beosand/types";
-import { and, asc, eq, gte, inArray, lte } from "drizzle-orm";
+import type { BookingStatus, TrainingStatus } from "@beosand/types";
+import { type Booking } from "@beosand/types";
+import { and, asc, desc, eq, gte, inArray, lt, lte } from "drizzle-orm";
 import { DatabaseService } from "../../db/database.service";
 
 type BookingRow = typeof tables.bookings.$inferSelect;
@@ -18,6 +19,22 @@ export interface TrainingLockRow {
 /** A month training instance locked FOR UPDATE, carrying its date for skip reporting. */
 export interface GroupTrainingLockRow extends TrainingLockRow {
   date: string;
+}
+
+/**
+ * One of a client's bookings joined to its training and the trainer/level
+ * names — no business rules applied (the service derives `canCancel`/today).
+ */
+export interface MyBookingRow {
+  bookingId: string;
+  trainingId: string;
+  date: string;
+  startTime: string;
+  endTime: string;
+  trainerName: string;
+  levelName: string;
+  bookingStatus: BookingStatus;
+  trainingStatus: TrainingStatus;
 }
 
 /** Only place bookings DB access lives. Returns typed rows; no business rules. */
@@ -80,6 +97,56 @@ export class BookingsRepository {
       )
       .orderBy(asc(tables.trainings.date))
       .for("update");
+  }
+
+  /**
+   * A client's bookings joined to their training and the trainer/level names,
+   * split by `scope` relative to `today` (T1.10). `upcoming`: training.date >=
+   * today, ordered date ASC then start time ASC; `past`: training.date < today,
+   * ordered date DESC then start time DESC. The service derives `canCancel`; the
+   * repo applies no business rules. Level is resolved via the (nullable) group;
+   * a training with no group falls back to an empty level name.
+   */
+  async listForClient(
+    clientId: string,
+    scope: "upcoming" | "past",
+    today: string
+  ): Promise<MyBookingRow[]> {
+    const dateFilter =
+      scope === "upcoming"
+        ? gte(tables.trainings.date, today)
+        : lt(tables.trainings.date, today);
+    const order =
+      scope === "upcoming"
+        ? [asc(tables.trainings.date), asc(tables.trainings.startTime)]
+        : [desc(tables.trainings.date), desc(tables.trainings.startTime)];
+
+    const rows = await this.database.db
+      .select({
+        bookingId: tables.bookings.id,
+        trainingId: tables.trainings.id,
+        date: tables.trainings.date,
+        startTime: tables.trainings.startTime,
+        endTime: tables.trainings.endTime,
+        trainerName: tables.trainers.name,
+        levelName: tables.levels.name,
+        bookingStatus: tables.bookings.status,
+        trainingStatus: tables.trainings.status
+      })
+      .from(tables.bookings)
+      .innerJoin(tables.trainings, eq(tables.bookings.trainingId, tables.trainings.id))
+      .innerJoin(tables.trainers, eq(tables.trainings.trainerId, tables.trainers.id))
+      .leftJoin(tables.groups, eq(tables.trainings.groupId, tables.groups.id))
+      .leftJoin(tables.levels, eq(tables.groups.levelId, tables.levels.id))
+      .where(and(eq(tables.bookings.clientId, clientId), dateFilter))
+      .orderBy(...order);
+
+    return rows.map((row) => ({
+      ...row,
+      startTime: row.startTime.slice(0, 5),
+      endTime: row.endTime.slice(0, 5),
+      levelName: row.levelName ?? ""
+    }));
   }
 
   /** An existing active ('booked') booking for this client + training — drives the duplicate check. */

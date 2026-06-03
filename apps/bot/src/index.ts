@@ -12,6 +12,8 @@ import {
   parseGroupMonth,
   parseGroupPick
 } from "./group-booking";
+import { backHomeKeyboard } from "./menu";
+import { parseBookingCancel } from "./my-bookings";
 import {
   handleLevelCallback,
   handleNameText,
@@ -85,6 +87,16 @@ async function main(): Promise<void> {
         groupConfirm.year,
         groupConfirm.month
       );
+      return;
+    }
+    // My bookings cancel (T1.10 exposes the button; the cancel write is T1.11).
+    // Until then, acknowledge with a clean placeholder so the journey never
+    // dead-ends — never silently drop the tap.
+    const cancelBookingId = parseBookingCancel(ctx.callbackQuery.data);
+    if (cancelBookingId !== undefined) {
+      await ctx.reply("Отмена записи скоро появится здесь.", {
+        reply_markup: backHomeKeyboard()
+      });
       return;
     }
     const handler = resolveCallback(ctx.callbackQuery.data);

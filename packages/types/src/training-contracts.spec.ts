@@ -7,6 +7,8 @@ import {
   generateMonthSchema,
   groupBookingResultSchema,
   listTrainingsQuerySchema,
+  myBookingItemSchema,
+  myBookingsQuerySchema,
   updateGroupSchema
 } from "./training-contracts";
 
@@ -248,5 +250,68 @@ describe("groupBookingResultSchema", () => {
         skipped: ["06/03/2099"]
       }).success
     ).toBe(false);
+  });
+});
+
+describe("myBookingsQuerySchema", () => {
+  const validQuery = {
+    clientId: "11111111-1111-1111-1111-111111111111",
+    scope: "upcoming"
+  };
+
+  it("accepts upcoming and past scopes", () => {
+    expect(myBookingsQuerySchema.safeParse(validQuery).success).toBe(true);
+    expect(myBookingsQuerySchema.safeParse({ ...validQuery, scope: "past" }).success).toBe(true);
+  });
+
+  it("rejects an unknown scope", () => {
+    expect(myBookingsQuerySchema.safeParse({ ...validQuery, scope: "all" }).success).toBe(false);
+  });
+
+  it("rejects a non-uuid clientId", () => {
+    expect(myBookingsQuerySchema.safeParse({ ...validQuery, clientId: "nope" }).success).toBe(
+      false
+    );
+  });
+
+  it("rejects unknown fields (strict)", () => {
+    expect(myBookingsQuerySchema.safeParse({ ...validQuery, extra: 1 }).success).toBe(false);
+  });
+});
+
+describe("myBookingItemSchema", () => {
+  const validItem = {
+    bookingId: "11111111-1111-1111-1111-111111111111",
+    trainingId: "22222222-2222-2222-2222-222222222222",
+    date: "2099-06-08",
+    dayOfWeek: 1,
+    startTime: "18:00",
+    endTime: "19:30",
+    trainerName: "Coach",
+    levelName: "Beginners",
+    bookingStatus: "booked",
+    trainingStatus: "open",
+    canCancel: true
+  };
+
+  it("round-trips a structurally valid item", () => {
+    const parsed = myBookingItemSchema.safeParse(validItem);
+    expect(parsed.success).toBe(true);
+    if (parsed.success) {
+      expect(parsed.data).toEqual(validItem);
+    }
+  });
+
+  it("rejects a bad booking or training status", () => {
+    expect(myBookingItemSchema.safeParse({ ...validItem, bookingStatus: "nope" }).success).toBe(
+      false
+    );
+    expect(myBookingItemSchema.safeParse({ ...validItem, trainingStatus: "nope" }).success).toBe(
+      false
+    );
+  });
+
+  it("rejects a non-boolean canCancel", () => {
+    expect(myBookingItemSchema.safeParse({ ...validItem, canCancel: "yes" }).success).toBe(false);
   });
 });

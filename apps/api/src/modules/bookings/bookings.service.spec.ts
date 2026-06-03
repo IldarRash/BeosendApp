@@ -7,6 +7,7 @@ import {
 import type { Env } from "@beosand/config";
 import type { Database } from "@beosand/db";
 import type { Booking, Client, Group } from "@beosand/types";
+import type { MyBookingRow } from "./bookings.repository";
 import { beforeEach, describe, expect, it } from "vitest";
 import { BookingsService } from "./bookings.service";
 import type {
@@ -66,6 +67,17 @@ class FakeBookingsRepository {
     _to: string
   ): Promise<GroupTrainingLockRow[]> {
     return this.monthTrainings;
+  }
+
+  /** Rows the listForClient read returns, keyed nowhere — the test supplies them. */
+  myRows: MyBookingRow[] = [];
+
+  async listForClient(
+    _clientId: string,
+    _scope: "upcoming" | "past",
+    _today: string
+  ): Promise<MyBookingRow[]> {
+    return this.myRows;
   }
 
   async findActiveBookingForClient(
@@ -437,5 +449,90 @@ describe("BookingsService.createGroupBooking", () => {
 
     await expect(service.createGroupBooking(OWNER_ID, input)).rejects.toThrow();
     // The transaction wrapper would discard partial writes; the failure must surface.
+  });
+});
+
+describe("BookingsService.listMine", () => {
+  let bookingsRepo: FakeBookingsRepository;
+  let clientsRepo: FakeClientsRepository;
+  let service: BookingsService;
+
+  beforeEach(() => {
+    bookingsRepo = new FakeBookingsRepository();
+    clientsRepo = new FakeClientsRepository();
+    service = new BookingsService(
+      bookingsRepo as unknown as BookingsRepository,
+      clientsRepo as unknown as ClientsRepository,
+      new FakeGroupsRepository() as unknown as GroupsRepository,
+      env
+    );
+  });
+
+  const today = new Date().toISOString().slice(0, 10);
+  const future = "2099-06-08"; // a Monday in 2099 → dayOfWeek 1
+  const past = "2000-01-03"; // a Monday in 2000
+
+  const row = (over: Partial<MyBookingRow> = {}): MyBookingRow => ({
+    bookingId: "dddddddd-dddd-dddd-dddd-dddddddddddd",
+    trainingId: TRAINING_ID,
+    date: future,
+    startTime: "18:00",
+    endTime: "19:30",
+    trainerName: "Coach",
+    levelName: "Beginners",
+    bookingStatus: "booked",
+    trainingStatus: "open",
+    ...over
+  });
+
+  it("marks a future, booked item on a non-terminal training cancellable", async () => {
+    bookingsRepo.myRows = [row()];
+    const [item] = await service.listMine(OWNER_ID, CLIENT_ID, "upcoming");
+    expect(item.canCancel).toBe(true);
+    expect(item.dayOfWeek).toBe(1);
+  });
+
+  it("does not allow cancel for a cancelled booking", async () => {
+    bookingsRepo.myRows = [row({ bookingStatus: "cancelled" })];
+    const [item] = await service.listMine(OWNER_ID, CLIENT_ID, "upcoming");
+    expect(item.canCancel).toBe(false);
+  });
+
+  it("does not allow cancel for a past (or today) item even if still booked", async () => {
+    bookingsRepo.myRows = [row({ date: past, bookingStatus: "attended" })];
+    const [item] = await service.listMine(OWNER_ID, CLIENT_ID, "past");
+    expect(item.canCancel).toBe(false);
+  });
+
+  it("does not allow cancel when the training is terminal (cancelled)", async () => {
+    bookingsRepo.myRows = [row({ trainingStatus: "cancelled" })];
+    const [item] = await service.listMine(OWNER_ID, CLIENT_ID, "upcoming");
+    expect(item.canCancel).toBe(false);
+  });
+
+  it("treats a today-dated booked item as cancellable (date >= today)", async () => {
+    bookingsRepo.myRows = [row({ date: today })];
+    const [item] = await service.listMine(OWNER_ID, CLIENT_ID, "upcoming");
+    expect(item.canCancel).toBe(true);
+  });
+
+  it("rejects listing another client's bookings with a 403 and reads nothing", async () => {
+    bookingsRepo.myRows = [row()];
+    await expect(
+      service.listMine(OWNER_ID, OTHER_CLIENT_ID, "upcoming")
+    ).rejects.toBeInstanceOf(ForbiddenException);
+  });
+
+  it("rejects a caller with no client record (ForbiddenException)", async () => {
+    clientsRepo.client = undefined;
+    await expect(service.listMine(STRANGER_ID, CLIENT_ID, "upcoming")).rejects.toBeInstanceOf(
+      ForbiddenException
+    );
+  });
+
+  it("lets an admin list any client's bookings", async () => {
+    bookingsRepo.myRows = [row()];
+    const items = await service.listMine(ADMIN_ID, OTHER_CLIENT_ID, "upcoming");
+    expect(items).toHaveLength(1);
   });
 });
