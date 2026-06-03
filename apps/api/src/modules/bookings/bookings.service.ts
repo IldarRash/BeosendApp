@@ -23,6 +23,7 @@ import { ENV } from "../../config/config.module";
 import { ClientsRepository } from "../clients/clients.repository";
 import { GroupsRepository } from "../groups/groups.repository";
 import { NotificationsService } from "../notifications/notifications.service";
+import { WaitlistService } from "../waitlist/waitlist.service";
 import { BookingsRepository } from "./bookings.repository";
 
 interface CreateSingleInput {
@@ -60,6 +61,7 @@ export class BookingsService {
     private readonly clients: ClientsRepository,
     private readonly groups: GroupsRepository,
     private readonly notifications: NotificationsService,
+    private readonly waitlist: WaitlistService,
     @Inject(ENV) private readonly env: Env
   ) {}
 
@@ -299,8 +301,9 @@ export class BookingsService {
    *   the status is recomputed (full → open when a seat frees; cancelled/completed
    *   stay terminal). The write targets the one id, so group-subscription siblings
    *   stay `booked`.
-   * - Waitlist promotion (T2.1) is not built yet; the recompute precedes any future
-   *   promotion because the seat is freed inside this tx. See the post-commit seam.
+   * - Waitlist promotion runs post-commit (see the seam below): the recompute
+   *   precedes promotion because the seat is freed inside this tx, so promotion
+   *   sees the now-free seat and never undoes the committed cancellation.
    */
   async cancelBooking(actorTelegramId: number, bookingId: string): Promise<Booking> {
     const cancelled = await this.bookings.transaction(async (tx) => {
@@ -338,8 +341,10 @@ export class BookingsService {
     });
 
     // Post-commit seam for waitlist promotion (T2.1): the seat is already freed and
-    // the status recomputed inside the committed tx, so a future promotion call
-    // belongs here (after commit). Not wired yet — do not call a non-existent service.
+    // the status recomputed inside the committed tx, so promotion runs here (after
+    // commit) against the now-visible free seat. Self-tolerant — a promotion
+    // failure never undoes the committed cancellation.
+    await this.promoteWaitlistSafely(cancelled.trainingId);
 
     return bookingSchema.parse(cancelled);
   }
@@ -355,6 +360,23 @@ export class BookingsService {
     } catch (error) {
       this.logger.error(
         "Booking confirmation send failed (booking stands): " +
+          (error instanceof Error ? error.message : String(error))
+      );
+    }
+  }
+
+  /**
+   * Promote the waitlist head for a training whose seat just freed, never letting
+   * a promotion failure escape into the cancel response: the cancellation is
+   * committed and authoritative, so a promote/Telegram failure is logged and
+   * swallowed (the minutely sweep is the safety net).
+   */
+  private async promoteWaitlistSafely(trainingId: string): Promise<void> {
+    try {
+      await this.waitlist.promoteNext(trainingId);
+    } catch (error) {
+      this.logger.error(
+        "Waitlist promotion after cancel failed (cancellation stands): " +
           (error instanceof Error ? error.message : String(error))
       );
     }

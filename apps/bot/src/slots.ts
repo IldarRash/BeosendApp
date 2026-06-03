@@ -14,7 +14,11 @@ export const SLOT_ACTIONS = {
   /** Tap on a slot card → show the confirmation card. */
   bookStartPrefix: "book:start:",
   /** Tap "Подтвердить" on the confirmation card → create the booking. */
-  bookConfirmPrefix: "book:confirm:"
+  bookConfirmPrefix: "book:confirm:",
+  /** Tap "Встать в лист ожидания" on a full slot → join the waitlist (T2.1). */
+  waitlistJoinPrefix: "waitlist:join:",
+  /** Tap "Подтвердить" on the promotion push → accept the freed slot (T2.1). */
+  waitlistAcceptPrefix: "waitlist:accept:"
 } as const;
 
 /** prefix (11 bytes) + uuid (36 bytes) = 47 bytes, well under Telegram's 64. */
@@ -41,6 +45,27 @@ export function parseBookConfirm(data: string | undefined): string | undefined {
     return undefined;
   }
   return data.slice(SLOT_ACTIONS.bookConfirmPrefix.length);
+}
+
+/** prefix (14 bytes) + uuid (36 bytes) = 50 bytes, under Telegram's 64. */
+export function waitlistJoinData(trainingId: string): string {
+  return `${SLOT_ACTIONS.waitlistJoinPrefix}${trainingId}`;
+}
+
+/** Resolve a callback to the trainingId, or undefined if it's not a waitlist:join action. */
+export function parseWaitlistJoin(data: string | undefined): string | undefined {
+  if (data === undefined || !data.startsWith(SLOT_ACTIONS.waitlistJoinPrefix)) {
+    return undefined;
+  }
+  return data.slice(SLOT_ACTIONS.waitlistJoinPrefix.length);
+}
+
+/** Resolve a callback to the waitlist entryId, or undefined if it's not a waitlist:accept action. */
+export function parseWaitlistAccept(data: string | undefined): string | undefined {
+  if (data === undefined || !data.startsWith(SLOT_ACTIONS.waitlistAcceptPrefix)) {
+    return undefined;
+  }
+  return data.slice(SLOT_ACTIONS.waitlistAcceptPrefix.length);
 }
 
 const WEEKDAY_LABELS: Record<DayOfWeek, string> = {
@@ -157,11 +182,18 @@ export const BOOKING_FULL_TEXT = [
 ].join("\n");
 
 /**
- * Full-slot footer. Waitlist itself lands in T2.1; until then we offer a path
- * back to the bookable list and the menu so the journey never dead-ends.
+ * Full-slot footer (T2.1): a "Встать в лист ожидания" button carrying the
+ * trainingId, then a path back to the bookable list and the menu so the journey
+ * never dead-ends. The bot forwards the id only — the API decides eligibility
+ * (it rejects a still-bookable slot). When the trainingId is unknown (e.g. a
+ * stale slot that vanished from the list), the join button is omitted.
  */
-export function bookingFullKeyboard(): InlineKeyboard {
-  return new InlineKeyboard()
+export function bookingFullKeyboard(trainingId?: string): InlineKeyboard {
+  const keyboard = new InlineKeyboard();
+  if (trainingId) {
+    keyboard.text("⏳ Встать в лист ожидания", waitlistJoinData(trainingId)).row();
+  }
+  return keyboard
     .text("🏐 Другие тренировки", MENU_ACTIONS.availableTrainings)
     .row()
     .text("🏠 Главное меню", NAV_ACTIONS.home);

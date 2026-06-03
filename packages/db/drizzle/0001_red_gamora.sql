@@ -1,0 +1,1 @@
+ALTER TABLE "waitlist" ADD COLUMN "notified_at" timestamp with time zone;

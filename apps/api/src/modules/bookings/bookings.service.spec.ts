@@ -18,12 +18,18 @@ import type {
 import type { ClientsRepository } from "../clients/clients.repository";
 import type { GroupsRepository } from "../groups/groups.repository";
 import type { NotificationsService } from "../notifications/notifications.service";
+import type { WaitlistService } from "../waitlist/waitlist.service";
 
 /** No-op notifications double: confirmation sends are fire-and-forget here. */
 const fakeNotifications = {
   sendBookingConfirmation: async (): Promise<void> => undefined,
   sendGroupBookingConfirmation: async (): Promise<void> => undefined
 } as unknown as NotificationsService;
+
+/** No-op waitlist double: the cancel post-commit promotion is fire-and-forget here. */
+const fakeWaitlist = {
+  promoteNext: async (): Promise<void> => undefined
+} as unknown as WaitlistService;
 
 const ADMIN_ID = 111;
 const OWNER_ID = 222;
@@ -217,6 +223,7 @@ describe("BookingsService.createSingle", () => {
       clientsRepo as unknown as ClientsRepository,
       new FakeGroupsRepository() as unknown as GroupsRepository,
       fakeNotifications,
+      fakeWaitlist,
       env
     );
   });
@@ -359,6 +366,7 @@ describe("BookingsService.createGroupBooking", () => {
       clientsRepo as unknown as ClientsRepository,
       groupsRepo as unknown as GroupsRepository,
       fakeNotifications,
+      fakeWaitlist,
       env
     );
   });
@@ -515,6 +523,7 @@ describe("BookingsService confirmation hook is failure-tolerant", () => {
       new FakeClientsRepository() as unknown as ClientsRepository,
       new FakeGroupsRepository() as unknown as GroupsRepository,
       throwingNotifications,
+      fakeWaitlist,
       env
     );
   });
@@ -576,6 +585,7 @@ describe("BookingsService.listMine", () => {
       clientsRepo as unknown as ClientsRepository,
       new FakeGroupsRepository() as unknown as GroupsRepository,
       fakeNotifications,
+      fakeWaitlist,
       env
     );
   });
@@ -667,6 +677,7 @@ describe("BookingsService.cancelBooking", () => {
       clientsRepo as unknown as ClientsRepository,
       new FakeGroupsRepository() as unknown as GroupsRepository,
       fakeNotifications,
+      fakeWaitlist,
       env
     );
   });

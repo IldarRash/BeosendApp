@@ -3,7 +3,13 @@ import { Bot, session } from "grammy";
 import { ApiClient } from "./api-client";
 import { resolveCallback } from "./navigation";
 import { handleBookConfirm, handleBookStart } from "./booking";
-import { parseBookConfirm, parseBookStart } from "./slots";
+import { handleWaitlistAccept, handleWaitlistJoin } from "./waitlist";
+import {
+  parseBookConfirm,
+  parseBookStart,
+  parseWaitlistAccept,
+  parseWaitlistJoin
+} from "./slots";
 import {
   handleGroupConfirm,
   handleGroupMonth,
@@ -104,6 +110,19 @@ async function main(): Promise<void> {
     const confirmCancelId = parseBookingCancelConfirm(ctx.callbackQuery.data);
     if (confirmCancelId !== undefined) {
       await handleCancelConfirm(ctx, api, ctx.from.id, confirmCancelId);
+      return;
+    }
+    // Waitlist (T2.1): join a full slot, or accept a promoted slot from the push.
+    // Identity is the caller's telegram_id; the API decides eligibility/ownership.
+    const waitlistJoinTrainingId = parseWaitlistJoin(ctx.callbackQuery.data);
+    if (waitlistJoinTrainingId !== undefined) {
+      const client = await api.getClientByTelegramId(ctx.from.id);
+      await handleWaitlistJoin(ctx, api, ctx.from.id, client?.id ?? null, waitlistJoinTrainingId);
+      return;
+    }
+    const waitlistAcceptEntryId = parseWaitlistAccept(ctx.callbackQuery.data);
+    if (waitlistAcceptEntryId !== undefined) {
+      await handleWaitlistAccept(ctx, api, ctx.from.id, waitlistAcceptEntryId);
       return;
     }
     const handler = resolveCallback(ctx.callbackQuery.data);

@@ -8,11 +8,13 @@ import {
   slotCardSchema,
   trainerSchema,
   trainingSchema,
+  waitlistEntrySchema,
   type AvailableSlotsQuery,
   type Booking,
   type Client,
   type CreateGroupBookingInput,
   type CreateSingleBookingInput,
+  type CreateWaitlistInput,
   type GenerateMonthInput,
   type Group,
   type GroupBookingResult,
@@ -23,7 +25,8 @@ import {
   type OnboardClientInput,
   type SlotCard,
   type Trainer,
-  type Training
+  type Training,
+  type WaitlistEntry
 } from "@beosand/types";
 import { z } from "zod";
 
@@ -35,6 +38,24 @@ const healthSchema = z.object({ status: z.literal("ok"), service: z.string() });
  * branch; any other non-2xx is a real error and throws.
  */
 export type CreateSingleBookingResult =
+  | { ok: true; booking: Booking }
+  | { ok: false; reason: "conflict" };
+
+/**
+ * Outcome of joining a waitlist. `conflict` maps the API's 409 (the slot is
+ * still bookable, or the client is already on the list) to a bot message; any
+ * other non-2xx is a real error and throws.
+ */
+export type JoinWaitlistResult =
+  | { ok: true; entry: WaitlistEntry }
+  | { ok: false; reason: "conflict" };
+
+/**
+ * Outcome of accepting a promoted waitlist slot. `conflict` maps the API's 409
+ * (window expired or the freed seat was re-taken) to the bot's "место занято /
+ * окно истекло" message; any other non-2xx throws.
+ */
+export type AcceptWaitlistResult =
   | { ok: true; booking: Booking }
   | { ok: false; reason: "conflict" };
 
@@ -254,6 +275,57 @@ export class ApiClient {
       method: "POST",
       headers: { "x-telegram-id": String(actorTelegramId) }
     });
+  }
+
+  /**
+   * Join a full training's waitlist (T2.1). Eligibility (the slot must be full,
+   * one entry per client) is decided server-side from the actor's telegram_id; a
+   * 409 (slot still bookable / already on the list) is surfaced as a distinct
+   * result so the handler can show a message instead of a generic error. The
+   * supplied clientId is re-checked against the caller server-side.
+   */
+  async joinWaitlist(
+    input: CreateWaitlistInput,
+    actorTelegramId: number
+  ): Promise<JoinWaitlistResult> {
+    const res = await fetch(`${this.baseUrl}/waitlist`, {
+      method: "POST",
+      headers: {
+        "content-type": "application/json",
+        "x-telegram-id": String(actorTelegramId)
+      },
+      body: JSON.stringify(input)
+    });
+    if (res.status === 409) {
+      return { ok: false, reason: "conflict" };
+    }
+    if (!res.ok) {
+      throw new Error(`API /waitlist failed: ${res.status}`);
+    }
+    return { ok: true, entry: waitlistEntrySchema.parse(await res.json()) };
+  }
+
+  /**
+   * Accept a promoted waitlist slot (T2.1) — the inline confirm button. Ownership,
+   * the window check, and the atomic capacity re-check are all decided server-side
+   * from the actor's telegram_id; a 409 (window expired / seat re-taken) is
+   * surfaced as a distinct result so the handler can show "место уже занято".
+   */
+  async acceptWaitlist(entryId: string, actorTelegramId: number): Promise<AcceptWaitlistResult> {
+    const res = await fetch(`${this.baseUrl}/waitlist/${entryId}/accept`, {
+      method: "POST",
+      headers: {
+        "content-type": "application/json",
+        "x-telegram-id": String(actorTelegramId)
+      }
+    });
+    if (res.status === 409) {
+      return { ok: false, reason: "conflict" };
+    }
+    if (!res.ok) {
+      throw new Error(`API /waitlist/${entryId}/accept failed: ${res.status}`);
+    }
+    return { ok: true, booking: bookingSchema.parse(await res.json()) };
   }
 
   /** Admin-only (deferred to the admin UI): list trainings in a date range. */

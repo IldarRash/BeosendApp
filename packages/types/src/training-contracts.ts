@@ -212,15 +212,27 @@ export type MyBookingItem = z.infer<typeof myBookingItemSchema>;
 
 // --- Waitlist (section 9) ---
 export const waitlistStatus = z.enum(["waiting", "notified", "promoted", "expired", "cancelled"]);
+export type WaitlistStatus = z.infer<typeof waitlistStatus>;
 export const waitlistEntrySchema = z.object({
   id: uuid,
   clientId: uuid,
   trainingId: uuid,
   position: z.number().int().positive(),
   status: waitlistStatus,
-  addedAt: z.string().datetime()
+  addedAt: z.string().datetime(),
+  /** When the confirmation window opened (the entry became `notified`); null until then. */
+  notifiedAt: z.string().datetime().nullable()
 });
 export type WaitlistEntry = z.infer<typeof waitlistEntrySchema>;
+
+/** Request to join a training's waitlist (T2.1). Mirrors createSingleBookingSchema. */
+export const createWaitlistEntrySchema = z
+  .object({
+    clientId: uuid,
+    trainingId: uuid
+  })
+  .strict();
+export type CreateWaitlistInput = z.infer<typeof createWaitlistEntrySchema>;
 
 // --- Broadcasts (section 12) ---
 export const broadcastType = z.enum(["today", "tomorrow", "week", "freed-up"]);

@@ -167,6 +167,37 @@ export class NotificationsRepository {
   }
 
   /**
+   * Render fields + Telegram id for one (client, training) pair regardless of any
+   * booking — the waitlist-slot send (T2.1) targets a client who is waiting, not
+   * booked, so the booked-only lookups don't fit. No log anti-join: the waitlist
+   * promotion is a fresh event each time a seat frees, so it is sent every time.
+   */
+  async findWaitlistRecipient(
+    clientId: string,
+    trainingId: string
+  ): Promise<NotificationRecipient | undefined> {
+    const [row] = await this.database.db
+      .select({
+        clientId: tables.clients.id,
+        trainingId: tables.trainings.id,
+        telegramId: tables.clients.telegramId,
+        date: tables.trainings.date,
+        startTime: tables.trainings.startTime,
+        endTime: tables.trainings.endTime,
+        trainerName: tables.trainers.name,
+        levelName: tables.levels.name
+      })
+      .from(tables.trainings)
+      .innerJoin(tables.trainers, eq(tables.trainings.trainerId, tables.trainers.id))
+      .innerJoin(tables.clients, eq(tables.clients.id, clientId))
+      .leftJoin(tables.groups, eq(tables.trainings.groupId, tables.groups.id))
+      .leftJoin(tables.levels, eq(tables.groups.levelId, tables.levels.id))
+      .where(eq(tables.trainings.id, trainingId))
+      .limit(1);
+    return row ? normalizeRecipient(row) : undefined;
+  }
+
+  /**
    * Booked clients of one training (render fields + Telegram id) that have not
    * yet been logged for `type`. Used by the cancellation fan-out (T1.12) and the
    * confirmation render; the log anti-join keeps the fan-out idempotent.

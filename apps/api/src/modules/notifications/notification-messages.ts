@@ -61,3 +61,18 @@ export function reminderMessage(
 export function trainingCancelledMessage(recipient: NotificationRecipient): string {
   return `Тренировка отменена ❌\n${trainingLine(recipient)}`;
 }
+
+/**
+ * Waitlist-slot message (T2.1): a seat freed up on a training the client is
+ * waiting for. Carries an inline "Подтвердить" button (added by the service) and
+ * states the confirmation window so the client knows it is time-limited.
+ */
+export function waitlistSlotMessage(
+  recipient: NotificationRecipient,
+  windowMinutes: number
+): string {
+  return (
+    `Освободилось место 🎉\n${trainingLine(recipient)}\n` +
+    `Подтвердите запись в течение ${windowMinutes} мин.`
+  );
+}

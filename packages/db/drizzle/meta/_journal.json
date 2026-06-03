@@ -8,6 +8,13 @@
       "when": 1780488178912,
       "tag": "0000_gray_lady_deathstrike",
       "breakpoints": true
+    },
+    {
+      "idx": 1,
+      "version": "7",
+      "when": 1780516091748,
+      "tag": "0001_red_gamora",
+      "breakpoints": true
     }
   ]
 }

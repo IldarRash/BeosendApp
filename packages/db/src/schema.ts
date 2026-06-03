@@ -143,7 +143,9 @@ export const waitlist = pgTable("waitlist", {
     .references(() => trainings.id),
   position: integer("position").notNull(),
   status: waitlistStatus("status").notNull().default("waiting"),
-  addedAt: timestamp("added_at", { withTimezone: true }).notNull().defaultNow()
+  addedAt: timestamp("added_at", { withTimezone: true }).notNull().defaultNow(),
+  /** When the confirmation window opened (entry became `notified`); null until then. */
+  notifiedAt: timestamp("notified_at", { withTimezone: true })
 });
 
 export const broadcasts = pgTable("broadcasts", {

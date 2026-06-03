@@ -38,7 +38,9 @@ export async function handleBookStart(
 ): Promise<void> {
   const card = await findBookableSlot(api, trainingId);
   if (!card) {
-    await ctx.reply(SLOT_NOT_FOUND_TEXT, { reply_markup: bookingFullKeyboard() });
+    // The slot is no longer bookable (now full/cancelled): offer the waitlist for
+    // this training; the API rejects the join if it turns out still bookable.
+    await ctx.reply(SLOT_NOT_FOUND_TEXT, { reply_markup: bookingFullKeyboard(trainingId) });
     return;
   }
   await ctx.reply(renderConfirmText(card), { reply_markup: confirmBookingKeyboard(trainingId) });
@@ -62,7 +64,8 @@ export async function handleBookConfirm(
   }
   const result = await api.createSingleBooking({ clientId, trainingId }, telegramId);
   if (!result.ok) {
-    await ctx.reply(BOOKING_FULL_TEXT, { reply_markup: bookingFullKeyboard() });
+    // Slot full/already booked → offer the waitlist for this training (T2.1).
+    await ctx.reply(BOOKING_FULL_TEXT, { reply_markup: bookingFullKeyboard(trainingId) });
     return;
   }
   // Re-read the (now updated) slot only for the success card's display details;

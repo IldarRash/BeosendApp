@@ -7,9 +7,11 @@ import {
   generateMonthSchema,
   groupBookingResultSchema,
   listTrainingsQuerySchema,
+  createWaitlistEntrySchema,
   myBookingItemSchema,
   myBookingsQuerySchema,
-  updateGroupSchema
+  updateGroupSchema,
+  waitlistEntrySchema
 } from "./training-contracts";
 
 const valid = {
@@ -313,5 +315,52 @@ describe("myBookingItemSchema", () => {
 
   it("rejects a non-boolean canCancel", () => {
     expect(myBookingItemSchema.safeParse({ ...validItem, canCancel: "yes" }).success).toBe(false);
+  });
+});
+
+describe("createWaitlistEntrySchema", () => {
+  const validInput = {
+    clientId: "11111111-1111-1111-1111-111111111111",
+    trainingId: "22222222-2222-2222-2222-222222222222"
+  };
+
+  it("accepts a clientId + trainingId pair", () => {
+    expect(createWaitlistEntrySchema.safeParse(validInput).success).toBe(true);
+  });
+
+  it("rejects unknown fields", () => {
+    expect(createWaitlistEntrySchema.safeParse({ ...validInput, extra: 1 }).success).toBe(false);
+  });
+
+  it("rejects a non-uuid id", () => {
+    expect(createWaitlistEntrySchema.safeParse({ ...validInput, clientId: "x" }).success).toBe(
+      false
+    );
+  });
+});
+
+describe("waitlistEntrySchema", () => {
+  const validEntry = {
+    id: "11111111-1111-1111-1111-111111111111",
+    clientId: "22222222-2222-2222-2222-222222222222",
+    trainingId: "33333333-3333-3333-3333-333333333333",
+    position: 1,
+    status: "notified",
+    addedAt: "2099-06-08T17:00:00.000Z",
+    notifiedAt: "2099-06-08T17:05:00.000Z"
+  };
+
+  it("round-trips an entry with notifiedAt set", () => {
+    const parsed = waitlistEntrySchema.safeParse(validEntry);
+    expect(parsed.success).toBe(true);
+  });
+
+  it("accepts a null notifiedAt (entry not yet notified)", () => {
+    expect(waitlistEntrySchema.safeParse({ ...validEntry, notifiedAt: null }).success).toBe(true);
+  });
+
+  it("rejects a missing notifiedAt key", () => {
+    const { notifiedAt: _omitted, ...withoutNotifiedAt } = validEntry;
+    expect(waitlistEntrySchema.safeParse(withoutNotifiedAt).success).toBe(false);
   });
 });

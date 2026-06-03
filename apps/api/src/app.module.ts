@@ -10,6 +10,7 @@ import { LevelsModule } from "./modules/levels/levels.module";
 import { NotificationsModule } from "./modules/notifications/notifications.module";
 import { TrainersModule } from "./modules/trainers/trainers.module";
 import { TrainingsModule } from "./modules/trainings/trainings.module";
+import { WaitlistModule } from "./modules/waitlist/waitlist.module";
 
 /**
  * Root module. One module per domain is added under src/modules/* as features
@@ -28,6 +29,7 @@ import { TrainingsModule } from "./modules/trainings/trainings.module";
     TrainingsModule,
     ClientsModule,
     NotificationsModule,
+    WaitlistModule,
     BookingsModule
   ]
 })

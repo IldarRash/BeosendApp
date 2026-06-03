@@ -5,13 +5,14 @@ import {
   groupBookingConfirmedMessage,
   reminderMessage,
   reminderWindow,
-  trainingCancelledMessage
+  trainingCancelledMessage,
+  waitlistSlotMessage
 } from "./notification-messages";
 import {
   type NotificationRecipient,
   NotificationsRepository
 } from "./notifications.repository";
-import { TelegramSender } from "./telegram-sender";
+import { type InlineKeyboardMarkup, TelegramSender } from "./telegram-sender";
 
 /**
  * Owns every outbound domain notification (T2.2). Sends are server-side here —
@@ -121,6 +122,48 @@ export class NotificationsService {
       }
     }
     return sent;
+  }
+
+  /**
+   * Push a freed-seat ("waitlist-slot") message to the promoted client, carrying
+   * an inline "Подтвердить" button (T2.1). Each promotion is a fresh event (a new
+   * seat freed), so this is sent every time — no log anti-join — but the send is
+   * still logged for analytics. A send failure is logged and swallowed (the
+   * sweep/cancel flow must never be undone because Telegram was unreachable);
+   * returns whether the message was sent so the caller can decide on a retry.
+   */
+  async sendWaitlistSlot(
+    clientId: string,
+    trainingId: string,
+    windowMinutes: number,
+    replyMarkup: InlineKeyboardMarkup
+  ): Promise<boolean> {
+    const recipient = await this.repo.findWaitlistRecipient(clientId, trainingId);
+    if (!recipient) {
+      this.logger.warn(
+        `No training ${trainingId} render fields for client ${clientId}; skipping waitlist-slot`
+      );
+      return false;
+    }
+    try {
+      await this.sender.sendMessage(
+        recipient.telegramId,
+        waitlistSlotMessage(recipient, windowMinutes),
+        replyMarkup
+      );
+      await this.repo.logSent({
+        type: "waitlist-slot",
+        clientId: recipient.clientId,
+        trainingId: recipient.trainingId
+      });
+      return true;
+    } catch (error) {
+      this.logger.error(
+        `Waitlist-slot to client ${clientId} (training ${trainingId}) failed: ` +
+          (error instanceof Error ? error.message : String(error))
+      );
+      return false;
+    }
   }
 
   /**

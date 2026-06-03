@@ -11,10 +11,13 @@ import {
   formatSlotLine,
   parseBookConfirm,
   parseBookStart,
+  parseWaitlistAccept,
+  parseWaitlistJoin,
   renderBookingSuccessText,
   renderConfirmText,
   renderSlotsText,
   slotsKeyboard,
+  waitlistJoinData,
   SLOT_ACTIONS
 } from "./slots";
 
@@ -144,10 +147,46 @@ describe("renderBookingSuccessText", () => {
 });
 
 describe("bookingFullKeyboard", () => {
-  it("offers other trainings and the main menu (waitlist lands in T2.1)", () => {
+  it("offers the waitlist-join button (with trainingId), other trainings and the menu", () => {
+    expect(callbacksOf(bookingFullKeyboard(card.trainingId))).toEqual([
+      waitlistJoinData(card.trainingId),
+      MENU_ACTIONS.availableTrainings,
+      NAV_ACTIONS.home
+    ]);
+  });
+
+  it("omits the join button when the trainingId is unknown", () => {
     expect(callbacksOf(bookingFullKeyboard())).toEqual([
       MENU_ACTIONS.availableTrainings,
       NAV_ACTIONS.home
     ]);
+  });
+});
+
+describe("waitlistJoinData / parseWaitlistJoin", () => {
+  it("round-trips a trainingId and stays under Telegram's 64-byte cap", () => {
+    const data = waitlistJoinData(card.trainingId);
+    expect(data).toBe(`${SLOT_ACTIONS.waitlistJoinPrefix}${card.trainingId}`);
+    expect(Buffer.byteLength(data, "utf8")).toBeLessThanOrEqual(64);
+    expect(parseWaitlistJoin(data)).toBe(card.trainingId);
+  });
+
+  it("ignores unrelated callbacks", () => {
+    expect(parseWaitlistJoin(bookStartData(card.trainingId))).toBeUndefined();
+    expect(parseWaitlistJoin(undefined)).toBeUndefined();
+  });
+});
+
+describe("parseWaitlistAccept", () => {
+  it("extracts the entryId from a waitlist:accept callback under 64 bytes", () => {
+    const entryId = "22222222-2222-2222-2222-222222222222";
+    const data = `${SLOT_ACTIONS.waitlistAcceptPrefix}${entryId}`;
+    expect(Buffer.byteLength(data, "utf8")).toBeLessThanOrEqual(64);
+    expect(parseWaitlistAccept(data)).toBe(entryId);
+  });
+
+  it("ignores unrelated callbacks", () => {
+    expect(parseWaitlistAccept(waitlistJoinData(card.trainingId))).toBeUndefined();
+    expect(parseWaitlistAccept(undefined)).toBeUndefined();
   });
 });
