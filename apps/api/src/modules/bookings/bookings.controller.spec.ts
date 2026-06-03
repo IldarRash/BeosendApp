@@ -34,12 +34,24 @@ const cancelledBooking: Booking = {
   source: "telegram"
 };
 
+const attendedBooking: Booking = {
+  id: "33333333-3333-3333-3333-333333333333",
+  clientId: CLIENT_ID,
+  trainingId: "44444444-4444-4444-4444-444444444444",
+  type: "single",
+  groupSubscriptionId: null,
+  createdAt: "2026-06-03T00:00:00.000Z",
+  status: "attended",
+  source: "telegram"
+};
+
 function makeService(overrides: Partial<BookingsService> = {}): BookingsService {
   return {
     createSingle: vi.fn(),
     createGroupBooking: vi.fn(),
     listMine: vi.fn(async () => [item]),
     cancelBooking: vi.fn(async () => cancelledBooking),
+    markAttendance: vi.fn(async () => attendedBooking),
     ...overrides
   } as unknown as BookingsService;
 }
@@ -158,5 +170,85 @@ describe("BookingsController.cancel (POST /bookings/:id/cancel)", () => {
   it("rejects a non-uuid path id (Zod) before calling the service", () => {
     expect(() => controller.cancel(HEADER, "nope")).toThrow(BadRequestException);
     expect(service.cancelBooking).not.toHaveBeenCalled();
+  });
+});
+
+// T2.3 attendance write. The controller is the boundary for the explicitly
+// named unsafe path (a non-trainer / other trainer marking attendance). It must:
+// resolve the actor from x-telegram-id only (never from the body), Zod-validate
+// the path id + body before any service call, and surface the service's 403
+// verbatim — the trainer-ownership decision lives in BookingsService, not here.
+describe("BookingsController.markAttendance (POST /bookings/:id/attendance)", () => {
+  const BOOKING_ID = "33333333-3333-3333-3333-333333333333";
+  let service: BookingsService;
+  let controller: BookingsController;
+
+  beforeEach(() => {
+    service = makeService();
+    controller = new BookingsController(service);
+  });
+
+  it("forwards the HEADER actor, path id and validated status body to the service", async () => {
+    await expect(
+      controller.markAttendance(HEADER, BOOKING_ID, { status: "attended" })
+    ).resolves.toEqual(attendedBooking);
+    expect(service.markAttendance).toHaveBeenCalledWith(OWNER_ID, BOOKING_ID, {
+      status: "attended"
+    });
+  });
+
+  it("forwards no_show unchanged", async () => {
+    await controller.markAttendance(HEADER, BOOKING_ID, { status: "no_show" });
+    expect(service.markAttendance).toHaveBeenCalledWith(OWNER_ID, BOOKING_ID, {
+      status: "no_show"
+    });
+  });
+
+  // Unsafe/forbidden path: the service rejects a non-trainer / other trainer with
+  // a 403; the controller surfaces it and returns no booking (no status leaked).
+  it("surfaces a 403 ForbiddenException for a non-trainer / other trainer", async () => {
+    service = makeService({
+      markAttendance: vi.fn(async () => {
+        throw new ForbiddenException("Not the trainer for this training");
+      })
+    });
+    controller = new BookingsController(service);
+    await expect(
+      controller.markAttendance(HEADER, BOOKING_ID, { status: "attended" })
+    ).rejects.toBeInstanceOf(ForbiddenException);
+  });
+
+  it("rejects a missing/invalid x-telegram-id header before calling the service", () => {
+    expect(() => controller.markAttendance(undefined, BOOKING_ID, { status: "attended" })).toThrow(
+      BadRequestException
+    );
+    expect(() =>
+      controller.markAttendance("not-a-number", BOOKING_ID, { status: "attended" })
+    ).toThrow(BadRequestException);
+    expect(service.markAttendance).not.toHaveBeenCalled();
+  });
+
+  it("rejects a non-uuid path id (Zod) before calling the service", () => {
+    expect(() => controller.markAttendance(HEADER, "nope", { status: "attended" })).toThrow(
+      BadRequestException
+    );
+    expect(service.markAttendance).not.toHaveBeenCalled();
+  });
+
+  it("rejects a non-attendance status in the body (Zod) before calling the service", () => {
+    expect(() => controller.markAttendance(HEADER, BOOKING_ID, { status: "booked" })).toThrow(
+      BadRequestException
+    );
+    expect(() => controller.markAttendance(HEADER, BOOKING_ID, { status: "cancelled" })).toThrow(
+      BadRequestException
+    );
+    expect(service.markAttendance).not.toHaveBeenCalled();
+  });
+
+  it("rejects an extra body field (strict) before calling the service", () => {
+    expect(() =>
+      controller.markAttendance(HEADER, BOOKING_ID, { status: "attended", extra: 1 })
+    ).toThrow(BadRequestException);
+    expect(service.markAttendance).not.toHaveBeenCalled();
   });
 });

@@ -1,10 +1,23 @@
-import { BadRequestException, Body, Controller, Get, Headers, Post, Query } from "@nestjs/common";
+import {
+  BadRequestException,
+  Body,
+  Controller,
+  Get,
+  Headers,
+  Param,
+  Post,
+  Query
+} from "@nestjs/common";
 import {
   availableSlotsQuerySchema,
   generateMonthSchema,
   listTrainingsQuerySchema,
+  trainerTodayQuerySchema,
+  uuid,
   type SlotCard,
-  type Training
+  type Training,
+  type TrainerTodayItem,
+  type TrainingRoster
 } from "@beosand/types";
 import type { ZodSchema } from "zod";
 import { TrainingsService } from "./trainings.service";
@@ -41,6 +54,34 @@ export class TrainingsController {
     const actorTelegramId = parseTelegramId(telegramIdHeader);
     const parsed = validate(listTrainingsQuerySchema, query ?? {});
     return this.trainings.list(actorTelegramId, parsed);
+  }
+
+  /** Trainer/admin: a training's roster (T2.3). Ownership enforced in the service. */
+  @Get(":id/roster")
+  roster(
+    @Headers("x-telegram-id") telegramIdHeader: string | undefined,
+    @Param("id") id: string
+  ): Promise<TrainingRoster> {
+    const actorTelegramId = parseTelegramId(telegramIdHeader);
+    const trainingId = validate(uuid, id);
+    return this.trainings.getRoster(actorTelegramId, trainingId);
+  }
+}
+
+/** Trainer-scoped reads keyed off `/trainers` (T2.3); logic lives in TrainingsService. */
+@Controller("trainers")
+export class TrainerTodayController {
+  constructor(private readonly trainings: TrainingsService) {}
+
+  /** Trainer: their own trainings for today with headcount. Scoping in the service. */
+  @Get("me/today")
+  today(
+    @Headers("x-telegram-id") telegramIdHeader: string | undefined,
+    @Query() query: unknown
+  ): Promise<TrainerTodayItem[]> {
+    const actorTelegramId = parseTelegramId(telegramIdHeader);
+    const { telegramId } = validate(trainerTodayQuerySchema, query ?? {});
+    return this.trainings.listTrainerToday(actorTelegramId, telegramId);
   }
 }
 

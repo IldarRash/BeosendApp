@@ -8,18 +8,23 @@ import type {
   GenerateMonthInput,
   ListTrainingsQuery,
   SlotCard,
-  Training
+  Training,
+  TrainerTodayItem,
+  TrainingRoster
 } from "@beosand/types";
 import {
   freeSeats,
   isBookable,
   isoWeekdayOf,
   monthTrainingDates,
-  slotCardSchema
+  slotCardSchema,
+  trainerTodayItemSchema,
+  trainingRosterSchema
 } from "@beosand/types";
 import { z } from "zod";
 import { ENV } from "../../config/config.module";
 import { GroupsRepository } from "../groups/groups.repository";
+import { TrainersRepository } from "../trainers/trainers.repository";
 import { TrainingsRepository } from "./trainings.repository";
 
 /**
@@ -35,6 +40,7 @@ export class TrainingsService {
   constructor(
     private readonly trainings: TrainingsRepository,
     private readonly groups: GroupsRepository,
+    private readonly trainers: TrainersRepository,
     @Inject(ENV) private readonly env: Env
   ) {}
 
@@ -130,6 +136,89 @@ export class TrainingsService {
       }));
 
     return z.array(slotCardSchema).parse(cards);
+  }
+
+  /**
+   * A trainer's own trainings for today, with live headcount (T2.3). Trainer
+   * scoping is the invariant: the actor is resolved to a trainer by telegram_id
+   * (403 if none), and `queryTelegramId` must equal the actor unless the actor is
+   * admin — the query id is never trusted on its own. Results are filtered to the
+   * resolved trainer's trainings and validated against the contract.
+   */
+  async listTrainerToday(
+    actorTelegramId: number,
+    queryTelegramId: number
+  ): Promise<TrainerTodayItem[]> {
+    const actorIsAdmin = isAdmin(this.env, actorTelegramId);
+    if (!actorIsAdmin && queryTelegramId !== actorTelegramId) {
+      throw new ForbiddenException("Cannot read another trainer's schedule");
+    }
+
+    const trainer = await this.trainers.findByTelegramId(queryTelegramId);
+    if (!trainer) {
+      throw new ForbiddenException("Caller is not a trainer");
+    }
+
+    const today = new Date().toISOString().slice(0, 10);
+    const rows = await this.trainings.listForTrainerOnDate(trainer.id, today);
+
+    return rows.map((row) =>
+      trainerTodayItemSchema.parse({
+        trainingId: row.trainingId,
+        date: row.date,
+        dayOfWeek: isoWeekdayOf(row.date),
+        startTime: row.startTime,
+        endTime: row.endTime,
+        levelName: row.levelName,
+        status: row.status,
+        bookedCount: row.bookedCount,
+        capacity: row.capacity
+      })
+    );
+  }
+
+  /**
+   * A training's roster (T2.3), trainer/admin only. The training must exist (404).
+   * Ownership: the caller is admin OR the caller's resolved trainer id equals the
+   * training's trainerId (else 403). The roster excludes cancelled/waitlist
+   * bookings and is validated against the contract before returning.
+   */
+  async getRoster(actorTelegramId: number, trainingId: string): Promise<TrainingRoster> {
+    const header = await this.trainings.findHeaderById(trainingId);
+    if (!header) {
+      throw new NotFoundException(`Training ${trainingId} not found`);
+    }
+
+    await this.assertTrainerOrAdmin(actorTelegramId, header.trainerId);
+
+    const participants = await this.trainings.listRoster(trainingId);
+
+    return trainingRosterSchema.parse({
+      trainingId: header.trainingId,
+      date: header.date,
+      startTime: header.startTime,
+      endTime: header.endTime,
+      levelName: header.levelName,
+      participants
+    });
+  }
+
+  /**
+   * Authorize a trainer-scoped read/write: admins always pass; otherwise the
+   * caller's resolved trainer id must equal the training's trainerId. Enforced
+   * here, never in the bot.
+   */
+  private async assertTrainerOrAdmin(
+    actorTelegramId: number,
+    trainerId: string
+  ): Promise<void> {
+    if (isAdmin(this.env, actorTelegramId)) {
+      return;
+    }
+    const trainer = await this.trainers.findByTelegramId(actorTelegramId);
+    if (!trainer || trainer.id !== trainerId) {
+      throw new ForbiddenException("Not the trainer for this training");
+    }
   }
 
   private assertAdmin(actorTelegramId: number): void {

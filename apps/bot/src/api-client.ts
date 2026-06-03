@@ -4,9 +4,12 @@ import {
   groupBookingResultSchema,
   groupSchema,
   levelSchema,
+  markAttendanceSchema,
   myBookingItemSchema,
   slotCardSchema,
   trainerSchema,
+  trainerTodayItemSchema,
+  trainingRosterSchema,
   trainingSchema,
   waitlistEntrySchema,
   type AvailableSlotsQuery,
@@ -20,12 +23,15 @@ import {
   type GroupBookingResult,
   type Level,
   type ListTrainingsQuery,
+  type MarkAttendanceInput,
   type MyBookingItem,
   type MyBookingScope,
   type OnboardClientInput,
   type SlotCard,
   type Trainer,
+  type TrainerTodayItem,
   type Training,
+  type TrainingRoster,
   type WaitlistEntry
 } from "@beosand/types";
 import { z } from "zod";
@@ -65,6 +71,7 @@ const groupsSchema = z.array(groupSchema);
 const trainingsSchema = z.array(trainingSchema);
 const slotCardsSchema = z.array(slotCardSchema);
 const myBookingsSchema = z.array(myBookingItemSchema);
+const trainerTodaySchema = z.array(trainerTodayItemSchema);
 
 /**
  * Thin typed client the bot uses to reach apps/api. The bot is an interaction
@@ -336,6 +343,63 @@ export class ApiClient {
     }
     return this.request(`/trainings?${params.toString()}`, trainingsSchema, {
       headers: { "x-telegram-id": String(actorTelegramId) }
+    });
+  }
+
+  /**
+   * A trainer's own trainings for today, with live headcount (T2.3). Identity is
+   * the caller's telegram_id (sent both as the `x-telegram-id` header and the
+   * `telegramId` query the API cross-checks); the API resolves the trainer and
+   * scopes the list to them. A 403 (caller is not a trainer) resolves to null so
+   * the bot can gate the trainer screen instead of erroring — non-trainers never
+   * see a roster. The bot only renders the returned items.
+   */
+  async getTrainerToday(telegramId: number): Promise<TrainerTodayItem[] | null> {
+    const res = await fetch(`${this.baseUrl}/trainers/me/today?telegramId=${telegramId}`, {
+      headers: {
+        "content-type": "application/json",
+        "x-telegram-id": String(telegramId)
+      }
+    });
+    if (res.status === 403) {
+      // Caller is not a trainer: the bot hides the trainer UI rather than erroring.
+      return null;
+    }
+    if (!res.ok) {
+      throw new Error(`API /trainers/me/today failed: ${res.status}`);
+    }
+    return trainerTodaySchema.parse(await res.json());
+  }
+
+  /**
+   * A training's roster (T2.3): participants joined to their client names, with
+   * each booking's attendance status. Trainer/admin only — the API authorizes by
+   * the caller's telegram_id against the training's trainer (admins excepted) and
+   * excludes cancelled/waitlist rows. The bot only renders what it returns.
+   */
+  getTrainingRoster(trainingId: string, actorTelegramId: number): Promise<TrainingRoster> {
+    return this.request(`/trainings/${trainingId}/roster`, trainingRosterSchema, {
+      headers: { "x-telegram-id": String(actorTelegramId) }
+    });
+  }
+
+  /**
+   * Mark a participant attended / no_show (T2.3). Ownership (the booking's
+   * training belongs to the caller's trainer, admins excepted), the today/past
+   * date guard and the markable-status check are all decided server-side from the
+   * caller's telegram_id. Attendance never touches capacity/status. The bot only
+   * forwards the bookingId + status and re-renders the roster from the result.
+   */
+  markAttendance(
+    bookingId: string,
+    status: MarkAttendanceInput["status"],
+    actorTelegramId: number
+  ): Promise<Booking> {
+    const body: MarkAttendanceInput = markAttendanceSchema.parse({ status });
+    return this.request(`/bookings/${bookingId}/attendance`, bookingSchema, {
+      method: "POST",
+      headers: { "x-telegram-id": String(actorTelegramId) },
+      body: JSON.stringify(body)
     });
   }
 }

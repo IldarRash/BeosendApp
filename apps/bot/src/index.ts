@@ -25,6 +25,14 @@ import {
   parseBookingCancelConfirm
 } from "./my-bookings";
 import {
+  handleMarkAttendance,
+  handleTrainerRoster,
+  handleTrainerToday,
+  parseAttend,
+  parseRoster,
+  TRAINER_ACTIONS
+} from "./trainer-today";
+import {
   handleLevelCallback,
   handleNameText,
   handleStart,
@@ -47,6 +55,13 @@ async function main(): Promise<void> {
   // returning users land on the main menu.
   bot.command("start", async (ctx) => {
     await handleStart(ctx, api);
+  });
+
+  // Trainer-only entry (T2.3): role-gated via the API. Non-trainers get a
+  // "trainers only" message (the API resolves the role from telegram_id); the
+  // client main menu stays client-only.
+  bot.command("today", async (ctx) => {
+    await handleTrainerToday(ctx, api, ctx.from?.id);
   });
 
   // Free text only matters while awaiting the onboarding name; otherwise ignore.
@@ -123,6 +138,23 @@ async function main(): Promise<void> {
     const waitlistAcceptEntryId = parseWaitlistAccept(ctx.callbackQuery.data);
     if (waitlistAcceptEntryId !== undefined) {
       await handleWaitlistAccept(ctx, api, ctx.from.id, waitlistAcceptEntryId);
+      return;
+    }
+    // Trainer "today" (T2.3): list → roster → mark attendance. The API gates the
+    // role and authorizes ownership from the caller's telegram_id; the bot only
+    // forwards ids and re-renders. Clients never reach these screens.
+    if (ctx.callbackQuery.data === TRAINER_ACTIONS.today) {
+      await handleTrainerToday(ctx, api, ctx.from.id);
+      return;
+    }
+    const rosterTrainingId = parseRoster(ctx.callbackQuery.data);
+    if (rosterTrainingId !== undefined) {
+      await handleTrainerRoster(ctx, api, ctx.from.id, rosterTrainingId);
+      return;
+    }
+    const attendMark = parseAttend(ctx.callbackQuery.data);
+    if (attendMark !== undefined) {
+      await handleMarkAttendance(ctx, api, ctx.from.id, attendMark);
       return;
     }
     const handler = resolveCallback(ctx.callbackQuery.data);

@@ -210,6 +210,67 @@ export const myBookingItemSchema = z.object({
 });
 export type MyBookingItem = z.infer<typeof myBookingItemSchema>;
 
+// --- Trainer: today (T2.3) ---
+
+/**
+ * One of a trainer's trainings for today, with live headcount (T2.3). Rendered
+ * by the bot's "Мои тренировки сегодня" screen. `bookedCount`/`capacity` are the
+ * training's seat counters (attendance never changes them); `status` is the
+ * training's open/full/cancelled/completed status.
+ */
+export const trainerTodayItemSchema = z.object({
+  trainingId: uuid,
+  date: dateString,
+  dayOfWeek,
+  startTime: timeString,
+  endTime: timeString,
+  levelName: z.string(),
+  status: trainingStatus,
+  bookedCount: z.number().int().nonnegative(),
+  capacity: z.number().int().positive()
+});
+export type TrainerTodayItem = z.infer<typeof trainerTodayItemSchema>;
+
+/** Query for GET /trainers/me/today; the actor's own numeric Telegram id. */
+export const trainerTodayQuerySchema = z
+  .object({
+    telegramId: z.coerce.number().int()
+  })
+  .strict();
+export type TrainerTodayQuery = z.infer<typeof trainerTodayQuerySchema>;
+
+/**
+ * One roster row of a training (T2.3): the booking joined to its client name,
+ * carrying the booking's attendance-relevant status. Rosters exclude
+ * cancelled/waitlist bookings.
+ */
+export const rosterParticipantSchema = z.object({
+  bookingId: uuid,
+  clientId: uuid,
+  clientName: z.string(),
+  bookingStatus
+});
+export type RosterParticipant = z.infer<typeof rosterParticipantSchema>;
+
+/** A training's roster (T2.3): the session header plus its participants. */
+export const trainingRosterSchema = z.object({
+  trainingId: uuid,
+  date: dateString,
+  startTime: timeString,
+  endTime: timeString,
+  levelName: z.string(),
+  participants: z.array(rosterParticipantSchema)
+});
+export type TrainingRoster = z.infer<typeof trainingRosterSchema>;
+
+/** Body for POST /bookings/:id/attendance (T2.3): the marked attendance status. */
+export const markAttendanceSchema = z
+  .object({
+    status: z.enum(["attended", "no_show"])
+  })
+  .strict();
+export type MarkAttendanceInput = z.infer<typeof markAttendanceSchema>;
+
 // --- Waitlist (section 9) ---
 export const waitlistStatus = z.enum(["waiting", "notified", "promoted", "expired", "cancelled"]);
 export type WaitlistStatus = z.infer<typeof waitlistStatus>;

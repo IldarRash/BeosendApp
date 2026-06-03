@@ -10,7 +10,13 @@ import {
 } from "@nestjs/common";
 import type { Env } from "@beosand/config";
 import { isAdmin } from "@beosand/config";
-import type { Booking, GroupBookingResult, MyBookingItem, MyBookingScope } from "@beosand/types";
+import type {
+  Booking,
+  GroupBookingResult,
+  MarkAttendanceInput,
+  MyBookingItem,
+  MyBookingScope
+} from "@beosand/types";
 import {
   bookingSchema,
   groupBookingResultSchema,
@@ -23,6 +29,7 @@ import { ENV } from "../../config/config.module";
 import { ClientsRepository } from "../clients/clients.repository";
 import { GroupsRepository } from "../groups/groups.repository";
 import { NotificationsService } from "../notifications/notifications.service";
+import { TrainersRepository } from "../trainers/trainers.repository";
 import { WaitlistService } from "../waitlist/waitlist.service";
 import { BookingsRepository } from "./bookings.repository";
 
@@ -62,6 +69,7 @@ export class BookingsService {
     private readonly groups: GroupsRepository,
     private readonly notifications: NotificationsService,
     private readonly waitlist: WaitlistService,
+    private readonly trainers: TrainersRepository,
     @Inject(ENV) private readonly env: Env
   ) {}
 
@@ -347,6 +355,68 @@ export class BookingsService {
     await this.promoteWaitlistSafely(cancelled.trainingId);
 
     return bookingSchema.parse(cancelled);
+  }
+
+  /**
+   * Mark a booking attended / no_show (T2.3) — a trainings-domain action that
+   * writes a booking, kept here next to the other booking-status transitions.
+   * Invariants enforced here, in one transaction:
+   * - Trainer scoping: the booking's training.trainerId must equal the caller's
+   *   resolved trainer id; ADMIN_TELEGRAM_IDS may mark any. A non-trainer or
+   *   another trainer is rejected with a 403 that changes no status.
+   * - Attendance is settable only for today/past sessions (future-dated → 400).
+   * - Only a booking already in (booked, attended, no_show) is markable;
+   *   cancelled/waitlist → 409. Re-marking to the same value is idempotent.
+   * - Capacity is untouched: the seat was counted at booking time, so neither
+   *   trainings.bookedCount nor trainings.status changes.
+   */
+  async markAttendance(
+    actorTelegramId: number,
+    bookingId: string,
+    input: MarkAttendanceInput
+  ): Promise<Booking> {
+    const updated = await this.bookings.transaction(async (tx) => {
+      const row = await this.bookings.findBookingWithTrainingForUpdate(tx, bookingId);
+      if (!row) {
+        throw new NotFoundException(`Booking ${bookingId} not found`);
+      }
+
+      await this.assertTrainerOrAdmin(actorTelegramId, row.trainerId);
+
+      const today = new Date().toISOString().slice(0, 10);
+      if (row.trainingDate > today) {
+        throw new BadRequestException("Cannot mark attendance for a future training");
+      }
+
+      if (!["booked", "attended", "no_show"].includes(row.status)) {
+        throw new ConflictException(
+          `Booking is not markable (status ${row.status})`
+        );
+      }
+
+      const result = await this.bookings.updateBookingStatus(tx, bookingId, input.status);
+      this.logger.log(
+        `Marked booking ${bookingId} on training ${row.trainingId} as ${input.status}`
+      );
+      return result;
+    });
+
+    return bookingSchema.parse(updated);
+  }
+
+  /**
+   * Authorize a trainer-scoped write: admins always pass; otherwise the caller's
+   * resolved trainer id must equal the training's trainerId. Enforced here, never
+   * in the bot.
+   */
+  private async assertTrainerOrAdmin(actorTelegramId: number, trainerId: string): Promise<void> {
+    if (isAdmin(this.env, actorTelegramId)) {
+      return;
+    }
+    const trainer = await this.trainers.findByTelegramId(actorTelegramId);
+    if (!trainer || trainer.id !== trainerId) {
+      throw new ForbiddenException("Not the trainer for this training");
+    }
   }
 
   /**

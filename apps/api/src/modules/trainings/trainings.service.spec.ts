@@ -5,8 +5,16 @@ import { tables } from "@beosand/db";
 import type { Group, Training } from "@beosand/types";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { TrainingsService } from "./trainings.service";
-import type { AvailableSlotRow, TrainingsRepository } from "./trainings.repository";
+import type {
+  AvailableSlotRow,
+  RosterRow,
+  TrainerTrainingRow,
+  TrainingHeaderRow,
+  TrainingsRepository
+} from "./trainings.repository";
 import type { GroupsRepository } from "../groups/groups.repository";
+import type { TrainersRepository } from "../trainers/trainers.repository";
+import type { Trainer } from "@beosand/types";
 
 const ADMIN_ID = 111;
 const NON_ADMIN_ID = 999;
@@ -89,6 +97,30 @@ class FakeTrainingsRepository {
       )
       .sort((a, b) => a.date.localeCompare(b.date) || a.startTime.localeCompare(b.startTime));
   }
+
+  trainerToday: TrainerTrainingRow[] = [];
+  lastTrainerOnDate?: { trainerId: string; date: string };
+  async listForTrainerOnDate(trainerId: string, date: string): Promise<TrainerTrainingRow[]> {
+    this.lastTrainerOnDate = { trainerId, date };
+    return this.trainerToday.filter(() => true);
+  }
+
+  headers: TrainingHeaderRow[] = [];
+  async findHeaderById(trainingId: string): Promise<TrainingHeaderRow | undefined> {
+    return this.headers.find((h) => h.trainingId === trainingId);
+  }
+
+  roster: RosterRow[] = [];
+  async listRoster(_trainingId: string): Promise<RosterRow[]> {
+    return this.roster;
+  }
+}
+
+class FakeTrainersRepository {
+  trainers: Trainer[] = [];
+  async findByTelegramId(telegramId: number): Promise<Trainer | undefined> {
+    return this.trainers.find((t) => t.telegramId === telegramId && t.status === "active");
+  }
 }
 
 class FakeGroupsRepository {
@@ -103,14 +135,17 @@ const env = { ADMIN_TELEGRAM_IDS: [String(ADMIN_ID)] } as unknown as Env;
 describe("TrainingsService", () => {
   let trainingsRepo: FakeTrainingsRepository;
   let groupsRepo: FakeGroupsRepository;
+  let trainersRepo: FakeTrainersRepository;
   let service: TrainingsService;
 
   beforeEach(() => {
     trainingsRepo = new FakeTrainingsRepository();
     groupsRepo = new FakeGroupsRepository();
+    trainersRepo = new FakeTrainersRepository();
     service = new TrainingsService(
       trainingsRepo as unknown as TrainingsRepository,
       groupsRepo as unknown as GroupsRepository,
+      trainersRepo as unknown as TrainersRepository,
       env
     );
   });
@@ -268,6 +303,136 @@ describe("TrainingsService", () => {
     it("rejects a row that would map to a contract-invalid SlotCard", async () => {
       trainingsRepo.available = [slot({ priceSingleRsd: -100 })];
       await expect(service.listAvailable({})).rejects.toThrow();
+    });
+  });
+
+  describe("listTrainerToday (T2.3)", () => {
+    const TRAINER_TG = 555;
+    const TRAINER_ID = "33333333-3333-3333-3333-333333333333";
+    const today = new Date().toISOString().slice(0, 10);
+
+    const makeTrainer = (over: Partial<Trainer> = {}): Trainer => ({
+      id: TRAINER_ID,
+      name: "Coach",
+      type: "main",
+      status: "active",
+      telegramId: TRAINER_TG,
+      ...over
+    });
+
+    const todayRow = (over: Partial<TrainerTrainingRow> = {}): TrainerTrainingRow => ({
+      trainingId: "aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa",
+      date: today,
+      startTime: "20:00",
+      endTime: "21:30",
+      levelName: "Intermediate",
+      status: "open",
+      bookedCount: 4,
+      capacity: 12,
+      ...over
+    });
+
+    it("resolves the trainer by telegram_id and returns only their today trainings", async () => {
+      trainersRepo.trainers = [makeTrainer()];
+      trainingsRepo.trainerToday = [todayRow()];
+      const items = await service.listTrainerToday(TRAINER_TG, TRAINER_TG);
+      expect(items).toHaveLength(1);
+      expect(trainingsRepo.lastTrainerOnDate).toEqual({ trainerId: TRAINER_ID, date: today });
+      expect(items[0]).toMatchObject({ bookedCount: 4, capacity: 12, status: "open" });
+    });
+
+    it("rejects a caller with no trainer record (403)", async () => {
+      trainersRepo.trainers = [];
+      await expect(service.listTrainerToday(TRAINER_TG, TRAINER_TG)).rejects.toBeInstanceOf(
+        ForbiddenException
+      );
+    });
+
+    it("rejects a query telegramId that does not match the actor (403)", async () => {
+      trainersRepo.trainers = [makeTrainer()];
+      await expect(service.listTrainerToday(TRAINER_TG, 777)).rejects.toBeInstanceOf(
+        ForbiddenException
+      );
+    });
+
+    it("lets an admin read another trainer's schedule by query id", async () => {
+      trainersRepo.trainers = [makeTrainer()];
+      trainingsRepo.trainerToday = [todayRow()];
+      const items = await service.listTrainerToday(ADMIN_ID, TRAINER_TG);
+      expect(items).toHaveLength(1);
+    });
+  });
+
+  describe("getRoster (T2.3)", () => {
+    const TRAINER_TG = 555;
+    const OTHER_TG = 556;
+    const TRAINER_ID = "33333333-3333-3333-3333-333333333333";
+    const TRAINING_ID = "aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa";
+
+    beforeEach(() => {
+      trainersRepo.trainers = [
+        {
+          id: TRAINER_ID,
+          name: "Coach",
+          type: "main",
+          status: "active",
+          telegramId: TRAINER_TG
+        },
+        {
+          id: "44444444-4444-4444-4444-444444444444",
+          name: "Other",
+          type: "main",
+          status: "active",
+          telegramId: OTHER_TG
+        }
+      ];
+      trainingsRepo.headers = [
+        {
+          trainingId: TRAINING_ID,
+          date: "2026-06-03",
+          startTime: "20:00",
+          endTime: "21:30",
+          levelName: "Intermediate",
+          trainerId: TRAINER_ID
+        }
+      ];
+      trainingsRepo.roster = [
+        {
+          bookingId: "bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb",
+          clientId: "cccccccc-cccc-cccc-cccc-cccccccccccc",
+          clientName: "Ana",
+          bookingStatus: "booked"
+        }
+      ];
+    });
+
+    it("returns the roster for the owning trainer", async () => {
+      const roster = await service.getRoster(TRAINER_TG, TRAINING_ID);
+      expect(roster.participants).toHaveLength(1);
+      expect(roster.participants[0].clientName).toBe("Ana");
+    });
+
+    it("lets an admin read any roster", async () => {
+      const roster = await service.getRoster(ADMIN_ID, TRAINING_ID);
+      expect(roster.trainingId).toBe(TRAINING_ID);
+    });
+
+    it("forbids another trainer (403)", async () => {
+      await expect(service.getRoster(OTHER_TG, TRAINING_ID)).rejects.toBeInstanceOf(
+        ForbiddenException
+      );
+    });
+
+    it("forbids a non-trainer (403)", async () => {
+      await expect(service.getRoster(12345, TRAINING_ID)).rejects.toBeInstanceOf(
+        ForbiddenException
+      );
+    });
+
+    it("404s an unknown training", async () => {
+      await expect(
+        service.getRoster(TRAINER_TG, "00000000-0000-0000-0000-000000000000")
+      ).rejects.toBeInstanceOf(NotFoundException);
     });
   });
 });

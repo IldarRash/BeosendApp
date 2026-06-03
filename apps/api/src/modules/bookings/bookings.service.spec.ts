@@ -6,7 +6,7 @@ import {
 } from "@nestjs/common";
 import type { Env } from "@beosand/config";
 import type { Database } from "@beosand/db";
-import type { Booking, Client, Group } from "@beosand/types";
+import type { Booking, Client, Group, Trainer } from "@beosand/types";
 import type { MyBookingRow } from "./bookings.repository";
 import { beforeEach, describe, expect, it } from "vitest";
 import { BookingsService } from "./bookings.service";
@@ -18,6 +18,7 @@ import type {
 import type { ClientsRepository } from "../clients/clients.repository";
 import type { GroupsRepository } from "../groups/groups.repository";
 import type { NotificationsService } from "../notifications/notifications.service";
+import type { TrainersRepository } from "../trainers/trainers.repository";
 import type { WaitlistService } from "../waitlist/waitlist.service";
 
 /** No-op notifications double: confirmation sends are fire-and-forget here. */
@@ -150,6 +151,52 @@ class FakeBookingsRepository {
       : undefined;
   }
 
+  /** Maps a trainingId to its trainerId/date for the attendance read. */
+  trainingMeta: Record<string, { trainerId: string; date: string }> = {};
+
+  async findBookingWithTrainingForUpdate(
+    _tx: Database,
+    bookingId: string
+  ): Promise<
+    | {
+        id: string;
+        status: Booking["status"];
+        trainingId: string;
+        trainerId: string;
+        trainingDate: string;
+      }
+    | undefined
+  > {
+    const booking = this.bookings.find((b) => b.id === bookingId);
+    if (!booking) {
+      return undefined;
+    }
+    const meta = this.trainingMeta[booking.trainingId] ?? {
+      trainerId: "00000000-0000-0000-0000-000000000000",
+      date: "2026-06-03"
+    };
+    return {
+      id: booking.id,
+      status: booking.status,
+      trainingId: booking.trainingId,
+      trainerId: meta.trainerId,
+      trainingDate: meta.date
+    };
+  }
+
+  async updateBookingStatus(
+    _tx: Database,
+    bookingId: string,
+    status: Booking["status"]
+  ): Promise<Booking> {
+    const booking = this.bookings.find((b) => b.id === bookingId);
+    if (!booking) {
+      throw new Error(`booking ${bookingId} missing in fake`);
+    }
+    booking.status = status;
+    return booking;
+  }
+
   async markCancelled(_tx: Database, bookingId: string): Promise<Booking> {
     const booking = this.bookings.find((b) => b.id === bookingId);
     if (!booking) {
@@ -184,6 +231,13 @@ class FakeClientsRepository {
   client: Client | undefined = { ...ownerClient };
   async findByTelegramId(telegramId: number): Promise<Client | undefined> {
     return this.client && this.client.telegramId === telegramId ? this.client : undefined;
+  }
+}
+
+class FakeTrainersRepository {
+  trainers: Trainer[] = [];
+  async findByTelegramId(telegramId: number): Promise<Trainer | undefined> {
+    return this.trainers.find((t) => t.telegramId === telegramId && t.status === "active");
   }
 }
 
@@ -224,6 +278,7 @@ describe("BookingsService.createSingle", () => {
       new FakeGroupsRepository() as unknown as GroupsRepository,
       fakeNotifications,
       fakeWaitlist,
+      new FakeTrainersRepository() as unknown as TrainersRepository,
       env
     );
   });
@@ -367,6 +422,7 @@ describe("BookingsService.createGroupBooking", () => {
       groupsRepo as unknown as GroupsRepository,
       fakeNotifications,
       fakeWaitlist,
+      new FakeTrainersRepository() as unknown as TrainersRepository,
       env
     );
   });
@@ -524,6 +580,7 @@ describe("BookingsService confirmation hook is failure-tolerant", () => {
       new FakeGroupsRepository() as unknown as GroupsRepository,
       throwingNotifications,
       fakeWaitlist,
+      new FakeTrainersRepository() as unknown as TrainersRepository,
       env
     );
   });
@@ -586,6 +643,7 @@ describe("BookingsService.listMine", () => {
       new FakeGroupsRepository() as unknown as GroupsRepository,
       fakeNotifications,
       fakeWaitlist,
+      new FakeTrainersRepository() as unknown as TrainersRepository,
       env
     );
   });
@@ -678,6 +736,7 @@ describe("BookingsService.cancelBooking", () => {
       new FakeGroupsRepository() as unknown as GroupsRepository,
       fakeNotifications,
       fakeWaitlist,
+      new FakeTrainersRepository() as unknown as TrainersRepository,
       env
     );
   });
@@ -788,5 +847,137 @@ describe("BookingsService.cancelBooking", () => {
     await service.cancelBooking(OWNER_ID, BOOKING_ID);
     expect(bookingsRepo.training.bookedCount).toBe(0);
     expect(bookingsRepo.training.status).toBe("open");
+  });
+});
+
+describe("BookingsService.markAttendance (T2.3)", () => {
+  let bookingsRepo: FakeBookingsRepository;
+  let trainersRepo: FakeTrainersRepository;
+  let service: BookingsService;
+
+  const BOOKING_ID = "dddddddd-dddd-dddd-dddd-dddddddddddd";
+  const TRAINER_TG = 555;
+  const OTHER_TG = 556;
+  const TRAINER_ID = "66666666-6666-6666-6666-666666666666";
+  const yesterday = "2026-06-02"; // today is 2026-06-03
+  const tomorrow = "2026-06-04";
+
+  const trainer = (over: Partial<Trainer> = {}): Trainer => ({
+    id: TRAINER_ID,
+    name: "Coach",
+    type: "main",
+    status: "active",
+    telegramId: TRAINER_TG,
+    ...over
+  });
+
+  const booking = (over: Partial<Booking> = {}): Booking => ({
+    id: BOOKING_ID,
+    clientId: CLIENT_ID,
+    trainingId: TRAINING_ID,
+    type: "single",
+    groupSubscriptionId: null,
+    createdAt: new Date().toISOString(),
+    status: "booked",
+    source: "telegram",
+    ...over
+  });
+
+  beforeEach(() => {
+    bookingsRepo = new FakeBookingsRepository();
+    trainersRepo = new FakeTrainersRepository();
+    trainersRepo.trainers = [
+      trainer(),
+      trainer({ id: "77777777-7777-7777-7777-777777777777", telegramId: OTHER_TG })
+    ];
+    service = new BookingsService(
+      bookingsRepo as unknown as BookingsRepository,
+      new FakeClientsRepository() as unknown as ClientsRepository,
+      new FakeGroupsRepository() as unknown as GroupsRepository,
+      fakeNotifications,
+      fakeWaitlist,
+      trainersRepo as unknown as TrainersRepository,
+      env
+    );
+    bookingsRepo.trainingMeta[TRAINING_ID] = { trainerId: TRAINER_ID, date: yesterday };
+  });
+
+  it("marks a booked participant attended for the owning trainer", async () => {
+    bookingsRepo.bookings = [booking()];
+    const result = await service.markAttendance(TRAINER_TG, BOOKING_ID, { status: "attended" });
+    expect(result.status).toBe("attended");
+    expect(bookingsRepo.bookings[0].status).toBe("attended");
+  });
+
+  it("marks a booked participant no_show", async () => {
+    bookingsRepo.bookings = [booking()];
+    const result = await service.markAttendance(TRAINER_TG, BOOKING_ID, { status: "no_show" });
+    expect(result.status).toBe("no_show");
+  });
+
+  it("does not touch the training's capacity/status", async () => {
+    bookingsRepo.bookings = [booking()];
+    bookingsRepo.training = { id: TRAINING_ID, capacity: 6, bookedCount: 4, status: "open" };
+    await service.markAttendance(TRAINER_TG, BOOKING_ID, { status: "attended" });
+    expect(bookingsRepo.training.bookedCount).toBe(4);
+    expect(bookingsRepo.training.status).toBe("open");
+  });
+
+  it("is idempotent: re-marking the same status is allowed", async () => {
+    bookingsRepo.bookings = [booking({ status: "attended" })];
+    const result = await service.markAttendance(TRAINER_TG, BOOKING_ID, { status: "attended" });
+    expect(result.status).toBe("attended");
+  });
+
+  it("forbids another trainer and changes no status (403)", async () => {
+    bookingsRepo.bookings = [booking()];
+    await expect(
+      service.markAttendance(OTHER_TG, BOOKING_ID, { status: "attended" })
+    ).rejects.toBeInstanceOf(ForbiddenException);
+    expect(bookingsRepo.bookings[0].status).toBe("booked");
+  });
+
+  it("forbids a non-trainer (403)", async () => {
+    bookingsRepo.bookings = [booking()];
+    await expect(
+      service.markAttendance(99999, BOOKING_ID, { status: "attended" })
+    ).rejects.toBeInstanceOf(ForbiddenException);
+    expect(bookingsRepo.bookings[0].status).toBe("booked");
+  });
+
+  it("lets an admin mark any booking", async () => {
+    bookingsRepo.bookings = [booking()];
+    const result = await service.markAttendance(ADMIN_ID, BOOKING_ID, { status: "attended" });
+    expect(result.status).toBe("attended");
+  });
+
+  it("rejects a future-dated training (400)", async () => {
+    bookingsRepo.bookings = [booking()];
+    bookingsRepo.trainingMeta[TRAINING_ID] = { trainerId: TRAINER_ID, date: tomorrow };
+    await expect(
+      service.markAttendance(TRAINER_TG, BOOKING_ID, { status: "attended" })
+    ).rejects.toBeInstanceOf(BadRequestException);
+    expect(bookingsRepo.bookings[0].status).toBe("booked");
+  });
+
+  it("rejects a non-markable status e.g. cancelled (409)", async () => {
+    bookingsRepo.bookings = [booking({ status: "cancelled" })];
+    await expect(
+      service.markAttendance(TRAINER_TG, BOOKING_ID, { status: "attended" })
+    ).rejects.toBeInstanceOf(ConflictException);
+  });
+
+  it("rejects a waitlist booking (409)", async () => {
+    bookingsRepo.bookings = [booking({ status: "waitlist" })];
+    await expect(
+      service.markAttendance(TRAINER_TG, BOOKING_ID, { status: "no_show" })
+    ).rejects.toBeInstanceOf(ConflictException);
+  });
+
+  it("404s an unknown booking", async () => {
+    bookingsRepo.bookings = [];
+    await expect(
+      service.markAttendance(TRAINER_TG, BOOKING_ID, { status: "attended" })
+    ).rejects.toBeInstanceOf(NotFoundException);
   });
 });

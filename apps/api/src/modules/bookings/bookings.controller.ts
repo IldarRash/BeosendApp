@@ -14,6 +14,7 @@ import {
   type MyBookingItem,
   createGroupBookingSchema,
   createSingleBookingSchema,
+  markAttendanceSchema,
   myBookingsQuerySchema,
   uuid
 } from "@beosand/types";
@@ -67,6 +68,19 @@ export class BookingsController {
     const actorTelegramId = parseTelegramId(telegramIdHeader);
     const bookingId = validate(uuid, id);
     return this.bookings.cancelBooking(actorTelegramId, bookingId);
+  }
+
+  /** Trainer/admin: mark a booking attended / no_show (T2.3). Ownership in the service. */
+  @Post(":id/attendance")
+  markAttendance(
+    @Headers("x-telegram-id") telegramIdHeader: string | undefined,
+    @Param("id") id: string,
+    @Body() body: unknown
+  ): Promise<Booking> {
+    const actorTelegramId = parseTelegramId(telegramIdHeader);
+    const bookingId = validate(uuid, id);
+    const input = validate(markAttendanceSchema, body ?? {});
+    return this.bookings.markAttendance(actorTelegramId, bookingId, input);
   }
 }
 

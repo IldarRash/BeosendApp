@@ -8,8 +8,12 @@ import {
   groupBookingResultSchema,
   listTrainingsQuerySchema,
   createWaitlistEntrySchema,
+  markAttendanceSchema,
   myBookingItemSchema,
   myBookingsQuerySchema,
+  trainerTodayItemSchema,
+  trainerTodayQuerySchema,
+  trainingRosterSchema,
   updateGroupSchema,
   waitlistEntrySchema
 } from "./training-contracts";
@@ -336,6 +340,96 @@ describe("createWaitlistEntrySchema", () => {
     expect(createWaitlistEntrySchema.safeParse({ ...validInput, clientId: "x" }).success).toBe(
       false
     );
+  });
+});
+
+describe("markAttendanceSchema", () => {
+  it("accepts attended and no_show", () => {
+    expect(markAttendanceSchema.safeParse({ status: "attended" }).success).toBe(true);
+    expect(markAttendanceSchema.safeParse({ status: "no_show" }).success).toBe(true);
+  });
+
+  it("rejects any other status", () => {
+    expect(markAttendanceSchema.safeParse({ status: "booked" }).success).toBe(false);
+    expect(markAttendanceSchema.safeParse({ status: "cancelled" }).success).toBe(false);
+  });
+
+  it("rejects extra fields (strict)", () => {
+    expect(markAttendanceSchema.safeParse({ status: "attended", extra: 1 }).success).toBe(false);
+  });
+});
+
+describe("trainerTodayQuerySchema", () => {
+  it("coerces a numeric-string telegramId", () => {
+    const parsed = trainerTodayQuerySchema.safeParse({ telegramId: "555" });
+    expect(parsed.success).toBe(true);
+    if (parsed.success) {
+      expect(parsed.data.telegramId).toBe(555);
+    }
+  });
+
+  it("rejects a non-numeric telegramId", () => {
+    expect(trainerTodayQuerySchema.safeParse({ telegramId: "abc" }).success).toBe(false);
+  });
+
+  it("rejects extra fields (strict)", () => {
+    expect(trainerTodayQuerySchema.safeParse({ telegramId: "5", extra: 1 }).success).toBe(false);
+  });
+});
+
+describe("trainerTodayItemSchema", () => {
+  const validItem = {
+    trainingId: "11111111-1111-1111-1111-111111111111",
+    date: "2026-06-03",
+    dayOfWeek: 3,
+    startTime: "20:00",
+    endTime: "21:30",
+    levelName: "Intermediate",
+    status: "open",
+    bookedCount: 4,
+    capacity: 12
+  };
+
+  it("round-trips a valid item", () => {
+    expect(trainerTodayItemSchema.safeParse(validItem).success).toBe(true);
+  });
+
+  it("rejects a bad training status", () => {
+    expect(trainerTodayItemSchema.safeParse({ ...validItem, status: "nope" }).success).toBe(false);
+  });
+});
+
+describe("trainingRosterSchema", () => {
+  const validRoster = {
+    trainingId: "11111111-1111-1111-1111-111111111111",
+    date: "2026-06-03",
+    startTime: "20:00",
+    endTime: "21:30",
+    levelName: "Intermediate",
+    participants: [
+      {
+        bookingId: "22222222-2222-2222-2222-222222222222",
+        clientId: "33333333-3333-3333-3333-333333333333",
+        clientName: "Ana",
+        bookingStatus: "booked"
+      }
+    ]
+  };
+
+  it("round-trips a valid roster", () => {
+    expect(trainingRosterSchema.safeParse(validRoster).success).toBe(true);
+  });
+
+  it("accepts an empty participants list", () => {
+    expect(trainingRosterSchema.safeParse({ ...validRoster, participants: [] }).success).toBe(true);
+  });
+
+  it("rejects a participant with a bad booking status", () => {
+    const bad = {
+      ...validRoster,
+      participants: [{ ...validRoster.participants[0], bookingStatus: "nope" }]
+    };
+    expect(trainingRosterSchema.safeParse(bad).success).toBe(false);
   });
 });
 

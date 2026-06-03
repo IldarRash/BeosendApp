@@ -1,7 +1,7 @@
 import { Injectable } from "@nestjs/common";
 import type { Trainer } from "@beosand/types";
 import { tables } from "@beosand/db";
-import { asc, eq } from "drizzle-orm";
+import { and, asc, eq } from "drizzle-orm";
 import { DatabaseService } from "../../db/database.service";
 
 /** Only place trainers DB access lives. Returns typed rows; no business rules. */
@@ -22,6 +22,16 @@ export class TrainersRepository {
       .select()
       .from(tables.trainers)
       .where(eq(tables.trainers.id, id))
+      .limit(1);
+    return row;
+  }
+
+  /** The active trainer owning this Telegram id, if any — resolves the actor for T2.3. */
+  async findByTelegramId(telegramId: number): Promise<Trainer | undefined> {
+    const [row] = await this.database.db
+      .select()
+      .from(tables.trainers)
+      .where(and(eq(tables.trainers.telegramId, telegramId), eq(tables.trainers.status, "active")))
       .limit(1);
     return row;
   }

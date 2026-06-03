@@ -30,6 +30,18 @@ export interface GroupTrainingLockRow extends TrainingLockRow {
 }
 
 /**
+ * A booking locked FOR UPDATE joined to its training's trainerId/date — the
+ * attendance write needs both for the ownership and today/past checks (T2.3).
+ */
+export interface AttendanceLockRow {
+  id: string;
+  status: BookingStatus;
+  trainingId: string;
+  trainerId: string;
+  trainingDate: string;
+}
+
+/**
  * One of a client's bookings joined to its training and the trainer/level
  * names — no business rules applied (the service derives `canCancel`/today).
  */
@@ -209,6 +221,45 @@ export class BookingsRepository {
     const [row] = await tx
       .update(tables.bookings)
       .set({ status: "cancelled" })
+      .where(eq(tables.bookings.id, bookingId))
+      .returning();
+    return toBooking(row);
+  }
+
+  /**
+   * The booking selected FOR UPDATE joined to its training's trainerId and date,
+   * so the attendance write's ownership + today/past checks and the status flip
+   * happen against a row no concurrent write is mutating. Caller must hold a tx.
+   */
+  async findBookingWithTrainingForUpdate(
+    tx: Database,
+    bookingId: string
+  ): Promise<AttendanceLockRow | undefined> {
+    const [row] = await tx
+      .select({
+        id: tables.bookings.id,
+        status: tables.bookings.status,
+        trainingId: tables.bookings.trainingId,
+        trainerId: tables.trainings.trainerId,
+        trainingDate: tables.trainings.date
+      })
+      .from(tables.bookings)
+      .innerJoin(tables.trainings, eq(tables.bookings.trainingId, tables.trainings.id))
+      .where(eq(tables.bookings.id, bookingId))
+      .limit(1)
+      .for("update", { of: tables.bookings });
+    return row;
+  }
+
+  /** Set one booking's status (matched by id only) inside the caller's tx; returns the row. */
+  async updateBookingStatus(
+    tx: Database,
+    bookingId: string,
+    status: BookingStatus
+  ): Promise<Booking> {
+    const [row] = await tx
+      .update(tables.bookings)
+      .set({ status })
       .where(eq(tables.bookings.id, bookingId))
       .returning();
     return toBooking(row);

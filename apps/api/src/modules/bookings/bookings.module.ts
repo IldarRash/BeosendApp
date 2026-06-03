@@ -2,13 +2,14 @@ import { Module } from "@nestjs/common";
 import { ClientsRepository } from "../clients/clients.repository";
 import { GroupsRepository } from "../groups/groups.repository";
 import { NotificationsModule } from "../notifications/notifications.module";
+import { TrainersModule } from "../trainers/trainers.module";
 import { WaitlistModule } from "../waitlist/waitlist.module";
 import { BookingsController } from "./bookings.controller";
 import { BookingsRepository } from "./bookings.repository";
 import { BookingsService } from "./bookings.service";
 
 @Module({
-  imports: [NotificationsModule, WaitlistModule],
+  imports: [NotificationsModule, WaitlistModule, TrainersModule],
   controllers: [BookingsController],
   providers: [BookingsService, BookingsRepository, ClientsRepository, GroupsRepository]
 })

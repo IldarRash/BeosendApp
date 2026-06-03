@@ -1,5 +1,11 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-import type { Booking, MyBookingItem, SlotCard } from "@beosand/types";
+import type {
+  Booking,
+  MyBookingItem,
+  SlotCard,
+  TrainerTodayItem,
+  TrainingRoster
+} from "@beosand/types";
 import { ApiClient } from "./api-client";
 
 const CLIENT_ID = "22222222-2222-2222-2222-222222222222";
@@ -304,5 +310,133 @@ describe("ApiClient.acceptWaitlist", () => {
     await expect(
       new ApiClient("http://api.test").acceptWaitlist(waitlistEntry.id, 999)
     ).rejects.toThrow(/500/);
+  });
+});
+
+const todayItem: TrainerTodayItem = {
+  trainingId: TRAINING_ID,
+  date: "2026-06-03",
+  dayOfWeek: 3,
+  startTime: "18:00",
+  endTime: "19:30",
+  levelName: "Начинающий",
+  status: "open",
+  bookedCount: 4,
+  capacity: 8
+};
+
+const rosterBody: TrainingRoster = {
+  trainingId: TRAINING_ID,
+  date: "2026-06-03",
+  startTime: "18:00",
+  endTime: "19:30",
+  levelName: "Начинающий",
+  participants: [
+    {
+      bookingId: "33333333-3333-3333-3333-333333333333",
+      clientId: CLIENT_ID,
+      clientName: "Иван",
+      bookingStatus: "booked"
+    }
+  ]
+};
+
+describe("ApiClient.getTrainerToday", () => {
+  afterEach(() => {
+    vi.unstubAllGlobals();
+  });
+
+  it("GETs /trainers/me/today with the telegramId query + header and returns the items", async () => {
+    const fetchMock = mockFetch([todayItem]);
+    const items = await new ApiClient("http://api.test").getTrainerToday(777);
+    expect(items).toEqual([todayItem]);
+    const [rawUrl, init] = fetchMock.mock.calls[0] as [string, RequestInit];
+    const url = new URL(rawUrl);
+    expect(url.pathname).toBe("/trainers/me/today");
+    expect(url.searchParams.get("telegramId")).toBe("777");
+    expect((init.headers as Record<string, string>)["x-telegram-id"]).toBe("777");
+  });
+
+  // Role gating: a non-trainer is a 403, mapped to null so the bot hides the UI.
+  it("maps a 403 (not a trainer) to null rather than throwing", async () => {
+    mockFetch({}, false, 403);
+    await expect(new ApiClient("http://api.test").getTrainerToday(777)).resolves.toBeNull();
+  });
+
+  it("throws on any other non-2xx", async () => {
+    mockFetch({}, false, 500);
+    await expect(new ApiClient("http://api.test").getTrainerToday(777)).rejects.toThrow(/500/);
+  });
+
+  it("rejects a response whose item violates the contract", async () => {
+    mockFetch([{ ...todayItem, bookedCount: -1 }]);
+    await expect(new ApiClient("http://api.test").getTrainerToday(777)).rejects.toThrow();
+  });
+});
+
+describe("ApiClient.getTrainingRoster", () => {
+  afterEach(() => {
+    vi.unstubAllGlobals();
+  });
+
+  it("GETs /trainings/:id/roster with the caller's telegram header", async () => {
+    const fetchMock = mockFetch(rosterBody);
+    const result = await new ApiClient("http://api.test").getTrainingRoster(TRAINING_ID, 777);
+    expect(result).toEqual(rosterBody);
+    const [url, init] = fetchMock.mock.calls[0] as [string, RequestInit];
+    expect(url).toBe(`http://api.test/trainings/${TRAINING_ID}/roster`);
+    expect((init.headers as Record<string, string>)["x-telegram-id"]).toBe("777");
+  });
+
+  // Unsafe path: another trainer's / non-trainer's roster is a 403 — surfaced.
+  it("throws on a 403 (foreign training)", async () => {
+    mockFetch({}, false, 403);
+    await expect(
+      new ApiClient("http://api.test").getTrainingRoster(TRAINING_ID, 777)
+    ).rejects.toThrow(/403/);
+  });
+
+  it("rejects a body that violates the TrainingRoster contract", async () => {
+    mockFetch({ ...rosterBody, participants: [{ clientName: "Иван" }] });
+    await expect(
+      new ApiClient("http://api.test").getTrainingRoster(TRAINING_ID, 777)
+    ).rejects.toThrow();
+  });
+});
+
+describe("ApiClient.markAttendance", () => {
+  afterEach(() => {
+    vi.unstubAllGlobals();
+  });
+
+  it("POSTs /bookings/:id/attendance with the status body + telegram header", async () => {
+    const marked: Booking = { ...booking, status: "attended" };
+    const fetchMock = mockFetch(marked);
+    const result = await new ApiClient("http://api.test").markAttendance(
+      booking.id,
+      "attended",
+      777
+    );
+    expect(result).toEqual(marked);
+    const [url, init] = fetchMock.mock.calls[0] as [string, RequestInit];
+    expect(url).toBe(`http://api.test/bookings/${booking.id}/attendance`);
+    expect(init.method).toBe("POST");
+    expect((init.headers as Record<string, string>)["x-telegram-id"]).toBe("777");
+    expect(JSON.parse(init.body as string)).toEqual({ status: "attended" });
+  });
+
+  // Unsafe path: marking another trainer's booking is a 403 — surfaced, no change.
+  it("throws on a 403 (foreign booking)", async () => {
+    mockFetch({}, false, 403);
+    await expect(
+      new ApiClient("http://api.test").markAttendance(booking.id, "no_show", 777)
+    ).rejects.toThrow(/403/);
+  });
+
+  it("rejects a 2xx body that violates the Booking contract", async () => {
+    mockFetch({ ...booking, status: "nonsense" });
+    await expect(
+      new ApiClient("http://api.test").markAttendance(booking.id, "attended", 777)
+    ).rejects.toThrow();
   });
 });
