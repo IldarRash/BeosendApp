@@ -37,7 +37,17 @@ export const trainerSchema = z.object({
 export const createTrainerSchema = trainerSchema.pick({ name: true, type: true }).extend({
   telegramId: z.number().int().nullable().optional()
 });
+export const updateTrainerSchema = z
+  .object({
+    name: z.string().min(1),
+    type: trainerType,
+    status: entityStatus,
+    telegramId: z.number().int().nullable()
+  })
+  .partial();
 export type Trainer = z.infer<typeof trainerSchema>;
+export type CreateTrainerInput = z.infer<typeof createTrainerSchema>;
+export type UpdateTrainerInput = z.infer<typeof updateTrainerSchema>;
 
 // --- Clients (3.1) ---
 export const clientSchema = z.object({

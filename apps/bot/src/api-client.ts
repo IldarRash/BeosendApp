@@ -1,8 +1,9 @@
-import { levelSchema, type Level } from "@beosand/types";
+import { levelSchema, trainerSchema, type Level, type Trainer } from "@beosand/types";
 import { z } from "zod";
 
 const healthSchema = z.object({ status: z.literal("ok"), service: z.string() });
 const levelsSchema = z.array(levelSchema);
+const trainersSchema = z.array(trainerSchema);
 
 /**
  * Thin typed client the bot uses to reach apps/api. The bot is an interaction
@@ -34,5 +35,14 @@ export class ApiClient {
    */
   listLevels(): Promise<Level[]> {
     return this.request("/levels", levelsSchema);
+  }
+
+  /**
+   * Active trainer roster (status=active, ordered by name). Reference data
+   * consumed by group creation and slot rendering (and the future admin/trainer
+   * UI); trainers have no standalone client bot screen of their own.
+   */
+  listTrainers(): Promise<Trainer[]> {
+    return this.request("/trainers", trainersSchema);
   }
 }
