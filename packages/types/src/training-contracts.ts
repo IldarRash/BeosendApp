@@ -151,12 +151,27 @@ export const createSingleBookingSchema = z
   })
   .strict();
 export type CreateSingleBookingInput = z.infer<typeof createSingleBookingSchema>;
-export const createGroupBookingSchema = z.object({
-  clientId: uuid,
-  groupId: uuid,
-  year: z.number().int().min(2024),
-  month: z.number().int().min(1).max(12)
+export const createGroupBookingSchema = z
+  .object({
+    clientId: uuid,
+    groupId: uuid,
+    year: z.number().int().min(2024),
+    month: z.number().int().min(1).max(12)
+  })
+  .strict();
+export type CreateGroupBookingInput = z.infer<typeof createGroupBookingSchema>;
+
+/**
+ * Result of a monthly group booking (T1.9): the shared subscription id, the
+ * bookings created (one per bookable training instance), and the dates skipped
+ * because the training had no free seat (full) — reported, never fatal.
+ */
+export const groupBookingResultSchema = z.object({
+  groupSubscriptionId: uuid,
+  created: z.array(bookingSchema),
+  skipped: z.array(dateString)
 });
+export type GroupBookingResult = z.infer<typeof groupBookingResultSchema>;
 
 // --- Waitlist (section 9) ---
 export const waitlistStatus = z.enum(["waiting", "notified", "promoted", "expired", "cancelled"]);

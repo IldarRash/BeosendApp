@@ -1,7 +1,7 @@
 import { Injectable } from "@nestjs/common";
 import { type Database, tables } from "@beosand/db";
 import type { Booking, TrainingStatus } from "@beosand/types";
-import { and, eq } from "drizzle-orm";
+import { and, asc, eq, gte, inArray, lte } from "drizzle-orm";
 import { DatabaseService } from "../../db/database.service";
 
 type BookingRow = typeof tables.bookings.$inferSelect;
@@ -13,6 +13,11 @@ export interface TrainingLockRow {
   capacity: number;
   bookedCount: number;
   status: TrainingStatus;
+}
+
+/** A month training instance locked FOR UPDATE, carrying its date for skip reporting. */
+export interface GroupTrainingLockRow extends TrainingLockRow {
+  date: string;
 }
 
 /** Only place bookings DB access lives. Returns typed rows; no business rules. */
@@ -42,6 +47,39 @@ export class BookingsRepository {
       .limit(1)
       .for("update");
     return row;
+  }
+
+  /**
+   * The group's trainings within [from, to] (a calendar month) with date >= today
+   * and status open|full, locked FOR UPDATE so the per-instance capacity/status
+   * recompute that follows the batch insert cannot oversell. Caller must hold a tx.
+   * Cancelled/completed instances are excluded (never offered as bookable).
+   */
+  async findGroupTrainingsForMonthForUpdate(
+    tx: Database,
+    groupId: string,
+    from: string,
+    to: string
+  ): Promise<GroupTrainingLockRow[]> {
+    return tx
+      .select({
+        id: tables.trainings.id,
+        date: tables.trainings.date,
+        capacity: tables.trainings.capacity,
+        bookedCount: tables.trainings.bookedCount,
+        status: tables.trainings.status
+      })
+      .from(tables.trainings)
+      .where(
+        and(
+          eq(tables.trainings.groupId, groupId),
+          gte(tables.trainings.date, from),
+          lte(tables.trainings.date, to),
+          inArray(tables.trainings.status, ["open", "full"])
+        )
+      )
+      .orderBy(asc(tables.trainings.date))
+      .for("update");
   }
 
   /** An existing active ('booked') booking for this client + training — drives the duplicate check. */

@@ -1,6 +1,7 @@
 import { backHomeKeyboard, MENU_ACTIONS, mainMenuKeyboard, WELCOME_TEXT } from "./menu";
 import type { MenuAction } from "./menu";
 import { renderSlotsText, slotsKeyboard } from "./slots";
+import { handleGroupList } from "./group-booking";
 import type { ApiClient } from "./api-client";
 
 /**
@@ -15,7 +16,7 @@ export interface MenuHandlerDeps {
   /** Manager contact handle/text, read from the env contract at startup. */
   managerContact: string;
   /** Typed API client; the only way handlers reach domain data. */
-  api: Pick<ApiClient, "listAvailableSlots">;
+  api: Pick<ApiClient, "listAvailableSlots" | "listGroups">;
 }
 
 export type MenuHandler = (ctx: MenuReplyCtx, deps: MenuHandlerDeps) => Promise<void>;
@@ -47,7 +48,11 @@ export const menuHandlers: Record<MenuAction, MenuHandler> = {
     await ctx.reply(renderSlotsText(cards), { reply_markup: slotsKeyboard(cards) });
   },
   [MENU_ACTIONS.todayFreeSlots]: stub("Свободные места на сегодня скоро будут здесь."),
-  [MENU_ACTIONS.joinGroup]: stub("Запись в группу скоро будет доступна."),
+  // Monthly group booking (T1.9): render the group list; picking a group leads
+  // to a month choice and a confirmation, all handled in group-booking.ts.
+  [MENU_ACTIONS.joinGroup]: async (ctx, deps) => {
+    await handleGroupList(ctx, deps.api);
+  },
   [MENU_ACTIONS.myBookings]: stub("Ваши записи скоро будут здесь."),
   [MENU_ACTIONS.contactManager]: async (ctx, deps) => {
     await ctx.reply(`Связаться с менеджером: ${deps.managerContact}`, {

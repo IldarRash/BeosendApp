@@ -1,9 +1,11 @@
 import { describe, expect, it } from "vitest";
 import {
   availableSlotsQuerySchema,
+  createGroupBookingSchema,
   createGroupSchema,
   createSingleBookingSchema,
   generateMonthSchema,
+  groupBookingResultSchema,
   listTrainingsQuerySchema,
   updateGroupSchema
 } from "./training-contracts";
@@ -170,5 +172,81 @@ describe("createSingleBookingSchema", () => {
     expect(createSingleBookingSchema.safeParse({ ...validBody, source: "web" }).success).toBe(
       false
     );
+  });
+});
+
+describe("createGroupBookingSchema", () => {
+  const validBody = {
+    clientId: "11111111-1111-1111-1111-111111111111",
+    groupId: "22222222-2222-2222-2222-222222222222",
+    year: 2099,
+    month: 6
+  };
+
+  it("accepts a valid body", () => {
+    expect(createGroupBookingSchema.safeParse(validBody).success).toBe(true);
+  });
+
+  it("rejects a missing field", () => {
+    const { month: _month, ...withoutMonth } = validBody;
+    expect(createGroupBookingSchema.safeParse(withoutMonth).success).toBe(false);
+  });
+
+  it("rejects month 0 and 13, and a year before 2024", () => {
+    expect(createGroupBookingSchema.safeParse({ ...validBody, month: 0 }).success).toBe(false);
+    expect(createGroupBookingSchema.safeParse({ ...validBody, month: 13 }).success).toBe(false);
+    expect(createGroupBookingSchema.safeParse({ ...validBody, year: 2023 }).success).toBe(false);
+  });
+
+  it("rejects a non-uuid id", () => {
+    expect(createGroupBookingSchema.safeParse({ ...validBody, groupId: "nope" }).success).toBe(
+      false
+    );
+  });
+
+  it("rejects unknown fields (strict)", () => {
+    expect(createGroupBookingSchema.safeParse({ ...validBody, extra: 1 }).success).toBe(false);
+  });
+});
+
+describe("groupBookingResultSchema", () => {
+  const booking = {
+    id: "11111111-1111-1111-1111-111111111111",
+    clientId: "22222222-2222-2222-2222-222222222222",
+    trainingId: "33333333-3333-3333-3333-333333333333",
+    type: "group",
+    groupSubscriptionId: "44444444-4444-4444-4444-444444444444",
+    createdAt: new Date().toISOString(),
+    status: "booked",
+    source: "telegram"
+  };
+
+  it("accepts a result with created bookings and skipped dates", () => {
+    const parsed = groupBookingResultSchema.safeParse({
+      groupSubscriptionId: "44444444-4444-4444-4444-444444444444",
+      created: [booking],
+      skipped: ["2099-06-03"]
+    });
+    expect(parsed.success).toBe(true);
+  });
+
+  it("accepts an empty created/skipped result", () => {
+    expect(
+      groupBookingResultSchema.safeParse({
+        groupSubscriptionId: "44444444-4444-4444-4444-444444444444",
+        created: [],
+        skipped: []
+      }).success
+    ).toBe(true);
+  });
+
+  it("rejects a malformed skipped date", () => {
+    expect(
+      groupBookingResultSchema.safeParse({
+        groupSubscriptionId: "44444444-4444-4444-4444-444444444444",
+        created: [],
+        skipped: ["06/03/2099"]
+      }).success
+    ).toBe(false);
   });
 });

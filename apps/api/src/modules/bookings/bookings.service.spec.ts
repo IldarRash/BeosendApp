@@ -1,11 +1,21 @@
-import { ConflictException, ForbiddenException, NotFoundException } from "@nestjs/common";
+import {
+  BadRequestException,
+  ConflictException,
+  ForbiddenException,
+  NotFoundException
+} from "@nestjs/common";
 import type { Env } from "@beosand/config";
 import type { Database } from "@beosand/db";
-import type { Booking, Client } from "@beosand/types";
+import type { Booking, Client, Group } from "@beosand/types";
 import { beforeEach, describe, expect, it } from "vitest";
 import { BookingsService } from "./bookings.service";
-import type { BookingsRepository, TrainingLockRow } from "./bookings.repository";
+import type {
+  BookingsRepository,
+  GroupTrainingLockRow,
+  TrainingLockRow
+} from "./bookings.repository";
 import type { ClientsRepository } from "../clients/clients.repository";
+import type { GroupsRepository } from "../groups/groups.repository";
 
 const ADMIN_ID = 111;
 const OWNER_ID = 222;
@@ -13,6 +23,11 @@ const STRANGER_ID = 333;
 const CLIENT_ID = "11111111-1111-1111-1111-111111111111";
 const OTHER_CLIENT_ID = "22222222-2222-2222-2222-222222222222";
 const TRAINING_ID = "33333333-3333-3333-3333-333333333333";
+const GROUP_ID = "44444444-4444-4444-4444-444444444444";
+
+// A month far in the future so the today-clamp never filters the fixtures.
+const FUTURE_YEAR = 2099;
+const FUTURE_MONTH = 6;
 
 const ownerClient: Client = {
   id: CLIENT_ID,
@@ -27,7 +42,10 @@ const ownerClient: Client = {
 /** In-memory stand-in for the bookings repository (only DB-access layer). */
 class FakeBookingsRepository {
   training: TrainingLockRow | undefined;
+  monthTrainings: GroupTrainingLockRow[] = [];
   bookings: Booking[] = [];
+  /** When set, the next insertBooking throws to exercise transaction rollback. */
+  failInsertOnTrainingId: string | undefined;
   private seq = 0;
 
   transaction<T>(work: (tx: Database) => Promise<T>): Promise<T> {
@@ -39,6 +57,15 @@ class FakeBookingsRepository {
     trainingId: string
   ): Promise<TrainingLockRow | undefined> {
     return this.training && this.training.id === trainingId ? this.training : undefined;
+  }
+
+  async findGroupTrainingsForMonthForUpdate(
+    _tx: Database,
+    _groupId: string,
+    _from: string,
+    _to: string
+  ): Promise<GroupTrainingLockRow[]> {
+    return this.monthTrainings;
   }
 
   async findActiveBookingForClient(
@@ -62,6 +89,9 @@ class FakeBookingsRepository {
       source: "telegram";
     }
   ): Promise<Booking> {
+    if (this.failInsertOnTrainingId && values.trainingId === this.failInsertOnTrainingId) {
+      throw new Error("simulated DB failure mid-batch");
+    }
     const booking: Booking = {
       id: `aaaaaaaa-aaaa-aaaa-aaaa-0000000000${String(++this.seq).padStart(2, "0")}`,
       clientId: values.clientId,
@@ -86,6 +116,11 @@ class FakeBookingsRepository {
       this.training.bookedCount = bookedCount;
       this.training.status = status;
     }
+    const monthRow = this.monthTrainings.find((t) => t.id === trainingId);
+    if (monthRow) {
+      monthRow.bookedCount = bookedCount;
+      monthRow.status = status;
+    }
   }
 }
 
@@ -93,6 +128,27 @@ class FakeClientsRepository {
   client: Client | undefined = { ...ownerClient };
   async findByTelegramId(telegramId: number): Promise<Client | undefined> {
     return this.client && this.client.telegramId === telegramId ? this.client : undefined;
+  }
+}
+
+const activeGroup: Group = {
+  id: GROUP_ID,
+  name: "Mon/Wed Beginners",
+  levelId: "55555555-5555-5555-5555-555555555555",
+  daysOfWeek: [1, 3],
+  startTime: "18:00",
+  endTime: "19:30",
+  trainerId: "66666666-6666-6666-6666-666666666666",
+  capacity: 6,
+  priceSingleRsd: 1200,
+  priceMonthRsd: 8000,
+  status: "active"
+};
+
+class FakeGroupsRepository {
+  group: Group | undefined = { ...activeGroup };
+  async findById(id: string): Promise<Group | undefined> {
+    return this.group && this.group.id === id ? this.group : undefined;
   }
 }
 
@@ -109,6 +165,7 @@ describe("BookingsService.createSingle", () => {
     service = new BookingsService(
       bookingsRepo as unknown as BookingsRepository,
       clientsRepo as unknown as ClientsRepository,
+      new FakeGroupsRepository() as unknown as GroupsRepository,
       env
     );
   });
@@ -233,5 +290,152 @@ describe("BookingsService.createSingle", () => {
     await service.createSingle(OWNER_ID, input);
     expect(bookingsRepo.training.bookedCount).toBe(2);
     expect(bookingsRepo.training.status).toBe("full");
+  });
+});
+
+describe("BookingsService.createGroupBooking", () => {
+  let bookingsRepo: FakeBookingsRepository;
+  let clientsRepo: FakeClientsRepository;
+  let groupsRepo: FakeGroupsRepository;
+  let service: BookingsService;
+
+  beforeEach(() => {
+    bookingsRepo = new FakeBookingsRepository();
+    clientsRepo = new FakeClientsRepository();
+    groupsRepo = new FakeGroupsRepository();
+    service = new BookingsService(
+      bookingsRepo as unknown as BookingsRepository,
+      clientsRepo as unknown as ClientsRepository,
+      groupsRepo as unknown as GroupsRepository,
+      env
+    );
+  });
+
+  const input = { clientId: CLIENT_ID, groupId: GROUP_ID, year: FUTURE_YEAR, month: FUTURE_MONTH };
+
+  const monthTraining = (id: string, date: string, over: Partial<GroupTrainingLockRow> = {}) => ({
+    id,
+    date,
+    capacity: 6,
+    bookedCount: 0,
+    status: "open" as const,
+    ...over
+  });
+
+  it("creates one booking per bookable instance, all sharing a single groupSubscriptionId", async () => {
+    bookingsRepo.monthTrainings = [
+      monthTraining("a1111111-1111-1111-1111-111111111111", "2099-06-01"),
+      monthTraining("a2222222-2222-2222-2222-222222222222", "2099-06-03"),
+      monthTraining("a3333333-3333-3333-3333-333333333333", "2099-06-08")
+    ];
+
+    const result = await service.createGroupBooking(OWNER_ID, input);
+
+    expect(result.created).toHaveLength(3);
+    expect(result.skipped).toHaveLength(0);
+    const subIds = new Set(result.created.map((b) => b.groupSubscriptionId));
+    expect(subIds.size).toBe(1);
+    expect([...subIds][0]).toBe(result.groupSubscriptionId);
+    expect(result.created.every((b) => b.type === "group")).toBe(true);
+  });
+
+  it("recomputes count/status per instance and flips an at-capacity slot to full", async () => {
+    bookingsRepo.monthTrainings = [
+      monthTraining("a1111111-1111-1111-1111-111111111111", "2099-06-01", { bookedCount: 2 }),
+      monthTraining("a2222222-2222-2222-2222-222222222222", "2099-06-03", {
+        capacity: 6,
+        bookedCount: 5
+      })
+    ];
+
+    await service.createGroupBooking(OWNER_ID, input);
+
+    expect(bookingsRepo.monthTrainings[0].bookedCount).toBe(3);
+    expect(bookingsRepo.monthTrainings[0].status).toBe("open");
+    expect(bookingsRepo.monthTrainings[1].bookedCount).toBe(6);
+    expect(bookingsRepo.monthTrainings[1].status).toBe("full");
+  });
+
+  it("skips and reports a full date without failing the rest of the month", async () => {
+    bookingsRepo.monthTrainings = [
+      monthTraining("a1111111-1111-1111-1111-111111111111", "2099-06-01"),
+      monthTraining("a2222222-2222-2222-2222-222222222222", "2099-06-03", {
+        bookedCount: 6,
+        status: "full"
+      }),
+      monthTraining("a3333333-3333-3333-3333-333333333333", "2099-06-08")
+    ];
+
+    const result = await service.createGroupBooking(OWNER_ID, input);
+
+    expect(result.created).toHaveLength(2);
+    expect(result.skipped).toEqual(["2099-06-03"]);
+  });
+
+  it("skips an instance the client is already booked into (re-run safe)", async () => {
+    bookingsRepo.monthTrainings = [
+      monthTraining("a1111111-1111-1111-1111-111111111111", "2099-06-01"),
+      monthTraining("a2222222-2222-2222-2222-222222222222", "2099-06-03")
+    ];
+    bookingsRepo.bookings = [
+      {
+        id: "bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb",
+        clientId: CLIENT_ID,
+        trainingId: "a1111111-1111-1111-1111-111111111111",
+        type: "single",
+        groupSubscriptionId: null,
+        createdAt: new Date().toISOString(),
+        status: "booked",
+        source: "telegram"
+      }
+    ];
+
+    const result = await service.createGroupBooking(OWNER_ID, input);
+
+    expect(result.created).toHaveLength(1);
+    expect(result.skipped).toEqual(["2099-06-01"]);
+  });
+
+  it("throws BadRequestException when the month has no generated trainings", async () => {
+    bookingsRepo.monthTrainings = [];
+    await expect(service.createGroupBooking(OWNER_ID, input)).rejects.toBeInstanceOf(
+      BadRequestException
+    );
+  });
+
+  it("404s an unknown group", async () => {
+    groupsRepo.group = undefined;
+    await expect(service.createGroupBooking(OWNER_ID, input)).rejects.toBeInstanceOf(
+      NotFoundException
+    );
+  });
+
+  it("400s an inactive group", async () => {
+    groupsRepo.group = { ...activeGroup, status: "inactive" };
+    await expect(service.createGroupBooking(OWNER_ID, input)).rejects.toBeInstanceOf(
+      BadRequestException
+    );
+  });
+
+  it("rejects booking the month for another client (ForbiddenException), supplied clientId untrusted", async () => {
+    bookingsRepo.monthTrainings = [
+      monthTraining("a1111111-1111-1111-1111-111111111111", "2099-06-01")
+    ];
+    await expect(
+      service.createGroupBooking(OWNER_ID, { ...input, clientId: OTHER_CLIENT_ID })
+    ).rejects.toBeInstanceOf(ForbiddenException);
+    expect(bookingsRepo.bookings).toHaveLength(0);
+  });
+
+  it("rolls back the whole month when an insert fails mid-batch (atomicity)", async () => {
+    bookingsRepo.monthTrainings = [
+      monthTraining("a1111111-1111-1111-1111-111111111111", "2099-06-01"),
+      monthTraining("a2222222-2222-2222-2222-222222222222", "2099-06-03"),
+      monthTraining("a3333333-3333-3333-3333-333333333333", "2099-06-08")
+    ];
+    bookingsRepo.failInsertOnTrainingId = "a2222222-2222-2222-2222-222222222222";
+
+    await expect(service.createGroupBooking(OWNER_ID, input)).rejects.toThrow();
+    // The transaction wrapper would discard partial writes; the failure must surface.
   });
 });

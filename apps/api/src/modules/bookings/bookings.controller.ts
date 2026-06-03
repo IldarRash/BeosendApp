@@ -1,5 +1,10 @@
 import { BadRequestException, Body, Controller, Headers, Post } from "@nestjs/common";
-import { type Booking, createSingleBookingSchema } from "@beosand/types";
+import {
+  type Booking,
+  type GroupBookingResult,
+  createGroupBookingSchema,
+  createSingleBookingSchema
+} from "@beosand/types";
 import type { ZodSchema } from "zod";
 import { BookingsService } from "./bookings.service";
 
@@ -17,6 +22,17 @@ export class BookingsController {
     const actorTelegramId = parseTelegramId(telegramIdHeader);
     const input = validate(createSingleBookingSchema, body ?? {});
     return this.bookings.createSingle(actorTelegramId, input);
+  }
+
+  /** Client: book a whole month into a group as a linked batch (T1.9). */
+  @Post("group")
+  createGroup(
+    @Headers("x-telegram-id") telegramIdHeader: string | undefined,
+    @Body() body: unknown
+  ): Promise<GroupBookingResult> {
+    const actorTelegramId = parseTelegramId(telegramIdHeader);
+    const input = validate(createGroupBookingSchema, body ?? {});
+    return this.bookings.createGroupBooking(actorTelegramId, input);
   }
 }
 

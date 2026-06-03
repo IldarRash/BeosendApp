@@ -1,6 +1,7 @@
 import {
   bookingSchema,
   clientSchema,
+  groupBookingResultSchema,
   groupSchema,
   levelSchema,
   slotCardSchema,
@@ -9,9 +10,11 @@ import {
   type AvailableSlotsQuery,
   type Booking,
   type Client,
+  type CreateGroupBookingInput,
   type CreateSingleBookingInput,
   type GenerateMonthInput,
   type Group,
+  type GroupBookingResult,
   type Level,
   type ListTrainingsQuery,
   type OnboardClientInput,
@@ -197,6 +200,24 @@ export class ApiClient {
       throw new Error(`API /bookings/single failed: ${res.status}`);
     }
     return { ok: true, booking: bookingSchema.parse(await res.json()) };
+  }
+
+  /**
+   * Book a client into a group for a whole month (T1.9): one booking per bookable
+   * training instance, linked by a shared group_subscription_id. Ownership,
+   * capacity and the linked batch are decided server-side from the actor's
+   * telegram_id; the bot only forwards the IDs and renders the created/skipped
+   * result. The supplied clientId is re-checked against the caller server-side.
+   */
+  createGroupBooking(
+    input: CreateGroupBookingInput,
+    actorTelegramId: number
+  ): Promise<GroupBookingResult> {
+    return this.request("/bookings/group", groupBookingResultSchema, {
+      method: "POST",
+      headers: { "x-telegram-id": String(actorTelegramId) },
+      body: JSON.stringify(input)
+    });
   }
 
   /** Admin-only (deferred to the admin UI): list trainings in a date range. */

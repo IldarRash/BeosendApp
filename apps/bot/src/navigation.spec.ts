@@ -4,7 +4,10 @@ import { menuHandlers, resolveCallback, type MenuHandlerDeps, type MenuReplyCtx 
 
 const deps: MenuHandlerDeps = {
   managerContact: "@test_manager",
-  api: { listAvailableSlots: vi.fn().mockResolvedValue([]) }
+  api: {
+    listAvailableSlots: vi.fn().mockResolvedValue([]),
+    listGroups: vi.fn().mockResolvedValue([])
+  }
 };
 
 function fakeCtx(): { ctx: MenuReplyCtx; reply: ReturnType<typeof vi.fn> } {
@@ -59,7 +62,10 @@ describe("menu dispatch table", () => {
     const { ctx, reply } = fakeCtx();
     const localDeps: MenuHandlerDeps = {
       managerContact: "@m",
-      api: { listAvailableSlots: vi.fn().mockResolvedValue([card]) }
+      api: {
+        listAvailableSlots: vi.fn().mockResolvedValue([card]),
+        listGroups: vi.fn().mockResolvedValue([])
+      }
     };
     await menuHandlers[MENU_ACTIONS.availableTrainings](ctx, localDeps);
     expect(localDeps.api.listAvailableSlots).toHaveBeenCalledOnce();

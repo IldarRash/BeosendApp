@@ -5,6 +5,14 @@ import { resolveCallback } from "./navigation";
 import { handleBookConfirm, handleBookStart } from "./booking";
 import { parseBookConfirm, parseBookStart } from "./slots";
 import {
+  handleGroupConfirm,
+  handleGroupMonth,
+  handleGroupPick,
+  parseGroupConfirm,
+  parseGroupMonth,
+  parseGroupPick
+} from "./group-booking";
+import {
   handleLevelCallback,
   handleNameText,
   handleStart,
@@ -54,6 +62,29 @@ async function main(): Promise<void> {
     if (confirmTrainingId !== undefined) {
       const client = await api.getClientByTelegramId(ctx.from.id);
       await handleBookConfirm(ctx, api, ctx.from.id, client?.id ?? null, confirmTrainingId);
+      return;
+    }
+    // Monthly group booking (T1.9): pick group → pick month → confirm.
+    const groupPickId = parseGroupPick(ctx.callbackQuery.data);
+    if (groupPickId !== undefined) {
+      await handleGroupPick(ctx, api, groupPickId);
+      return;
+    }
+    const groupMonth = parseGroupMonth(ctx.callbackQuery.data);
+    if (groupMonth !== undefined) {
+      await handleGroupMonth(ctx, api, groupMonth.groupId, groupMonth.year, groupMonth.month);
+      return;
+    }
+    const groupConfirm = parseGroupConfirm(ctx.callbackQuery.data);
+    if (groupConfirm !== undefined) {
+      await handleGroupConfirm(
+        ctx,
+        api,
+        ctx.from.id,
+        groupConfirm.groupId,
+        groupConfirm.year,
+        groupConfirm.month
+      );
       return;
     }
     const handler = resolveCallback(ctx.callbackQuery.data);
