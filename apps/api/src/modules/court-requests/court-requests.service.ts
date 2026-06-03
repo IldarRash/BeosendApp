@@ -1,9 +1,13 @@
 import {
   BadRequestException,
   ConflictException,
+  ForbiddenException,
+  Inject,
   Injectable,
+  Logger,
   NotFoundException
 } from "@nestjs/common";
+import { isAdmin, type Env } from "@beosand/config";
 import {
   COURT_CLOSE_HOUR,
   COURT_OPEN_HOUR,
@@ -11,18 +15,33 @@ import {
   courtDurationHours,
   courtHoursCovered,
   courtPriceRsd,
+  courtRequestAdminViewSchema,
   courtRequestPreviewSchema,
   courtRequestSchema,
+  courtSchema,
   freeCourtsByHour,
+  type ConfirmCourtRequest,
+  type Court,
   type CourtAvailability,
   type CourtDurationHours,
   type CourtOccupant,
   type CourtRequest,
+  type CourtRequestAdminView,
   type CourtRequestPreview,
+  type CourtRequestStatus,
   type CreateCourtRequest,
-  type PreviewCourtRequest
+  type PreviewCourtRequest,
+  type RejectCourtRequest
 } from "@beosand/types";
-import { CourtRequestsRepository, type OccupantRow } from "./court-requests.repository";
+import { ENV } from "../../config/config.module";
+import { CourtNotifier } from "./court-notifier";
+import {
+  CourtRequestsRepository,
+  type CourtOccupancyRow,
+  type CourtRequestAdminRow,
+  type CourtRequestRow,
+  type OccupantRow
+} from "./court-requests.repository";
 
 /**
  * Court availability read (C3). Holds the single per-hour limit rule: an hour can
@@ -33,7 +52,13 @@ import { CourtRequestsRepository, type OccupantRow } from "./court-requests.repo
  */
 @Injectable()
 export class CourtRequestsService {
-  constructor(private readonly repository: CourtRequestsRepository) {}
+  private readonly logger = new Logger(CourtRequestsService.name);
+
+  constructor(
+    private readonly repository: CourtRequestsRepository,
+    @Inject(ENV) private readonly env: Env,
+    private readonly notifier: CourtNotifier
+  ) {}
 
   /** Offerable 1h start times for a date, with free-court counts per hour. */
   async getAvailability(date: string): Promise<CourtAvailability> {
@@ -113,6 +138,195 @@ export class CourtRequestsService {
       priceRsd
     });
 
+    return this.toEntity(row);
+  }
+
+  /**
+   * C4 — the admin moderation queue (default: pending), joined with the client's
+   * name/telegram and a derived end time. Admin-only; this is the only court path
+   * that surfaces an assigned court id, and it never reaches a client.
+   */
+  async listQueue(
+    callerTelegramId: number,
+    status: CourtRequestStatus
+  ): Promise<CourtRequestAdminView[]> {
+    this.assertAdmin(callerTelegramId, "list the court-request queue");
+    const rows = await this.repository.requestsWithClientByStatus(status);
+    return rows.map((row) => this.toAdminView(row));
+  }
+
+  /**
+   * C4 — active courts free for EVERY hour the request covers (no confirmed
+   * request and no block on that court/hour). Admin-only; the chosen court is
+   * never shown to the client. Uses the same per-court occupancy the confirm
+   * re-check uses, so the offer and the write agree.
+   */
+  async freeCourts(callerTelegramId: number, requestId: string): Promise<Court[]> {
+    this.assertAdmin(callerTelegramId, "read free courts");
+    const request = await this.repository.findById(requestId);
+    if (!request) {
+      throw new NotFoundException("No court request with that id.");
+    }
+    if (request.status !== "pending") {
+      throw new ConflictException("This request has already been decided.");
+    }
+
+    const duration = courtDurationHours.parse(request.durationHours);
+    const [courts, confirmed, blocks] = await Promise.all([
+      this.repository.activeCourts(),
+      this.repository.confirmedCourtOccupancyForDate(request.date),
+      this.repository.blocksByCourtForDate(request.date)
+    ]);
+
+    const hours = courtHoursCovered(request.startTime, duration);
+    const free = courts.filter((court) =>
+      courtIsFreeForHours(court.id, hours, confirmed, blocks)
+    );
+    return free.map((court) => courtSchema.parse({ id: court.id, number: court.number, status: "active" }));
+  }
+
+  /**
+   * C4 — confirm a pending request onto a chosen court. In one transaction: lock
+   * the request (FOR UPDATE), re-check it is still pending, the court is active,
+   * the per-hour active-court limit holds, and the chosen court is free for every
+   * covered hour (no confirmed request, no block). Then stamp confirmed/court/
+   * decided_*. After commit, notify the client with the court number + total RSD.
+   */
+  async confirmRequest(
+    callerTelegramId: number,
+    input: ConfirmCourtRequest
+  ): Promise<CourtRequest> {
+    this.assertAdmin(callerTelegramId, "confirm a court request");
+
+    const updated = await this.repository.transaction(async (tx) => {
+      const request = await tx.lockRequest(input.requestId);
+      if (!request) {
+        throw new NotFoundException("No court request with that id.");
+      }
+      if (request.status !== "pending") {
+        throw new ConflictException("This request has already been decided.");
+      }
+      if (!(await tx.isActiveCourt(input.courtId))) {
+        throw new BadRequestException("No active court with that id.");
+      }
+
+      const duration = courtDurationHours.parse(request.durationHours);
+      const hours = courtHoursCovered(request.startTime, duration);
+      const [activeCourtCount, confirmed, blocks] = await Promise.all([
+        tx.countActiveCourts(),
+        tx.confirmedCourtOccupancyForDate(request.date),
+        tx.blocksByCourtForDate(request.date)
+      ]);
+
+      // Per-hour limit: never more confirmed than active courts for any covered hour.
+      const free = freeCourtsByHour({
+        activeCourtCount,
+        openHour: COURT_OPEN_HOUR,
+        closeHour: COURT_CLOSE_HOUR,
+        confirmed: confirmed.map(toOccupant),
+        blocks: toHourlyOccupantsFromCourtRows(blocks)
+      });
+      if (freeForDuration(free, request.startTime, duration) <= 0) {
+        throw new ConflictException("That time is fully booked. No court can be assigned.");
+      }
+
+      // Chosen-court freeness: the picked court must be free for every covered hour.
+      if (!courtIsFreeForHours(input.courtId, hours, confirmed, blocks)) {
+        throw new ConflictException("That court is already taken for this time.");
+      }
+
+      return tx.decide({
+        id: request.id,
+        status: "confirmed",
+        courtId: input.courtId,
+        decidedBy: input.decidedBy
+      });
+    });
+
+    await this.notifyDecision(updated, "confirmed", input.courtId);
+    return this.toEntity(updated);
+  }
+
+  /**
+   * C4 — reject a pending request. Stamps rejected/decided_*; after commit notify
+   * the client to choose another time. Refuses a non-pending request.
+   */
+  async rejectRequest(
+    callerTelegramId: number,
+    input: RejectCourtRequest
+  ): Promise<CourtRequest> {
+    this.assertAdmin(callerTelegramId, "reject a court request");
+
+    const updated = await this.repository.transaction(async (tx) => {
+      const request = await tx.lockRequest(input.requestId);
+      if (!request) {
+        throw new NotFoundException("No court request with that id.");
+      }
+      if (request.status !== "pending") {
+        throw new ConflictException("This request has already been decided.");
+      }
+      return tx.decide({
+        id: request.id,
+        status: "rejected",
+        courtId: null,
+        decidedBy: input.decidedBy
+      });
+    });
+
+    await this.notifyDecision(updated, "rejected", null);
+    return this.toEntity(updated);
+  }
+
+  /** Look up the client + court number then send the post-commit notification. */
+  private async notifyDecision(
+    request: CourtRequestRow,
+    status: "confirmed" | "rejected",
+    courtId: string | null
+  ): Promise<void> {
+    const withClient = await this.repository.findWithClientById(request.id);
+    if (!withClient) {
+      this.logger.warn(`Decided request ${request.id} vanished before notify`);
+      return;
+    }
+
+    if (status === "rejected") {
+      await this.notifier.notifyClient(
+        withClient.clientTelegramId,
+        "К сожалению, нет свободных мест на это время — выберите, пожалуйста, другое время."
+      );
+      return;
+    }
+
+    const courtNumber = courtId ? await this.repository.courtNumberById(courtId) : null;
+    const duration = courtDurationHours.parse(withClient.durationHours);
+    const endTime = this.endTimeFor(withClient.startTime, duration);
+    const courtLabel = courtNumber !== null ? `Корт №${courtNumber}` : "Корт";
+    await this.notifier.notifyClient(
+      withClient.clientTelegramId,
+      `${courtLabel}, ${withClient.date} ${withClient.startTime}–${endTime}, итог: ${withClient.priceRsd} RSD`
+    );
+  }
+
+  private assertAdmin(callerTelegramId: number, action: string): void {
+    if (!isAdmin(this.env, callerTelegramId)) {
+      this.logger.warn(`Non-admin telegram_id ${callerTelegramId} attempted to ${action}`);
+      throw new ForbiddenException("Court moderation is admin-only.");
+    }
+  }
+
+  /** Map a queue row to the admin-only view contract (with derived end time). */
+  private toAdminView(row: CourtRequestAdminRow): CourtRequestAdminView {
+    const duration = courtDurationHours.parse(row.durationHours);
+    return courtRequestAdminViewSchema.parse({
+      ...this.toEntity(row),
+      clientName: row.clientName,
+      clientTelegramId: row.clientTelegramId,
+      endTime: this.endTimeFor(row.startTime, duration)
+    });
+  }
+
+  /** Map a persisted request row to the entity contract the bot/admin renders. */
+  private toEntity(row: CourtRequestRow): CourtRequest {
     return courtRequestSchema.parse({
       id: row.id,
       clientId: row.clientId,
@@ -174,6 +388,49 @@ export class CourtRequestsService {
 
 function pad(hour: number): string {
   return String(hour).padStart(2, "0");
+}
+
+/** Map a per-court occupancy row to a typed occupant (duration validated to 1|2). */
+function toOccupant(row: CourtOccupancyRow): CourtOccupant {
+  return {
+    startTime: row.startTime.slice(0, 5),
+    durationHours: courtDurationHours.parse(row.durationHours)
+  };
+}
+
+/** Expand per-court block rows into one 1h occupant per covered hour (blocks may span >2h). */
+function toHourlyOccupantsFromCourtRows(rows: CourtOccupancyRow[]): CourtOccupant[] {
+  const occupants: CourtOccupant[] = [];
+  for (const row of rows) {
+    const startHour = Number(row.startTime.slice(0, 2));
+    for (let i = 0; i < row.durationHours; i += 1) {
+      occupants.push({ startTime: hourToTime(startHour + i), durationHours: 1 });
+    }
+  }
+  return occupants;
+}
+
+/**
+ * True when a specific court has no confirmed request and no block overlapping any
+ * of `hours`. The single source of per-court freeness for both free-courts (read)
+ * and confirm (write), so the offer and the assignment can't disagree.
+ */
+function courtIsFreeForHours(
+  courtId: string,
+  hours: readonly number[],
+  confirmed: readonly CourtOccupancyRow[],
+  blocks: readonly CourtOccupancyRow[]
+): boolean {
+  const wanted = new Set(hours);
+  const occupies = (row: CourtOccupancyRow): boolean => {
+    if (row.courtId !== courtId) return false;
+    const startHour = Number(row.startTime.slice(0, 2));
+    for (let i = 0; i < row.durationHours; i += 1) {
+      if (wanted.has(startHour + i)) return true;
+    }
+    return false;
+  };
+  return !confirmed.some(occupies) && !blocks.some(occupies);
 }
 
 /** Map confirmed-request rows to typed occupants (duration validated to 1|2). */

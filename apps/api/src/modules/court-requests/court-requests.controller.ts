@@ -1,13 +1,32 @@
-import { BadRequestException, Body, Controller, Get, Post, Query } from "@nestjs/common";
 import {
+  BadRequestException,
+  Body,
+  Controller,
+  Get,
+  Headers,
+  Param,
+  Post,
+  Query
+} from "@nestjs/common";
+import { z } from "zod";
+import {
+  confirmCourtRequestSchema,
   courtAvailabilityQuerySchema,
+  courtRequestQueueQuerySchema,
   createCourtRequestSchema,
   previewCourtRequestSchema,
+  rejectCourtRequestSchema,
+  uuid,
+  type Court,
   type CourtAvailability,
   type CourtRequest,
+  type CourtRequestAdminView,
   type CourtRequestPreview
 } from "@beosand/types";
 import { CourtRequestsService } from "./court-requests.service";
+
+/** Caller identity convention shared across apps: numeric Telegram id in a header. */
+const telegramIdHeader = z.coerce.number().int();
 
 @Controller("court-requests")
 export class CourtRequestsController {
@@ -55,4 +74,96 @@ export class CourtRequestsController {
     }
     return this.service.createRequest(parsed.data);
   }
+
+  /**
+   * C4 — admin moderation queue (default status=pending), joined with client
+   * name/telegram. Admin-only (enforced in the service by x-telegram-id).
+   */
+  @Get()
+  async queue(
+    @Headers("x-telegram-id") rawTelegramId: string | undefined,
+    @Query() query: Record<string, unknown>
+  ): Promise<CourtRequestAdminView[]> {
+    const telegramId = parseTelegramId(rawTelegramId);
+    const parsed = courtRequestQueueQuerySchema.safeParse(query);
+    if (!parsed.success) {
+      throw new BadRequestException(
+        "Invalid queue query: status must be pending|confirmed|rejected|cancelled."
+      );
+    }
+    return this.service.listQueue(telegramId, parsed.data.status);
+  }
+
+  /**
+   * C4 — active courts free for every hour the request covers. Admin-only; never
+   * exposed to a client path (the court number is only learned on confirmation).
+   */
+  @Get(":id/free-courts")
+  async freeCourts(
+    @Headers("x-telegram-id") rawTelegramId: string | undefined,
+    @Param("id") rawId: string
+  ): Promise<Court[]> {
+    const telegramId = parseTelegramId(rawTelegramId);
+    const id = parseRequestId(rawId);
+    return this.service.freeCourts(telegramId, id);
+  }
+
+  /**
+   * C4 — confirm a pending request onto a chosen court. Admin-only; re-checks the
+   * per-hour limit and chosen-court freeness atomically before assigning.
+   */
+  @Post(":id/confirm")
+  async confirm(
+    @Headers("x-telegram-id") rawTelegramId: string | undefined,
+    @Param("id") rawId: string,
+    @Body() body: unknown
+  ): Promise<CourtRequest> {
+    const telegramId = parseTelegramId(rawTelegramId);
+    const id = parseRequestId(rawId);
+    const parsed = confirmCourtRequestSchema.safeParse(body);
+    if (!parsed.success) {
+      throw new BadRequestException(
+        "Invalid confirm body: expected { requestId, courtId, decidedBy }."
+      );
+    }
+    if (parsed.data.requestId !== id) {
+      throw new BadRequestException("Path id and body requestId must match.");
+    }
+    return this.service.confirmRequest(telegramId, parsed.data);
+  }
+
+  /** C4 — reject a pending request. Admin-only; notifies the client to retry. */
+  @Post(":id/reject")
+  async reject(
+    @Headers("x-telegram-id") rawTelegramId: string | undefined,
+    @Param("id") rawId: string,
+    @Body() body: unknown
+  ): Promise<CourtRequest> {
+    const telegramId = parseTelegramId(rawTelegramId);
+    const id = parseRequestId(rawId);
+    const parsed = rejectCourtRequestSchema.safeParse(body);
+    if (!parsed.success) {
+      throw new BadRequestException("Invalid reject body: expected { requestId, decidedBy }.");
+    }
+    if (parsed.data.requestId !== id) {
+      throw new BadRequestException("Path id and body requestId must match.");
+    }
+    return this.service.rejectRequest(telegramId, parsed.data);
+  }
+}
+
+function parseTelegramId(raw: string | undefined): number {
+  const parsed = telegramIdHeader.safeParse(raw);
+  if (!parsed.success) {
+    throw new BadRequestException("Missing or invalid x-telegram-id header.");
+  }
+  return parsed.data;
+}
+
+function parseRequestId(raw: string): string {
+  const parsed = uuid.safeParse(raw);
+  if (!parsed.success) {
+    throw new BadRequestException("Invalid court request id.");
+  }
+  return parsed.data;
 }

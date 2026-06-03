@@ -1,13 +1,20 @@
 import { z } from "zod";
 import {
   courtAvailabilitySchema,
+  courtRequestAdminViewSchema,
   courtRequestPreviewSchema,
   courtRequestSchema,
+  courtSchema,
+  type Court,
   type CourtAvailability,
   type CourtDurationHours,
   type CourtRequest,
+  type CourtRequestAdminView,
   type CourtRequestPreview
 } from "@beosand/types";
+
+/** Header carrying the caller's numeric Telegram id for admin-gated endpoints. */
+const TELEGRAM_ID_HEADER = "x-telegram-id";
 
 const healthSchema = z.object({ status: z.literal("ok"), service: z.string() });
 
@@ -74,6 +81,54 @@ export class ApiClient {
     return this.request("/court-requests", courtRequestSchema, {
       method: "POST",
       body: JSON.stringify({ telegramId, date, startTime, durationHours })
+    });
+  }
+
+  /**
+   * C4 — admin moderation queue (pending court requests, joined with client
+   * name/telegram). The API enforces the admin gate by x-telegram-id; the bot
+   * only forwards the caller's id and renders the validated rows.
+   */
+  listPendingCourtRequests(adminId: number): Promise<CourtRequestAdminView[]> {
+    return this.request(
+      "/court-requests?status=pending",
+      z.array(courtRequestAdminViewSchema),
+      { headers: { [TELEGRAM_ID_HEADER]: String(adminId) } }
+    );
+  }
+
+  /**
+   * C4 — active courts free for every hour the given request covers. Admin-only
+   * (gated server-side); never a client path. The bot renders one button per
+   * returned court so the admin can assign one manually.
+   */
+  freeCourtsForRequest(adminId: number, requestId: string): Promise<Court[]> {
+    return this.request(
+      `/court-requests/${requestId}/free-courts`,
+      z.array(courtSchema),
+      { headers: { [TELEGRAM_ID_HEADER]: String(adminId) } }
+    );
+  }
+
+  /**
+   * C4 — confirm a pending request onto the admin-chosen court. The API re-checks
+   * the per-hour limit and chosen-court freeness atomically and notifies the
+   * client with the court number + total RSD; the bot sends only IDs.
+   */
+  confirmCourtRequest(adminId: number, requestId: string, courtId: string): Promise<CourtRequest> {
+    return this.request(`/court-requests/${requestId}/confirm`, courtRequestSchema, {
+      method: "POST",
+      headers: { [TELEGRAM_ID_HEADER]: String(adminId) },
+      body: JSON.stringify({ requestId, courtId, decidedBy: adminId })
+    });
+  }
+
+  /** C4 — reject a pending request. The API stamps decided_* and notifies the client. */
+  rejectCourtRequest(adminId: number, requestId: string): Promise<CourtRequest> {
+    return this.request(`/court-requests/${requestId}/reject`, courtRequestSchema, {
+      method: "POST",
+      headers: { [TELEGRAM_ID_HEADER]: String(adminId) },
+      body: JSON.stringify({ requestId, decidedBy: adminId })
     });
   }
 }

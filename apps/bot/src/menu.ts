@@ -30,6 +30,19 @@ export function mainMenuKeyboard(): InlineKeyboard {
     .text("ℹ️ Связаться с менеджером", MENU_ACTIONS.contactManager);
 }
 
+/**
+ * Admin-only entry to the court moderation queue (C4), appended below the main
+ * menu for admins. The keyboard is rendered only when the caller is an admin
+ * (decided in the bot via config), and every action is re-gated by the API.
+ */
+export const ADMIN_ACTIONS = {
+  courtModeration: "court_mod:queue"
+} as const;
+
+export function adminMenuKeyboard(): InlineKeyboard {
+  return mainMenuKeyboard().row().text("🛠 Заявки на корт (админ)", ADMIN_ACTIONS.courtModeration);
+}
+
 export const WELCOME_TEXT = [
   "Добро пожаловать в BeoSand 🏐",
   "",

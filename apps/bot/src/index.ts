@@ -1,7 +1,22 @@
-import { loadEnv } from "@beosand/config";
+import { isAdmin, loadEnv } from "@beosand/config";
 import { Bot } from "grammy";
+import type { Court } from "@beosand/types";
 import { ApiClient } from "./api-client";
-import { MENU_ACTIONS, mainMenuKeyboard, WELCOME_TEXT } from "./menu";
+import { adminMenuKeyboard, MENU_ACTIONS, mainMenuKeyboard, WELCOME_TEXT } from "./menu";
+import {
+  COURT_MOD_ACTIONS,
+  COURT_MOD_CONFIRMED_TEXT,
+  COURT_MOD_NO_COURTS_TEXT,
+  COURT_MOD_NOT_ADMIN_TEXT,
+  COURT_MOD_PICK_TEXT,
+  COURT_MOD_REJECTED_TEXT,
+  courtModQueueKeyboard,
+  courtModQueueText,
+  courtPickKeyboard,
+  parseAssign,
+  parsePick,
+  parseReject
+} from "./court-moderation";
 import {
   COURT_ACTIONS,
   COURT_NO_SLOTS_TEXT,
@@ -26,16 +41,21 @@ async function main(): Promise<void> {
   const api = new ApiClient(env.API_URL);
   const bot = new Bot(env.TELEGRAM_BOT_TOKEN);
 
+  // The main menu shows the admin moderation entry only to admins (config-based);
+  // the API still re-gates every moderation read/write by x-telegram-id.
+  const menuFor = (telegramId: number) =>
+    isAdmin(env, telegramId) ? adminMenuKeyboard() : mainMenuKeyboard();
+
   // First entry / main menu (UX sections 1–2). Onboarding (name + level) and
   // each menu action are implemented in their own feature subtasks.
   bot.command("start", async (ctx) => {
-    await ctx.reply(WELCOME_TEXT, { reply_markup: mainMenuKeyboard() });
+    await ctx.reply(WELCOME_TEXT, { reply_markup: menuFor(ctx.from?.id ?? 0) });
   });
 
   // Back/home path from any sub-flow returns to the main menu.
   bot.callbackQuery(MENU_ACTIONS.backToMenu, async (ctx) => {
     await ctx.answerCallbackQuery();
-    await ctx.reply(WELCOME_TEXT, { reply_markup: mainMenuKeyboard() });
+    await ctx.reply(WELCOME_TEXT, { reply_markup: menuFor(ctx.from.id) });
   });
 
   // --- Court rental request flow (Edition 2, C2). 2–3 taps: date → time →
@@ -92,6 +112,90 @@ async function main(): Promise<void> {
     const { date, startTime, durationHours } = parseConfirm(ctx.callbackQuery.data);
     await api.createCourtRequest(ctx.from.id, date, startTime, durationHours);
     await ctx.reply(COURT_SUBMITTED_TEXT, { reply_markup: mainMenuKeyboard() });
+  });
+
+  // --- C4 court moderation (admin). The bot only renders the API-returned queue
+  // and free courts and calls confirm/reject; the API enforces the admin gate,
+  // re-checks the per-hour limit and chosen-court freeness, assigns the court, and
+  // notifies the client. The bot shows a court number only to the admin here. ---
+
+  // Per-admin cache of the free-court list last fetched for a request, so the
+  // compact assign callback (request id + court index) can resolve the court id
+  // without overflowing the 64-byte callback_data cap with a second UUID.
+  const freeCourtsCache = new Map<string, Court[]>();
+  const cacheKey = (adminId: number, requestId: string): string => `${adminId}:${requestId}`;
+
+  // Open the pending moderation queue. Admin-gated client-side only to decide
+  // whether to render the UI; the API is the real gate on every read/write.
+  bot.callbackQuery(COURT_MOD_ACTIONS.queue, async (ctx) => {
+    await ctx.answerCallbackQuery();
+    if (!isAdmin(env, ctx.from.id)) {
+      await ctx.reply(COURT_MOD_NOT_ADMIN_TEXT, { reply_markup: mainMenuKeyboard() });
+      return;
+    }
+    const requests = await api.listPendingCourtRequests(ctx.from.id);
+    await ctx.reply(courtModQueueText(requests), {
+      reply_markup: courtModQueueKeyboard(requests)
+    });
+  });
+
+  // Подтвердить → fetch the courts free for every covered hour and offer one button each.
+  bot.callbackQuery(new RegExp(`^${COURT_MOD_ACTIONS.pickPrefix}`), async (ctx) => {
+    await ctx.answerCallbackQuery();
+    if (!isAdmin(env, ctx.from.id)) {
+      await ctx.reply(COURT_MOD_NOT_ADMIN_TEXT, { reply_markup: mainMenuKeyboard() });
+      return;
+    }
+    const requestId = parsePick(ctx.callbackQuery.data);
+    const courts = await api.freeCourtsForRequest(ctx.from.id, requestId);
+    freeCourtsCache.set(cacheKey(ctx.from.id, requestId), courts);
+    if (courts.length === 0) {
+      await ctx.reply(COURT_MOD_NO_COURTS_TEXT, {
+        reply_markup: courtModQueueKeyboard([])
+      });
+      return;
+    }
+    await ctx.reply(COURT_MOD_PICK_TEXT, {
+      reply_markup: courtPickKeyboard(requestId, courts)
+    });
+  });
+
+  // Корт №X → confirm. The court id is resolved from the cached free-court list by
+  // index; the API re-checks freeness atomically, so a stale index is rejected there.
+  bot.callbackQuery(new RegExp(`^${COURT_MOD_ACTIONS.assignPrefix}`), async (ctx) => {
+    await ctx.answerCallbackQuery();
+    if (!isAdmin(env, ctx.from.id)) {
+      await ctx.reply(COURT_MOD_NOT_ADMIN_TEXT, { reply_markup: mainMenuKeyboard() });
+      return;
+    }
+    const { requestId, courtIndex } = parseAssign(ctx.callbackQuery.data);
+    const courts = freeCourtsCache.get(cacheKey(ctx.from.id, requestId));
+    const court = courts?.[courtIndex];
+    if (!court) {
+      // Cache lost (restart) — re-open the picker so the admin reselects.
+      const refreshed = await api.freeCourtsForRequest(ctx.from.id, requestId);
+      freeCourtsCache.set(cacheKey(ctx.from.id, requestId), refreshed);
+      await ctx.reply(COURT_MOD_PICK_TEXT, {
+        reply_markup: courtPickKeyboard(requestId, refreshed)
+      });
+      return;
+    }
+    await api.confirmCourtRequest(ctx.from.id, requestId, court.id);
+    freeCourtsCache.delete(cacheKey(ctx.from.id, requestId));
+    await ctx.reply(COURT_MOD_CONFIRMED_TEXT, { reply_markup: courtModQueueKeyboard([]) });
+  });
+
+  // Отклонить → reject; the API stamps decided_* and notifies the client.
+  bot.callbackQuery(new RegExp(`^${COURT_MOD_ACTIONS.rejectPrefix}`), async (ctx) => {
+    await ctx.answerCallbackQuery();
+    if (!isAdmin(env, ctx.from.id)) {
+      await ctx.reply(COURT_MOD_NOT_ADMIN_TEXT, { reply_markup: mainMenuKeyboard() });
+      return;
+    }
+    const requestId = parseReject(ctx.callbackQuery.data);
+    await api.rejectCourtRequest(ctx.from.id, requestId);
+    freeCourtsCache.delete(cacheKey(ctx.from.id, requestId));
+    await ctx.reply(COURT_MOD_REJECTED_TEXT, { reply_markup: courtModQueueKeyboard([]) });
   });
 
   bot.callbackQuery(Object.values(MENU_ACTIONS), async (ctx) => {

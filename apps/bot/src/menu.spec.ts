@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { MENU_ACTIONS, mainMenuKeyboard } from "./menu";
+import { ADMIN_ACTIONS, adminMenuKeyboard, MENU_ACTIONS, mainMenuKeyboard } from "./menu";
 
 describe("mainMenuKeyboard", () => {
   it("renders the entry actions (the home/back action is not shown on the home screen)", () => {
@@ -13,5 +13,16 @@ describe("mainMenuKeyboard", () => {
       MENU_ACTIONS.rentCourt,
       MENU_ACTIONS.contactManager
     ]);
+  });
+});
+
+describe("adminMenuKeyboard", () => {
+  it("appends the admin court-moderation entry below the main menu", () => {
+    const rows = adminMenuKeyboard().inline_keyboard;
+    const callbacks = rows.flat().map((b) => ("callback_data" in b ? b.callback_data : undefined));
+    expect(callbacks).toContain(ADMIN_ACTIONS.courtModeration);
+    // The standard client actions are still present and the admin entry is last.
+    expect(callbacks[0]).toBe(MENU_ACTIONS.availableTrainings);
+    expect(callbacks.at(-1)).toBe(ADMIN_ACTIONS.courtModeration);
   });
 });

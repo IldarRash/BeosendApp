@@ -87,6 +87,32 @@ export const confirmCourtRequestSchema = z.object({
   courtId: uuid,
   decidedBy: z.number().int()
 });
+export type ConfirmCourtRequest = z.infer<typeof confirmCourtRequestSchema>;
+
+/** C4 — admin rejects a pending request. Stamps decided_*; notifies the client. */
+export const rejectCourtRequestSchema = z.object({
+  requestId: uuid,
+  decidedBy: z.number().int()
+});
+export type RejectCourtRequest = z.infer<typeof rejectCourtRequestSchema>;
+
+/** C4 — filter for the admin moderation queue read. Defaults to the pending queue. */
+export const courtRequestQueueQuerySchema = z.object({
+  status: courtRequestStatus.default("pending")
+});
+export type CourtRequestQueueQuery = z.infer<typeof courtRequestQueueQuerySchema>;
+
+/**
+ * C4 — a moderation-queue row the admin reads: the full court request plus the
+ * client's name/telegram (joined from `clients`) and the derived end time. This
+ * admin-only view carries `courtId`; it is never returned on a client path.
+ */
+export const courtRequestAdminViewSchema = courtRequestSchema.extend({
+  clientName: z.string(),
+  clientTelegramId: z.number().int(),
+  endTime: timeString
+});
+export type CourtRequestAdminView = z.infer<typeof courtRequestAdminViewSchema>;
 
 /** C3 — court availability read. Query a single date for offerable start times. */
 export const courtAvailabilityQuerySchema = z.object({

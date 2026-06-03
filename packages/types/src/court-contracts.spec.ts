@@ -1,13 +1,17 @@
 import { describe, expect, it } from "vitest";
 import {
   COURT_COUNT,
+  confirmCourtRequestSchema,
   courtAvailabilityQuerySchema,
   courtAvailabilitySchema,
+  courtRequestAdminViewSchema,
+  courtRequestQueueQuerySchema,
   courtSchema,
   createCourtRequestSchema,
   createCourtBlockSchema,
   hourAvailabilitySchema,
-  previewCourtRequestSchema
+  previewCourtRequestSchema,
+  rejectCourtRequestSchema
 } from "./court-contracts";
 
 const validBlock = {
@@ -203,6 +207,127 @@ describe("hourAvailabilitySchema (C3 read output — never carries a court id)",
     });
     expect(Object.keys(parsed).sort()).toEqual(["freeCourts", "hour", "startTime"]);
     expect("courtId" in parsed).toBe(false);
+  });
+});
+
+// --- C4 admin moderation contracts ---------------------------------------------
+
+const uuidA = "11111111-1111-4111-8111-111111111111";
+const uuidB = "22222222-2222-4222-8222-222222222222";
+
+describe("confirmCourtRequestSchema (C4 admin confirm input)", () => {
+  const validBody = { requestId: uuidA, courtId: uuidB, decidedBy: 9001 };
+
+  it("accepts a valid confirm body (request id + chosen court + admin id)", () => {
+    expect(confirmCourtRequestSchema.safeParse(validBody).success).toBe(true);
+  });
+
+  it("requires the chosen courtId — confirming never auto-assigns a court", () => {
+    const { courtId: _courtId, ...withoutCourt } = validBody;
+    expect(confirmCourtRequestSchema.safeParse(withoutCourt).success).toBe(false);
+  });
+
+  it("rejects a non-uuid courtId and a non-integer decidedBy", () => {
+    expect(confirmCourtRequestSchema.safeParse({ ...validBody, courtId: "court-1" }).success).toBe(
+      false
+    );
+    expect(confirmCourtRequestSchema.safeParse({ ...validBody, decidedBy: 1.5 }).success).toBe(
+      false
+    );
+  });
+});
+
+describe("rejectCourtRequestSchema (C4 admin reject input)", () => {
+  const validBody = { requestId: uuidA, decidedBy: 9001 };
+
+  it("accepts a valid reject body", () => {
+    expect(rejectCourtRequestSchema.safeParse(validBody).success).toBe(true);
+  });
+
+  it("requires a uuid requestId and an integer decidedBy", () => {
+    expect(rejectCourtRequestSchema.safeParse({ requestId: "nope", decidedBy: 9001 }).success).toBe(
+      false
+    );
+    expect(
+      rejectCourtRequestSchema.safeParse({ requestId: uuidA, decidedBy: "9001" }).success
+    ).toBe(false);
+    expect(rejectCourtRequestSchema.safeParse({ requestId: uuidA }).success).toBe(false);
+  });
+
+  it("strips a smuggled courtId — reject never assigns a court", () => {
+    // Forbidden path: a reject body carries no court decision. Even if one is
+    // crafted in, the contract parses it away so reject can only stamp rejected.
+    const parsed = rejectCourtRequestSchema.parse({ ...validBody, courtId: uuidB });
+    expect(Object.keys(parsed).sort()).toEqual(["decidedBy", "requestId"]);
+    expect("courtId" in parsed).toBe(false);
+  });
+});
+
+describe("courtRequestQueueQuerySchema (C4 moderation queue filter)", () => {
+  it("defaults to the pending queue when no status is given", () => {
+    const parsed = courtRequestQueueQuerySchema.parse({});
+    expect(parsed.status).toBe("pending");
+  });
+
+  it("accepts each valid court-request status", () => {
+    for (const status of ["pending", "confirmed", "rejected", "cancelled"] as const) {
+      expect(courtRequestQueueQuerySchema.safeParse({ status }).success).toBe(true);
+    }
+  });
+
+  it("rejects an unknown status value", () => {
+    expect(courtRequestQueueQuerySchema.safeParse({ status: "approved" }).success).toBe(false);
+  });
+});
+
+describe("courtRequestAdminViewSchema (C4 admin-only queue row)", () => {
+  const validView = {
+    id: uuidA,
+    clientId: uuidB,
+    date: "2026-06-15",
+    startTime: "14:00",
+    durationHours: 2,
+    priceRsd: 4000,
+    status: "pending",
+    courtId: null,
+    createdAt: "2026-06-03T10:00:00.000Z",
+    decidedAt: null,
+    decidedBy: null,
+    clientName: "Ана",
+    clientTelegramId: 7001,
+    endTime: "16:00"
+  };
+
+  it("accepts a full admin view with joined client fields and a derived end time", () => {
+    expect(courtRequestAdminViewSchema.safeParse(validView).success).toBe(true);
+  });
+
+  it("carries the assigned courtId for a confirmed request (admin-only surface)", () => {
+    const confirmed = {
+      ...validView,
+      status: "confirmed",
+      courtId: "33333333-3333-4333-8333-333333333333",
+      decidedAt: "2026-06-03T12:00:00.000Z",
+      decidedBy: 9001
+    };
+    const parsed = courtRequestAdminViewSchema.parse(confirmed);
+    expect(parsed.courtId).toBe("33333333-3333-4333-8333-333333333333");
+  });
+
+  it("requires the joined clientName, clientTelegramId and derived endTime", () => {
+    for (const field of ["clientName", "clientTelegramId", "endTime"] as const) {
+      const { [field]: _omitted, ...withoutField } = validView;
+      expect(courtRequestAdminViewSchema.safeParse(withoutField).success).toBe(false);
+    }
+  });
+
+  it("rejects a non-integer clientTelegramId and a malformed endTime", () => {
+    expect(courtRequestAdminViewSchema.safeParse({ ...validView, clientTelegramId: 1.5 }).success).toBe(
+      false
+    );
+    expect(courtRequestAdminViewSchema.safeParse({ ...validView, endTime: "16h" }).success).toBe(
+      false
+    );
   });
 });
 
