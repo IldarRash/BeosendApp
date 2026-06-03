@@ -1,5 +1,13 @@
 import { z } from "zod";
-import { courtAvailabilitySchema, type CourtAvailability } from "@beosand/types";
+import {
+  courtAvailabilitySchema,
+  courtRequestPreviewSchema,
+  courtRequestSchema,
+  type CourtAvailability,
+  type CourtDurationHours,
+  type CourtRequest,
+  type CourtRequestPreview
+} from "@beosand/types";
 
 const healthSchema = z.object({ status: z.literal("ok"), service: z.string() });
 
@@ -34,5 +42,38 @@ export class ApiClient {
   getCourtAvailability(date: string): Promise<CourtAvailability> {
     const query = new URLSearchParams({ date }).toString();
     return this.request(`/court-requests/availability?${query}`, courtAvailabilitySchema);
+  }
+
+  /**
+   * C2 — server-computed RSD price + availability preview for a desired slot. No
+   * write. The bot only displays the returned price; it never computes money.
+   */
+  previewCourtRequest(
+    telegramId: number,
+    date: string,
+    startTime: string,
+    durationHours: CourtDurationHours
+  ): Promise<CourtRequestPreview> {
+    return this.request("/court-requests/preview", courtRequestPreviewSchema, {
+      method: "POST",
+      body: JSON.stringify({ telegramId, date, startTime, durationHours })
+    });
+  }
+
+  /**
+   * C2 — submit a pending court request. The API resolves the caller by
+   * telegram_id, computes the price, and creates the request with no court
+   * assigned. The bot never sends a clientId, court id, or amount.
+   */
+  createCourtRequest(
+    telegramId: number,
+    date: string,
+    startTime: string,
+    durationHours: CourtDurationHours
+  ): Promise<CourtRequest> {
+    return this.request("/court-requests", courtRequestSchema, {
+      method: "POST",
+      body: JSON.stringify({ telegramId, date, startTime, durationHours })
+    });
   }
 }

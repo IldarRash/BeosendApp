@@ -49,12 +49,37 @@ export const courtRequestSchema = z.object({
 });
 export type CourtRequest = z.infer<typeof courtRequestSchema>;
 
-export const createCourtRequestSchema = z.object({
-  clientId: uuid,
+/**
+ * Caller identity for the court-request flow (C2). The bot identifies users by
+ * Telegram id only; the API never trusts a client-sent clientId/court_id/price —
+ * it resolves the caller's own client row by telegram_id and computes the price.
+ */
+export const telegramId = z.number().int();
+
+/** C2 — price + availability check for a desired slot. No write. */
+export const previewCourtRequestSchema = z.object({
+  telegramId,
   date: dateString,
   startTime: timeString,
   durationHours: courtDurationHours
 });
+export type PreviewCourtRequest = z.infer<typeof previewCourtRequestSchema>;
+
+/** C2 — submit a court request. Body carries telegram_id, never a clientId. */
+export const createCourtRequestSchema = previewCourtRequestSchema;
+export type CreateCourtRequest = z.infer<typeof createCourtRequestSchema>;
+
+/** C2 — server-computed preview the bot renders (price is authoritative). */
+export const courtRequestPreviewSchema = z.object({
+  date: dateString,
+  startTime: timeString,
+  endTime: timeString,
+  durationHours: courtDurationHours,
+  priceRsd: rsd,
+  /** Whether the slot is still offerable (every covered hour has a free court). */
+  available: z.boolean()
+});
+export type CourtRequestPreview = z.infer<typeof courtRequestPreviewSchema>;
 
 export const confirmCourtRequestSchema = z.object({
   requestId: uuid,

@@ -4,8 +4,10 @@ import {
   courtAvailabilityQuerySchema,
   courtAvailabilitySchema,
   courtSchema,
+  createCourtRequestSchema,
   createCourtBlockSchema,
-  hourAvailabilitySchema
+  hourAvailabilitySchema,
+  previewCourtRequestSchema
 } from "./court-contracts";
 
 const validBlock = {
@@ -65,6 +67,99 @@ describe("courtSchema", () => {
 describe("court constants", () => {
   it("declares 6 courts as the capacity source", () => {
     expect(COURT_COUNT).toBe(6);
+  });
+});
+
+describe("previewCourtRequestSchema (C2 request input — keyed off telegram id)", () => {
+  const validBody = {
+    telegramId: 5550001,
+    date: "2026-06-10",
+    startTime: "14:00",
+    durationHours: 2
+  };
+
+  it("accepts a valid telegram-id-keyed preview body", () => {
+    expect(previewCourtRequestSchema.safeParse(validBody).success).toBe(true);
+  });
+
+  it("requires a telegramId — a body without it is rejected", () => {
+    const { telegramId: _telegramId, ...withoutTelegram } = validBody;
+    expect(previewCourtRequestSchema.safeParse(withoutTelegram).success).toBe(false);
+  });
+
+  it("rejects a non-integer telegramId", () => {
+    expect(previewCourtRequestSchema.safeParse({ ...validBody, telegramId: 1.5 }).success).toBe(
+      false
+    );
+  });
+
+  it("rejects a duration outside {1, 2}", () => {
+    expect(previewCourtRequestSchema.safeParse({ ...validBody, durationHours: 3 }).success).toBe(
+      false
+    );
+    expect(previewCourtRequestSchema.safeParse({ ...validBody, durationHours: 0 }).success).toBe(
+      false
+    );
+  });
+
+  it("rejects a malformed start time", () => {
+    expect(previewCourtRequestSchema.safeParse({ ...validBody, startTime: "25:00" }).success).toBe(
+      false
+    );
+  });
+
+  it("strips a smuggled clientId / courtId / priceRsd — identity and money are never client input", () => {
+    // Forbidden path: the bot must never send a client identity or amount. Even if a
+    // crafted body carries them, the contract parses them away so the service can
+    // resolve the caller by telegram_id and compute the price itself.
+    const parsed = previewCourtRequestSchema.parse({
+      ...validBody,
+      clientId: "11111111-1111-1111-1111-111111111111",
+      courtId: "22222222-2222-2222-2222-222222222222",
+      priceRsd: 1
+    });
+    expect(Object.keys(parsed).sort()).toEqual([
+      "date",
+      "durationHours",
+      "startTime",
+      "telegramId"
+    ]);
+    expect("clientId" in parsed).toBe(false);
+    expect("courtId" in parsed).toBe(false);
+    expect("priceRsd" in parsed).toBe(false);
+  });
+});
+
+describe("createCourtRequestSchema (C2 submit input — same telegram-id shape, no clientId)", () => {
+  const validBody = {
+    telegramId: 5550001,
+    date: "2026-06-10",
+    startTime: "09:00",
+    durationHours: 1
+  };
+
+  it("accepts a valid submit body", () => {
+    expect(createCourtRequestSchema.safeParse(validBody).success).toBe(true);
+  });
+
+  it("strips a client-supplied courtId / priceRsd / status from the submit body", () => {
+    // Invariant: the request is created pending with no court and a server price;
+    // the create body can carry none of those decisions.
+    const parsed = createCourtRequestSchema.parse({
+      ...validBody,
+      courtId: "22222222-2222-2222-2222-222222222222",
+      priceRsd: 999,
+      status: "confirmed"
+    });
+    expect(Object.keys(parsed).sort()).toEqual([
+      "date",
+      "durationHours",
+      "startTime",
+      "telegramId"
+    ]);
+    expect("courtId" in parsed).toBe(false);
+    expect("priceRsd" in parsed).toBe(false);
+    expect("status" in parsed).toBe(false);
   });
 });
 
