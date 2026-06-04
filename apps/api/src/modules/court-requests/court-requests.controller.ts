@@ -109,6 +109,21 @@ export class CourtRequestsController {
   }
 
   /**
+   * Admin-only detail for a single request (joined with client name/telegram and
+   * the derived end time). Backs the court-load grid's "who booked this?" popup.
+   * Declared after `availability` and `:id/free-courts` so those match first.
+   */
+  @Get(":id")
+  async detail(
+    @Headers("x-telegram-id") rawTelegramId: string | undefined,
+    @Param("id") rawId: string
+  ): Promise<CourtRequestAdminView> {
+    const telegramId = parseTelegramId(rawTelegramId);
+    const id = parseRequestId(rawId);
+    return this.service.getRequestDetail(telegramId, id);
+  }
+
+  /**
    * C4 — confirm a pending request onto a chosen court. Admin-only; re-checks the
    * per-hour limit and chosen-court freeness atomically before assigning.
    */

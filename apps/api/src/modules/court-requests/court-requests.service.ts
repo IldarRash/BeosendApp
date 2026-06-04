@@ -156,6 +156,23 @@ export class CourtRequestsService {
   }
 
   /**
+   * Admin-only detail for one request (client name/telegram + derived end time).
+   * Backs the court-load grid's "who booked this court/hour?" popup. Reuses the
+   * same joined row and admin-view mapping as the moderation queue.
+   */
+  async getRequestDetail(
+    callerTelegramId: number,
+    requestId: string
+  ): Promise<CourtRequestAdminView> {
+    this.assertAdmin(callerTelegramId, "read a court-request detail");
+    const row = await this.repository.findWithClientById(requestId);
+    if (!row) {
+      throw new NotFoundException("No court request with that id.");
+    }
+    return this.toAdminView(row);
+  }
+
+  /**
    * C4 — active courts free for EVERY hour the request covers (no confirmed
    * request and no block on that court/hour). Admin-only; the chosen court is
    * never shown to the client. Uses the same per-court occupancy the confirm

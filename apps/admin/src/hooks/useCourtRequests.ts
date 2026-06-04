@@ -21,6 +21,27 @@ function queueKey(status: CourtRequestStatus): readonly unknown[] {
   return [...COURT_REQUESTS_KEY, "queue", status] as const;
 }
 
+/** Stable cache key for one request's detail read. */
+function detailKey(requestId: string): readonly unknown[] {
+  return [...COURT_REQUESTS_KEY, "detail", requestId] as const;
+}
+
+/**
+ * Detail for one request (GET /court-requests/:id), gated: no call until a
+ * request id is supplied. Backs the court-load grid's "who booked this?" popup.
+ * AuthError propagates so RequireAuth can redirect on 401.
+ */
+export function useCourtRequestDetail(
+  requestId: string | null
+): UseQueryResult<CourtRequestAdminView, Error> {
+  const api = useApiClient();
+  return useQuery({
+    queryKey: requestId ? detailKey(requestId) : [...COURT_REQUESTS_KEY, "detail", "idle"],
+    queryFn: () => api.courtRequestDetail(requestId as string),
+    enabled: requestId !== null
+  });
+}
+
 /** Stable cache key for one request's free-courts read. */
 function freeCourtsKey(requestId: string): readonly unknown[] {
   return [...FREE_COURTS_KEY, requestId] as const;

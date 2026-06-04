@@ -247,6 +247,15 @@ export class ApiClient {
   }
 
   /**
+   * Admin-only detail for one request (GET /court-requests/:id), joined with the
+   * client's name/telegram and the derived end time. Backs the court-load grid's
+   * "who booked this court/hour?" popup. Carries a `courtId` (admin path only).
+   */
+  courtRequestDetail(id: string): Promise<CourtRequestAdminView> {
+    return this.request(`/court-requests/${id}`, courtRequestAdminViewSchema);
+  }
+
+  /**
    * C4 — the active courts free for *every* hour the request covers (GET
    * /court-requests/:id/free-courts). The server owns the per-hour/6-per-court
    * math; the picker only offers what this returns and never computes its own.
