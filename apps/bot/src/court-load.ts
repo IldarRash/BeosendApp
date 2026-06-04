@@ -2,6 +2,7 @@ import { InlineKeyboard } from "grammy";
 import type { CourtLoadGrid } from "@beosand/types";
 import { MENU_ACTIONS } from "./menu";
 import { formatDayMonth } from "./court";
+import { t, type Catalog } from "./i18n";
 
 /**
  * C6 — court load grid (admin). The bot is an interaction layer only: it renders
@@ -20,15 +21,18 @@ export const COURT_LOAD_ACTIONS = {
   datePrefix: "court_load:date:"
 } as const;
 
-export const COURT_LOAD_TITLE = "📊 Загрузка кортов";
-export const COURT_LOAD_NOT_ADMIN_TEXT = "Раздел доступен только администратору.";
-export const COURT_LOAD_PICK_DATE_TEXT = `${COURT_LOAD_TITLE}\n\nВыберите дату:`;
+export function courtLoadNotAdminText(catalog: Catalog): string {
+  return t(catalog, "bot.courtLoad.notAdmin");
+}
+export function courtLoadPickDateText(catalog: Catalog): string {
+  return `${t(catalog, "bot.courtLoad.title")}\n\n${t(catalog, "bot.courtLoad.pickDate")}`;
+}
 
 /** Glyphs per cell state. */
 const CELL_GLYPH = { free: "·", request: "R", block: "B" } as const;
 
 /** Date keyboard for the grid; reuses the shared court date options. */
-export function courtLoadDateKeyboard(dates: string[]): InlineKeyboard {
+export function courtLoadDateKeyboard(catalog: Catalog, dates: string[]): InlineKeyboard {
   const kb = new InlineKeyboard();
   dates.forEach((date, idx) => {
     kb.text(formatDayMonth(date), `${COURT_LOAD_ACTIONS.datePrefix}${date}`);
@@ -36,15 +40,15 @@ export function courtLoadDateKeyboard(dates: string[]): InlineKeyboard {
       kb.row();
     }
   });
-  return kb.row().text("⬅️ В меню", MENU_ACTIONS.backToMenu);
+  return kb.row().text(t(catalog, "bot.nav.toMenu"), MENU_ACTIONS.backToMenu);
 }
 
 /** Keyboard shown under a rendered grid: pick another date or go home. */
-export function courtLoadGridKeyboard(): InlineKeyboard {
+export function courtLoadGridKeyboard(catalog: Catalog): InlineKeyboard {
   return new InlineKeyboard()
-    .text("📅 Другая дата", COURT_LOAD_ACTIONS.open)
+    .text(t(catalog, "bot.courtLoad.otherDate"), COURT_LOAD_ACTIONS.open)
     .row()
-    .text("⬅️ В меню", MENU_ACTIONS.backToMenu);
+    .text(t(catalog, "bot.nav.toMenu"), MENU_ACTIONS.backToMenu);
 }
 
 /** Two-digit hour label, e.g. 8 -> "08". */
@@ -58,9 +62,9 @@ function hourLabel(hour: number): string {
  * wrapped in <pre> so Telegram renders it in a fixed-width font; the caller sends
  * it with parse_mode "HTML".
  */
-export function courtLoadGridText(grid: CourtLoadGrid): string {
-  const header = `${COURT_LOAD_TITLE} · ${formatDayMonth(grid.date)}`;
-  const legend = "· свободно   R заявка   B блок";
+export function courtLoadGridText(catalog: Catalog, grid: CourtLoadGrid): string {
+  const header = `${t(catalog, "bot.courtLoad.title")} · ${formatDayMonth(grid.date)}`;
+  const legend = t(catalog, "bot.courtLoad.legend");
 
   const hours: number[] = [];
   for (let h = grid.openHour; h < grid.closeHour; h += 1) {

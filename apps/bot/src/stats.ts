@@ -2,8 +2,9 @@ import { InlineKeyboard } from "grammy";
 import type { AnalyticsSummary, DayOfWeek } from "@beosand/types";
 import { backHomeKeyboard } from "./menu";
 import { showMainMenu, type MenuReplyCtx } from "./navigation";
-import { NOT_ADMIN_TEXT } from "./broadcast";
+import { broadcastNotAdminText } from "./broadcast";
 import type { ApiClient } from "./api-client";
+import { t, type Catalog } from "./i18n";
 
 /**
  * Manager analytics summary (T3.1 — ТЗ §17). Admin-only and read-only: the bot
@@ -23,17 +24,10 @@ export const STATS_ACTIONS = {
   entry: "menu:stats"
 } as const;
 
-const WEEKDAY_LABELS: Record<DayOfWeek, string> = {
-  1: "Понедельник",
-  2: "Вторник",
-  3: "Среда",
-  4: "Четверг",
-  5: "Пятница",
-  6: "Суббота",
-  7: "Воскресенье"
-};
-
-export const STATS_TITLE = "📊 Сводка по школе";
+/** Full weekday label, e.g. day 3 → "Среда". */
+function weekdayFull(catalog: Catalog, day: DayOfWeek): string {
+  return t(catalog, `bot.weekday.full.${day}`);
+}
 
 /** Format a 0..1 ratio as a whole-percent string (display only, no math beyond ×100). */
 function percent(ratio: number): string {
@@ -41,30 +35,34 @@ function percent(ratio: number): string {
 }
 
 /** The "most popular slot" line, or a placeholder when there were no bookings. */
-function topSlotLine(summary: AnalyticsSummary): string {
+function topSlotLine(catalog: Catalog, summary: AnalyticsSummary): string {
   if (summary.topSlot === null) {
-    return "Популярный слот: —";
+    return t(catalog, "bot.stats.topSlotNone");
   }
   const { dayOfWeek, startTime, bookingsCount } = summary.topSlot;
-  return `Популярный слот: ${WEEKDAY_LABELS[dayOfWeek]} ${startTime} (${bookingsCount})`;
+  return t(catalog, "bot.stats.topSlot", {
+    day: weekdayFull(catalog, dayOfWeek),
+    time: startTime,
+    count: bookingsCount
+  });
 }
 
 /**
  * Render the server-composed summary. Every figure comes from the API; the bot
  * only labels and formats (percent display, the range line). No domain math.
  */
-export function renderStatsSummary(summary: AnalyticsSummary): string {
+export function renderStatsSummary(catalog: Catalog, summary: AnalyticsSummary): string {
   return [
-    STATS_TITLE,
-    `Период: ${summary.from} — ${summary.to}`,
+    t(catalog, "bot.stats.title"),
+    t(catalog, "bot.stats.period", { from: summary.from, to: summary.to }),
     "",
-    `Всего записей: ${summary.totalBookings}`,
-    `Заполняемость: ${percent(summary.averageFillRate)}`,
-    `Отмены: ${percent(summary.cancellationRate)}`,
-    `Неявки: ${percent(summary.noShowRate)}`,
-    `Активных клиентов: ${summary.activeClients}`,
-    `Записей после рассылок: ${summary.attributedBookings}`,
-    topSlotLine(summary)
+    t(catalog, "bot.stats.totalBookings", { count: summary.totalBookings }),
+    t(catalog, "bot.stats.fillRate", { percent: percent(summary.averageFillRate) }),
+    t(catalog, "bot.stats.cancellations", { percent: percent(summary.cancellationRate) }),
+    t(catalog, "bot.stats.noShows", { percent: percent(summary.noShowRate) }),
+    t(catalog, "bot.stats.activeClients", { count: summary.activeClients }),
+    t(catalog, "bot.stats.attributed", { count: summary.attributedBookings }),
+    topSlotLine(catalog, summary)
   ].join("\n");
 }
 
@@ -81,21 +79,22 @@ export type StatsApi = Pick<ApiClient, "getAnalyticsSummary">;
 export async function handleStatsMenu(
   ctx: MenuReplyCtx,
   api: StatsApi,
+  catalog: Catalog,
   telegramId: number | undefined
 ): Promise<void> {
   if (telegramId === undefined) {
-    await showMainMenu(ctx);
+    await showMainMenu(ctx, catalog);
     return;
   }
   const summary = await api.getAnalyticsSummary(undefined, undefined, telegramId);
   if (summary === null) {
-    await ctx.reply(NOT_ADMIN_TEXT, { reply_markup: backHomeKeyboard() });
+    await ctx.reply(broadcastNotAdminText(catalog), { reply_markup: backHomeKeyboard(catalog) });
     return;
   }
-  await ctx.reply(renderStatsSummary(summary), { reply_markup: backHomeKeyboard() });
+  await ctx.reply(renderStatsSummary(catalog, summary), { reply_markup: backHomeKeyboard(catalog) });
 }
 
 /** Footer keyboard for the stats screen (kept here for testability/clarity). */
-export function statsKeyboard(): InlineKeyboard {
-  return backHomeKeyboard();
+export function statsKeyboard(catalog: Catalog): InlineKeyboard {
+  return backHomeKeyboard(catalog);
 }

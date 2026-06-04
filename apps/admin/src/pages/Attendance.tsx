@@ -12,25 +12,21 @@ import { Button } from "../ui/Button";
 import { DataTable, type Column } from "../ui/DataTable";
 import { TextField } from "../ui/Field";
 import { useToast } from "../ui/Toast";
+import { useT } from "../i18n/LanguageProvider";
 import { useTrainings } from "../hooks/useTrainings";
 import { useMarkAttendance, useRoster } from "../hooks/useRoster";
 
-/** RU labels for the booking status the API returns (never recomputed here). */
-const BOOKING_STATUS_LABEL: Record<BookingStatus, string> = {
-  booked: "Записан",
-  cancelled: "Отменён",
-  attended: "Пришёл",
-  no_show: "Не пришёл",
-  waitlist: "Лист ожидания"
-};
+type Translate = (key: string, params?: Record<string, string | number>) => string;
 
-/** RU labels for a training's status, used in the candidate picker. */
-const TRAINING_STATUS_LABEL: Record<TrainingStatus, string> = {
-  open: "Открыта",
-  full: "Заполнена",
-  cancelled: "Отменена",
-  completed: "Завершена"
-};
+/** Catalog key for the booking status the API returns (never recomputed here). */
+function bookingStatusLabel(status: BookingStatus, t: Translate): string {
+  return t(`admin.attendance.booking.${status}`);
+}
+
+/** Catalog key for a training's status, used in the candidate picker. */
+function trainingStatusLabel(status: TrainingStatus, t: Translate): string {
+  return t(`admin.attendance.training.${status}`);
+}
 
 /** Tag modifier per booking status — tint only; the rendered value stays the API's. */
 function statusTagClass(status: BookingStatus): string {
@@ -45,8 +41,8 @@ function todayIso(): string {
 }
 
 /** Human-readable error from a failed query/mutation (the API decides the text). */
-function errorText(error: unknown): string {
-  return error instanceof Error ? error.message : "Не удалось выполнить операцию.";
+function errorText(error: unknown, t: Translate): string {
+  return error instanceof Error ? error.message : t("admin.attendance.opFailed");
 }
 
 /**
@@ -59,6 +55,7 @@ function errorText(error: unknown): string {
  * future trainings only as a UX affordance, not as an enforced rule.
  */
 export function Attendance(): JSX.Element {
+  const t = useT();
   const { notify } = useToast();
 
   const [from, setFrom] = useState(todayIso());
@@ -86,53 +83,56 @@ export function Attendance(): JSX.Element {
       {
         onSuccess: () =>
           notify(
-            `${participant.clientName}: ${BOOKING_STATUS_LABEL[status]}.`,
+            t("admin.attendance.markNotice", {
+              client: participant.clientName,
+              status: bookingStatusLabel(status, t)
+            }),
             "success"
           ),
-        onError: (error) => notify(errorText(error), "error")
+        onError: (error) => notify(errorText(error, t), "error")
       }
     );
   }
 
   const trainingColumns: Column<Training>[] = [
-    { key: "date", header: "Дата", render: (t) => t.date },
-    { key: "time", header: "Время", render: (t) => `${t.startTime}–${t.endTime}` },
+    { key: "date", header: t("admin.attendance.colDate"), render: (row) => row.date },
+    { key: "time", header: t("admin.attendance.colTime"), render: (row) => `${row.startTime}–${row.endTime}` },
     {
       key: "occupancy",
-      header: "Занятость",
+      header: t("admin.attendance.colOccupancy"),
       numeric: true,
-      render: (t) => `${t.bookedCount} / ${t.capacity}`
+      render: (row) => `${row.bookedCount} / ${row.capacity}`
     },
-    { key: "status", header: "Статус", render: (t) => TRAINING_STATUS_LABEL[t.status] },
+    { key: "status", header: t("admin.attendance.colStatus"), render: (row) => trainingStatusLabel(row.status, t) },
     {
       key: "actions",
       header: "",
-      render: (t) => (
+      render: (row) => (
         <Button
-          variant={t.id === selectedId ? "primary" : "ghost"}
-          onClick={() => setSelectedId(t.id)}
-          aria-pressed={t.id === selectedId}
+          variant={row.id === selectedId ? "primary" : "ghost"}
+          onClick={() => setSelectedId(row.id)}
+          aria-pressed={row.id === selectedId}
         >
-          {t.id === selectedId ? "Выбрана" : "Ростер"}
+          {row.id === selectedId ? t("admin.attendance.selected") : t("admin.attendance.roster")}
         </Button>
       )
     }
   ];
 
   const rosterColumns: Column<RosterParticipant>[] = [
-    { key: "name", header: "Клиент", render: (p) => p.clientName },
+    { key: "name", header: t("admin.attendance.colClient"), render: (p) => p.clientName },
     {
       key: "status",
-      header: "Посещаемость",
+      header: t("admin.attendance.colAttendance"),
       render: (p) => (
         <span className={statusTagClass(p.bookingStatus)}>
-          {BOOKING_STATUS_LABEL[p.bookingStatus]}
+          {bookingStatusLabel(p.bookingStatus, t)}
         </span>
       )
     },
     {
       key: "actions",
-      header: "Отметить",
+      header: t("admin.attendance.colMark"),
       render: (p) => (
         <div className="cluster">
           <Button
@@ -140,14 +140,14 @@ export function Attendance(): JSX.Element {
             disabled={isFuture || mark.isPending || p.bookingStatus === "attended"}
             onClick={() => markBooking(p, "attended")}
           >
-            Пришёл
+            {t("admin.attendance.markAttended")}
           </Button>
           <Button
             variant="ghost"
             disabled={isFuture || mark.isPending || p.bookingStatus === "no_show"}
             onClick={() => markBooking(p, "no_show")}
           >
-            Не пришёл
+            {t("admin.attendance.markNoShow")}
           </Button>
         </div>
       )
@@ -158,25 +158,25 @@ export function Attendance(): JSX.Element {
     <AppShell>
       <header className="page-head">
         <div>
-          <h1>Посещаемость</h1>
-          <p>Выберите тренировку и отметьте каждого записанного клиента.</p>
+          <h1>{t("admin.attendance.title")}</h1>
+          <p>{t("admin.attendance.lead")}</p>
         </div>
       </header>
 
       <div className="stack">
         <form
-          aria-label="Фильтр тренировок"
+          aria-label={t("admin.attendance.filterLabel")}
           onSubmit={(e) => e.preventDefault()}
           className="cluster"
         >
           <TextField
-            label="С даты"
+            label={t("admin.field.fromDate")}
             type="date"
             value={from}
             onChange={(e) => setFrom(e.target.value)}
           />
           <TextField
-            label="По дату"
+            label={t("admin.field.toDate")}
             type="date"
             value={to}
             onChange={(e) => setTo(e.target.value)}
@@ -184,48 +184,52 @@ export function Attendance(): JSX.Element {
         </form>
 
         {query === null ? (
-          <p className="state">Укажите период, чтобы увидеть тренировки.</p>
+          <p className="state">{t("admin.attendance.pickRange")}</p>
         ) : trainings.isPending ? (
-          <p className="state">Загрузка тренировок…</p>
+          <p className="state">{t("admin.attendance.loading")}</p>
         ) : trainings.isError ? (
           <p className="state state--error" role="alert">
-            {errorText(trainings.error)}
+            {errorText(trainings.error, t)}
           </p>
         ) : (
           <DataTable
-            caption="Тренировки за выбранный период"
+            caption={t("admin.attendance.caption")}
             columns={trainingColumns}
             rows={trainings.data}
-            rowKey={(t) => t.id}
-            emptyLabel="За выбранный период тренировок нет."
+            rowKey={(row) => row.id}
+            emptyLabel={t("admin.attendance.empty")}
           />
         )}
 
         {selectedId === null ? (
-          <p className="state">Выберите тренировку, чтобы открыть её ростер.</p>
+          <p className="state">{t("admin.attendance.pickTraining")}</p>
         ) : roster.isPending ? (
-          <p className="state">Загрузка ростера…</p>
+          <p className="state">{t("admin.attendance.rosterLoading")}</p>
         ) : roster.isError ? (
           <p className="state state--error" role="alert">
-            {errorText(roster.error)}
+            {errorText(roster.error, t)}
           </p>
         ) : (
-          <section className="stack" aria-label="Ростер тренировки">
+          <section className="stack" aria-label={t("admin.attendance.rosterLabel")}>
             <h2>
-              Ростер — {roster.data.date} {roster.data.startTime}–{roster.data.endTime},{" "}
-              {roster.data.levelName}
+              {t("admin.attendance.rosterHeading", {
+                date: roster.data.date,
+                start: roster.data.startTime,
+                end: roster.data.endTime,
+                level: roster.data.levelName
+              })}
             </h2>
             {isFuture ? (
               <p className="state" role="note">
-                Тренировка ещё не прошла — отметить посещаемость можно в день тренировки или позже.
+                {t("admin.attendance.futureNote")}
               </p>
             ) : null}
             <DataTable
-              caption="Записанные клиенты"
+              caption={t("admin.attendance.rosterCaption")}
               columns={rosterColumns}
               rows={roster.data.participants}
               rowKey={(p) => p.bookingId}
-              emptyLabel="На эту тренировку никто не записан."
+              emptyLabel={t("admin.attendance.rosterEmpty")}
             />
           </section>
         )}

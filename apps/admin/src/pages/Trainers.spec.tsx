@@ -14,6 +14,8 @@ vi.mock("../ui/AppShell", () => ({
   AppShell: ({ children }: { children: React.ReactNode }) => <div>{children}</div>
 }));
 
+vi.mock("../i18n/LanguageProvider", async () => import("../i18n/test-utils"));
+
 const useTrainers = vi.fn();
 const createMutate = vi.fn();
 const updateMutate = vi.fn();

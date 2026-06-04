@@ -2,6 +2,7 @@ import { InlineKeyboard } from "grammy";
 import type { Court, CourtRequestAdminView } from "@beosand/types";
 import { MENU_ACTIONS } from "./menu";
 import { formatDayMonth, formatRsd } from "./court";
+import { t, type Catalog } from "./i18n";
 
 /**
  * C4 — court moderation (admin). The bot is an interaction layer only: it lists
@@ -26,51 +27,74 @@ export const COURT_MOD_ACTIONS = {
   rejectPrefix: "court_mod:reject:"
 } as const;
 
-export const COURT_MOD_QUEUE_TITLE = "🛠 Заявки на аренду корта";
-export const COURT_MOD_EMPTY_TEXT = "Нет заявок, ожидающих подтверждения.";
-export const COURT_MOD_NOT_ADMIN_TEXT = "Раздел доступен только администратору.";
-export const COURT_MOD_PICK_TEXT = "Выберите корт для назначения:";
-export const COURT_MOD_NO_COURTS_TEXT =
-  "Нет свободных кортов на это время. Заявку можно только отклонить.";
-export const COURT_MOD_CONFIRMED_TEXT = "✅ Подтверждено. Клиент уведомлён.";
-export const COURT_MOD_REJECTED_TEXT = "🚫 Отклонено. Клиент уведомлён.";
+export function courtModNotAdminText(catalog: Catalog): string {
+  return t(catalog, "bot.courtMod.notAdmin");
+}
+export function courtModPickText(catalog: Catalog): string {
+  return t(catalog, "bot.courtMod.pick");
+}
+export function courtModNoCourtsText(catalog: Catalog): string {
+  return t(catalog, "bot.courtMod.noCourts");
+}
+export function courtModConfirmedText(catalog: Catalog): string {
+  return t(catalog, "bot.courtMod.confirmed");
+}
+export function courtModRejectedText(catalog: Catalog): string {
+  return t(catalog, "bot.courtMod.rejected");
+}
 
-const DURATION_WORD: Record<number, string> = { 1: "1 час", 2: "2 часа" };
+/** Localized duration word for the queue line (falls back to "{n} ч"). */
+function durationLabel(catalog: Catalog, durationHours: number): string {
+  if (durationHours === 1 || durationHours === 2) {
+    return t(catalog, `bot.court.duration.${durationHours}`);
+  }
+  return t(catalog, "bot.court.durationHours", { hours: durationHours });
+}
 
 /** One queue row's text, e.g. "15.06 14:00–16:00 (2 часа) · 4 000 RSD · Иван". */
-export function courtRequestLine(req: CourtRequestAdminView): string {
-  const duration = DURATION_WORD[req.durationHours] ?? `${req.durationHours} ч`;
-  return (
-    `${formatDayMonth(req.date)} ${req.startTime}–${req.endTime} (${duration}) · ` +
-    `${formatRsd(req.priceRsd)} RSD · ${req.clientName}`
-  );
+export function courtRequestLine(catalog: Catalog, req: CourtRequestAdminView): string {
+  return t(catalog, "bot.courtMod.queueLine", {
+    date: formatDayMonth(req.date),
+    start: req.startTime,
+    end: req.endTime,
+    duration: durationLabel(catalog, req.durationHours),
+    price: formatRsd(req.priceRsd),
+    client: req.clientName
+  });
 }
 
 /**
  * Queue text: a numbered list of pending requests. Court numbers are never shown
  * here — a pending request has no assigned court yet.
  */
-export function courtModQueueText(requests: CourtRequestAdminView[]): string {
+export function courtModQueueText(catalog: Catalog, requests: CourtRequestAdminView[]): string {
+  const title = t(catalog, "bot.courtMod.queueTitle");
   if (requests.length === 0) {
-    return `${COURT_MOD_QUEUE_TITLE}\n\n${COURT_MOD_EMPTY_TEXT}`;
+    return `${title}\n\n${t(catalog, "bot.courtMod.empty")}`;
   }
-  const lines = requests.map((req, idx) => `${idx + 1}. ${courtRequestLine(req)}`);
-  return `${COURT_MOD_QUEUE_TITLE}\n\n${lines.join("\n")}`;
+  const lines = requests.map((req, idx) => `${idx + 1}. ${courtRequestLine(catalog, req)}`);
+  return `${title}\n\n${lines.join("\n")}`;
 }
 
 /**
  * Queue keyboard: per request, a [Подтвердить] (→ pick a court) and an [Отклонить]
  * button, plus a back-to-menu path. Payloads carry only the request id.
  */
-export function courtModQueueKeyboard(requests: CourtRequestAdminView[]): InlineKeyboard {
+export function courtModQueueKeyboard(
+  catalog: Catalog,
+  requests: CourtRequestAdminView[]
+): InlineKeyboard {
   const kb = new InlineKeyboard();
   requests.forEach((req, idx) => {
     kb
-      .text(`✅ #${idx + 1} Подтвердить`, `${COURT_MOD_ACTIONS.pickPrefix}${req.id}`)
-      .text(`🚫 Отклонить`, `${COURT_MOD_ACTIONS.rejectPrefix}${req.id}`)
+      .text(
+        t(catalog, "bot.courtMod.confirmButton", { index: idx + 1 }),
+        `${COURT_MOD_ACTIONS.pickPrefix}${req.id}`
+      )
+      .text(t(catalog, "bot.courtMod.rejectButton"), `${COURT_MOD_ACTIONS.rejectPrefix}${req.id}`)
       .row();
   });
-  return kb.text("⬅️ В меню", MENU_ACTIONS.backToMenu);
+  return kb.text(t(catalog, "bot.nav.toMenu"), MENU_ACTIONS.backToMenu);
 }
 
 /**
@@ -78,12 +102,19 @@ export function courtModQueueKeyboard(requests: CourtRequestAdminView[]): Inline
  * court id is not put in the callback (two UUIDs overflow 64 bytes); instead the
  * caller passes the court's index in the same free-court list it just fetched.
  */
-export function courtPickKeyboard(requestId: string, courts: Court[]): InlineKeyboard {
+export function courtPickKeyboard(
+  catalog: Catalog,
+  requestId: string,
+  courts: Court[]
+): InlineKeyboard {
   const kb = new InlineKeyboard();
   courts.forEach((court, idx) => {
-    kb.text(`Корт №${court.number}`, `${COURT_MOD_ACTIONS.assignPrefix}${requestId}:${idx}`).row();
+    kb.text(
+      t(catalog, "bot.courtMod.courtButton", { number: court.number }),
+      `${COURT_MOD_ACTIONS.assignPrefix}${requestId}:${idx}`
+    ).row();
   });
-  return kb.text("⬅️ К заявкам", COURT_MOD_ACTIONS.queue);
+  return kb.text(t(catalog, "bot.courtMod.backToRequests"), COURT_MOD_ACTIONS.queue);
 }
 
 /** Parse "court_mod:pick:<requestId>" -> requestId. */

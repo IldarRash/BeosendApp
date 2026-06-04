@@ -1,6 +1,9 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { cleanup, fireEvent, render, screen } from "@testing-library/react";
 import type { DayOfWeek } from "@beosand/types";
+
+vi.mock("../i18n/LanguageProvider", async () => import("../i18n/test-utils"));
+
 import { DayOfWeekPicker } from "./DayOfWeekPicker";
 
 afterEach(cleanup);

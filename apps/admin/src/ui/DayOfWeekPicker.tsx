@@ -1,16 +1,9 @@
 import { useId } from "react";
 import type { DayOfWeek } from "@beosand/types";
+import { useT } from "../i18n/LanguageProvider";
 
-/** Mon–Sun, ISO order (1 = Monday … 7 = Sunday), with short RU labels. */
-const DAYS: readonly { value: DayOfWeek; label: string; full: string }[] = [
-  { value: 1, label: "Пн", full: "Понедельник" },
-  { value: 2, label: "Вт", full: "Вторник" },
-  { value: 3, label: "Ср", full: "Среда" },
-  { value: 4, label: "Чт", full: "Четверг" },
-  { value: 5, label: "Пт", full: "Пятница" },
-  { value: 6, label: "Сб", full: "Суббота" },
-  { value: 7, label: "Вс", full: "Воскресенье" }
-];
+/** Mon–Sun, ISO order (1 = Monday … 7 = Sunday); labels come from the catalog. */
+const DAY_VALUES: readonly DayOfWeek[] = [1, 2, 3, 4, 5, 6, 7];
 
 interface DayOfWeekPickerProps {
   /** Label rendered above the toggle group. */
@@ -35,6 +28,7 @@ export function DayOfWeekPicker({
   onChange,
   error
 }: DayOfWeekPickerProps): JSX.Element {
+  const t = useT();
   const groupId = useId();
   const errorId = `${groupId}-error`;
   const selected = new Set<DayOfWeek>(value);
@@ -46,7 +40,7 @@ export function DayOfWeekPicker({
     } else {
       next.add(day);
     }
-    onChange(DAYS.filter((d) => next.has(d.value)).map((d) => d.value));
+    onChange(DAY_VALUES.filter((d) => next.has(d)));
   };
 
   return (
@@ -60,18 +54,18 @@ export function DayOfWeekPicker({
         aria-labelledby={groupId}
         aria-describedby={error ? errorId : undefined}
       >
-        {DAYS.map((day) => {
-          const isOn = selected.has(day.value);
+        {DAY_VALUES.map((day) => {
+          const isOn = selected.has(day);
           return (
             <button
-              key={day.value}
+              key={day}
               type="button"
               className={isOn ? "day-picker__day day-picker__day--on" : "day-picker__day"}
               aria-pressed={isOn}
-              aria-label={day.full}
-              onClick={() => toggle(day.value)}
+              aria-label={t(`admin.day.full.${day}`)}
+              onClick={() => toggle(day)}
             >
-              {day.label}
+              {t(`admin.day.short.${day}`)}
             </button>
           );
         })}

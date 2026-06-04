@@ -7,7 +7,10 @@ import {
   statsKeyboard,
   type StatsApi
 } from "./stats";
-import { NOT_ADMIN_TEXT } from "./broadcast";
+import { getStaticCatalog } from "@beosand/i18n";
+
+const ru = getStaticCatalog("ru");
+const NOT_ADMIN_TEXT = ru["bot.broadcast.notAdmin"];
 
 const summary: AnalyticsSummary = {
   from: "2026-05-04",
@@ -60,7 +63,7 @@ describe("STATS_ACTIONS.entry", () => {
 
 describe("renderStatsSummary", () => {
   it("renders the resolved range and the server figures as percent/counts", () => {
-    const text = renderStatsSummary(summary);
+    const text = renderStatsSummary(ru, summary);
     expect(text).toContain("Период: 2026-05-04 — 2026-06-03");
     expect(text).toContain("Всего записей: 120");
     expect(text).toContain("Заполняемость: 75%");
@@ -71,18 +74,18 @@ describe("renderStatsSummary", () => {
   });
 
   it("labels the most popular slot when present", () => {
-    expect(renderStatsSummary(summary)).toContain("Популярный слот: Среда 18:00 (22)");
+    expect(renderStatsSummary(ru, summary)).toContain("Популярный слот: Среда 18:00 (22)");
   });
 
   it("shows a placeholder when there is no popular slot", () => {
-    const text = renderStatsSummary({ ...summary, topSlot: null });
+    const text = renderStatsSummary(ru, { ...summary, topSlot: null });
     expect(text).toContain("Популярный слот: —");
   });
 });
 
 describe("statsKeyboard", () => {
   it("offers the back/home footer so the screen never dead-ends", () => {
-    const callbacks = callbacksOf(statsKeyboard());
+    const callbacks = callbacksOf(statsKeyboard(ru));
     expect(callbacks).toContain("nav:back");
     expect(callbacks).toContain("nav:home");
   });
@@ -92,7 +95,7 @@ describe("handleStatsMenu", () => {
   it("renders the summary for an admin with the API default range", async () => {
     const { reply, replies } = makeCtx();
     const getSummary = vi.fn(async () => summary);
-    await handleStatsMenu({ reply }, makeApi({ getAnalyticsSummary: getSummary }), 999);
+    await handleStatsMenu({ reply }, makeApi({ getAnalyticsSummary: getSummary }), ru, 999);
     // The bot passes no range bounds — the API owns the default (last 30 days).
     expect(getSummary).toHaveBeenCalledWith(undefined, undefined, 999);
     expect(replies[0]?.text).toContain("Всего записей: 120");
@@ -103,14 +106,14 @@ describe("handleStatsMenu", () => {
   it("shows a managers-only message for a non-admin (API resolves to null)", async () => {
     const { reply, replies } = makeCtx();
     const api = makeApi({ getAnalyticsSummary: vi.fn(async () => null) });
-    await handleStatsMenu({ reply }, api, 123);
+    await handleStatsMenu({ reply }, api, ru, 123);
     expect(replies[0]?.text).toBe(NOT_ADMIN_TEXT);
   });
 
   it("never calls the API without a telegram id", async () => {
     const { reply } = makeCtx();
     const getSummary = vi.fn(async () => summary);
-    await handleStatsMenu({ reply }, makeApi({ getAnalyticsSummary: getSummary }), undefined);
+    await handleStatsMenu({ reply }, makeApi({ getAnalyticsSummary: getSummary }), ru, undefined);
     expect(getSummary).not.toHaveBeenCalled();
   });
 });

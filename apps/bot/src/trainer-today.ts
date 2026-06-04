@@ -1,8 +1,10 @@
 import { InlineKeyboard } from "grammy";
-import type { BookingStatus, DayOfWeek, TrainerTodayItem, TrainingRoster } from "@beosand/types";
+import type { BookingStatus, TrainerTodayItem, TrainingRoster } from "@beosand/types";
 import type { ApiClient } from "./api-client";
 import { backHomeKeyboard, NAV_ACTIONS } from "./menu";
 import { showMainMenu, type MenuReplyCtx } from "./navigation";
+import { t, type Catalog } from "./i18n";
+import { weekdayShort } from "./slots";
 
 /**
  * Trainer "today" screen (T2.3). The bot is an interaction layer only: it gates
@@ -72,45 +74,32 @@ export function parseAttend(data: string | undefined): AttendMark | undefined {
   return { bookingId, status };
 }
 
-const WEEKDAY_LABELS: Record<DayOfWeek, string> = {
-  1: "Пн",
-  2: "Вт",
-  3: "Ср",
-  4: "Чт",
-  5: "Пт",
-  6: "Сб",
-  7: "Вс"
-};
-
 /** Per-participant outcome label, when attendance has been marked. */
-const ATTENDANCE_LABELS: Partial<Record<BookingStatus, string>> = {
-  attended: "✅ присутствовал",
-  no_show: "❌ не пришёл"
-};
-
-export const NOT_TRAINER_TEXT =
-  "Этот раздел доступен только тренерам. Если вы тренер — обратитесь к менеджеру.";
-
-export const NO_TODAY_TRAININGS_TEXT = "На сегодня у вас нет тренировок 🙌";
-
-export const TODAY_HEADER = "Ваши тренировки сегодня:";
-
-export const EMPTY_ROSTER_TEXT = "На эту тренировку пока никто не записан.";
+function attendanceLabel(catalog: Catalog, status: BookingStatus): string | undefined {
+  if (status === "attended" || status === "no_show") {
+    return t(catalog, `bot.trainer.attendance.${status}`);
+  }
+  return undefined;
+}
 
 /** One human-readable line per today training. All data is server-provided. */
-export function formatTodayLine(item: TrainerTodayItem): string {
+export function formatTodayLine(catalog: Catalog, item: TrainerTodayItem): string {
   return [
-    `🏐 ${WEEKDAY_LABELS[item.dayOfWeek]} ${item.date}, ${item.startTime}–${item.endTime}`,
+    `🏐 ${weekdayShort(catalog, item.dayOfWeek)} ${item.date}, ${item.startTime}–${item.endTime}`,
     `${item.levelName} · ${item.bookedCount}/${item.capacity}`
   ].join("\n");
 }
 
 /** Body text for the today list: header + a block per training. */
-export function renderTodayText(items: TrainerTodayItem[]): string {
+export function renderTodayText(catalog: Catalog, items: TrainerTodayItem[]): string {
   if (items.length === 0) {
-    return NO_TODAY_TRAININGS_TEXT;
+    return t(catalog, "bot.trainer.noToday");
   }
-  return [TODAY_HEADER, "", ...items.map(formatTodayLine).flatMap((line) => [line, ""])]
+  return [
+    t(catalog, "bot.trainer.todayHeader"),
+    "",
+    ...items.map((i) => formatTodayLine(catalog, i)).flatMap((line) => [line, ""])
+  ]
     .join("\n")
     .trimEnd();
 }
@@ -131,24 +120,27 @@ function appendKeyboard(target: InlineKeyboard, source: InlineKeyboard): void {
  * One "Посмотреть список" button per today training (carrying only the
  * trainingId), then the shared back/home footer so the journey never dead-ends.
  */
-export function todayKeyboard(items: TrainerTodayItem[]): InlineKeyboard {
+export function todayKeyboard(catalog: Catalog, items: TrainerTodayItem[]): InlineKeyboard {
   const keyboard = new InlineKeyboard();
   for (const item of items) {
-    const label = `📋 Список · ${WEEKDAY_LABELS[item.dayOfWeek]} ${item.startTime}`;
+    const label = t(catalog, "bot.trainer.rosterButton", {
+      day: weekdayShort(catalog, item.dayOfWeek),
+      time: item.startTime
+    });
     keyboard.text(label, rosterData(item.trainingId)).row();
   }
-  appendKeyboard(keyboard, backHomeKeyboard());
+  appendKeyboard(keyboard, backHomeKeyboard(catalog));
   return keyboard;
 }
 
 /** Roster header line (date/time/level), all server-provided. */
-export function renderRosterText(roster: TrainingRoster): string {
+export function renderRosterText(catalog: Catalog, roster: TrainingRoster): string {
   const head = `🏐 ${roster.date}, ${roster.startTime}–${roster.endTime} · ${roster.levelName}`;
   if (roster.participants.length === 0) {
-    return [head, "", EMPTY_ROSTER_TEXT].join("\n");
+    return [head, "", t(catalog, "bot.trainer.emptyRoster")].join("\n");
   }
   const lines = roster.participants.map((p, i) => {
-    const outcome = ATTENDANCE_LABELS[p.bookingStatus];
+    const outcome = attendanceLabel(catalog, p.bookingStatus);
     return `${i + 1}. ${p.clientName}${outcome ? ` — ${outcome}` : ""}`;
   });
   return [head, "", ...lines].join("\n");
@@ -159,7 +151,7 @@ export function renderRosterText(roster: TrainingRoster): string {
  * button (each carrying the bookingId + target status), then a button back to
  * the today list and the shared back/home footer. Re-rendered after every mark.
  */
-export function rosterKeyboard(roster: TrainingRoster): InlineKeyboard {
+export function rosterKeyboard(catalog: Catalog, roster: TrainingRoster): InlineKeyboard {
   const keyboard = new InlineKeyboard();
   for (const p of roster.participants) {
     keyboard
@@ -167,8 +159,8 @@ export function rosterKeyboard(roster: TrainingRoster): InlineKeyboard {
       .text("❌", attendData(p.bookingId, "no_show"))
       .row();
   }
-  keyboard.text("⬅️ К тренировкам", TRAINER_ACTIONS.today).row();
-  keyboard.text("🏠 Главное меню", NAV_ACTIONS.home);
+  keyboard.text(t(catalog, "bot.trainer.backToTrainings"), TRAINER_ACTIONS.today).row();
+  keyboard.text(t(catalog, "bot.nav.home"), NAV_ACTIONS.home);
   return keyboard;
 }
 
@@ -186,18 +178,23 @@ export type TrainerTodayApi = Pick<
 export async function handleTrainerToday(
   ctx: MenuReplyCtx,
   api: TrainerTodayApi,
+  catalog: Catalog,
   telegramId: number | undefined
 ): Promise<void> {
   if (telegramId === undefined) {
-    await showMainMenu(ctx);
+    await showMainMenu(ctx, catalog);
     return;
   }
   const items = await api.getTrainerToday(telegramId);
   if (items === null) {
-    await ctx.reply(NOT_TRAINER_TEXT, { reply_markup: backHomeKeyboard() });
+    await ctx.reply(t(catalog, "bot.trainer.notTrainer"), {
+      reply_markup: backHomeKeyboard(catalog)
+    });
     return;
   }
-  await ctx.reply(renderTodayText(items), { reply_markup: todayKeyboard(items) });
+  await ctx.reply(renderTodayText(catalog, items), {
+    reply_markup: todayKeyboard(catalog, items)
+  });
 }
 
 /**
@@ -207,15 +204,18 @@ export async function handleTrainerToday(
 export async function handleTrainerRoster(
   ctx: MenuReplyCtx,
   api: TrainerTodayApi,
+  catalog: Catalog,
   telegramId: number | undefined,
   trainingId: string
 ): Promise<void> {
   if (telegramId === undefined) {
-    await showMainMenu(ctx);
+    await showMainMenu(ctx, catalog);
     return;
   }
   const roster = await api.getTrainingRoster(trainingId, telegramId);
-  await ctx.reply(renderRosterText(roster), { reply_markup: rosterKeyboard(roster) });
+  await ctx.reply(renderRosterText(catalog, roster), {
+    reply_markup: rosterKeyboard(catalog, roster)
+  });
 }
 
 /**
@@ -227,16 +227,19 @@ export async function handleTrainerRoster(
 export async function handleMarkAttendance(
   ctx: MenuReplyCtx,
   api: TrainerTodayApi,
+  catalog: Catalog,
   telegramId: number | undefined,
   mark: AttendMark
 ): Promise<void> {
   if (telegramId === undefined) {
-    await showMainMenu(ctx);
+    await showMainMenu(ctx, catalog);
     return;
   }
   const booking = await api.markAttendance(mark.bookingId, mark.status, telegramId);
   // Re-render the whole roster from the source of truth so every row reflects the
   // server's view (the marked row included) — no local status math.
   const roster = await api.getTrainingRoster(booking.trainingId, telegramId);
-  await ctx.reply(renderRosterText(roster), { reply_markup: rosterKeyboard(roster) });
+  await ctx.reply(renderRosterText(catalog, roster), {
+    reply_markup: rosterKeyboard(catalog, roster)
+  });
 }

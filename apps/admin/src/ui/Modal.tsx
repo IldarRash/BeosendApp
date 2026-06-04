@@ -1,4 +1,5 @@
 import { useEffect, useId, useRef, type ReactNode } from "react";
+import { useT } from "../i18n/LanguageProvider";
 
 interface ModalProps {
   open: boolean;
@@ -17,6 +18,7 @@ const FOCUSABLE =
  * Esc and backdrop click, traps focus, and restores focus to the trigger on close.
  */
 export function Modal({ open, onClose, title, children, footer }: ModalProps): JSX.Element | null {
+  const t = useT();
   const titleId = useId();
   const panelRef = useRef<HTMLDivElement>(null);
   const restoreRef = useRef<HTMLElement | null>(null);
@@ -76,7 +78,7 @@ export function Modal({ open, onClose, title, children, footer }: ModalProps): J
           <h2 id={titleId} className="modal__title">
             {title}
           </h2>
-          <button type="button" className="modal__close" aria-label="Закрыть" onClick={onClose}>
+          <button type="button" className="modal__close" aria-label={t("admin.action.close")} onClick={onClose}>
             ×
           </button>
         </div>

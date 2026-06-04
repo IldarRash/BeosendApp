@@ -1,5 +1,8 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { cleanup, fireEvent, render, screen } from "@testing-library/react";
+
+vi.mock("../i18n/LanguageProvider", async () => import("../i18n/test-utils"));
+
 import { Modal } from "./Modal";
 
 afterEach(cleanup);

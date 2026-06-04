@@ -17,6 +17,8 @@ vi.mock("../ui/AppShell", () => ({
   AppShell: ({ children }: { children: React.ReactNode }) => <div>{children}</div>
 }));
 
+vi.mock("../i18n/LanguageProvider", async () => import("../i18n/test-utils"));
+
 // The summary + per-report hooks are mocked so the page is unit-tested without the
 // ApiClient/network. We capture the range each report hook receives to assert the
 // date filter drives the queries.

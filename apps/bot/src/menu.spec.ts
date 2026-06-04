@@ -1,12 +1,18 @@
 import { describe, expect, it } from "vitest";
+import { getStaticCatalog } from "@beosand/i18n";
 import {
   ADMIN_ACTIONS,
   adminMenuKeyboard,
   backHomeKeyboard,
+  LANGUAGE_ACTIONS,
   MENU_ACTIONS,
   NAV_ACTIONS,
-  mainMenuKeyboard
+  mainMenuKeyboard,
+  parseSetLanguage,
+  setLanguageData
 } from "./menu";
+
+const ru = getStaticCatalog("ru");
 
 function callbacksOf(keyboard: { inline_keyboard: unknown[][] }): (string | undefined)[] {
   return keyboard.inline_keyboard
@@ -19,21 +25,22 @@ function callbacksOf(keyboard: { inline_keyboard: unknown[][] }): (string | unde
 }
 
 describe("mainMenuKeyboard", () => {
-  it("renders the entry actions (the home/back action is not shown on the home screen)", () => {
-    expect(callbacksOf(mainMenuKeyboard())).toEqual([
+  it("renders the entry actions plus the language switch (no home/back on the home screen)", () => {
+    expect(callbacksOf(mainMenuKeyboard(ru))).toEqual([
       MENU_ACTIONS.availableTrainings,
       MENU_ACTIONS.todayFreeSlots,
       MENU_ACTIONS.joinGroup,
       MENU_ACTIONS.myBookings,
       MENU_ACTIONS.rentCourt,
-      MENU_ACTIONS.contactManager
+      MENU_ACTIONS.contactManager,
+      MENU_ACTIONS.language
     ]);
   });
 });
 
 describe("adminMenuKeyboard", () => {
   it("appends the admin court entries below the main menu", () => {
-    const callbacks = callbacksOf(adminMenuKeyboard());
+    const callbacks = callbacksOf(adminMenuKeyboard(ru));
     expect(callbacks).toContain(ADMIN_ACTIONS.courtModeration);
     expect(callbacks).toContain(ADMIN_ACTIONS.courtLoad);
     // The standard client actions are still present; admin entries follow them,
@@ -45,17 +52,35 @@ describe("adminMenuKeyboard", () => {
 
 describe("backHomeKeyboard", () => {
   it("offers both back and home navigation", () => {
-    expect(callbacksOf(backHomeKeyboard())).toEqual([NAV_ACTIONS.back, NAV_ACTIONS.home]);
+    expect(callbacksOf(backHomeKeyboard(ru))).toEqual([NAV_ACTIONS.back, NAV_ACTIONS.home]);
   });
 
   it("keeps every callback_data within Telegram's 64-byte limit", () => {
     const all = [
       ...Object.values(MENU_ACTIONS),
       ...Object.values(NAV_ACTIONS),
-      ...Object.values(ADMIN_ACTIONS)
+      ...Object.values(ADMIN_ACTIONS),
+      ...Object.values(LANGUAGE_ACTIONS),
+      setLanguageData("ru"),
+      setLanguageData("sr"),
+      setLanguageData("en")
     ];
     for (const data of all) {
       expect(Buffer.byteLength(data, "utf8")).toBeLessThanOrEqual(64);
     }
+  });
+});
+
+describe("language switch callbacks", () => {
+  it("round-trips each supported locale through set/parse", () => {
+    for (const locale of ["ru", "sr", "en"] as const) {
+      expect(parseSetLanguage(setLanguageData(locale))).toBe(locale);
+    }
+  });
+
+  it("ignores unknown locales and unrelated callbacks", () => {
+    expect(parseSetLanguage(`${LANGUAGE_ACTIONS.setPrefix}fr`)).toBeUndefined();
+    expect(parseSetLanguage("menu:available")).toBeUndefined();
+    expect(parseSetLanguage(undefined)).toBeUndefined();
   });
 });

@@ -2,7 +2,10 @@ import { useState } from "react";
 import type { CourtLoadCell, CourtLoadCellState } from "@beosand/types";
 import { AppShell } from "../ui/AppShell";
 import { TextField } from "../ui/Field";
+import { useT } from "../i18n/LanguageProvider";
 import { useCourtLoad } from "../hooks/useCourtLoad";
+
+type Translate = (key: string, params?: Record<string, string | number>) => string;
 
 /**
  * M3 — Загрузка кортов: the per-day load grid (courts × working hours). Every
@@ -14,12 +17,13 @@ import { useCourtLoad } from "../hooks/useCourtLoad";
  * its state via text + aria-label, never by colour alone.
  */
 
-/** RU label for each cell state — also used for the cell's accessible name. */
-const CELL_STATE_LABEL: Record<CourtLoadCellState, string> = {
-  free: "Свободно",
-  request: "Заявка",
-  block: "Блокировка"
-};
+/** Cell states in legend order. Labels resolve through the catalog. */
+const CELL_STATES: readonly CourtLoadCellState[] = ["free", "request", "block"];
+
+/** Catalog key for each cell state — also used for the cell's accessible name. */
+function cellStateLabel(state: CourtLoadCellState, t: Translate): string {
+  return t(`admin.courtLoad.cell${state.charAt(0).toUpperCase()}${state.slice(1)}`);
+}
 
 /** Short glyph shown inside the cell (state is also exposed via aria-label). */
 const CELL_STATE_GLYPH: Record<CourtLoadCellState, string> = {
@@ -34,8 +38,8 @@ function todayIso(): string {
 }
 
 /** Human-readable error from a failed query (the API decides the text). */
-function errorText(error: unknown): string {
-  return error instanceof Error ? error.message : "Не удалось загрузить сетку.";
+function errorText(error: unknown, t: Translate): string {
+  return error instanceof Error ? error.message : t("admin.courtLoad.loadError");
 }
 
 /** "08:00" from a cell's start time (already a contract time-string). */
@@ -44,6 +48,7 @@ function hourLabel(cell: CourtLoadCell): string {
 }
 
 export function CourtLoad(): JSX.Element {
+  const t = useT();
   const [date, setDate] = useState(todayIso());
   const load = useCourtLoad(date || null);
 
@@ -56,53 +61,53 @@ export function CourtLoad(): JSX.Element {
     <AppShell>
       <header className="page-head">
         <div>
-          <h1>Загрузка кортов</h1>
-          <p>Сетка занятости кортов по часам на выбранную дату.</p>
+          <h1>{t("admin.courtLoad.title")}</h1>
+          <p>{t("admin.courtLoad.lead")}</p>
         </div>
       </header>
 
       <div className="stack">
         <form
-          aria-label="Выбор даты"
+          aria-label={t("admin.courtLoad.dateLabel")}
           onSubmit={(e) => e.preventDefault()}
           className="cluster"
         >
           <TextField
-            label="Дата"
+            label={t("admin.field.date")}
             type="date"
             value={date}
             onChange={(e) => setDate(e.target.value)}
           />
         </form>
 
-        <ul className="cluster" aria-label="Обозначения" style={{ listStyle: "none" }}>
-          {(Object.keys(CELL_STATE_LABEL) as CourtLoadCellState[]).map((state) => (
+        <ul className="cluster" aria-label={t("admin.courtLoad.legendLabel")} style={{ listStyle: "none" }}>
+          {CELL_STATES.map((state) => (
             <li key={state} className="cluster">
               <span className={`load-cell load-cell--${state}`} aria-hidden="true">
                 {CELL_STATE_GLYPH[state]}
               </span>
-              <span>{CELL_STATE_LABEL[state]}</span>
+              <span>{cellStateLabel(state, t)}</span>
             </li>
           ))}
         </ul>
 
         {date === "" ? (
-          <p className="state">Выберите дату, чтобы увидеть загрузку кортов.</p>
+          <p className="state">{t("admin.courtLoad.pickDate")}</p>
         ) : load.isPending ? (
-          <p className="state">Загрузка сетки…</p>
+          <p className="state">{t("admin.courtLoad.loading")}</p>
         ) : load.isError ? (
           <p className="state state--error" role="alert">
-            {errorText(load.error)}
+            {errorText(load.error, t)}
           </p>
         ) : grid && grid.rows.length > 0 ? (
           <div className="datatable__scroll">
             <table className="datatable">
               <caption className="visually-hidden">
-                Загрузка кортов на {grid.date}
+                {t("admin.courtLoad.caption", { date: grid.date })}
               </caption>
               <thead>
                 <tr>
-                  <th scope="col">Корт</th>
+                  <th scope="col">{t("admin.courtLoad.colCourt")}</th>
                   {headerCells.map((cell) => (
                     <th key={cell.hour} scope="col" className="datatable__num">
                       {hourLabel(cell)}
@@ -114,13 +119,17 @@ export function CourtLoad(): JSX.Element {
                 {grid.rows.map((row) => (
                   <tr key={row.courtId}>
                     <th scope="row" className="datatable__num">
-                      № {row.courtNumber}
+                      {t("admin.courtLoad.courtNumber", { number: row.courtNumber })}
                     </th>
                     {row.cells.map((cell) => (
                       <td
                         key={cell.hour}
                         className={`load-cell load-cell--${cell.state}`}
-                        aria-label={`Корт ${row.courtNumber}, ${hourLabel(cell)} — ${CELL_STATE_LABEL[cell.state]}`}
+                        aria-label={t("admin.courtLoad.cellAria", {
+                          number: row.courtNumber,
+                          hour: hourLabel(cell),
+                          state: cellStateLabel(cell.state, t)
+                        })}
                       >
                         <span aria-hidden="true">{CELL_STATE_GLYPH[cell.state]}</span>
                       </td>
@@ -131,7 +140,7 @@ export function CourtLoad(): JSX.Element {
             </table>
           </div>
         ) : (
-          <p className="state">На выбранную дату кортов нет.</p>
+          <p className="state">{t("admin.courtLoad.noCourts")}</p>
         )}
       </div>
     </AppShell>

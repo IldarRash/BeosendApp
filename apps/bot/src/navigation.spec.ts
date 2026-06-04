@@ -1,17 +1,25 @@
 import { describe, expect, it, vi } from "vitest";
-import { MENU_ACTIONS, NAV_ACTIONS, WELCOME_TEXT } from "./menu";
+import { MENU_ACTIONS, NAV_ACTIONS, welcomeText } from "./menu";
+import { getStaticCatalog } from "@beosand/i18n";
 import { menuHandlers, resolveCallback, type MenuHandlerDeps, type MenuReplyCtx } from "./navigation";
 
-// The court rental entry (menu:court) and the back-to-menu action (menu:home) are
-// routed by dedicated handlers in index.ts, not through the generic dispatch table,
-// so the table covers the remaining client routes. The six client menu buttons
-// (everything except the home/back action) are what mainMenuKeyboard renders.
+// The court rental entry (menu:court), the language switch (menu:lang) and the
+// back-to-menu action (menu:home) are routed by dedicated handlers in index.ts,
+// not through the generic dispatch table, so the table covers the remaining
+// client routes. The client menu buttons (everything except the home/back
+// action) are what mainMenuKeyboard renders.
 const DISPATCHED_ACTIONS = Object.values(MENU_ACTIONS).filter(
-  (a) => a !== MENU_ACTIONS.rentCourt && a !== MENU_ACTIONS.backToMenu
+  (a) =>
+    a !== MENU_ACTIONS.rentCourt &&
+    a !== MENU_ACTIONS.language &&
+    a !== MENU_ACTIONS.backToMenu
 );
 const MENU_BUTTON_ACTIONS = Object.values(MENU_ACTIONS).filter((a) => a !== MENU_ACTIONS.backToMenu);
 
 const CLIENT = { id: "22222222-2222-2222-2222-222222222222" };
+
+const ru = getStaticCatalog("ru");
+const WELCOME_TEXT = welcomeText(ru);
 
 function makeDeps(): MenuHandlerDeps {
   return {
@@ -23,7 +31,8 @@ function makeDeps(): MenuHandlerDeps {
       listMyBookings: vi.fn().mockResolvedValue([]),
       listTrainers: vi.fn().mockResolvedValue([]),
       listLevels: vi.fn().mockResolvedValue([])
-    }
+    },
+    catalog: ru
   };
 }
 

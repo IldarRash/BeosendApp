@@ -1,6 +1,12 @@
 import { InlineKeyboard } from "grammy";
 import type { DayOfWeek, SlotCard } from "@beosand/types";
 import { backHomeKeyboard, MENU_ACTIONS, NAV_ACTIONS } from "./menu";
+import { t, type Catalog } from "./i18n";
+
+/** Localized short weekday label, e.g. day 3 → "Ср". */
+export function weekdayShort(catalog: Catalog, day: DayOfWeek): string {
+  return t(catalog, `bot.weekday.short.${day}`);
+}
 
 /**
  * Available slots screen (T1.5). Pure render/keyboard helpers kept here so they
@@ -86,36 +92,26 @@ export function parseWaitlistAccept(data: string | undefined): string | undefine
   return data.slice(SLOT_ACTIONS.waitlistAcceptPrefix.length);
 }
 
-const WEEKDAY_LABELS: Record<DayOfWeek, string> = {
-  1: "Пн",
-  2: "Вт",
-  3: "Ср",
-  4: "Чт",
-  5: "Пт",
-  6: "Сб",
-  7: "Вс"
-};
-
-export const NO_SLOTS_TEXT = "Сейчас нет доступных тренировок. Загляните позже 🙌";
-
-export const SLOTS_HEADER = "Доступные тренировки:";
-
 /** One human-readable line per card. All data is server-provided; no math here. */
-export function formatSlotLine(card: SlotCard): string {
-  const seats = `${card.freeSeats} мест`;
+export function formatSlotLine(catalog: Catalog, card: SlotCard): string {
+  const seats = t(catalog, "bot.slots.seats", { count: card.freeSeats });
   return [
-    `🏐 ${WEEKDAY_LABELS[card.dayOfWeek]} ${card.date}, ${card.startTime}–${card.endTime}`,
+    `🏐 ${weekdayShort(catalog, card.dayOfWeek)} ${card.date}, ${card.startTime}–${card.endTime}`,
     `${card.trainerName} · ${card.levelName}`,
-    `Свободно: ${seats} · ${card.priceSingleRsd} RSD`
+    t(catalog, "bot.slots.freeLine", { seats, price: card.priceSingleRsd })
   ].join("\n");
 }
 
 /** Body text: header + a blank-line-separated block per bookable card. */
-export function renderSlotsText(cards: SlotCard[]): string {
+export function renderSlotsText(catalog: Catalog, cards: SlotCard[]): string {
   if (cards.length === 0) {
-    return NO_SLOTS_TEXT;
+    return t(catalog, "bot.slots.none");
   }
-  return [SLOTS_HEADER, "", ...cards.map(formatSlotLine).flatMap((line) => [line, ""])]
+  return [
+    t(catalog, "bot.slots.header"),
+    "",
+    ...cards.map((card) => formatSlotLine(catalog, card)).flatMap((line) => [line, ""])
+  ]
     .join("\n")
     .trimEnd();
 }
@@ -124,14 +120,17 @@ export function renderSlotsText(cards: SlotCard[]): string {
  * One "Записаться" button per card (carrying only the trainingId), then the
  * shared back/home footer so the journey never dead-ends.
  */
-export function slotsKeyboard(cards: SlotCard[]): InlineKeyboard {
+export function slotsKeyboard(catalog: Catalog, cards: SlotCard[]): InlineKeyboard {
   const keyboard = new InlineKeyboard();
   for (const card of cards) {
-    const label = `Записаться · ${WEEKDAY_LABELS[card.dayOfWeek]} ${card.startTime}`;
+    const label = t(catalog, "bot.slots.bookButton", {
+      day: weekdayShort(catalog, card.dayOfWeek),
+      time: card.startTime
+    });
     keyboard.text(label, bookStartData(card.trainingId)).row();
   }
   // Reuse the standard footer (back + home).
-  appendKeyboard(keyboard, backHomeKeyboard());
+  appendKeyboard(keyboard, backHomeKeyboard(catalog));
   return keyboard;
 }
 
@@ -147,57 +146,61 @@ function appendKeyboard(target: InlineKeyboard, source: InlineKeyboard): void {
   }
 }
 
-export const SLOT_NOT_FOUND_TEXT =
-  "Эта тренировка больше недоступна. Выберите другую из списка.";
+export function slotNotFoundText(catalog: Catalog): string {
+  return t(catalog, "bot.slots.notFound");
+}
 
 /**
  * Confirmation card (step 2 of 3): the same human-readable details as the slot
  * line, framed as a confirmation. All values are server-provided.
  */
-export function renderConfirmText(card: SlotCard): string {
+export function renderConfirmText(catalog: Catalog, card: SlotCard): string {
   return [
-    "Подтвердите запись:",
+    t(catalog, "bot.slots.confirmTitle"),
     "",
-    formatSlotLine(card),
+    formatSlotLine(catalog, card),
     "",
-    "Нажмите «Подтвердить запись», чтобы записаться."
+    t(catalog, "bot.slots.confirmHint")
   ].join("\n");
 }
 
 /** "Подтвердить запись" (carrying the trainingId) plus the back/home footer. */
-export function confirmBookingKeyboard(trainingId: string): InlineKeyboard {
+export function confirmBookingKeyboard(catalog: Catalog, trainingId: string): InlineKeyboard {
   const keyboard = new InlineKeyboard()
-    .text("✅ Подтвердить запись", bookConfirmData(trainingId))
+    .text(t(catalog, "bot.slots.confirmButton"), bookConfirmData(trainingId))
     .row();
-  appendKeyboard(keyboard, backHomeKeyboard());
+  appendKeyboard(keyboard, backHomeKeyboard(catalog));
   return keyboard;
 }
 
-export function renderBookingSuccessText(card: SlotCard): string {
+export function renderBookingSuccessText(catalog: Catalog, card: SlotCard): string {
   return [
-    "✅ Вы записаны!",
+    t(catalog, "bot.slots.bookedTitle"),
     "",
-    formatSlotLine(card),
+    formatSlotLine(catalog, card),
     "",
-    "Мы пришлём напоминание перед тренировкой."
+    t(catalog, "bot.slots.bookedReminder")
   ].join("\n");
 }
 
-/** Post-booking footer: my bookings / more trainings / main menu. */
-export function bookingSuccessKeyboard(): InlineKeyboard {
-  return new InlineKeyboard()
-    .text("📋 Мои записи", MENU_ACTIONS.myBookings)
-    .row()
-    .text("🏐 Еще тренировки", MENU_ACTIONS.availableTrainings)
-    .row()
-    .text("🏠 Главное меню", NAV_ACTIONS.home);
+/** Generic booking-success line, when the slot card is no longer in the list. */
+export function bookingSuccessShort(catalog: Catalog): string {
+  return t(catalog, "bot.slots.bookedShort");
 }
 
-export const BOOKING_FULL_TEXT = [
-  "К сожалению, мест на эту тренировку уже нет 😔",
-  "",
-  "Хотите записаться в лист ожидания? Мы сообщим, когда место освободится."
-].join("\n");
+/** Post-booking footer: my bookings / more trainings / main menu. */
+export function bookingSuccessKeyboard(catalog: Catalog): InlineKeyboard {
+  return new InlineKeyboard()
+    .text(t(catalog, "bot.menu.myBookings"), MENU_ACTIONS.myBookings)
+    .row()
+    .text(t(catalog, "bot.slots.moreTrainings"), MENU_ACTIONS.availableTrainings)
+    .row()
+    .text(t(catalog, "bot.nav.home"), NAV_ACTIONS.home);
+}
+
+export function bookingFullText(catalog: Catalog): string {
+  return t(catalog, "bot.slots.full");
+}
 
 /**
  * Full-slot footer (T2.1): a "Встать в лист ожидания" button carrying the
@@ -206,13 +209,13 @@ export const BOOKING_FULL_TEXT = [
  * (it rejects a still-bookable slot). When the trainingId is unknown (e.g. a
  * stale slot that vanished from the list), the join button is omitted.
  */
-export function bookingFullKeyboard(trainingId?: string): InlineKeyboard {
+export function bookingFullKeyboard(catalog: Catalog, trainingId?: string): InlineKeyboard {
   const keyboard = new InlineKeyboard();
   if (trainingId) {
-    keyboard.text("⏳ Встать в лист ожидания", waitlistJoinData(trainingId)).row();
+    keyboard.text(t(catalog, "bot.slots.joinWaitlist"), waitlistJoinData(trainingId)).row();
   }
   return keyboard
-    .text("🏐 Другие тренировки", MENU_ACTIONS.availableTrainings)
+    .text(t(catalog, "bot.slots.otherTrainings"), MENU_ACTIONS.availableTrainings)
     .row()
-    .text("🏠 Главное меню", NAV_ACTIONS.home);
+    .text(t(catalog, "bot.nav.home"), NAV_ACTIONS.home);
 }

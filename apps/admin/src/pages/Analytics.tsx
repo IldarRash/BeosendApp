@@ -6,7 +6,6 @@ import type {
   BroadcastEffectiveness,
   CancellationStats,
   ClientActivity,
-  DayOfWeek,
   FillRate,
   NoShowStats,
   PopularSlot,
@@ -16,6 +15,7 @@ import { AppShell } from "../ui/AppShell";
 import { StatCard } from "../ui/StatCard";
 import { DataTable, type Column } from "../ui/DataTable";
 import { DateRangeFilter, type DateRange } from "../ui/DateRangeFilter";
+import { useT } from "../i18n/LanguageProvider";
 import { useAnalyticsSummary } from "../hooks/useAnalyticsSummary";
 import {
   useBroadcastEffectiveness,
@@ -27,16 +27,7 @@ import {
   useTrainerLoad
 } from "../hooks/useAnalyticsReports";
 
-/** Short RU weekday labels, ISO order (1 = Mon … 7 = Sun). Display only. */
-const DAY_LABELS: Record<DayOfWeek, string> = {
-  1: "Пн",
-  2: "Вт",
-  3: "Ср",
-  4: "Чт",
-  5: "Пт",
-  6: "Сб",
-  7: "Вс"
-};
+type Translate = (key: string, params?: Record<string, string | number>) => string;
 
 /** Format a server-decided 0..1 ratio as a percentage. No domain math — pure display. */
 function formatPercentRatio(ratio: number): string {
@@ -64,11 +55,12 @@ function ReportSection<Data>({
   errorLabel: string;
   children: (data: Data) => JSX.Element;
 }): JSX.Element {
+  const t = useT();
   return (
     <section className="stack" aria-labelledby={`report-${slug(title)}`}>
       <h2 id={`report-${slug(title)}`}>{title}</h2>
       {query.isPending ? (
-        <p className="state state--loading">Загрузка…</p>
+        <p className="state state--loading">{t("admin.analytics.loading")}</p>
       ) : query.isError ? (
         <p className="state state--error" role="alert">
           {query.error?.message ?? errorLabel}
@@ -85,109 +77,131 @@ function slug(title: string): string {
   return encodeURIComponent(title.toLowerCase().replace(/\s+/g, "-"));
 }
 
-const POPULAR_COLUMNS: Column<PopularSlot>[] = [
-  { key: "day", header: "День", render: (row) => DAY_LABELS[row.dayOfWeek] },
-  { key: "time", header: "Время", render: (row) => row.startTime, numeric: true },
-  {
-    key: "bookings",
-    header: "Бронирований",
-    render: (row) => formatCount(row.bookingsCount),
-    numeric: true
-  }
-];
+function popularColumns(t: Translate): Column<PopularSlot>[] {
+  return [
+    { key: "day", header: t("admin.analytics.popular.colDay"), render: (row) => t(`admin.day.short.${row.dayOfWeek}`) },
+    { key: "time", header: t("admin.analytics.popular.colTime"), render: (row) => row.startTime, numeric: true },
+    {
+      key: "bookings",
+      header: t("admin.analytics.popular.colBookings"),
+      render: (row) => formatCount(row.bookingsCount),
+      numeric: true
+    }
+  ];
+}
 
-const TRAINER_COLUMNS: Column<TrainerLoad>[] = [
-  { key: "name", header: "Тренер", render: (row) => row.trainerName },
-  {
-    key: "sessions",
-    header: "Тренировок",
-    render: (row) => formatCount(row.sessionsCount),
-    numeric: true
-  },
-  {
-    key: "participants",
-    header: "Участников",
-    render: (row) => formatCount(row.participantsCount),
-    numeric: true
-  }
-];
+function trainerColumns(t: Translate): Column<TrainerLoad>[] {
+  return [
+    { key: "name", header: t("admin.analytics.trainerLoad.colTrainer"), render: (row) => row.trainerName },
+    {
+      key: "sessions",
+      header: t("admin.analytics.trainerLoad.colSessions"),
+      render: (row) => formatCount(row.sessionsCount),
+      numeric: true
+    },
+    {
+      key: "participants",
+      header: t("admin.analytics.trainerLoad.colParticipants"),
+      render: (row) => formatCount(row.participantsCount),
+      numeric: true
+    }
+  ];
+}
 
 function SummaryCards({ summary }: { summary: AnalyticsSummary }): JSX.Element {
+  const t = useT();
   return (
-    <section className="grid" aria-label="Сводка за период">
+    <section className="grid" aria-label={t("admin.analytics.summaryLabel")}>
       <StatCard
-        label="Бронирований"
+        label={t("admin.analytics.card.bookings")}
         value={formatCount(summary.totalBookings)}
         hint={`${summary.from} — ${summary.to}`}
       />
       <StatCard
-        label="Заполненность"
+        label={t("admin.analytics.card.fillRate")}
         value={formatPercentRatio(summary.averageFillRate)}
-        hint="в среднем"
+        hint={t("admin.analytics.card.fillRateHint")}
       />
-      <StatCard label="Активные клиенты" value={formatCount(summary.activeClients)} />
-      <StatCard label="Отмены" value={formatPercentRatio(summary.cancellationRate)} hint="доля" />
-      <StatCard label="Неявки" value={formatPercentRatio(summary.noShowRate)} hint="доля" />
+      <StatCard label={t("admin.analytics.card.activeClients")} value={formatCount(summary.activeClients)} />
       <StatCard
-        label="От рассылок"
+        label={t("admin.analytics.card.cancellations")}
+        value={formatPercentRatio(summary.cancellationRate)}
+        hint={t("admin.analytics.card.cancellationsHint")}
+      />
+      <StatCard
+        label={t("admin.analytics.card.noShows")}
+        value={formatPercentRatio(summary.noShowRate)}
+        hint={t("admin.analytics.card.noShowsHint")}
+      />
+      <StatCard
+        label={t("admin.analytics.card.fromBroadcasts")}
         value={formatCount(summary.attributedBookings)}
-        hint="бронирований"
+        hint={t("admin.analytics.card.fromBroadcastsHint")}
       />
     </section>
   );
 }
 
 function FillRateCards({ data }: { data: FillRate }): JSX.Element {
+  const t = useT();
   return (
     <div className="grid">
-      <StatCard label="Средняя заполненность" value={formatPercentRatio(data.averageFillRate)} />
-      <StatCard label="Тренировок" value={formatCount(data.trainingsCount)} />
-      <StatCard label="Мест всего" value={formatCount(data.totalCapacity)} />
-      <StatCard label="Забронировано" value={formatCount(data.totalBooked)} />
+      <StatCard label={t("admin.analytics.fill.avg")} value={formatPercentRatio(data.averageFillRate)} />
+      <StatCard label={t("admin.analytics.fill.trainings")} value={formatCount(data.trainingsCount)} />
+      <StatCard label={t("admin.analytics.fill.totalSeats")} value={formatCount(data.totalCapacity)} />
+      <StatCard label={t("admin.analytics.fill.booked")} value={formatCount(data.totalBooked)} />
     </div>
   );
 }
 
 function CancellationCards({ data }: { data: CancellationStats }): JSX.Element {
+  const t = useT();
   return (
     <div className="grid">
-      <StatCard label="Доля отмен" value={formatPercentRatio(data.cancellationRate)} />
-      <StatCard label="Отменено" value={formatCount(data.cancelledCount)} />
-      <StatCard label="Бронирований всего" value={formatCount(data.totalBookings)} />
+      <StatCard label={t("admin.analytics.cancellations.rate")} value={formatPercentRatio(data.cancellationRate)} />
+      <StatCard label={t("admin.analytics.cancellations.cancelled")} value={formatCount(data.cancelledCount)} />
+      <StatCard label={t("admin.analytics.cancellations.total")} value={formatCount(data.totalBookings)} />
     </div>
   );
 }
 
 function NoShowCards({ data }: { data: NoShowStats }): JSX.Element {
+  const t = useT();
   return (
     <div className="grid">
-      <StatCard label="Доля неявок" value={formatPercentRatio(data.noShowRate)} />
-      <StatCard label="Неявки" value={formatCount(data.noShowCount)} />
-      <StatCard label="Пришли" value={formatCount(data.attendedCount)} />
-      <StatCard label="Отмечено" value={formatCount(data.resolvedCount)} hint="всего" />
+      <StatCard label={t("admin.analytics.noShows.rate")} value={formatPercentRatio(data.noShowRate)} />
+      <StatCard label={t("admin.analytics.noShows.count")} value={formatCount(data.noShowCount)} />
+      <StatCard label={t("admin.analytics.noShows.attended")} value={formatCount(data.attendedCount)} />
+      <StatCard
+        label={t("admin.analytics.noShows.resolved")}
+        value={formatCount(data.resolvedCount)}
+        hint={t("admin.analytics.noShows.resolvedHint")}
+      />
     </div>
   );
 }
 
 function ClientActivityCards({ data }: { data: ClientActivity }): JSX.Element {
+  const t = useT();
   return (
     <div className="grid">
-      <StatCard label="Активные клиенты" value={formatCount(data.activeClients)} />
-      <StatCard label="Бронировали" value={formatCount(data.bookingClients)} />
-      <StatCard label="Бронирований всего" value={formatCount(data.totalBookings)} />
+      <StatCard label={t("admin.analytics.clientActivity.active")} value={formatCount(data.activeClients)} />
+      <StatCard label={t("admin.analytics.clientActivity.booking")} value={formatCount(data.bookingClients)} />
+      <StatCard label={t("admin.analytics.clientActivity.total")} value={formatCount(data.totalBookings)} />
     </div>
   );
 }
 
 function BroadcastEffectivenessCards({ data }: { data: BroadcastEffectiveness }): JSX.Element {
+  const t = useT();
   return (
     <div className="grid">
-      <StatCard label="Рассылок" value={formatCount(data.broadcastsCount)} />
-      <StatCard label="Получателей" value={formatCount(data.recipientsCount)} />
+      <StatCard label={t("admin.analytics.broadcastEff.broadcasts")} value={formatCount(data.broadcastsCount)} />
+      <StatCard label={t("admin.analytics.broadcastEff.recipients")} value={formatCount(data.recipientsCount)} />
       <StatCard
-        label="Привлечено бронирований"
+        label={t("admin.analytics.broadcastEff.attributed")}
         value={formatCount(data.attributedBookings)}
-        hint={`окно ${data.attributionWindowHours} ч`}
+        hint={t("admin.analytics.broadcastEff.attributedHint", { hours: data.attributionWindowHours })}
       />
     </div>
   );
@@ -201,6 +215,7 @@ function BroadcastEffectivenessCards({ data }: { data: BroadcastEffectiveness })
  * or money math (rates are server 0..1 ratios shown as percentages here).
  */
 export function Analytics(): JSX.Element {
+  const t = useT();
   const [draft, setDraft] = useState<DateRange>({ from: "", to: "" });
 
   // Both bounds must be set before any report query fires — the strict server
@@ -223,23 +238,20 @@ export function Analytics(): JSX.Element {
     <AppShell>
       <header className="page-head">
         <div>
-          <h1>Аналитика</h1>
-          <p>
-            Отчёты по тренировкам, посещаемости и рассылкам за выбранный период. Все цифры считаются
-            на сервере; консоль их только показывает.
-          </p>
+          <h1>{t("admin.analytics.title")}</h1>
+          <p>{t("admin.analytics.lead")}</p>
         </div>
       </header>
 
-      <DateRangeFilter value={draft} onChange={setDraft} legend="Период отчёта" />
+      <DateRangeFilter value={draft} onChange={setDraft} legend={t("admin.analytics.rangeLegend")} />
 
       <section className="stack" aria-labelledby="report-summary">
-        <h2 id="report-summary">Сводка (30 дней)</h2>
+        <h2 id="report-summary">{t("admin.analytics.summaryHeading")}</h2>
         {summary.isPending ? (
-          <p className="state state--loading">Загрузка сводки…</p>
+          <p className="state state--loading">{t("admin.analytics.summaryLoading")}</p>
         ) : summary.isError ? (
           <p className="state state--error" role="alert">
-            {summary.error?.message ?? "Не удалось загрузить сводку."}
+            {summary.error?.message ?? t("admin.analytics.summaryError")}
           </p>
         ) : summary.data ? (
           <SummaryCards summary={summary.data} />
@@ -247,75 +259,77 @@ export function Analytics(): JSX.Element {
       </section>
 
       {range === null ? (
-        <p className="state state--empty">
-          Выберите период (обе даты), чтобы построить отчёты.
-        </p>
+        <p className="state state--empty">{t("admin.analytics.pickRange")}</p>
       ) : (
         <>
           <ReportSection
-            title="Популярные слоты"
+            title={t("admin.analytics.popular.title")}
             query={popular}
-            errorLabel="Не удалось загрузить популярные слоты."
+            errorLabel={t("admin.analytics.popular.error")}
           >
             {(rows) => (
               <DataTable
-                columns={POPULAR_COLUMNS}
+                columns={popularColumns(t)}
                 rows={rows}
                 rowKey={(row) => `${row.dayOfWeek}-${row.startTime}`}
-                caption="Популярные слоты по числу бронирований"
-                emptyLabel="За период нет бронирований."
+                caption={t("admin.analytics.popular.caption")}
+                emptyLabel={t("admin.analytics.popular.empty")}
               />
             )}
           </ReportSection>
 
           <ReportSection
-            title="Заполняемость"
+            title={t("admin.analytics.fill.title")}
             query={fillRate}
-            errorLabel="Не удалось загрузить заполняемость."
+            errorLabel={t("admin.analytics.fill.error")}
           >
             {(data) => <FillRateCards data={data} />}
           </ReportSection>
 
           <ReportSection
-            title="Нагрузка тренеров"
+            title={t("admin.analytics.trainerLoad.title")}
             query={trainerLoad}
-            errorLabel="Не удалось загрузить нагрузку тренеров."
+            errorLabel={t("admin.analytics.trainerLoad.error")}
           >
             {(rows) => (
               <DataTable
-                columns={TRAINER_COLUMNS}
+                columns={trainerColumns(t)}
                 rows={rows}
                 rowKey={(row) => row.trainerId}
-                caption="Нагрузка тренеров: тренировки и участники"
-                emptyLabel="За период нет тренировок."
+                caption={t("admin.analytics.trainerLoad.caption")}
+                emptyLabel={t("admin.analytics.trainerLoad.empty")}
               />
             )}
           </ReportSection>
 
           <ReportSection
-            title="Отмены"
+            title={t("admin.analytics.cancellations.title")}
             query={cancellations}
-            errorLabel="Не удалось загрузить отмены."
+            errorLabel={t("admin.analytics.cancellations.error")}
           >
             {(data) => <CancellationCards data={data} />}
           </ReportSection>
 
-          <ReportSection title="Неявки" query={noShows} errorLabel="Не удалось загрузить неявки.">
+          <ReportSection
+            title={t("admin.analytics.noShows.title")}
+            query={noShows}
+            errorLabel={t("admin.analytics.noShows.error")}
+          >
             {(data) => <NoShowCards data={data} />}
           </ReportSection>
 
           <ReportSection
-            title="Активность клиентов"
+            title={t("admin.analytics.clientActivity.title")}
             query={clientActivity}
-            errorLabel="Не удалось загрузить активность клиентов."
+            errorLabel={t("admin.analytics.clientActivity.error")}
           >
             {(data) => <ClientActivityCards data={data} />}
           </ReportSection>
 
           <ReportSection
-            title="Эффективность рассылок"
+            title={t("admin.analytics.broadcastEff.title")}
             query={broadcastEffectiveness}
-            errorLabel="Не удалось загрузить эффективность рассылок."
+            errorLabel={t("admin.analytics.broadcastEff.error")}
           >
             {(data) => <BroadcastEffectivenessCards data={data} />}
           </ReportSection>

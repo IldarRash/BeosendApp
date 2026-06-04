@@ -8,7 +8,7 @@ import {
 } from "@nestjs/common";
 import type { Env } from "@beosand/config";
 import { isAdmin } from "@beosand/config";
-import type { Client } from "@beosand/types";
+import type { Client, Locale } from "@beosand/types";
 import { ENV } from "../../config/config.module";
 import { DatabaseService } from "../../db/database.service";
 import { LevelsRepository } from "../levels/levels.repository";
@@ -88,6 +88,24 @@ export class ClientsService {
       }
       return raced;
     });
+  }
+
+  /**
+   * Set a client's per-user UI locale (the bot's /language flow). Only the
+   * client itself (or an admin) may change a record's language.
+   */
+  async setLanguage(
+    actorTelegramId: number,
+    targetTelegramId: number,
+    language: Locale
+  ): Promise<Client> {
+    this.assertSelfOrAdmin(actorTelegramId, targetTelegramId);
+    const updated = await this.clients.updateLanguage(targetTelegramId, language);
+    if (!updated) {
+      throw new NotFoundException(`Client with telegram_id ${targetTelegramId} not found`);
+    }
+    this.logger.log(`Set language=${language} for client telegram_id=${targetTelegramId}`);
+    return updated;
   }
 
   /** A client may only act on its own record; admins may act on any. */

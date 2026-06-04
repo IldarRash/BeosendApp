@@ -4,13 +4,9 @@ import { AppShell } from "../ui/AppShell";
 import { Button } from "../ui/Button";
 import { NumberField, SelectField, TextField } from "../ui/Field";
 import { useToast } from "../ui/Toast";
+import { useT } from "../i18n/LanguageProvider";
 import { useClientByTelegram, useOnboardClient } from "../hooks/useClients";
 import { useLevels } from "../hooks/useLevels";
-
-const STATUS_LABEL: Record<EntityStatus, string> = {
-  active: "Активен",
-  inactive: "Неактивен"
-};
 
 /**
  * M2 — Клиенты: look a client up by Telegram id and onboard a new one. The API
@@ -18,6 +14,7 @@ const STATUS_LABEL: Record<EntityStatus, string> = {
  * validated record it gets back. No domain logic here.
  */
 export function Clients(): JSX.Element {
+  const t = useT();
   const [draftId, setDraftId] = useState<number | null>(null);
   const [lookupId, setLookupId] = useState<number | null>(null);
 
@@ -33,23 +30,23 @@ export function Clients(): JSX.Element {
     <AppShell>
       <header className="page-head">
         <div>
-          <h1>Клиенты</h1>
-          <p>Поиск клиента по Telegram ID и регистрация нового.</p>
+          <h1>{t("admin.clients.title")}</h1>
+          <p>{t("admin.clients.lead")}</p>
         </div>
       </header>
 
       <div className="stack">
         <section className="stack" aria-labelledby="lookup-heading">
-          <h2 id="lookup-heading">Поиск клиента</h2>
+          <h2 id="lookup-heading">{t("admin.clients.lookupHeading")}</h2>
           <form className="cluster" onSubmit={handleLookup}>
             <NumberField
-              label="Telegram ID"
+              label={t("admin.field.telegramId")}
               value={draftId}
               onValueChange={setDraftId}
-              hint="Числовой идентификатор пользователя Telegram."
+              hint={t("admin.clients.telegramHint")}
             />
             <Button type="submit" disabled={draftId === null || lookup.isFetching}>
-              {lookup.isFetching ? "Поиск…" : "Найти"}
+              {lookup.isFetching ? t("admin.action.searching") : t("admin.action.find")}
             </Button>
           </form>
 
@@ -87,23 +84,24 @@ function LookupResult({
   client,
   levels
 }: LookupResultProps): JSX.Element | null {
+  const t = useT();
   if (lookupId === null) {
     return null;
   }
   if (isFetching) {
-    return <p className="state state--loading">Загрузка…</p>;
+    return <p className="state state--loading">{t("admin.clients.loading")}</p>;
   }
   if (isError) {
     return (
       <p className="state state--error" role="alert">
-        Не удалось выполнить поиск: {error?.message}
+        {t("admin.clients.lookupError", { message: error?.message ?? "" })}
       </p>
     );
   }
   if (client === null) {
     return (
       <p className="state state--loading" role="status">
-        Клиент с Telegram ID {lookupId} не найден. Зарегистрируйте его ниже.
+        {t("admin.clients.notFound", { id: lookupId })}
       </p>
     );
   }
@@ -117,37 +115,40 @@ interface ClientCardProps {
 
 /** Read-only card for a found client. Renders only fields the contract exposes. */
 function ClientCard({ client, levels }: ClientCardProps): JSX.Element {
+  const t = useT();
+  const statusLabel = (status: EntityStatus): string =>
+    status === "active" ? t("admin.status.active") : t("admin.status.inactive");
   const levelName = client.levelId
     ? (levels.find((level) => level.id === client.levelId)?.name ?? "—")
-    : "Не указан";
+    : t("admin.clients.levelUnset");
 
   return (
-    <dl className="card" role="group" aria-label="Карточка клиента">
+    <dl className="card" role="group" aria-label={t("admin.clients.cardLabel")}>
       <div>
-        <dt className="card__label">Имя</dt>
+        <dt className="card__label">{t("admin.clients.cardName")}</dt>
         <dd className="card__value">{client.name}</dd>
       </div>
       <div>
-        <dt className="card__label">Telegram ID</dt>
+        <dt className="card__label">{t("admin.clients.cardTelegramId")}</dt>
         <dd>
           <code>{client.telegramId}</code>
         </dd>
       </div>
       <div>
-        <dt className="card__label">Username</dt>
+        <dt className="card__label">{t("admin.clients.cardUsername")}</dt>
         <dd>
           {client.telegramUsername ? <code>@{client.telegramUsername}</code> : "—"}
         </dd>
       </div>
       <div>
-        <dt className="card__label">Уровень</dt>
+        <dt className="card__label">{t("admin.clients.cardLevel")}</dt>
         <dd>{levelName}</dd>
       </div>
       <div>
-        <dt className="card__label">Статус</dt>
+        <dt className="card__label">{t("admin.clients.cardStatus")}</dt>
         <dd>
           <span className={`tag ${client.status === "active" ? "tag--ok" : "tag--warn"}`}>
-            {STATUS_LABEL[client.status]}
+            {statusLabel(client.status)}
           </span>
         </dd>
       </div>
@@ -164,6 +165,7 @@ const NO_LEVEL = "";
 
 /** Register (or idempotently re-register) a client. Server owns all validation. */
 function OnboardForm({ levels, levelsLoading }: OnboardFormProps): JSX.Element {
+  const t = useT();
   const toast = useToast();
   const onboard = useOnboardClient();
 
@@ -174,10 +176,10 @@ function OnboardForm({ levels, levelsLoading }: OnboardFormProps): JSX.Element {
 
   const levelOptions = useMemo(
     () => [
-      { value: NO_LEVEL, label: "Без уровня" },
+      { value: NO_LEVEL, label: t("admin.clients.noLevel") },
       ...levels.map((level) => ({ value: level.id, label: level.name }))
     ],
-    [levels]
+    [levels, t]
   );
 
   function handleSubmit(event: React.FormEvent): void {
@@ -191,45 +193,43 @@ function OnboardForm({ levels, levelsLoading }: OnboardFormProps): JSX.Element {
     };
     onboard.mutate(input, {
       onSuccess: (client) => {
-        toast.notify(`Клиент сохранён: ${client.name}`, "success");
+        toast.notify(t("admin.clients.saved", { name: client.name }), "success");
       }
     });
   }
 
   return (
     <section className="stack" aria-labelledby="onboard-heading">
-      <h2 id="onboard-heading">Регистрация клиента</h2>
-      <p className="state state--loading">
-        Регистрация идемпотентна по Telegram ID: повторная отправка вернёт существующего клиента.
-      </p>
+      <h2 id="onboard-heading">{t("admin.clients.onboardHeading")}</h2>
+      <p className="state state--loading">{t("admin.clients.onboardLead")}</p>
       <form className="form" onSubmit={handleSubmit}>
         <NumberField
-          label="Telegram ID"
+          label={t("admin.field.telegramId")}
           value={telegramId}
           onValueChange={setTelegramId}
           required
         />
         <TextField
-          label="Имя"
+          label={t("admin.field.personName")}
           value={name}
           onChange={(event) => setName(event.target.value)}
           required
           autoComplete="off"
         />
         <TextField
-          label="Username"
+          label={t("admin.field.username")}
           value={username}
           onChange={(event) => setUsername(event.target.value)}
-          hint="Необязательно, без символа @."
+          hint={t("admin.clients.usernameHint")}
           autoComplete="off"
         />
         <SelectField
-          label="Уровень"
+          label={t("admin.field.level")}
           value={levelId}
           onChange={(event) => setLevelId(event.target.value)}
           options={levelOptions}
           disabled={levelsLoading}
-          hint="Необязательно."
+          hint={t("admin.clients.levelHint")}
         />
         {onboard.error ? (
           <p className="state state--error" role="alert">
@@ -238,7 +238,7 @@ function OnboardForm({ levels, levelsLoading }: OnboardFormProps): JSX.Element {
         ) : null}
         <div className="cluster">
           <Button type="submit" disabled={onboard.isPending}>
-            {onboard.isPending ? "Сохранение…" : "Зарегистрировать"}
+            {onboard.isPending ? t("admin.action.saving") : t("admin.clients.register")}
           </Button>
         </div>
       </form>

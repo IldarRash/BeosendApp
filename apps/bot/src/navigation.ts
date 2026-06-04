@@ -1,10 +1,11 @@
-import { backHomeKeyboard, MENU_ACTIONS, mainMenuKeyboard, WELCOME_TEXT } from "./menu";
+import { backHomeKeyboard, MENU_ACTIONS, mainMenuKeyboard, welcomeText } from "./menu";
 import type { MenuAction } from "./menu";
 import { handleGroupList } from "./group-booking";
 import { handleMyBookings } from "./my-bookings";
 import { showFilteredSlots } from "./slot-filters";
 import type { SlotFilterState } from "./slot-filters";
 import type { ApiClient } from "./api-client";
+import { t, type Catalog } from "./i18n";
 
 /**
  * Minimal surface a menu/nav handler needs from a grammY callback context.
@@ -31,6 +32,11 @@ export interface MenuHandlerDeps {
     | "listLevels"
   >;
   /**
+   * The caller's resolved locale catalog (i18n). Every string the handler
+   * renders comes from here via `t()`; the bot composes no domain text itself.
+   */
+  catalog: Catalog;
+  /**
    * The caller's current available-slot filters (T3.2), read from session by the
    * dispatcher. Absent ⇒ no filter (the full bookable list). The bot forwards
    * these to the API; it never filters locally.
@@ -41,26 +47,17 @@ export interface MenuHandlerDeps {
 export type MenuHandler = (ctx: MenuReplyCtx, deps: MenuHandlerDeps) => Promise<void>;
 
 /** Re-render the main menu (used by nav:home and the unknown-callback fallback). */
-export async function showMainMenu(ctx: MenuReplyCtx): Promise<void> {
-  await ctx.reply(WELCOME_TEXT, { reply_markup: mainMenuKeyboard() });
-}
-
-/**
- * Stub for a sub-flow that hasn't landed yet: shows a placeholder and the
- * consistent back/home footer so the journey never dead-ends.
- */
-function stub(text: string): MenuHandler {
-  return async (ctx) => {
-    await ctx.reply(text, { reply_markup: backHomeKeyboard() });
-  };
+export async function showMainMenu(ctx: MenuReplyCtx, catalog: Catalog): Promise<void> {
+  await ctx.reply(welcomeText(catalog), { reply_markup: mainMenuKeyboard(catalog) });
 }
 
 /**
  * Central routing table for the menu actions handled by the generic dispatcher.
- * The court rental entry (`menu:court`) and the back-to-menu action (`menu:home`)
- * are routed by dedicated callbackQuery handlers in index.ts before this table is
- * consulted, so they are intentionally absent here; `resolveCallback` falls back
- * to the main menu for any action without an entry. Routing is asserted in the spec.
+ * The court rental entry (`menu:court`), the language switch (`menu:lang`) and
+ * the back-to-menu action (`menu:home`) are routed by dedicated callbackQuery
+ * handlers in index.ts before this table is consulted, so they are intentionally
+ * absent here; `resolveCallback` falls back to the main menu for any action
+ * without an entry. Routing is asserted in the spec.
  */
 export const menuHandlers: Partial<Record<MenuAction, MenuHandler>> = {
   // Headline client flow (T1.5 + T3.2 filters): list only bookable slots,
@@ -68,22 +65,26 @@ export const menuHandlers: Partial<Record<MenuAction, MenuHandler>> = {
   // the API). The API decides what is bookable and computes seats/price; the bot
   // just renders the cards and the chip bar.
   [MENU_ACTIONS.availableTrainings]: async (ctx, deps) => {
-    await showFilteredSlots(ctx, deps.api, deps.slotFilters ?? {});
+    await showFilteredSlots(ctx, deps.api, deps.catalog, deps.slotFilters ?? {});
   },
-  [MENU_ACTIONS.todayFreeSlots]: stub("Свободные места на сегодня скоро будут здесь."),
+  [MENU_ACTIONS.todayFreeSlots]: async (ctx, deps) => {
+    await ctx.reply(t(deps.catalog, "bot.menu.todayStub"), {
+      reply_markup: backHomeKeyboard(deps.catalog)
+    });
+  },
   // Monthly group booking (T1.9): render the group list; picking a group leads
   // to a month choice and a confirmation, all handled in group-booking.ts.
   [MENU_ACTIONS.joinGroup]: async (ctx, deps) => {
-    await handleGroupList(ctx, deps.api);
+    await handleGroupList(ctx, deps.api, deps.catalog);
   },
   // My bookings (T1.10): resolve the caller's client from telegram_id, then list
   // upcoming + past. Ownership lives in the API; the bot only renders.
   [MENU_ACTIONS.myBookings]: async (ctx, deps) => {
-    await handleMyBookings(ctx, deps.api, ctx.from?.id);
+    await handleMyBookings(ctx, deps.api, deps.catalog, ctx.from?.id);
   },
   [MENU_ACTIONS.contactManager]: async (ctx, deps) => {
-    await ctx.reply(`Связаться с менеджером: ${deps.managerContact}`, {
-      reply_markup: backHomeKeyboard()
+    await ctx.reply(t(deps.catalog, "bot.menu.contactManagerLine", { contact: deps.managerContact }), {
+      reply_markup: backHomeKeyboard(deps.catalog)
     });
   }
 };
@@ -97,7 +98,7 @@ const menuActions = new Set<string>(Object.values(MENU_ACTIONS));
  */
 export function resolveCallback(data: string | undefined): MenuHandler {
   if (data !== undefined && menuActions.has(data)) {
-    return menuHandlers[data as MenuAction] ?? showMainMenu;
+    return menuHandlers[data as MenuAction] ?? ((ctx, deps) => showMainMenu(ctx, deps.catalog));
   }
-  return showMainMenu;
+  return (ctx, deps) => showMainMenu(ctx, deps.catalog);
 }

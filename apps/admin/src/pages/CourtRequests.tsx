@@ -9,6 +9,7 @@ import { Button } from "../ui/Button";
 import { DataTable, type Column } from "../ui/DataTable";
 import { Modal } from "../ui/Modal";
 import { useToast } from "../ui/Toast";
+import { useT } from "../i18n/LanguageProvider";
 import { formatRsd } from "../lib/format";
 import { useMe } from "../hooks/useSession";
 import { useCourts } from "../hooks/useCourts";
@@ -19,6 +20,8 @@ import {
   useRejectRequest
 } from "../hooks/useCourtRequests";
 
+type Translate = (key: string, params?: Record<string, string | number>) => string;
+
 /** The moderation queues, in tab order. */
 const STATUS_TABS: readonly CourtRequestStatus[] = [
   "pending",
@@ -27,17 +30,14 @@ const STATUS_TABS: readonly CourtRequestStatus[] = [
   "cancelled"
 ];
 
-/** RU labels for each queue status — the server owns the value, we only label it. */
-const STATUS_LABEL: Record<CourtRequestStatus, string> = {
-  pending: "Ожидают",
-  confirmed: "Подтверждены",
-  rejected: "Отклонены",
-  cancelled: "Отменены"
-};
+/** Catalog key for each queue status — the server owns the value, we only label it. */
+function statusLabel(status: CourtRequestStatus, t: Translate): string {
+  return t(`admin.courtRequests.status${status.charAt(0).toUpperCase()}${status.slice(1)}`);
+}
 
 /** Human-readable error from a failed query/mutation (the API decides the text). */
-function errorText(error: unknown): string {
-  return error instanceof Error ? error.message : "Не удалось выполнить операцию.";
+function errorText(error: unknown, t: Translate): string {
+  return error instanceof Error ? error.message : t("admin.courtRequests.opFailed");
 }
 
 /**
@@ -48,13 +48,14 @@ function errorText(error: unknown): string {
  */
 function courtCell(
   request: CourtRequestAdminView,
-  numberByCourtId: Map<string, number>
+  numberByCourtId: Map<string, number>,
+  t: Translate
 ): string {
   if (request.status === "confirmed" && request.courtId !== null) {
     const number = numberByCourtId.get(request.courtId);
-    return number !== undefined ? `№ ${number}` : "—";
+    return number !== undefined ? t("admin.courtRequests.courtNumber", { number }) : "—";
   }
-  return "не назначен";
+  return t("admin.courtRequests.courtUnassigned");
 }
 
 /**
@@ -67,6 +68,7 @@ function courtCell(
  * client-side.
  */
 export function CourtRequests(): JSX.Element {
+  const t = useT();
   const { notify } = useToast();
   const me = useMe();
   const decidedBy = me.data?.telegramId ?? null;
@@ -103,12 +105,12 @@ export function CourtRequests(): JSX.Element {
       { id: toConfirm.id, input: { courtId: pickedCourtId, decidedBy } },
       {
         onSuccess: () => {
-          notify(`Заявка подтверждена для ${toConfirm.clientName}.`, "success");
+          notify(t("admin.courtRequests.confirmed", { client: toConfirm.clientName }), "success");
           closeConfirm();
         },
         // A 409 (slot filled meanwhile) arrives as a thrown Error; surface the
         // server's message and let the invalidation refetch the free courts.
-        onError: (error) => notify(errorText(error), "error")
+        onError: (error) => notify(errorText(error, t), "error")
       }
     );
   }
@@ -118,29 +120,30 @@ export function CourtRequests(): JSX.Element {
     reject.mutate(
       { id: request.id, input: { decidedBy } },
       {
-        onSuccess: () => notify(`Заявка отклонена для ${request.clientName}.`, "success"),
-        onError: (error) => notify(errorText(error), "error")
+        onSuccess: () =>
+          notify(t("admin.courtRequests.rejected", { client: request.clientName }), "success"),
+        onError: (error) => notify(errorText(error, t), "error")
       }
     );
   }
 
   const columns: Column<CourtRequestAdminView>[] = [
-    { key: "client", header: "Клиент", render: (r) => r.clientName },
+    { key: "client", header: t("admin.courtRequests.colClient"), render: (r) => r.clientName },
     {
       key: "telegram",
-      header: "Telegram ID",
+      header: t("admin.courtRequests.colTelegram"),
       render: (r) => <code>{r.clientTelegramId}</code>
     },
-    { key: "date", header: "Дата", render: (r) => r.date },
-    { key: "time", header: "Время", render: (r) => `${r.startTime}–${r.endTime}` },
+    { key: "date", header: t("admin.courtRequests.colDate"), render: (r) => r.date },
+    { key: "time", header: t("admin.courtRequests.colTime"), render: (r) => `${r.startTime}–${r.endTime}` },
     {
       key: "duration",
-      header: "Длит.",
+      header: t("admin.courtRequests.colDuration"),
       numeric: true,
-      render: (r) => `${r.durationHours} ч`
+      render: (r) => t("admin.courtRequests.durationHours", { hours: r.durationHours })
     },
-    { key: "price", header: "Цена", numeric: true, render: (r) => formatRsd(r.priceRsd) },
-    { key: "court", header: "Корт", render: (r) => courtCell(r, numberByCourtId) },
+    { key: "price", header: t("admin.courtRequests.colPrice"), numeric: true, render: (r) => formatRsd(r.priceRsd) },
+    { key: "court", header: t("admin.courtRequests.colCourt"), render: (r) => courtCell(r, numberByCourtId, t) },
     {
       key: "actions",
       header: "",
@@ -152,14 +155,14 @@ export function CourtRequests(): JSX.Element {
               disabled={decidedBy === null}
               onClick={() => openConfirm(r)}
             >
-              Подтвердить
+              {t("admin.action.confirm")}
             </Button>
             <Button
               variant="danger"
               disabled={decidedBy === null || reject.isPending}
               onClick={() => rejectRequest(r)}
             >
-              Отклонить
+              {t("admin.action.reject")}
             </Button>
           </div>
         ) : null
@@ -170,13 +173,13 @@ export function CourtRequests(): JSX.Element {
     <AppShell>
       <header className="page-head">
         <div>
-          <h1>Заявки на корты</h1>
-          <p>Модерация заявок: подтверждение с выбором корта или отклонение.</p>
+          <h1>{t("admin.courtRequests.title")}</h1>
+          <p>{t("admin.courtRequests.lead")}</p>
         </div>
       </header>
 
       <div className="stack">
-        <div role="tablist" aria-label="Статус заявок" className="cluster">
+        <div role="tablist" aria-label={t("admin.courtRequests.tabsLabel")} className="cluster">
           {STATUS_TABS.map((tab) => {
             const selected = tab === status;
             return (
@@ -189,7 +192,7 @@ export function CourtRequests(): JSX.Element {
                 variant={selected ? "primary" : "ghost"}
                 onClick={() => setStatus(tab)}
               >
-                {STATUS_LABEL[tab]}
+                {statusLabel(tab, t)}
               </Button>
             );
           })}
@@ -201,18 +204,18 @@ export function CourtRequests(): JSX.Element {
           aria-labelledby={`court-tab-${status}`}
         >
           {requests.isPending ? (
-            <p className="state">Загрузка заявок…</p>
+            <p className="state">{t("admin.courtRequests.loading")}</p>
           ) : requests.isError ? (
             <p className="state state--error" role="alert">
-              {errorText(requests.error)}
+              {errorText(requests.error, t)}
             </p>
           ) : (
             <DataTable
-              caption={`Заявки на корты: ${STATUS_LABEL[status]}`}
+              caption={t("admin.courtRequests.caption", { status: statusLabel(status, t) })}
               columns={columns}
               rows={requests.data}
               rowKey={(r) => r.id}
-              emptyLabel="В этой очереди заявок нет."
+              emptyLabel={t("admin.courtRequests.empty")}
             />
           )}
         </div>
@@ -223,20 +226,20 @@ export function CourtRequests(): JSX.Element {
         onClose={closeConfirm}
         title={
           toConfirm
-            ? `Подтвердить заявку — ${toConfirm.clientName}`
-            : "Подтвердить заявку"
+            ? t("admin.courtRequests.confirmTitleNamed", { client: toConfirm.clientName })
+            : t("admin.courtRequests.confirmTitle")
         }
         footer={
           <div className="cluster">
             <Button variant="ghost" onClick={closeConfirm}>
-              Отмена
+              {t("admin.action.cancel")}
             </Button>
             <Button
               variant="primary"
               disabled={pickedCourtId === null || decidedBy === null || confirm.isPending}
               onClick={submitConfirm}
             >
-              Подтвердить
+              {t("admin.action.confirm")}
             </Button>
           </div>
         }
@@ -244,22 +247,27 @@ export function CourtRequests(): JSX.Element {
         {toConfirm ? (
           <div className="stack">
             <p>
-              {toConfirm.date}, {toConfirm.startTime}–{toConfirm.endTime} ·{" "}
-              {toConfirm.durationHours} ч · {formatRsd(toConfirm.priceRsd)}
+              {t("admin.courtRequests.confirmSummary", {
+                date: toConfirm.date,
+                start: toConfirm.startTime,
+                end: toConfirm.endTime,
+                hours: toConfirm.durationHours,
+                price: formatRsd(toConfirm.priceRsd)
+              })}
             </p>
             {freeCourts.isPending ? (
-              <p className="state">Загрузка свободных кортов…</p>
+              <p className="state">{t("admin.courtRequests.freeLoading")}</p>
             ) : freeCourts.isError ? (
               <p className="state state--error" role="alert">
-                {errorText(freeCourts.error)}
+                {errorText(freeCourts.error, t)}
               </p>
             ) : freeCourts.data.length === 0 ? (
               <p className="state" role="status">
-                Нет свободных кортов на это время.
+                {t("admin.courtRequests.noFreeCourts")}
               </p>
             ) : (
               <fieldset className="stack">
-                <legend>Выберите корт</legend>
+                <legend>{t("admin.courtRequests.pickCourt")}</legend>
                 {freeCourts.data.map((court: Court) => (
                   <label key={court.id} className="cluster">
                     <input
@@ -269,7 +277,7 @@ export function CourtRequests(): JSX.Element {
                       checked={pickedCourtId === court.id}
                       onChange={() => setPickedCourtId(court.id)}
                     />
-                    Корт № {court.number}
+                    {t("admin.courtRequests.courtOption", { number: court.number })}
                   </label>
                 ))}
               </fieldset>

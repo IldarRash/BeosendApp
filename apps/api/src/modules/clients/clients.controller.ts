@@ -1,7 +1,20 @@
-import { BadRequestException, Body, Controller, Get, Headers, Param, Post } from "@nestjs/common";
-import { type Client, clientSchema, onboardClientSchema } from "@beosand/types";
+import {
+  BadRequestException,
+  Body,
+  Controller,
+  Get,
+  Headers,
+  Param,
+  Patch,
+  Post
+} from "@nestjs/common";
+import { type Client, clientSchema, localeSchema, onboardClientSchema } from "@beosand/types";
 import type { ZodSchema } from "zod";
+import { z } from "zod";
 import { ClientsService } from "./clients.service";
+
+/** Bot's set-language body: only the new locale. */
+const setLanguageSchema = z.object({ language: localeSchema }).strict();
 
 /** Thin: parse + Zod-validate input, resolve actor, call one service method. */
 @Controller("clients")
@@ -27,6 +40,19 @@ export class ClientsController {
     const actorTelegramId = parseTelegramId(telegramIdHeader);
     const input = validate(onboardClientSchema, body ?? {});
     const client = await this.clients.onboard(actorTelegramId, input);
+    return validate(clientSchema, client);
+  }
+
+  @Patch("by-telegram/:telegramId/language")
+  async setLanguage(
+    @Headers("x-telegram-id") telegramIdHeader: string | undefined,
+    @Param("telegramId") telegramId: string,
+    @Body() body: unknown
+  ): Promise<Client> {
+    const actorTelegramId = parseTelegramId(telegramIdHeader);
+    const target = parseParamTelegramId(telegramId);
+    const { language } = validate(setLanguageSchema, body ?? {});
+    const client = await this.clients.setLanguage(actorTelegramId, target, language);
     return validate(clientSchema, client);
   }
 }

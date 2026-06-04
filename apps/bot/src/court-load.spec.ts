@@ -8,6 +8,9 @@ import {
   parseLoadDate
 } from "./court-load";
 import { MENU_ACTIONS } from "./menu";
+import { getStaticCatalog } from "@beosand/i18n";
+
+const ru = getStaticCatalog("ru");
 
 /** Build the cells for a court whose given hours are occupied; rest are free. */
 function cells(
@@ -46,7 +49,7 @@ const grid: CourtLoadGrid = {
 
 describe("courtLoadGridText", () => {
   it("renders a glyph per state with a legend, in a monospace <pre> block", () => {
-    const text = courtLoadGridText(grid);
+    const text = courtLoadGridText(ru, grid);
     expect(text).toContain("<pre>");
     expect(text).toContain("</pre>");
     // Header carries the date.
@@ -69,7 +72,7 @@ describe("courtLoadGridText", () => {
 describe("courtLoadDateKeyboard", () => {
   it("emits one date button per option and a back-to-menu path", () => {
     const dates = ["2026-06-15", "2026-06-16"];
-    const rows = courtLoadDateKeyboard(dates).inline_keyboard;
+    const rows = courtLoadDateKeyboard(ru, dates).inline_keyboard;
     const callbacks = rows.flat().map((b) => ("callback_data" in b ? b.callback_data : undefined));
     expect(callbacks).toContain(`${COURT_LOAD_ACTIONS.datePrefix}2026-06-15`);
     expect(callbacks).toContain(`${COURT_LOAD_ACTIONS.datePrefix}2026-06-16`);
@@ -79,7 +82,7 @@ describe("courtLoadDateKeyboard", () => {
 
 describe("courtLoadGridKeyboard", () => {
   it("offers another date and a home path", () => {
-    const callbacks = courtLoadGridKeyboard()
+    const callbacks = courtLoadGridKeyboard(ru)
       .inline_keyboard.flat()
       .map((b) => ("callback_data" in b ? b.callback_data : undefined));
     expect(callbacks).toContain(COURT_LOAD_ACTIONS.open);

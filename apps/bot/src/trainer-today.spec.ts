@@ -2,25 +2,28 @@ import { describe, expect, it, vi } from "vitest";
 import type { Booking, TrainerTodayItem, TrainingRoster } from "@beosand/types";
 import { NAV_ACTIONS } from "./menu";
 import type { MenuReplyCtx } from "./navigation";
+import { getStaticCatalog } from "@beosand/i18n";
 import {
   attendData,
-  EMPTY_ROSTER_TEXT,
   handleMarkAttendance,
   handleTrainerRoster,
   handleTrainerToday,
-  NO_TODAY_TRAININGS_TEXT,
-  NOT_TRAINER_TEXT,
   parseAttend,
   parseRoster,
   renderRosterText,
   renderTodayText,
   rosterData,
   rosterKeyboard,
-  TODAY_HEADER,
   todayKeyboard,
   TRAINER_ACTIONS,
   type TrainerTodayApi
 } from "./trainer-today";
+
+const ru = getStaticCatalog("ru");
+const TODAY_HEADER = ru["bot.trainer.todayHeader"];
+const NO_TODAY_TRAININGS_TEXT = ru["bot.trainer.noToday"];
+const NOT_TRAINER_TEXT = ru["bot.trainer.notTrainer"];
+const EMPTY_ROSTER_TEXT = ru["bot.trainer.emptyRoster"];
 
 const TRAINING_ID = "11111111-1111-1111-1111-111111111111";
 const BOOKING_ID = "33333333-3333-3333-3333-333333333333";
@@ -107,11 +110,11 @@ describe("attend callback data", () => {
 
 describe("renderTodayText", () => {
   it("shows the empty line when there are no trainings", () => {
-    expect(renderTodayText([])).toBe(NO_TODAY_TRAININGS_TEXT);
+    expect(renderTodayText(ru, [])).toBe(NO_TODAY_TRAININGS_TEXT);
   });
 
   it("renders a header and a headcount line per training", () => {
-    const text = renderTodayText([todayItem()]);
+    const text = renderTodayText(ru, [todayItem()]);
     expect(text).toContain(TODAY_HEADER);
     expect(text).toContain("4/8");
   });
@@ -119,7 +122,7 @@ describe("renderTodayText", () => {
 
 describe("todayKeyboard", () => {
   it("gives each training a roster button, then the back/home footer", () => {
-    const callbacks = callbacksOf(todayKeyboard([todayItem()]));
+    const callbacks = callbacksOf(todayKeyboard(ru, [todayItem()]));
     expect(callbacks).toContain(rosterData(TRAINING_ID));
     expect(callbacks.slice(-2)).toEqual([NAV_ACTIONS.back, NAV_ACTIONS.home]);
   });
@@ -128,6 +131,7 @@ describe("todayKeyboard", () => {
 describe("renderRosterText", () => {
   it("numbers participants and shows the outcome once marked", () => {
     const text = renderRosterText(
+      ru,
       roster({
         participants: [
           {
@@ -144,13 +148,13 @@ describe("renderRosterText", () => {
   });
 
   it("shows the empty-roster line when no one is signed up", () => {
-    expect(renderRosterText(roster({ participants: [] }))).toContain(EMPTY_ROSTER_TEXT);
+    expect(renderRosterText(ru, roster({ participants: [] }))).toContain(EMPTY_ROSTER_TEXT);
   });
 });
 
 describe("rosterKeyboard", () => {
   it("gives each participant attended + no_show buttons plus a path home", () => {
-    const callbacks = callbacksOf(rosterKeyboard(roster()));
+    const callbacks = callbacksOf(rosterKeyboard(ru, roster()));
     expect(callbacks).toContain(attendData(BOOKING_ID, "attended"));
     expect(callbacks).toContain(attendData(BOOKING_ID, "no_show"));
     expect(callbacks).toContain(TRAINER_ACTIONS.today);
@@ -172,7 +176,7 @@ describe("handleTrainerToday", () => {
       markAttendance: vi.fn()
     };
     const { ctx, reply } = fakeCtx();
-    await handleTrainerToday(ctx, api, 777);
+    await handleTrainerToday(ctx, api, ru, 777);
     expect(api.getTrainerToday).toHaveBeenCalledWith(777);
     expect(reply.mock.calls[0][0]).toContain(TODAY_HEADER);
   });
@@ -184,7 +188,7 @@ describe("handleTrainerToday", () => {
       markAttendance: vi.fn()
     };
     const { ctx, reply } = fakeCtx();
-    await handleTrainerToday(ctx, api, 777);
+    await handleTrainerToday(ctx, api, ru, 777);
     expect(reply.mock.calls[0][0]).toBe(NOT_TRAINER_TEXT);
   });
 
@@ -195,7 +199,7 @@ describe("handleTrainerToday", () => {
       markAttendance: vi.fn()
     };
     const reply = vi.fn().mockResolvedValue(undefined);
-    await handleTrainerToday({ reply }, api, undefined);
+    await handleTrainerToday({ reply }, api, ru, undefined);
     expect(api.getTrainerToday).not.toHaveBeenCalled();
   });
 });
@@ -208,7 +212,7 @@ describe("handleTrainerRoster", () => {
       markAttendance: vi.fn()
     };
     const reply = vi.fn().mockResolvedValue(undefined);
-    await handleTrainerRoster({ reply, from: { id: 777 } }, api, 777, TRAINING_ID);
+    await handleTrainerRoster({ reply, from: { id: 777 } }, api, ru, 777, TRAINING_ID);
     expect(api.getTrainingRoster).toHaveBeenCalledWith(TRAINING_ID, 777);
     expect(reply.mock.calls[0][0]).toContain("Иван");
   });
@@ -235,7 +239,7 @@ describe("handleMarkAttendance", () => {
       markAttendance
     };
     const reply = vi.fn().mockResolvedValue(undefined);
-    await handleMarkAttendance({ reply, from: { id: 777 } }, api, 777, {
+    await handleMarkAttendance({ reply, from: { id: 777 } }, api, ru, 777, {
       bookingId: BOOKING_ID,
       status: "attended"
     });
@@ -251,7 +255,7 @@ describe("handleMarkAttendance", () => {
       markAttendance: vi.fn()
     };
     const reply = vi.fn().mockResolvedValue(undefined);
-    await handleMarkAttendance({ reply }, api, undefined, {
+    await handleMarkAttendance({ reply }, api, ru, undefined, {
       bookingId: BOOKING_ID,
       status: "no_show"
     });

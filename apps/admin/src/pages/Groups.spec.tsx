@@ -10,6 +10,8 @@ vi.mock("../ui/AppShell", () => ({
   AppShell: ({ children }: { children: ReactNode }) => <div>{children}</div>
 }));
 
+vi.mock("../i18n/LanguageProvider", async () => import("../i18n/test-utils"));
+
 const useGroups = vi.fn();
 const useCreateGroup = vi.fn();
 const useUpdateGroup = vi.fn();
