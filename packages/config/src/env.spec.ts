@@ -3,7 +3,8 @@ import { isAdmin, loadEnv } from "./env";
 
 const base = {
   DATABASE_URL: "postgres://u:p@localhost:5432/db",
-  TELEGRAM_BOT_TOKEN: "123:abc"
+  TELEGRAM_BOT_TOKEN: "123:abc",
+  ADMIN_SESSION_SECRET: "admin-session-secret-1234567890"
 };
 
 describe("loadEnv", () => {
@@ -16,6 +17,17 @@ describe("loadEnv", () => {
 
   it("fails closed on missing required vars", () => {
     expect(() => loadEnv({})).toThrow(/Invalid environment configuration/);
+  });
+
+  it("fails closed on a missing admin session secret", () => {
+    const { ADMIN_SESSION_SECRET: _omitted, ...withoutSecret } = base;
+    expect(() => loadEnv(withoutSecret)).toThrow(/ADMIN_SESSION_SECRET/);
+  });
+
+  it("fails closed on a too-short admin session secret", () => {
+    expect(() => loadEnv({ ...base, ADMIN_SESSION_SECRET: "short" })).toThrow(
+      /ADMIN_SESSION_SECRET/
+    );
   });
 
   it("isAdmin matches by numeric or string id", () => {

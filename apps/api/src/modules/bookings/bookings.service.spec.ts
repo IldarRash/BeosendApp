@@ -859,8 +859,15 @@ describe("BookingsService.markAttendance (T2.3)", () => {
   const TRAINER_TG = 555;
   const OTHER_TG = 556;
   const TRAINER_ID = "66666666-6666-6666-6666-666666666666";
-  const yesterday = "2026-06-02"; // today is 2026-06-03
-  const tomorrow = "2026-06-04";
+  // Derived from the real current date so the attendance date-window assertions
+  // (past markable, future rejected) hold on any day rather than a stale literal.
+  const dayOffset = (days: number): string => {
+    const d = new Date();
+    d.setUTCDate(d.getUTCDate() + days);
+    return d.toISOString().slice(0, 10);
+  };
+  const yesterday = dayOffset(-1);
+  const tomorrow = dayOffset(1);
 
   const trainer = (over: Partial<Trainer> = {}): Trainer => ({
     id: TRAINER_ID,

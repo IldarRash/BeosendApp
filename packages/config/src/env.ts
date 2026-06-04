@@ -12,6 +12,12 @@ const envSchema = z.object({
   TELEGRAM_BOT_TOKEN: z.string().min(1),
   API_URL: z.string().url().default("http://localhost:3000"),
   PORT: z.coerce.number().int().positive().default(3000),
+  /**
+   * Secret used to sign/verify admin web-console session JWTs (Telegram Login
+   * Widget seam). Required and fail-closed: a process must not boot able to
+   * mint/accept admin sessions without a configured secret. Never logged.
+   */
+  ADMIN_SESSION_SECRET: z.string().min(16),
   /** Comma-separated Telegram numeric IDs that act as managers/admins. */
   ADMIN_TELEGRAM_IDS: z
     .string()

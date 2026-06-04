@@ -4,6 +4,7 @@ import { ConfigModule } from "./config/config.module";
 import { DbModule } from "./db/db.module";
 import { HealthModule } from "./health/health.module";
 import { AnalyticsModule } from "./modules/analytics/analytics.module";
+import { AuthModule } from "./modules/auth/auth.module";
 import { BookingsModule } from "./modules/bookings/bookings.module";
 import { BroadcastsModule } from "./modules/broadcasts/broadcasts.module";
 import { ClientsModule } from "./modules/clients/clients.module";
@@ -27,6 +28,7 @@ import { WaitlistModule } from "./modules/waitlist/waitlist.module";
     ConfigModule,
     DbModule,
     HealthModule,
+    AuthModule,
     LevelsModule,
     TrainersModule,
     GroupsModule,
