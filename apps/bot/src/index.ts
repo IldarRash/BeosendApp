@@ -2,47 +2,55 @@ import { isAdmin, loadEnv } from "@beosand/config";
 import { Bot, session } from "grammy";
 import type { Court } from "@beosand/types";
 import { ApiClient } from "./api-client";
-import { adminMenuKeyboard, MENU_ACTIONS, mainMenuKeyboard, WELCOME_TEXT } from "./menu";
 import {
-  COURT_MOD_ACTIONS,
-  COURT_MOD_CONFIRMED_TEXT,
-  COURT_MOD_NO_COURTS_TEXT,
-  COURT_MOD_NOT_ADMIN_TEXT,
-  COURT_MOD_PICK_TEXT,
-  COURT_MOD_REJECTED_TEXT,
+  adminMenuKeyboard,
+  languageKeyboard,
+  MENU_ACTIONS,
+  mainMenuKeyboard,
+  parseSetLanguage,
+  welcomeText
+} from "./menu";
+import { CatalogStore, asLocale, t, type Catalog, type Locale } from "./i18n";
+import {
+  courtModConfirmedText,
+  courtModNoCourtsText,
+  courtModNotAdminText,
+  courtModPickText,
   courtModQueueKeyboard,
   courtModQueueText,
+  courtModRejectedText,
   courtPickKeyboard,
   parseAssign,
   parsePick,
-  parseReject
+  parseReject,
+  COURT_MOD_ACTIONS
 } from "./court-moderation";
 import {
-  COURT_LOAD_ACTIONS,
-  COURT_LOAD_NOT_ADMIN_TEXT,
-  COURT_LOAD_PICK_DATE_TEXT,
   courtLoadDateKeyboard,
   courtLoadGridKeyboard,
   courtLoadGridText,
-  parseLoadDate
+  courtLoadNotAdminText,
+  courtLoadPickDateText,
+  parseLoadDate,
+  COURT_LOAD_ACTIONS
 } from "./court-load";
 import {
-  COURT_ACTIONS,
-  COURT_NO_SLOTS_TEXT,
-  COURT_OPEN_TEXT,
-  COURT_PICK_DURATION_TEXT,
-  COURT_PICK_TIME_TEXT,
-  COURT_SUBMITTED_TEXT,
   courtDateKeyboard,
   courtDateOptions,
   courtDurationKeyboard,
+  courtNoSlotsText,
+  courtOpenText,
+  courtPickDurationText,
+  courtPickTimeText,
   courtPreviewKeyboard,
   courtPreviewText,
+  courtSubmittedText,
   courtTimeKeyboard,
   parseConfirm,
   parseDate,
   parseDuration,
-  parseTime
+  parseTime,
+  COURT_ACTIONS
 } from "./court";
 import { resolveCallback } from "./navigation";
 import { handleBookConfirm, handleBookStart } from "./booking";
@@ -108,17 +116,18 @@ import {
   applyFilterEdit,
   FILTER_ACTIONS,
   parseFilterSet,
+  pickTimeOfDayText,
+  pickWeekdayText,
   showFilteredSlots,
   showLevelPicker,
   showTrainerPicker,
   timeOfDayPickerKeyboard,
-  weekdayPickerKeyboard,
-  PICK_TIME_OF_DAY_TEXT,
-  PICK_WEEKDAY_TEXT
+  weekdayPickerKeyboard
 } from "./slot-filters";
 import {
   handleLevelCallback,
   handleNameText,
+  handleOnboardLanguageCallback,
   handleStart,
   initialSession,
   type BotContext,
@@ -130,46 +139,81 @@ async function main(): Promise<void> {
   const api = new ApiClient(env.API_URL);
   const bot = new Bot<BotContext>(env.TELEGRAM_BOT_TOKEN);
 
+  // i18n: hydrate the merged catalogs from the API (admin overrides applied) and
+  // refresh them periodically; the bundled @beosand/i18n static catalog is the
+  // offline fallback. Every render resolves the caller's locale catalog from here.
+  const catalogs = new CatalogStore(api);
+
+  /** The resolved catalog for a locale (never throws). */
+  const catalogFor = (locale: Locale): Catalog => catalogs.get(locale);
+
+  /**
+   * Resolve the caller's locale catalog from their stored client.language. A
+   * not-yet-onboarded caller (no client) gets the default-locale catalog. The
+   * bot keys identity off the numeric telegram id only.
+   */
+  const resolveCatalog = async (telegramId: number | undefined): Promise<Catalog> => {
+    if (telegramId === undefined) {
+      return catalogFor(asLocale(undefined));
+    }
+    const client = await api.getClientByTelegramId(telegramId);
+    return catalogFor(asLocale(client?.language));
+  };
+
   // Onboarding is multi-step, so the bot holds the conversation state (the API
   // owns persistence). Session is keyed per chat by grammY's default key.
   bot.use(session<SessionData, BotContext>({ initial: initialSession }));
 
   // The main menu shows the admin moderation entry only to admins (config-based);
   // the API still re-gates every moderation read/write by x-telegram-id.
-  const menuFor = (telegramId: number) =>
-    isAdmin(env, telegramId) ? adminMenuKeyboard() : mainMenuKeyboard();
+  const menuFor = (telegramId: number, catalog: Catalog) =>
+    isAdmin(env, telegramId) ? adminMenuKeyboard(catalog) : mainMenuKeyboard(catalog);
 
   // First entry (UX sections 1–2): new users (API 404) enter onboarding;
-  // returning users land on the main menu (admin-aware).
+  // returning users land on the main menu (admin-aware), in their stored language.
   bot.command("start", async (ctx) => {
-    await handleStart(ctx, api, menuFor(ctx.from?.id ?? 0));
+    const telegramId = ctx.from?.id ?? 0;
+    const catalog = await resolveCatalog(telegramId);
+    await handleStart(ctx, api, catalog, menuFor(telegramId, catalog));
   });
 
   // Back/home path from any sub-flow returns to the main menu (admin-aware).
   bot.callbackQuery(MENU_ACTIONS.backToMenu, async (ctx) => {
     await ctx.answerCallbackQuery();
-    await ctx.reply(WELCOME_TEXT, { reply_markup: menuFor(ctx.from.id) });
+    const catalog = await resolveCatalog(ctx.from.id);
+    await ctx.reply(welcomeText(catalog), { reply_markup: menuFor(ctx.from.id, catalog) });
+  });
+
+  // Language switch (i18n): open the language picker. Available to everyone; the
+  // chosen locale is persisted on the caller's client via the API.
+  bot.callbackQuery(MENU_ACTIONS.language, async (ctx) => {
+    await ctx.answerCallbackQuery();
+    const catalog = await resolveCatalog(ctx.from.id);
+    await ctx.reply(t(catalog, "bot.language.prompt"), { reply_markup: languageKeyboard() });
   });
 
   // Trainer-only entry (T2.3): role-gated via the API. Non-trainers get a
   // "trainers only" message (the API resolves the role from telegram_id); the
   // client main menu stays client-only.
   bot.command("today", async (ctx) => {
-    await handleTrainerToday(ctx, api, ctx.from?.id);
+    const catalog = await resolveCatalog(ctx.from?.id);
+    await handleTrainerToday(ctx, api, catalog, ctx.from?.id);
   });
 
   // Manager-only entry (T2.4): free-slot broadcasts. Admin role is gated by the
   // API (ADMIN_TELEGRAM_IDS); non-admins get a "managers only" message and never
   // see the broadcast UI. The client main menu stays client-only.
   bot.command("broadcast", async (ctx) => {
-    await handleBroadcastMenu(ctx, api, ctx.from?.id);
+    const catalog = await resolveCatalog(ctx.from?.id);
+    await handleBroadcastMenu(ctx, api, catalog, ctx.from?.id);
   });
 
   // Manager-only entry (T3.1): the read-only analytics summary. Admin role is
   // gated by the API (ADMIN_TELEGRAM_IDS); non-admins get a "managers only"
   // message and never see the stats. The client main menu stays client-only.
   bot.command("stats", async (ctx) => {
-    await handleStatsMenu(ctx, api, ctx.from?.id);
+    const catalog = await resolveCatalog(ctx.from?.id);
+    await handleStatsMenu(ctx, api, catalog, ctx.from?.id);
   });
 
   // --- Court rental request flow (Edition 2, C2). 2–3 taps: date → time →
@@ -179,53 +223,57 @@ async function main(): Promise<void> {
   // Entry: from the main menu or "back to dates" inside the flow.
   bot.callbackQuery([MENU_ACTIONS.rentCourt, COURT_ACTIONS.open], async (ctx) => {
     await ctx.answerCallbackQuery();
-    await ctx.reply(COURT_OPEN_TEXT, {
-      reply_markup: courtDateKeyboard(courtDateOptions(new Date()))
+    const catalog = await resolveCatalog(ctx.from.id);
+    await ctx.reply(courtOpenText(catalog), {
+      reply_markup: courtDateKeyboard(catalog, courtDateOptions(new Date()))
     });
   });
 
   // Date picked → fetch offerable start times for that date.
   bot.callbackQuery(new RegExp(`^${COURT_ACTIONS.datePrefix}`), async (ctx) => {
     await ctx.answerCallbackQuery();
+    const catalog = await resolveCatalog(ctx.from.id);
     const date = parseDate(ctx.callbackQuery.data);
     const availability = await api.getCourtAvailability(date);
     if (availability.hours.every((h) => h.freeCourts <= 0)) {
-      await ctx.reply(COURT_NO_SLOTS_TEXT, {
-        reply_markup: courtDateKeyboard(courtDateOptions(new Date()))
+      await ctx.reply(courtNoSlotsText(catalog), {
+        reply_markup: courtDateKeyboard(catalog, courtDateOptions(new Date()))
       });
       return;
     }
-    await ctx.reply(COURT_PICK_TIME_TEXT, { reply_markup: courtTimeKeyboard(availability) });
+    await ctx.reply(courtPickTimeText(catalog), {
+      reply_markup: courtTimeKeyboard(catalog, availability)
+    });
   });
 
   // Start time picked → offer the 1h / 2h durations.
   bot.callbackQuery(new RegExp(`^${COURT_ACTIONS.timePrefix}`), async (ctx) => {
     await ctx.answerCallbackQuery();
+    const catalog = await resolveCatalog(ctx.from.id);
     const { startTime, date } = parseTime(ctx.callbackQuery.data);
-    await ctx.reply(COURT_PICK_DURATION_TEXT, {
-      reply_markup: courtDurationKeyboard(date, startTime)
+    await ctx.reply(courtPickDurationText(catalog), {
+      reply_markup: courtDurationKeyboard(catalog, date, startTime)
     });
   });
 
   // Duration picked → server price + availability preview.
   bot.callbackQuery(new RegExp(`^${COURT_ACTIONS.durationPrefix}`), async (ctx) => {
     await ctx.answerCallbackQuery();
+    const catalog = await resolveCatalog(ctx.from.id);
     const { durationHours, date, startTime } = parseDuration(ctx.callbackQuery.data);
-    const preview = await api.previewCourtRequest(
-      ctx.from.id,
-      date,
-      startTime,
-      durationHours
-    );
-    await ctx.reply(courtPreviewText(preview), { reply_markup: courtPreviewKeyboard(preview) });
+    const preview = await api.previewCourtRequest(ctx.from.id, date, startTime, durationHours);
+    await ctx.reply(courtPreviewText(catalog, preview), {
+      reply_markup: courtPreviewKeyboard(catalog, preview)
+    });
   });
 
   // Submit → API creates a pending request (no court assigned, server price).
   bot.callbackQuery(new RegExp(`^${COURT_ACTIONS.confirmPrefix}`), async (ctx) => {
     await ctx.answerCallbackQuery();
+    const catalog = await resolveCatalog(ctx.from.id);
     const { date, startTime, durationHours } = parseConfirm(ctx.callbackQuery.data);
     await api.createCourtRequest(ctx.from.id, date, startTime, durationHours);
-    await ctx.reply(COURT_SUBMITTED_TEXT, { reply_markup: mainMenuKeyboard() });
+    await ctx.reply(courtSubmittedText(catalog), { reply_markup: mainMenuKeyboard(catalog) });
   });
 
   // --- C4 court moderation (admin). The bot only renders the API-returned queue
@@ -243,34 +291,36 @@ async function main(): Promise<void> {
   // whether to render the UI; the API is the real gate on every read/write.
   bot.callbackQuery(COURT_MOD_ACTIONS.queue, async (ctx) => {
     await ctx.answerCallbackQuery();
+    const catalog = await resolveCatalog(ctx.from.id);
     if (!isAdmin(env, ctx.from.id)) {
-      await ctx.reply(COURT_MOD_NOT_ADMIN_TEXT, { reply_markup: mainMenuKeyboard() });
+      await ctx.reply(courtModNotAdminText(catalog), { reply_markup: mainMenuKeyboard(catalog) });
       return;
     }
     const requests = await api.listPendingCourtRequests(ctx.from.id);
-    await ctx.reply(courtModQueueText(requests), {
-      reply_markup: courtModQueueKeyboard(requests)
+    await ctx.reply(courtModQueueText(catalog, requests), {
+      reply_markup: courtModQueueKeyboard(catalog, requests)
     });
   });
 
   // Подтвердить → fetch the courts free for every covered hour and offer one button each.
   bot.callbackQuery(new RegExp(`^${COURT_MOD_ACTIONS.pickPrefix}`), async (ctx) => {
     await ctx.answerCallbackQuery();
+    const catalog = await resolveCatalog(ctx.from.id);
     if (!isAdmin(env, ctx.from.id)) {
-      await ctx.reply(COURT_MOD_NOT_ADMIN_TEXT, { reply_markup: mainMenuKeyboard() });
+      await ctx.reply(courtModNotAdminText(catalog), { reply_markup: mainMenuKeyboard(catalog) });
       return;
     }
     const requestId = parsePick(ctx.callbackQuery.data);
     const courts = await api.freeCourtsForRequest(ctx.from.id, requestId);
     freeCourtsCache.set(cacheKey(ctx.from.id, requestId), courts);
     if (courts.length === 0) {
-      await ctx.reply(COURT_MOD_NO_COURTS_TEXT, {
-        reply_markup: courtModQueueKeyboard([])
+      await ctx.reply(courtModNoCourtsText(catalog), {
+        reply_markup: courtModQueueKeyboard(catalog, [])
       });
       return;
     }
-    await ctx.reply(COURT_MOD_PICK_TEXT, {
-      reply_markup: courtPickKeyboard(requestId, courts)
+    await ctx.reply(courtModPickText(catalog), {
+      reply_markup: courtPickKeyboard(catalog, requestId, courts)
     });
   });
 
@@ -278,8 +328,9 @@ async function main(): Promise<void> {
   // index; the API re-checks freeness atomically, so a stale index is rejected there.
   bot.callbackQuery(new RegExp(`^${COURT_MOD_ACTIONS.assignPrefix}`), async (ctx) => {
     await ctx.answerCallbackQuery();
+    const catalog = await resolveCatalog(ctx.from.id);
     if (!isAdmin(env, ctx.from.id)) {
-      await ctx.reply(COURT_MOD_NOT_ADMIN_TEXT, { reply_markup: mainMenuKeyboard() });
+      await ctx.reply(courtModNotAdminText(catalog), { reply_markup: mainMenuKeyboard(catalog) });
       return;
     }
     const { requestId, courtIndex } = parseAssign(ctx.callbackQuery.data);
@@ -289,27 +340,32 @@ async function main(): Promise<void> {
       // Cache lost (restart) — re-open the picker so the admin reselects.
       const refreshed = await api.freeCourtsForRequest(ctx.from.id, requestId);
       freeCourtsCache.set(cacheKey(ctx.from.id, requestId), refreshed);
-      await ctx.reply(COURT_MOD_PICK_TEXT, {
-        reply_markup: courtPickKeyboard(requestId, refreshed)
+      await ctx.reply(courtModPickText(catalog), {
+        reply_markup: courtPickKeyboard(catalog, requestId, refreshed)
       });
       return;
     }
     await api.confirmCourtRequest(ctx.from.id, requestId, court.id);
     freeCourtsCache.delete(cacheKey(ctx.from.id, requestId));
-    await ctx.reply(COURT_MOD_CONFIRMED_TEXT, { reply_markup: courtModQueueKeyboard([]) });
+    await ctx.reply(courtModConfirmedText(catalog), {
+      reply_markup: courtModQueueKeyboard(catalog, [])
+    });
   });
 
   // Отклонить → reject; the API stamps decided_* and notifies the client.
   bot.callbackQuery(new RegExp(`^${COURT_MOD_ACTIONS.rejectPrefix}`), async (ctx) => {
     await ctx.answerCallbackQuery();
+    const catalog = await resolveCatalog(ctx.from.id);
     if (!isAdmin(env, ctx.from.id)) {
-      await ctx.reply(COURT_MOD_NOT_ADMIN_TEXT, { reply_markup: mainMenuKeyboard() });
+      await ctx.reply(courtModNotAdminText(catalog), { reply_markup: mainMenuKeyboard(catalog) });
       return;
     }
     const requestId = parseReject(ctx.callbackQuery.data);
     await api.rejectCourtRequest(ctx.from.id, requestId);
     freeCourtsCache.delete(cacheKey(ctx.from.id, requestId));
-    await ctx.reply(COURT_MOD_REJECTED_TEXT, { reply_markup: courtModQueueKeyboard([]) });
+    await ctx.reply(courtModRejectedText(catalog), {
+      reply_markup: courtModQueueKeyboard(catalog, [])
+    });
   });
 
   // --- C6 court load grid (admin). Read-only: the bot shows a date picker, fetches
@@ -321,27 +377,29 @@ async function main(): Promise<void> {
   // Open the load view → show the date picker.
   bot.callbackQuery(COURT_LOAD_ACTIONS.open, async (ctx) => {
     await ctx.answerCallbackQuery();
+    const catalog = await resolveCatalog(ctx.from.id);
     if (!isAdmin(env, ctx.from.id)) {
-      await ctx.reply(COURT_LOAD_NOT_ADMIN_TEXT, { reply_markup: mainMenuKeyboard() });
+      await ctx.reply(courtLoadNotAdminText(catalog), { reply_markup: mainMenuKeyboard(catalog) });
       return;
     }
-    await ctx.reply(COURT_LOAD_PICK_DATE_TEXT, {
-      reply_markup: courtLoadDateKeyboard(courtDateOptions(new Date()))
+    await ctx.reply(courtLoadPickDateText(catalog), {
+      reply_markup: courtLoadDateKeyboard(catalog, courtDateOptions(new Date()))
     });
   });
 
   // Date picked → fetch the grid and render it.
   bot.callbackQuery(new RegExp(`^${COURT_LOAD_ACTIONS.datePrefix}`), async (ctx) => {
     await ctx.answerCallbackQuery();
+    const catalog = await resolveCatalog(ctx.from.id);
     if (!isAdmin(env, ctx.from.id)) {
-      await ctx.reply(COURT_LOAD_NOT_ADMIN_TEXT, { reply_markup: mainMenuKeyboard() });
+      await ctx.reply(courtLoadNotAdminText(catalog), { reply_markup: mainMenuKeyboard(catalog) });
       return;
     }
     const date = parseLoadDate(ctx.callbackQuery.data);
     const grid = await api.getCourtLoad(ctx.from.id, date);
-    await ctx.reply(courtLoadGridText(grid), {
+    await ctx.reply(courtLoadGridText(catalog, grid), {
       parse_mode: "HTML",
-      reply_markup: courtLoadGridKeyboard()
+      reply_markup: courtLoadGridKeyboard(catalog)
     });
   });
 
@@ -350,29 +408,54 @@ async function main(): Promise<void> {
   // "managers only" message and never see the menu. The client main menu stays
   // client-only — clients never reach these screens.
   bot.command("manage", async (ctx) => {
-    await handleManagerMenu(ctx, api, ctx.from?.id);
+    const catalog = await resolveCatalog(ctx.from?.id);
+    await handleManagerMenu(ctx, api, catalog, ctx.from?.id);
   });
 
   // Free text only matters while awaiting the onboarding name; otherwise ignore.
+  // Onboarding's first prompts use the default-locale catalog (no client yet).
   bot.on("message:text", async (ctx) => {
-    await handleNameText(ctx, api);
+    const catalog = await resolveCatalog(ctx.from?.id);
+    await handleNameText(ctx, api, catalog);
   });
 
-  // Single dispatch entry: onboarding level picks first, then the menu table.
-  // Unknown/expired callbacks fall back to the main menu instead of erroring,
-  // and the spinner is always answered.
+  // Single dispatch entry: onboarding language/level picks first, then the menu
+  // table. Unknown/expired callbacks fall back to the main menu instead of
+  // erroring, and the spinner is always answered.
   bot.on("callback_query:data", async (ctx) => {
     await ctx.answerCallbackQuery();
-    if (await handleLevelCallback(ctx, api, menuFor(ctx.from.id))) {
+    // Onboarding language step (only active mid-onboarding): pick language and
+    // advance to the level step.
+    if (await handleOnboardLanguageCallback(ctx, api, catalogFor)) {
       return;
     }
+    // Returning-user language switch: persist the chosen locale on the client and
+    // re-render the (admin-aware) main menu in the new language. The API
+    // authorizes the write (caller may set only their own record).
+    const switchLocale = parseSetLanguage(ctx.callbackQuery.data);
+    if (switchLocale !== undefined) {
+      const telegramId = ctx.from.id;
+      const client = await api.getClientByTelegramId(telegramId);
+      if (client) {
+        await api.setClientLanguage(telegramId, switchLocale);
+      }
+      const catalog = catalogFor(switchLocale);
+      await ctx.reply(t(catalog, "bot.language.changed"), {
+        reply_markup: menuFor(telegramId, catalog)
+      });
+      return;
+    }
+    if (await handleLevelCallback(ctx, api, catalogFor, (c) => menuFor(ctx.from.id, c))) {
+      return;
+    }
+    const catalog = await resolveCatalog(ctx.from.id);
     // "Записаться" from a slot card → confirmation card (step 2 of 3). The sent
     // free-slot broadcast (T2.4) carries `book:slot:<id>`; both prefixes funnel
     // into the same T1.8 entry, which re-checks availability before booking.
     const startTrainingId =
       parseBookStart(ctx.callbackQuery.data) ?? parseBookSlot(ctx.callbackQuery.data);
     if (startTrainingId !== undefined) {
-      await handleBookStart(ctx, api, startTrainingId);
+      await handleBookStart(ctx, api, catalog, startTrainingId);
       return;
     }
     // "Подтвердить запись" → create the booking (step 3 of 3). Identity is the
@@ -380,18 +463,18 @@ async function main(): Promise<void> {
     const confirmTrainingId = parseBookConfirm(ctx.callbackQuery.data);
     if (confirmTrainingId !== undefined) {
       const client = await api.getClientByTelegramId(ctx.from.id);
-      await handleBookConfirm(ctx, api, ctx.from.id, client?.id ?? null, confirmTrainingId);
+      await handleBookConfirm(ctx, api, catalog, ctx.from.id, client?.id ?? null, confirmTrainingId);
       return;
     }
     // Monthly group booking (T1.9): pick group → pick month → confirm.
     const groupPickId = parseGroupPick(ctx.callbackQuery.data);
     if (groupPickId !== undefined) {
-      await handleGroupPick(ctx, api, groupPickId);
+      await handleGroupPick(ctx, api, catalog, groupPickId);
       return;
     }
     const groupMonth = parseGroupMonth(ctx.callbackQuery.data);
     if (groupMonth !== undefined) {
-      await handleGroupMonth(ctx, api, groupMonth.groupId, groupMonth.year, groupMonth.month);
+      await handleGroupMonth(ctx, api, catalog, groupMonth.groupId, groupMonth.year, groupMonth.month);
       return;
     }
     const groupConfirm = parseGroupConfirm(ctx.callbackQuery.data);
@@ -399,6 +482,7 @@ async function main(): Promise<void> {
       await handleGroupConfirm(
         ctx,
         api,
+        catalog,
         ctx.from.id,
         groupConfirm.groupId,
         groupConfirm.year,
@@ -411,12 +495,12 @@ async function main(): Promise<void> {
     // decides ownership or cancellability — the API owns both.
     const cancelBookingId = parseBookingCancel(ctx.callbackQuery.data);
     if (cancelBookingId !== undefined) {
-      await handleCancelPrompt(ctx, cancelBookingId);
+      await handleCancelPrompt(ctx, catalog, cancelBookingId);
       return;
     }
     const confirmCancelId = parseBookingCancelConfirm(ctx.callbackQuery.data);
     if (confirmCancelId !== undefined) {
-      await handleCancelConfirm(ctx, api, ctx.from.id, confirmCancelId);
+      await handleCancelConfirm(ctx, api, catalog, ctx.from.id, confirmCancelId);
       return;
     }
     // Waitlist (T2.1): join a full slot, or accept a promoted slot from the push.
@@ -424,29 +508,36 @@ async function main(): Promise<void> {
     const waitlistJoinTrainingId = parseWaitlistJoin(ctx.callbackQuery.data);
     if (waitlistJoinTrainingId !== undefined) {
       const client = await api.getClientByTelegramId(ctx.from.id);
-      await handleWaitlistJoin(ctx, api, ctx.from.id, client?.id ?? null, waitlistJoinTrainingId);
+      await handleWaitlistJoin(
+        ctx,
+        api,
+        catalog,
+        ctx.from.id,
+        client?.id ?? null,
+        waitlistJoinTrainingId
+      );
       return;
     }
     const waitlistAcceptEntryId = parseWaitlistAccept(ctx.callbackQuery.data);
     if (waitlistAcceptEntryId !== undefined) {
-      await handleWaitlistAccept(ctx, api, ctx.from.id, waitlistAcceptEntryId);
+      await handleWaitlistAccept(ctx, api, catalog, ctx.from.id, waitlistAcceptEntryId);
       return;
     }
     // Trainer "today" (T2.3): list → roster → mark attendance. The API gates the
     // role and authorizes ownership from the caller's telegram_id; the bot only
     // forwards ids and re-renders. Clients never reach these screens.
     if (ctx.callbackQuery.data === TRAINER_ACTIONS.today) {
-      await handleTrainerToday(ctx, api, ctx.from.id);
+      await handleTrainerToday(ctx, api, catalog, ctx.from.id);
       return;
     }
     const rosterTrainingId = parseRoster(ctx.callbackQuery.data);
     if (rosterTrainingId !== undefined) {
-      await handleTrainerRoster(ctx, api, ctx.from.id, rosterTrainingId);
+      await handleTrainerRoster(ctx, api, catalog, ctx.from.id, rosterTrainingId);
       return;
     }
     const attendMark = parseAttend(ctx.callbackQuery.data);
     if (attendMark !== undefined) {
-      await handleMarkAttendance(ctx, api, ctx.from.id, attendMark);
+      await handleMarkAttendance(ctx, api, catalog, ctx.from.id, attendMark);
       return;
     }
     // Free-slot broadcasts (T2.4 + T3.2 segments): admin-gated by the API. Menu
@@ -454,34 +545,34 @@ async function main(): Promise<void> {
     // (per-slot book:slot deep links + segment count) → send. Non-admins never
     // reach these screens (the API resolves their call to null).
     if (ctx.callbackQuery.data === BROADCAST_ACTIONS.entry) {
-      await handleBroadcastMenu(ctx, api, ctx.from.id);
+      await handleBroadcastMenu(ctx, api, catalog, ctx.from.id);
       return;
     }
     const broadcastType = parseBroadcastType(ctx.callbackQuery.data);
     if (broadcastType !== undefined) {
-      await handleBroadcastAudiencePicker(ctx, api, ctx.from.id, broadcastType);
+      await handleBroadcastAudiencePicker(ctx, api, catalog, ctx.from.id, broadcastType);
       return;
     }
     const broadcastLevelPickType = parseBroadcastLevelPick(ctx.callbackQuery.data);
     if (broadcastLevelPickType !== undefined) {
-      await handleBroadcastLevelPick(ctx, api, ctx.from.id, broadcastLevelPickType);
+      await handleBroadcastLevelPick(ctx, api, catalog, ctx.from.id, broadcastLevelPickType);
       return;
     }
     const broadcastSelection = parseBroadcastAudience(ctx.callbackQuery.data);
     if (broadcastSelection !== undefined) {
-      await handleBroadcastPreview(ctx, api, ctx.from.id, broadcastSelection);
+      await handleBroadcastPreview(ctx, api, catalog, ctx.from.id, broadcastSelection);
       return;
     }
     const broadcastSendSelection = parseBroadcastSend(ctx.callbackQuery.data);
     if (broadcastSendSelection !== undefined) {
-      await handleBroadcastSend(ctx, api, ctx.from.id, broadcastSendSelection);
+      await handleBroadcastSend(ctx, api, catalog, ctx.from.id, broadcastSendSelection);
       return;
     }
     // Analytics summary (T3.1): admin-gated by the API. Menu entry → server-
     // composed headline figures. Non-admins never reach this screen (the API
     // resolves their call to null → "managers only").
     if (ctx.callbackQuery.data === STATS_ACTIONS.entry) {
-      await handleStatsMenu(ctx, api, ctx.from.id);
+      await handleStatsMenu(ctx, api, catalog, ctx.from.id);
       return;
     }
     // Manager console (A1): admin-gated by the API (a non-admin probe resolves to
@@ -490,46 +581,46 @@ async function main(): Promise<void> {
     // (cancel a training, change capacity) — every decision lives in the API; the
     // bot only forwards ids/ints and renders. Clients never reach these screens.
     if (ctx.callbackQuery.data === MANAGER_ACTIONS.entry) {
-      await handleManagerMenu(ctx, api, ctx.from.id);
+      await handleManagerMenu(ctx, api, catalog, ctx.from.id);
       return;
     }
     if (ctx.callbackQuery.data === MANAGER_ACTIONS.overview) {
-      await handleManagerOverview(ctx, api, ctx.from.id);
+      await handleManagerOverview(ctx, api, catalog, ctx.from.id);
       return;
     }
     if (ctx.callbackQuery.data === MANAGER_ACTIONS.cancelEntry) {
-      await handleCancelPickList(ctx, api, ctx.from.id);
+      await handleCancelPickList(ctx, api, catalog, ctx.from.id);
       return;
     }
     const cancelPickId = parseCancelPick(ctx.callbackQuery.data);
     if (cancelPickId !== undefined) {
-      await handleManagerCancelConfirm(ctx, api, ctx.from.id, cancelPickId);
+      await handleManagerCancelConfirm(ctx, api, catalog, ctx.from.id, cancelPickId);
       return;
     }
     const cancelOkId = parseCancelOk(ctx.callbackQuery.data);
     if (cancelOkId !== undefined) {
-      await handleCancelDo(ctx, api, ctx.from.id, cancelOkId);
+      await handleCancelDo(ctx, api, catalog, ctx.from.id, cancelOkId);
       return;
     }
     if (ctx.callbackQuery.data === MANAGER_ACTIONS.capEntry) {
-      await handleCapPickList(ctx, api, ctx.from.id);
+      await handleCapPickList(ctx, api, catalog, ctx.from.id);
       return;
     }
     const capPickId = parseCapPick(ctx.callbackQuery.data);
     if (capPickId !== undefined) {
-      await handleCapPicker(ctx, api, ctx.from.id, capPickId);
+      await handleCapPicker(ctx, api, catalog, ctx.from.id, capPickId);
       return;
     }
     const capChange = parseCapSet(ctx.callbackQuery.data);
     if (capChange !== undefined) {
-      await handleCapSet(ctx, api, ctx.from.id, capChange);
+      await handleCapSet(ctx, api, catalog, ctx.from.id, capChange);
       return;
     }
     // Client slot filters (T3.2): chips on the available-slots screen. The bot
     // holds the chosen axes in session state and forwards them to the API, which
     // applies the filters server-side (it can only narrow the bookable set). No
     // filtering math runs here.
-    if (await routeSlotFilter(ctx, api)) {
+    if (await routeSlotFilter(ctx, api, catalog)) {
       return;
     }
     // Default menu dispatch. The available-slots handler reads the session
@@ -538,6 +629,7 @@ async function main(): Promise<void> {
     await handler(ctx, {
       managerContact: env.MANAGER_CONTACT,
       api,
+      catalog,
       slotFilters: ctx.session.slotFilters
     });
   });
@@ -545,6 +637,10 @@ async function main(): Promise<void> {
   bot.catch((err) => {
     console.error("bot error", err.error);
   });
+
+  // Hydrate the i18n catalogs (merged from the API; static fallback if down) and
+  // start the periodic refresh so admin label edits propagate without a restart.
+  await catalogs.start();
 
   // Surface API reachability early without blocking startup.
   api
@@ -565,7 +661,8 @@ async function main(): Promise<void> {
  */
 async function routeSlotFilter(
   ctx: BotContext,
-  api: ApiClient
+  api: ApiClient,
+  catalog: Catalog
 ): Promise<boolean> {
   const data = ctx.callbackQuery?.data;
   if (data === undefined) {
@@ -574,23 +671,25 @@ async function routeSlotFilter(
   const state = ctx.session.slotFilters ?? {};
   switch (data) {
     case FILTER_ACTIONS.open:
-      await showFilteredSlots(ctx, api, state);
+      await showFilteredSlots(ctx, api, catalog, state);
       return true;
     case FILTER_ACTIONS.clear:
       ctx.session.slotFilters = {};
-      await showFilteredSlots(ctx, api, {});
+      await showFilteredSlots(ctx, api, catalog, {});
       return true;
     case FILTER_ACTIONS.pickWeekday:
-      await ctx.reply(PICK_WEEKDAY_TEXT, { reply_markup: weekdayPickerKeyboard() });
+      await ctx.reply(pickWeekdayText(catalog), { reply_markup: weekdayPickerKeyboard(catalog) });
       return true;
     case FILTER_ACTIONS.pickTimeOfDay:
-      await ctx.reply(PICK_TIME_OF_DAY_TEXT, { reply_markup: timeOfDayPickerKeyboard() });
+      await ctx.reply(pickTimeOfDayText(catalog), {
+        reply_markup: timeOfDayPickerKeyboard(catalog)
+      });
       return true;
     case FILTER_ACTIONS.pickTrainer:
-      await showTrainerPicker(ctx, api);
+      await showTrainerPicker(ctx, api, catalog);
       return true;
     case FILTER_ACTIONS.pickLevel:
-      await showLevelPicker(ctx, api);
+      await showLevelPicker(ctx, api, catalog);
       return true;
     default:
       break;
@@ -599,7 +698,7 @@ async function routeSlotFilter(
   if (edit !== undefined) {
     const next = applyFilterEdit(state, edit);
     ctx.session.slotFilters = next;
-    await showFilteredSlots(ctx, api, next);
+    await showFilteredSlots(ctx, api, catalog, next);
     return true;
   }
   return false;

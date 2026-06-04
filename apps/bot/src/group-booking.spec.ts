@@ -2,8 +2,6 @@ import { describe, expect, it } from "vitest";
 import type { Group, GroupBookingResult } from "@beosand/types";
 import {
   GROUP_ACTIONS,
-  GROUPS_HEADER,
-  NO_GROUPS_TEXT,
   buildConfirmData,
   buildMonthData,
   buildPickData,
@@ -20,6 +18,9 @@ import {
   renderSuccessText
 } from "./group-booking";
 import { NAV_ACTIONS } from "./menu";
+import { getStaticCatalog } from "@beosand/i18n";
+
+const ru = getStaticCatalog("ru");
 
 const groupId = "11111111-1111-1111-1111-111111111111";
 
@@ -88,12 +89,12 @@ describe("callback-data round-trips", () => {
 
 describe("renderGroupsText", () => {
   it("shows the empty-state when there are no groups", () => {
-    expect(renderGroupsText([])).toBe(NO_GROUPS_TEXT);
+    expect(renderGroupsText(ru, [])).toBe(ru["bot.group.none"]);
   });
 
   it("lists the name, days and the server RSD month price", () => {
-    const text = renderGroupsText([group]);
-    expect(text).toContain(GROUPS_HEADER);
+    const text = renderGroupsText(ru, [group]);
+    expect(text).toContain(ru["bot.group.header"]);
     expect(text).toContain("Утро Pro");
     expect(text).toContain("Пн, Ср");
     expect(text).toContain("9000 RSD");
@@ -102,7 +103,7 @@ describe("renderGroupsText", () => {
 
 describe("keyboards", () => {
   it("offers one pick button per group plus back/home", () => {
-    expect(callbacksOf(groupsKeyboard([group]))).toEqual([
+    expect(callbacksOf(groupsKeyboard(ru, [group]))).toEqual([
       buildPickData(groupId),
       NAV_ACTIONS.back,
       NAV_ACTIONS.home
@@ -114,7 +115,7 @@ describe("keyboards", () => {
       { year: 2026, month: 6 },
       { year: 2026, month: 7 }
     ];
-    expect(callbacksOf(monthPickKeyboard(group, months))).toEqual([
+    expect(callbacksOf(monthPickKeyboard(ru, group, months))).toEqual([
       buildMonthData(groupId, 2026, 6),
       buildMonthData(groupId, 2026, 7),
       NAV_ACTIONS.back,
@@ -123,7 +124,7 @@ describe("keyboards", () => {
   });
 
   it("confirm keyboard carries the confirm action plus back/home", () => {
-    expect(callbacksOf(confirmKeyboard(groupId, 2026, 6))).toEqual([
+    expect(callbacksOf(confirmKeyboard(ru, groupId, 2026, 6))).toEqual([
       buildConfirmData(groupId, 2026, 6),
       NAV_ACTIONS.back,
       NAV_ACTIONS.home
@@ -150,10 +151,10 @@ describe("offeredMonths", () => {
 describe("renderConfirmText", () => {
   it("shows the total trainings in the month and the RSD month price", () => {
     // June 2026: Mondays (1,8,15,22,29) + Wednesdays (3,10,17,24) = 9 dates.
-    const text = renderConfirmText(group, 2026, 6);
+    const text = renderConfirmText(ru, group, 2026, 6);
     expect(text).toContain("Всего тренировок в месяце: 9");
     expect(text).toContain("9000 RSD");
-    expect(text).toContain(monthLabel(2026, 6));
+    expect(text).toContain(monthLabel(ru, 2026, 6));
   });
 });
 
@@ -169,7 +170,7 @@ describe("renderSuccessText", () => {
       ...base,
       created: [{} as never, {} as never, {} as never]
     };
-    const text = renderSuccessText(result);
+    const text = renderSuccessText(ru, result);
     expect(text).toContain("Записано тренировок: 3");
     expect(text).not.toContain("нет мест");
   });
@@ -180,7 +181,7 @@ describe("renderSuccessText", () => {
       created: [{} as never],
       skipped: ["2026-06-10", "2026-06-17"]
     };
-    const text = renderSuccessText(result);
+    const text = renderSuccessText(ru, result);
     expect(text).toContain("Записано тренировок: 1");
     expect(text).toContain("2026-06-10");
     expect(text).toContain("2026-06-17");

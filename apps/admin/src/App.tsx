@@ -1,81 +1,154 @@
-import { useEffect, useMemo, useState } from "react";
-import { createApiClient } from "./api/client";
-import { AppShell } from "./ui/AppShell";
-import { StatCard } from "./ui/StatCard";
+import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
+import { BrowserRouter, Navigate, Route, Routes } from "react-router-dom";
+import { ApiProvider } from "./api/ApiProvider";
+import { RequireAuth } from "./auth/RequireAuth";
+import { Analytics } from "./pages/Analytics";
+import { Attendance } from "./pages/Attendance";
+import { Broadcasts } from "./pages/Broadcasts";
+import { Clients } from "./pages/Clients";
+import { CourtBlocks } from "./pages/CourtBlocks";
+import { CourtLoad } from "./pages/CourtLoad";
+import { CourtRequests } from "./pages/CourtRequests";
+import { Dashboard } from "./pages/Dashboard";
+import { Groups } from "./pages/Groups";
+import { Labels } from "./pages/Labels";
+import { Levels } from "./pages/Levels";
+import { Login } from "./pages/Login";
+import { Trainers } from "./pages/Trainers";
+import { Trainings } from "./pages/Trainings";
+import { LanguageProvider } from "./i18n/LanguageProvider";
+import { ToastProvider } from "./ui/Toast";
 
-type HealthState =
-  | { kind: "checking" }
-  | { kind: "ok"; service: string }
-  | { kind: "down"; reason: string };
-
-function HealthBadge({ state }: { state: HealthState }): JSX.Element {
-  if (state.kind === "checking") {
-    return (
-      <span className="health">
-        <span className="dot" /> API: проверка…
-      </span>
-    );
+const queryClient = new QueryClient({
+  defaultOptions: {
+    queries: { staleTime: 30_000, refetchOnWindowFocus: false }
   }
-  if (state.kind === "ok") {
-    return (
-      <span className="health">
-        <span className="dot dot--ok" /> API: ok · {state.service}
-      </span>
-    );
-  }
-  return (
-    <span className="health">
-      <span className="dot dot--down" /> API: недоступен
-    </span>
-  );
-}
+});
 
+/**
+ * App root: data layer (react-query) + the shared ApiClient + toasts + router.
+ * /login is public; the dashboard sits behind RequireAuth. M1–M4 domain routes
+ * land later; for now any unknown authed path falls back to the dashboard.
+ */
 export function App(): JSX.Element {
-  const api = useMemo(() => createApiClient(), []);
-  const [health, setHealth] = useState<HealthState>({ kind: "checking" });
-
-  useEffect(() => {
-    let cancelled = false;
-    api
-      .health()
-      .then((res) => {
-        if (!cancelled) setHealth({ kind: "ok", service: res.service });
-      })
-      .catch((err: unknown) => {
-        if (!cancelled) setHealth({ kind: "down", reason: String(err) });
-      });
-    return () => {
-      cancelled = true;
-    };
-  }, [api]);
-
   return (
-    <AppShell current="dashboard">
-      <header className="page-head">
-        <div>
-          <h1>Обзор</h1>
-          <p>
-            Каркас админ-консоли BeoSand. Доменные экраны (группы, тренировки, рассылки) появятся
-            следующими — здесь подтверждается живая связь с API.
-          </p>
-        </div>
-        <HealthBadge state={health} />
-      </header>
-
-      <section className="grid">
-        <StatCard label="Группы" value="—" hint="ожидает API" />
-        <StatCard label="Тренировки (мес.)" value="—" hint="ожидает API" />
-        <StatCard label="Заявки на корты" value="—" hint="ожидает API" />
-        <StatCard label="Заполненность" value="—" hint="ожидает API" />
-      </section>
-
-      <div className="note">
-        <h3>Заготовка, а не готовая консоль</h3>
-        <p>
-          Данные подставит <code>ApiClient</code> через контракты <code>@beosand/types</code>, когда
-          появятся admin-эндпойнты и браузерная авторизация. Прайсы — всегда RSD, считаются на сервере.
-        </p>
-      </div>
-    </AppShell>
+    <QueryClientProvider client={queryClient}>
+      <ApiProvider>
+        <LanguageProvider>
+          <ToastProvider>
+            <BrowserRouter>
+              <Routes>
+                <Route path="/login" element={<Login />} />
+                <Route
+                  path="/"
+                  element={
+                    <RequireAuth>
+                      <Dashboard />
+                    </RequireAuth>
+                  }
+                />
+                <Route
+                  path="/groups"
+                  element={
+                    <RequireAuth>
+                      <Groups />
+                    </RequireAuth>
+                  }
+                />
+                <Route
+                  path="/trainings"
+                  element={
+                    <RequireAuth>
+                      <Trainings />
+                    </RequireAuth>
+                  }
+                />
+                <Route
+                  path="/trainers"
+                  element={
+                    <RequireAuth>
+                      <Trainers />
+                    </RequireAuth>
+                  }
+                />
+                <Route
+                  path="/levels"
+                  element={
+                    <RequireAuth>
+                      <Levels />
+                    </RequireAuth>
+                  }
+                />
+                <Route
+                  path="/attendance"
+                  element={
+                    <RequireAuth>
+                      <Attendance />
+                    </RequireAuth>
+                  }
+                />
+                <Route
+                  path="/clients"
+                  element={
+                    <RequireAuth>
+                      <Clients />
+                    </RequireAuth>
+                  }
+                />
+                <Route
+                  path="/court-requests"
+                  element={
+                    <RequireAuth>
+                      <CourtRequests />
+                    </RequireAuth>
+                  }
+                />
+                <Route
+                  path="/court-blocks"
+                  element={
+                    <RequireAuth>
+                      <CourtBlocks />
+                    </RequireAuth>
+                  }
+                />
+                <Route
+                  path="/court-load"
+                  element={
+                    <RequireAuth>
+                      <CourtLoad />
+                    </RequireAuth>
+                  }
+                />
+                <Route
+                  path="/broadcasts"
+                  element={
+                    <RequireAuth>
+                      <Broadcasts />
+                    </RequireAuth>
+                  }
+                />
+                <Route
+                  path="/analytics"
+                  element={
+                    <RequireAuth>
+                      <Analytics />
+                    </RequireAuth>
+                  }
+                />
+                <Route
+                  path="/labels"
+                  element={
+                    <RequireAuth>
+                      <Labels />
+                    </RequireAuth>
+                  }
+                />
+                <Route path="*" element={<Navigate to="/" replace />} />
+              </Routes>
+            </BrowserRouter>
+          </ToastProvider>
+        </LanguageProvider>
+      </ApiProvider>
+    </QueryClientProvider>
   );
 }

@@ -1,14 +1,16 @@
 import type { SlotCard } from "@beosand/types";
 import type { ApiClient } from "./api-client";
 import { showMainMenu, type MenuReplyCtx } from "./navigation";
+import type { Catalog } from "./i18n";
 import {
-  BOOKING_FULL_TEXT,
   bookingFullKeyboard,
+  bookingFullText,
   bookingSuccessKeyboard,
+  bookingSuccessShort,
   confirmBookingKeyboard,
   renderBookingSuccessText,
   renderConfirmText,
-  SLOT_NOT_FOUND_TEXT
+  slotNotFoundText
 } from "./slots";
 
 /**
@@ -34,16 +36,21 @@ async function findBookableSlot(api: BookingApi, trainingId: string): Promise<Sl
 export async function handleBookStart(
   ctx: MenuReplyCtx,
   api: BookingApi,
+  catalog: Catalog,
   trainingId: string
 ): Promise<void> {
   const card = await findBookableSlot(api, trainingId);
   if (!card) {
     // The slot is no longer bookable (now full/cancelled): offer the waitlist for
     // this training; the API rejects the join if it turns out still bookable.
-    await ctx.reply(SLOT_NOT_FOUND_TEXT, { reply_markup: bookingFullKeyboard(trainingId) });
+    await ctx.reply(slotNotFoundText(catalog), {
+      reply_markup: bookingFullKeyboard(catalog, trainingId)
+    });
     return;
   }
-  await ctx.reply(renderConfirmText(card), { reply_markup: confirmBookingKeyboard(trainingId) });
+  await ctx.reply(renderConfirmText(catalog, card), {
+    reply_markup: confirmBookingKeyboard(catalog, trainingId)
+  });
 }
 
 /**
@@ -53,19 +60,22 @@ export async function handleBookStart(
 export async function handleBookConfirm(
   ctx: MenuReplyCtx,
   api: BookingApi,
+  catalog: Catalog,
   telegramId: number | undefined,
   clientId: string | null,
   trainingId: string
 ): Promise<void> {
   if (telegramId === undefined || clientId === null) {
     // Not onboarded / lost identity: send them back to the menu (and /start).
-    await showMainMenu(ctx);
+    await showMainMenu(ctx, catalog);
     return;
   }
   const result = await api.createSingleBooking({ clientId, trainingId }, telegramId);
   if (!result.ok) {
     // Slot full/already booked → offer the waitlist for this training (T2.1).
-    await ctx.reply(BOOKING_FULL_TEXT, { reply_markup: bookingFullKeyboard(trainingId) });
+    await ctx.reply(bookingFullText(catalog), {
+      reply_markup: bookingFullKeyboard(catalog, trainingId)
+    });
     return;
   }
   // Re-read the (now updated) slot only for the success card's display details;
@@ -73,10 +83,12 @@ export async function handleBookConfirm(
   // a generic confirmation without re-rendering stale seat counts.
   const card = await findBookableSlot(api, trainingId);
   if (!card) {
-    await ctx.reply("✅ Вы записаны! Мы пришлём напоминание перед тренировкой.", {
-      reply_markup: bookingSuccessKeyboard()
+    await ctx.reply(bookingSuccessShort(catalog), {
+      reply_markup: bookingSuccessKeyboard(catalog)
     });
     return;
   }
-  await ctx.reply(renderBookingSuccessText(card), { reply_markup: bookingSuccessKeyboard() });
+  await ctx.reply(renderBookingSuccessText(catalog, card), {
+    reply_markup: bookingSuccessKeyboard(catalog)
+  });
 }

@@ -7,6 +7,7 @@ import {
   clientSchema,
   groupBookingResultSchema,
   groupSchema,
+  labelCatalogSchema,
   levelSchema,
   markAttendanceSchema,
   myBookingItemSchema,
@@ -31,7 +32,9 @@ import {
   type GenerateMonthInput,
   type Group,
   type GroupBookingResult,
+  type LabelCatalog,
   type Level,
+  type Locale,
   type ListTrainingsQuery,
   type MarkAttendanceInput,
   type MyBookingItem,
@@ -216,6 +219,33 @@ export class ApiClient {
       method: "POST",
       headers: { "x-telegram-id": String(input.telegramId) },
       body: JSON.stringify(input)
+    });
+  }
+
+  /**
+   * Merged UI catalog for one locale (i18n): static defaults overlaid with the
+   * admin's DB overrides, served by the API as a flat dotted-key → string map.
+   * Public read (no admin gate). The bot hydrates this at startup and refreshes
+   * it periodically; the bundled @beosand/i18n static catalog is the offline
+   * fallback. The bot only renders these strings — it never composes domain text.
+   */
+  getLabelCatalog(locale: Locale): Promise<LabelCatalog> {
+    const query = new URLSearchParams({ locale }).toString();
+    return this.request(`/i18n/catalog?${query}`, labelCatalogSchema);
+  }
+
+  /**
+   * Set a client's bot UI language (i18n). The API authorizes the write — a
+   * caller may set only their own record (actor telegram id === path id), admins
+   * any — so the bot forwards the caller's id as the `x-telegram-id` header and
+   * the path id. The language is re-validated server-side; the bot only forwards
+   * the chosen locale and renders the updated client.
+   */
+  setClientLanguage(telegramId: number, language: Locale): Promise<Client> {
+    return this.request(`/clients/by-telegram/${telegramId}/language`, clientSchema, {
+      method: "PATCH",
+      headers: { [TELEGRAM_ID_HEADER]: String(telegramId) },
+      body: JSON.stringify({ language })
     });
   }
 

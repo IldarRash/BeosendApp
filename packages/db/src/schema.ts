@@ -52,6 +52,8 @@ export const courtRequestStatus = pgEnum("court_request_status", [
   "rejected",
   "cancelled"
 ]);
+/** UI locales (mirrors @beosand/i18n and packages/types localeSchema). */
+export const locale = pgEnum("locale", ["ru", "sr", "en"]);
 
 // --- Training domain ---
 
@@ -77,6 +79,8 @@ export const clients = pgTable(
     telegramId: integer("telegram_id").notNull(),
     telegramUsername: text("telegram_username"),
     levelId: uuid("level_id").references(() => levels.id),
+    // Per-user bot UI locale; defaults to RU (the authoritative locale).
+    language: locale("language").notNull().default("ru"),
     registeredAt: timestamp("registered_at", { withTimezone: true }).notNull().defaultNow(),
     status: entityStatus("status").notNull().default("active")
   },
@@ -205,6 +209,27 @@ export const courtRequests = pgTable("court_requests", {
   decidedBy: integer("decided_by")
 });
 
+// --- Localization (i18n) ---
+
+/**
+ * Per-(locale, key) label OVERRIDES the admin edits. The static catalog in
+ * @beosand/i18n holds the canonical defaults; the API serves defaults overlaid
+ * with these rows. A key absent here uses the static default.
+ */
+export const uiLabels = pgTable(
+  "ui_labels",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    locale: locale("locale").notNull(),
+    key: text("key").notNull(),
+    value: text("value").notNull(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow()
+  },
+  (table) => ({
+    localeKeyIdx: uniqueIndex("ui_labels_locale_key_idx").on(table.locale, table.key)
+  })
+);
+
 export const schema = {
   levels,
   trainers,
@@ -217,5 +242,6 @@ export const schema = {
   notifications,
   courts,
   courtBlocks,
-  courtRequests
+  courtRequests,
+  uiLabels
 };

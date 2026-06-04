@@ -3,7 +3,6 @@ import { describe, expect, it } from "vitest";
 import type { Court, CourtRequestAdminView } from "@beosand/types";
 import {
   COURT_MOD_ACTIONS,
-  COURT_MOD_EMPTY_TEXT,
   courtModQueueKeyboard,
   courtModQueueText,
   courtPickKeyboard,
@@ -13,6 +12,9 @@ import {
   parseReject
 } from "./court-moderation";
 import { MENU_ACTIONS } from "./menu";
+import { getStaticCatalog } from "@beosand/i18n";
+
+const ru = getStaticCatalog("ru");
 
 function callbacks(kb: InlineKeyboard): (string | undefined)[] {
   return kb.inline_keyboard.flat().map((b) => ("callback_data" in b ? b.callback_data : undefined));
@@ -49,7 +51,7 @@ const courts: Court[] = [
 
 describe("courtRequestLine", () => {
   it("shows date, time range, duration, RSD and client name; never a court number", () => {
-    const line = courtRequestLine(baseRequest);
+    const line = courtRequestLine(ru, baseRequest);
     expect(line).toBe("15.06 14:00–16:00 (2 часа) · 4 000 RSD · Иван");
     expect(line).not.toMatch(/Корт|корт|№/);
   });
@@ -57,20 +59,20 @@ describe("courtRequestLine", () => {
 
 describe("courtModQueueText", () => {
   it("renders a numbered list of pending requests", () => {
-    const text = courtModQueueText([baseRequest, { ...baseRequest, id: REQ_B, clientName: "Анна" }]);
+    const text = courtModQueueText(ru, [baseRequest, { ...baseRequest, id: REQ_B, clientName: "Анна" }]);
     expect(text).toContain("1. 15.06");
     expect(text).toContain("2. 15.06");
     expect(text).toContain("Анна");
   });
 
   it("shows the empty message when the queue is empty", () => {
-    expect(courtModQueueText([])).toContain(COURT_MOD_EMPTY_TEXT);
+    expect(courtModQueueText(ru, [])).toContain(ru["bot.courtMod.empty"]);
   });
 });
 
 describe("courtModQueueKeyboard", () => {
   it("renders a confirm + reject button per request and a back-to-menu path", () => {
-    const kb = courtModQueueKeyboard([baseRequest, { ...baseRequest, id: REQ_B }]);
+    const kb = courtModQueueKeyboard(ru, [baseRequest, { ...baseRequest, id: REQ_B }]);
     expect(callbacks(kb)).toEqual([
       `${COURT_MOD_ACTIONS.pickPrefix}${REQ_A}`,
       `${COURT_MOD_ACTIONS.rejectPrefix}${REQ_A}`,
@@ -81,7 +83,7 @@ describe("courtModQueueKeyboard", () => {
   });
 
   it("keeps every callback within Telegram's 64-byte cap", () => {
-    const kb = courtModQueueKeyboard([baseRequest]);
+    const kb = courtModQueueKeyboard(ru, [baseRequest]);
     for (const cb of callbacks(kb)) {
       expect(Buffer.byteLength(cb ?? "", "utf8")).toBeLessThanOrEqual(64);
     }
@@ -90,7 +92,7 @@ describe("courtModQueueKeyboard", () => {
 
 describe("courtPickKeyboard", () => {
   it("renders one [Корт №X] button per free court using a court index, not a court id", () => {
-    const kb = courtPickKeyboard(REQ_A, courts);
+    const kb = courtPickKeyboard(ru, REQ_A, courts);
     expect(labels(kb)).toEqual(["Корт №1", "Корт №4", "⬅️ К заявкам"]);
     expect(callbacks(kb)).toEqual([
       `${COURT_MOD_ACTIONS.assignPrefix}${REQ_A}:0`,
@@ -106,7 +108,7 @@ describe("courtPickKeyboard", () => {
   });
 
   it("shows no court buttons (only the back path) when no courts are free", () => {
-    const kb = courtPickKeyboard(REQ_A, []);
+    const kb = courtPickKeyboard(ru, REQ_A, []);
     expect(callbacks(kb)).toEqual([COURT_MOD_ACTIONS.queue]);
   });
 });

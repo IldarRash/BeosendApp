@@ -1,8 +1,8 @@
 import { describe, expect, it } from "vitest";
 import type { SlotCard } from "@beosand/types";
+import { getStaticCatalog } from "@beosand/i18n";
 import { MENU_ACTIONS, NAV_ACTIONS } from "./menu";
 import {
-  NO_SLOTS_TEXT,
   bookConfirmData,
   bookStartData,
   bookingFullKeyboard,
@@ -21,6 +21,8 @@ import {
   waitlistJoinData,
   SLOT_ACTIONS
 } from "./slots";
+
+const ru = getStaticCatalog("ru");
 
 const card: SlotCard = {
   trainingId: "11111111-1111-1111-1111-111111111111",
@@ -75,7 +77,7 @@ describe("parseBookSlot", () => {
 
 describe("formatSlotLine", () => {
   it("renders server-provided seats, price and weekday (no math in the bot)", () => {
-    const line = formatSlotLine(card);
+    const line = formatSlotLine(ru, card);
     expect(line).toContain("Ср 2026-06-10");
     expect(line).toContain("18:00–19:30");
     expect(line).toContain("Марко");
@@ -87,11 +89,11 @@ describe("formatSlotLine", () => {
 
 describe("renderSlotsText", () => {
   it("shows a friendly fallback for an empty list", () => {
-    expect(renderSlotsText([])).toBe(NO_SLOTS_TEXT);
+    expect(renderSlotsText(ru, [])).toBe(ru["bot.slots.none"]);
   });
 
   it("lists one block per card", () => {
-    const text = renderSlotsText([card, { ...card, startTime: "20:00" }]);
+    const text = renderSlotsText(ru, [card, { ...card, startTime: "20:00" }]);
     expect(text).toContain("18:00");
     expect(text).toContain("20:00");
   });
@@ -99,7 +101,7 @@ describe("renderSlotsText", () => {
 
 describe("slotsKeyboard", () => {
   it("adds one book:start button per card plus the back/home footer", () => {
-    const callbacks = callbacksOf(slotsKeyboard([card]));
+    const callbacks = callbacksOf(slotsKeyboard(ru, [card]));
     expect(callbacks).toEqual([
       `${SLOT_ACTIONS.bookStartPrefix}${card.trainingId}`,
       NAV_ACTIONS.back,
@@ -108,7 +110,7 @@ describe("slotsKeyboard", () => {
   });
 
   it("still offers the back/home footer when there are no cards (never dead-ends)", () => {
-    expect(callbacksOf(slotsKeyboard([]))).toEqual([NAV_ACTIONS.back, NAV_ACTIONS.home]);
+    expect(callbacksOf(slotsKeyboard(ru, []))).toEqual([NAV_ACTIONS.back, NAV_ACTIONS.home]);
   });
 });
 
@@ -127,7 +129,7 @@ describe("bookConfirmData / parseBookConfirm", () => {
 
 describe("confirmBookingKeyboard", () => {
   it("offers confirm plus a back/home footer", () => {
-    const callbacks = callbacksOf(confirmBookingKeyboard(card.trainingId));
+    const callbacks = callbacksOf(confirmBookingKeyboard(ru, card.trainingId));
     expect(callbacks[0]).toBe(`${SLOT_ACTIONS.bookConfirmPrefix}${card.trainingId}`);
     expect(callbacks).toContain(NAV_ACTIONS.back);
     expect(callbacks).toContain(NAV_ACTIONS.home);
@@ -136,7 +138,7 @@ describe("confirmBookingKeyboard", () => {
 
 describe("renderConfirmText", () => {
   it("shows server-provided slot details and a confirm prompt", () => {
-    const text = renderConfirmText(card);
+    const text = renderConfirmText(ru, card);
     expect(text).toContain("Подтвердите запись");
     expect(text).toContain("Марко");
     expect(text).toContain("1500 RSD");
@@ -145,7 +147,7 @@ describe("renderConfirmText", () => {
 
 describe("bookingSuccessKeyboard", () => {
   it("offers my bookings / more trainings / main menu", () => {
-    expect(callbacksOf(bookingSuccessKeyboard())).toEqual([
+    expect(callbacksOf(bookingSuccessKeyboard(ru))).toEqual([
       MENU_ACTIONS.myBookings,
       MENU_ACTIONS.availableTrainings,
       NAV_ACTIONS.home
@@ -155,7 +157,7 @@ describe("bookingSuccessKeyboard", () => {
 
 describe("renderBookingSuccessText", () => {
   it("confirms the booking with the slot details", () => {
-    const text = renderBookingSuccessText(card);
+    const text = renderBookingSuccessText(ru, card);
     expect(text).toContain("Вы записаны");
     expect(text).toContain("2026-06-10");
   });
@@ -163,7 +165,7 @@ describe("renderBookingSuccessText", () => {
 
 describe("bookingFullKeyboard", () => {
   it("offers the waitlist-join button (with trainingId), other trainings and the menu", () => {
-    expect(callbacksOf(bookingFullKeyboard(card.trainingId))).toEqual([
+    expect(callbacksOf(bookingFullKeyboard(ru, card.trainingId))).toEqual([
       waitlistJoinData(card.trainingId),
       MENU_ACTIONS.availableTrainings,
       NAV_ACTIONS.home
@@ -171,7 +173,7 @@ describe("bookingFullKeyboard", () => {
   });
 
   it("omits the join button when the trainingId is unknown", () => {
-    expect(callbacksOf(bookingFullKeyboard())).toEqual([
+    expect(callbacksOf(bookingFullKeyboard(ru))).toEqual([
       MENU_ACTIONS.availableTrainings,
       NAV_ACTIONS.home
     ]);

@@ -1,4 +1,5 @@
 import { InlineKeyboard } from "grammy";
+import { t, type Catalog, type Locale, LOCALES, localeLabel } from "./i18n";
 
 /** Main-menu actions (UX scenario, section 2). */
 export const MENU_ACTIONS = {
@@ -9,6 +10,8 @@ export const MENU_ACTIONS = {
   /** Court rental request flow (Edition 2, C2). */
   rentCourt: "menu:court",
   contactManager: "menu:contact",
+  /** Per-user language switch (i18n). */
+  language: "menu:lang",
   /** Back/home path from any sub-flow (UX section 16). */
   backToMenu: "menu:home"
 } as const;
@@ -23,29 +26,58 @@ export const NAV_ACTIONS = {
 
 export type NavAction = (typeof NAV_ACTIONS)[keyof typeof NAV_ACTIONS];
 
-export function mainMenuKeyboard(): InlineKeyboard {
+/** Language-pick action: prefix + locale; e.g. "lang:set:sr". */
+export const LANGUAGE_ACTIONS = {
+  setPrefix: "lang:set:"
+} as const;
+
+export function setLanguageData(locale: Locale): string {
+  return `${LANGUAGE_ACTIONS.setPrefix}${locale}`;
+}
+
+/** Resolve a "lang:set:<locale>" callback to the locale, or undefined. */
+export function parseSetLanguage(data: string | undefined): Locale | undefined {
+  if (data === undefined || !data.startsWith(LANGUAGE_ACTIONS.setPrefix)) {
+    return undefined;
+  }
+  const raw = data.slice(LANGUAGE_ACTIONS.setPrefix.length);
+  return (LOCALES as readonly string[]).includes(raw) ? (raw as Locale) : undefined;
+}
+
+export function mainMenuKeyboard(catalog: Catalog): InlineKeyboard {
   return new InlineKeyboard()
-    .text("🏐 Доступные тренировки", MENU_ACTIONS.availableTrainings)
+    .text(t(catalog, "bot.menu.availableTrainings"), MENU_ACTIONS.availableTrainings)
     .row()
-    .text("📅 Свободные места сегодня", MENU_ACTIONS.todayFreeSlots)
+    .text(t(catalog, "bot.menu.todayFreeSlots"), MENU_ACTIONS.todayFreeSlots)
     .row()
-    .text("👥 Записаться в группу", MENU_ACTIONS.joinGroup)
+    .text(t(catalog, "bot.menu.joinGroup"), MENU_ACTIONS.joinGroup)
     .row()
-    .text("📋 Мои записи", MENU_ACTIONS.myBookings)
+    .text(t(catalog, "bot.menu.myBookings"), MENU_ACTIONS.myBookings)
     .row()
-    .text("🏖 Арендовать корт", MENU_ACTIONS.rentCourt)
+    .text(t(catalog, "bot.menu.rentCourt"), MENU_ACTIONS.rentCourt)
     .row()
-    .text("ℹ️ Связаться с менеджером", MENU_ACTIONS.contactManager);
+    .text(t(catalog, "bot.menu.contactManager"), MENU_ACTIONS.contactManager)
+    .row()
+    .text(t(catalog, "bot.menu.language"), MENU_ACTIONS.language);
 }
 
 /**
  * Footer keyboard every sub-screen offers so navigation never dead-ends:
  * single-level back to the menu plus an explicit "home" shortcut.
  */
-export function backHomeKeyboard(): InlineKeyboard {
+export function backHomeKeyboard(catalog: Catalog): InlineKeyboard {
   return new InlineKeyboard()
-    .text("⬅️ Назад", NAV_ACTIONS.back)
-    .text("🏠 Главное меню", NAV_ACTIONS.home);
+    .text(t(catalog, "bot.nav.back"), NAV_ACTIONS.back)
+    .text(t(catalog, "bot.nav.home"), NAV_ACTIONS.home);
+}
+
+/** Language picker: one button per supported locale (each in its own language). */
+export function languageKeyboard(): InlineKeyboard {
+  const keyboard = new InlineKeyboard();
+  for (const locale of LOCALES) {
+    keyboard.text(localeLabel[locale], setLanguageData(locale)).row();
+  }
+  return keyboard;
 }
 
 /**
@@ -59,19 +91,15 @@ export const ADMIN_ACTIONS = {
   courtLoad: "court_load:open"
 } as const;
 
-export function adminMenuKeyboard(): InlineKeyboard {
-  return mainMenuKeyboard()
+export function adminMenuKeyboard(catalog: Catalog): InlineKeyboard {
+  return mainMenuKeyboard(catalog)
     .row()
-    .text("🛠 Заявки на корт (админ)", ADMIN_ACTIONS.courtModeration)
+    .text(t(catalog, "bot.menu.adminCourtModeration"), ADMIN_ACTIONS.courtModeration)
     .row()
-    .text("📊 Загрузка кортов (админ)", ADMIN_ACTIONS.courtLoad);
+    .text(t(catalog, "bot.menu.adminCourtLoad"), ADMIN_ACTIONS.courtLoad);
 }
 
-export const WELCOME_TEXT = [
-  "Добро пожаловать в BeoSand 🏐",
-  "",
-  "Здесь вы можете:",
-  "• записаться на тренировку",
-  "• посмотреть свободные места",
-  "• увидеть свои записи"
-].join("\n");
+/** Welcome / home-screen body text. */
+export function welcomeText(catalog: Catalog): string {
+  return t(catalog, "bot.menu.welcomeFull");
+}

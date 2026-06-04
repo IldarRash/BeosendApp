@@ -17,6 +17,9 @@ import {
   parseTime
 } from "./court";
 import { MENU_ACTIONS } from "./menu";
+import { getStaticCatalog } from "@beosand/i18n";
+
+const ru = getStaticCatalog("ru");
 
 function callbacks(kb: InlineKeyboard): (string | undefined)[] {
   return kb.inline_keyboard.flat().map((b) => ("callback_data" in b ? b.callback_data : undefined));
@@ -35,7 +38,7 @@ describe("formatters", () => {
 
 describe("courtDateKeyboard", () => {
   it("offers each date as a namespaced callback and a home path", () => {
-    const kb = courtDateKeyboard(["2026-06-15", "2026-06-16"]);
+    const kb = courtDateKeyboard(ru, ["2026-06-15", "2026-06-16"]);
     expect(callbacks(kb)).toEqual([
       `${COURT_ACTIONS.datePrefix}2026-06-15`,
       `${COURT_ACTIONS.datePrefix}2026-06-16`,
@@ -55,14 +58,14 @@ describe("courtTimeKeyboard", () => {
   };
 
   it("renders only bookable hours (a free court exists), never a full one", () => {
-    const cb = callbacks(courtTimeKeyboard(availability));
+    const cb = callbacks(courtTimeKeyboard(ru, availability));
     expect(cb).toContain(`${COURT_ACTIONS.timePrefix}14:00:2026-06-15`);
     expect(cb).toContain(`${COURT_ACTIONS.timePrefix}16:00:2026-06-15`);
     expect(cb).not.toContain(`${COURT_ACTIONS.timePrefix}15:00:2026-06-15`);
   });
 
   it("never exposes a court number in any callback or label", () => {
-    const kb = courtTimeKeyboard(availability);
+    const kb = courtTimeKeyboard(ru, availability);
     const text = JSON.stringify(kb.inline_keyboard);
     expect(text).not.toMatch(/court[_-]?(id|number)/i);
     const labels = kb.inline_keyboard.flat().map((b) => b.text);
@@ -74,13 +77,13 @@ describe("courtTimeKeyboard", () => {
       date: "2026-06-15",
       hours: [{ hour: 15, startTime: "15:00", freeCourts: 0 }]
     };
-    expect(callbacks(courtTimeKeyboard(none))).toEqual([COURT_ACTIONS.open]);
+    expect(callbacks(courtTimeKeyboard(ru, none))).toEqual([COURT_ACTIONS.open]);
   });
 });
 
 describe("courtDurationKeyboard", () => {
   it("offers 1h and 2h carrying date + start time as ids", () => {
-    const cb = callbacks(courtDurationKeyboard("2026-06-15", "14:00"));
+    const cb = callbacks(courtDurationKeyboard(ru, "2026-06-15", "14:00"));
     expect(cb).toContain(`${COURT_ACTIONS.durationPrefix}1:2026-06-15:14:00`);
     expect(cb).toContain(`${COURT_ACTIONS.durationPrefix}2:2026-06-15:14:00`);
   });
@@ -97,21 +100,21 @@ describe("courtPreviewText", () => {
   };
 
   it("shows the server price in the required format", () => {
-    expect(courtPreviewText(base)).toBe(
+    expect(courtPreviewText(ru, base)).toBe(
       "Дата: 15.06, Время: 14:00–16:00 (2 часа). Итого: 4 000 RSD"
     );
   });
 
   it("warns and offers no submit when the slot is no longer available", () => {
     const unavailable = { ...base, available: false };
-    expect(courtPreviewText(unavailable)).toContain("уже занято");
-    const cb = callbacks(courtPreviewKeyboard(unavailable));
+    expect(courtPreviewText(ru, unavailable)).toContain("уже занято");
+    const cb = callbacks(courtPreviewKeyboard(ru, unavailable));
     expect(cb.some((c) => c?.startsWith(COURT_ACTIONS.confirmPrefix))).toBe(false);
     expect(cb).toContain(MENU_ACTIONS.backToMenu);
   });
 
   it("offers a submit button carrying the slot ids when available", () => {
-    const cb = callbacks(courtPreviewKeyboard(base));
+    const cb = callbacks(courtPreviewKeyboard(ru, base));
     expect(cb).toContain(`${COURT_ACTIONS.confirmPrefix}2026-06-15:14:00:2`);
   });
 });

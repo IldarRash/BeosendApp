@@ -1,0 +1,192 @@
+import { useState } from "react";
+import type { Trainer } from "@beosand/types";
+import { AppShell } from "../ui/AppShell";
+import { Button } from "../ui/Button";
+import { DataTable, type Column } from "../ui/DataTable";
+import { Modal } from "../ui/Modal";
+import { TextField, SelectField, NumberField } from "../ui/Field";
+import { useToast } from "../ui/Toast";
+import { useT } from "../i18n/LanguageProvider";
+import { useTrainers, useCreateTrainer, useUpdateTrainer } from "../hooks/useTrainers";
+
+type EditorState =
+  | { mode: "create" }
+  | { mode: "edit"; trainer: Trainer }
+  | null;
+
+/** M1 — Trainers: CRUD plus Telegram-ID linking (the key that opens the bot UI). */
+export function Trainers(): JSX.Element {
+  const t = useT();
+  const trainers = useTrainers();
+  const [editor, setEditor] = useState<EditorState>(null);
+
+  const typeLabel = (type: Trainer["type"]): string =>
+    type === "main" ? t("admin.trainers.typeMain") : t("admin.trainers.typeGuest");
+  const statusLabel = (status: Trainer["status"]): string =>
+    status === "active" ? t("admin.status.active") : t("admin.status.inactive");
+
+  const columns: Column<Trainer>[] = [
+    { key: "name", header: t("admin.trainers.colName"), render: (row) => row.name },
+    { key: "type", header: t("admin.trainers.colType"), render: (row) => typeLabel(row.type) },
+    {
+      key: "telegram",
+      header: t("admin.trainers.colTelegram"),
+      render: (row) =>
+        row.telegramId === null ? (
+          <span className="state state--loading">{t("admin.trainers.notLinked")}</span>
+        ) : (
+          <code>{row.telegramId}</code>
+        )
+    },
+    { key: "status", header: t("admin.trainers.colStatus"), render: (row) => statusLabel(row.status) },
+    {
+      key: "actions",
+      header: t("admin.trainers.colActions"),
+      render: (row) => (
+        <Button variant="ghost" onClick={() => setEditor({ mode: "edit", trainer: row })}>
+          {t("admin.action.edit")}
+        </Button>
+      )
+    }
+  ];
+
+  return (
+    <AppShell>
+      <header className="page-head">
+        <div>
+          <h1>{t("admin.trainers.title")}</h1>
+          <p>{t("admin.trainers.lead")}</p>
+        </div>
+        <Button onClick={() => setEditor({ mode: "create" })}>{t("admin.trainers.new")}</Button>
+      </header>
+
+      {trainers.isLoading ? (
+        <p className="state state--loading">{t("admin.state.loading")}</p>
+      ) : trainers.isError ? (
+        <p className="state state--error" role="alert">
+          {t("admin.trainers.loadError", { message: trainers.error.message })}
+        </p>
+      ) : (
+        <DataTable
+          caption={t("admin.trainers.caption")}
+          columns={columns}
+          rows={trainers.data ?? []}
+          rowKey={(row) => row.id}
+          emptyLabel={t("admin.trainers.empty")}
+        />
+      )}
+
+      {editor ? <TrainerEditor state={editor} onClose={() => setEditor(null)} /> : null}
+    </AppShell>
+  );
+}
+
+interface TrainerEditorProps {
+  state: NonNullable<EditorState>;
+  onClose: () => void;
+}
+
+/** Create / edit dialog for a single trainer. Server owns all validation. */
+function TrainerEditor({ state, onClose }: TrainerEditorProps): JSX.Element {
+  const t = useT();
+  const toast = useToast();
+  const create = useCreateTrainer();
+  const update = useUpdateTrainer();
+  const isEdit = state.mode === "edit";
+
+  const [name, setName] = useState(isEdit ? state.trainer.name : "");
+  const [type, setType] = useState<Trainer["type"]>(isEdit ? state.trainer.type : "main");
+  const [telegramId, setTelegramId] = useState<number | null>(
+    isEdit ? state.trainer.telegramId : null
+  );
+  const [status, setStatus] = useState<Trainer["status"]>(
+    isEdit ? state.trainer.status : "active"
+  );
+
+  const pending = create.isPending || update.isPending;
+  const error = create.error ?? update.error;
+
+  function handleSubmit(event: React.FormEvent): void {
+    event.preventDefault();
+    if (isEdit) {
+      update.mutate(
+        { id: state.trainer.id, input: { name, type, status, telegramId } },
+        {
+          onSuccess: () => {
+            toast.notify(t("admin.trainers.updated"), "success");
+            onClose();
+          }
+        }
+      );
+    } else {
+      create.mutate(
+        { name, type, telegramId },
+        {
+          onSuccess: () => {
+            toast.notify(t("admin.trainers.created"), "success");
+            onClose();
+          }
+        }
+      );
+    }
+  }
+
+  return (
+    <Modal
+      open
+      onClose={onClose}
+      title={isEdit ? t("admin.trainers.editTitle") : t("admin.trainers.createTitle")}
+      footer={
+        <>
+          <Button variant="ghost" onClick={onClose} disabled={pending}>
+            {t("admin.action.cancel")}
+          </Button>
+          <Button type="submit" form="trainer-form" disabled={pending}>
+            {pending ? t("admin.action.saving") : t("admin.action.save")}
+          </Button>
+        </>
+      }
+    >
+      <form id="trainer-form" onSubmit={handleSubmit} className="form">
+        <TextField
+          label={t("admin.field.personName")}
+          value={name}
+          onChange={(event) => setName(event.target.value)}
+          required
+          autoComplete="off"
+        />
+        <SelectField
+          label={t("admin.trainers.fieldType")}
+          value={type}
+          onChange={(event) => setType(event.target.value as Trainer["type"])}
+          options={[
+            { value: "main", label: t("admin.trainers.typeMain") },
+            { value: "guest", label: t("admin.trainers.typeGuest") }
+          ]}
+        />
+        <NumberField
+          label={t("admin.trainers.fieldTelegram")}
+          value={telegramId}
+          onValueChange={setTelegramId}
+          hint={t("admin.trainers.telegramHint")}
+        />
+        {isEdit ? (
+          <SelectField
+            label={t("admin.field.status")}
+            value={status}
+            onChange={(event) => setStatus(event.target.value as Trainer["status"])}
+            options={[
+              { value: "active", label: t("admin.status.active") },
+              { value: "inactive", label: t("admin.status.inactive") }
+            ]}
+          />
+        ) : null}
+        {error ? (
+          <p className="state state--error" role="alert">
+            {error.message}
+          </p>
+        ) : null}
+      </form>
+    </Modal>
+  );
+}

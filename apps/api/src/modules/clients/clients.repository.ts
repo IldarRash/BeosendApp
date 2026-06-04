@@ -1,5 +1,5 @@
 import { Injectable } from "@nestjs/common";
-import type { Client } from "@beosand/types";
+import type { Client, Locale } from "@beosand/types";
 import { type Database, tables } from "@beosand/db";
 import { eq } from "drizzle-orm";
 import { DatabaseService } from "../../db/database.service";
@@ -34,6 +34,20 @@ export class ClientsRepository {
       .returning();
     return row ? toClient(row) : undefined;
   }
+
+  /** Set a client's per-user UI locale. Returns the updated row, or undefined if none. */
+  async updateLanguage(
+    telegramId: number,
+    language: Locale,
+    tx: Database = this.database.db
+  ): Promise<Client | undefined> {
+    const [row] = await tx
+      .update(tables.clients)
+      .set({ language })
+      .where(eq(tables.clients.telegramId, telegramId))
+      .returning();
+    return row ? toClient(row) : undefined;
+  }
 }
 
 /** The DB returns `registeredAt` as a Date; the contract wants an ISO string. */
@@ -44,6 +58,7 @@ function toClient(row: ClientRow): Client {
     telegramId: row.telegramId,
     telegramUsername: row.telegramUsername,
     levelId: row.levelId,
+    language: row.language,
     registeredAt: row.registeredAt.toISOString(),
     status: row.status
   };

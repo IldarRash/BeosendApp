@@ -19,6 +19,7 @@ const existingClient: Client = {
   telegramId: TELEGRAM_ID,
   telegramUsername: "ana",
   levelId: LEVEL_ID,
+  language: "ru",
   registeredAt: "2026-01-01T00:00:00.000Z",
   status: "active"
 };
@@ -44,6 +45,11 @@ function makeClientsRepo(overrides: Partial<ClientsRepository> = {}): ClientsRep
       name: values.name,
       telegramUsername: values.telegramUsername,
       levelId: values.levelId
+    })),
+    updateLanguage: vi.fn(async (telegramId: number, language: "ru" | "sr" | "en") => ({
+      ...existingClient,
+      telegramId,
+      language
     })),
     ...overrides
   } as unknown as ClientsRepository;
@@ -175,5 +181,31 @@ describe("ClientsService", () => {
     service = new ClientsService(clientsRepo, levelsRepo, makeDatabase(), env);
     const result = await service.onboard(TELEGRAM_ID, { telegramId: TELEGRAM_ID, name: "Ana" });
     expect(result).toEqual(existingClient);
+  });
+
+  it("sets the caller's own language", async () => {
+    const result = await service.setLanguage(TELEGRAM_ID, TELEGRAM_ID, "sr");
+    expect(result.language).toBe("sr");
+    expect(clientsRepo.updateLanguage).toHaveBeenCalledWith(TELEGRAM_ID, "sr");
+  });
+
+  it("forbids setting another client's language and writes nothing", async () => {
+    await expect(service.setLanguage(TELEGRAM_ID, 1111, "en")).rejects.toBeInstanceOf(
+      ForbiddenException
+    );
+    expect(clientsRepo.updateLanguage).not.toHaveBeenCalled();
+  });
+
+  it("lets an admin set any client's language", async () => {
+    const result = await service.setLanguage(ADMIN_ID, TELEGRAM_ID, "en");
+    expect(result.language).toBe("en");
+  });
+
+  it("404s when setting language for a missing client", async () => {
+    clientsRepo = makeClientsRepo({ updateLanguage: vi.fn(async () => undefined) });
+    service = new ClientsService(clientsRepo, levelsRepo, makeDatabase(), env);
+    await expect(service.setLanguage(TELEGRAM_ID, TELEGRAM_ID, "sr")).rejects.toBeInstanceOf(
+      NotFoundException
+    );
   });
 });

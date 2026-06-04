@@ -1,13 +1,13 @@
 import { describe, expect, it, vi } from "vitest";
 import type { Client, Level } from "@beosand/types";
+import { getStaticCatalog } from "@beosand/i18n";
 import type { ApiClient } from "./api-client";
-import { WELCOME_TEXT } from "./menu";
+import { mainMenuKeyboard, setLanguageData, welcomeText } from "./menu";
 import {
   ONBOARD_ACTIONS,
-  ONBOARD_ASK_LEVEL,
-  ONBOARD_WELCOME,
   handleLevelCallback,
   handleNameText,
+  handleOnboardLanguageCallback,
   handleStart,
   levelKeyboard,
   onboardLevelData,
@@ -15,6 +15,16 @@ import {
   type BotContext,
   type SessionData
 } from "./onboarding";
+
+const ru = getStaticCatalog("ru");
+const en = getStaticCatalog("en");
+const WELCOME_TEXT = welcomeText(ru);
+const ONBOARD_WELCOME = ru["bot.onboarding.welcome"];
+const ONBOARD_ASK_LANGUAGE = ru["bot.onboarding.askLanguage"];
+
+/** Resolve a locale catalog the way index.ts does (static for tests). */
+const catalogFor = (locale: "ru" | "sr" | "en") => getStaticCatalog(locale);
+const menuFor = (catalog: Record<string, string>) => mainMenuKeyboard(catalog);
 
 const LEVELS: Level[] = [
   { id: "11111111-1111-4111-8111-111111111111", name: "Новичок", status: "active" },
@@ -28,13 +38,15 @@ const EXISTING: Client = {
   telegramUsername: "anya",
   levelId: null,
   registeredAt: "2026-01-01T00:00:00.000Z",
-  status: "active"
+  status: "active",
+  language: "ru"
 };
 
 function mockApi(overrides: Partial<ApiClient> = {}): ApiClient {
   return {
     getClientByTelegramId: vi.fn().mockResolvedValue(null),
     onboardClient: vi.fn().mockResolvedValue(EXISTING),
+    setClientLanguage: vi.fn().mockResolvedValue(EXISTING),
     listLevels: vi.fn().mockResolvedValue(LEVELS),
     ...overrides
   } as unknown as ApiClient;
@@ -91,7 +103,7 @@ describe("parseLevelCallback", () => {
 
 describe("levelKeyboard", () => {
   it("renders one button per level plus a fixed 'Не знаю'", () => {
-    const callbacks = levelKeyboard(LEVELS)
+    const callbacks = levelKeyboard(ru, LEVELS)
       .inline_keyboard.flat()
       .map((b) => ("callback_data" in b ? b.callback_data : undefined));
     expect(callbacks).toEqual([
@@ -102,7 +114,7 @@ describe("levelKeyboard", () => {
   });
 
   it("keeps every level callback within Telegram's 64-byte limit", () => {
-    for (const b of levelKeyboard(LEVELS).inline_keyboard.flat()) {
+    for (const b of levelKeyboard(ru, LEVELS).inline_keyboard.flat()) {
       if ("callback_data" in b && b.callback_data) {
         expect(Buffer.byteLength(b.callback_data, "utf8")).toBeLessThanOrEqual(64);
       }
@@ -114,7 +126,7 @@ describe("handleStart", () => {
   it("shows the main menu for an existing client (no onboarding)", async () => {
     const api = mockApi({ getClientByTelegramId: vi.fn().mockResolvedValue(EXISTING) });
     const { ctx, reply } = fakeCtx({ from: { id: 42, username: "anya" } });
-    await handleStart(ctx, api);
+    await handleStart(ctx, api, ru, menuFor(ru));
     expect(reply).toHaveBeenCalledWith(WELCOME_TEXT, expect.anything());
     expect(ctx.session.step).toBeUndefined();
     expect(api.onboardClient).not.toHaveBeenCalled();
@@ -123,7 +135,7 @@ describe("handleStart", () => {
   it("starts onboarding (welcome + awaiting_name) for a new client", async () => {
     const api = mockApi({ getClientByTelegramId: vi.fn().mockResolvedValue(null) });
     const { ctx, reply } = fakeCtx({ from: { id: 99 } });
-    await handleStart(ctx, api);
+    await handleStart(ctx, api, ru, menuFor(ru));
     expect(reply).toHaveBeenCalledWith(ONBOARD_WELCOME);
     expect(ctx.session.step).toBe("awaiting_name");
   });
@@ -133,21 +145,46 @@ describe("handleNameText", () => {
   it("ignores text when not awaiting a name", async () => {
     const api = mockApi();
     const { ctx } = fakeCtx({ from: { id: 1 }, text: "hi", session: {} });
-    expect(await handleNameText(ctx, api)).toBe(false);
+    expect(await handleNameText(ctx, api, ru)).toBe(false);
     expect(api.listLevels).not.toHaveBeenCalled();
   });
 
-  it("captures the name and renders the level keyboard", async () => {
+  it("captures the name and advances to the language step", async () => {
     const api = mockApi();
     const { ctx, reply } = fakeCtx({
       from: { id: 1 },
       text: "  Марко  ",
       session: { step: "awaiting_name" }
     });
-    expect(await handleNameText(ctx, api)).toBe(true);
-    expect(ctx.session).toEqual({ step: "awaiting_level", name: "Марко" });
-    expect(reply.mock.calls.at(-1)?.[0]).toBe(ONBOARD_ASK_LEVEL);
-    expect(lastKeyboardCallbacks(reply)).toContain(ONBOARD_ACTIONS.levelNone);
+    expect(await handleNameText(ctx, api, ru)).toBe(true);
+    expect(ctx.session).toEqual({ step: "awaiting_language", name: "Марко" });
+    expect(reply.mock.calls.at(-1)?.[0]).toBe(ONBOARD_ASK_LANGUAGE);
+    // The language picker offers each supported locale.
+    expect(lastKeyboardCallbacks(reply)).toContain(setLanguageData("en"));
+  });
+});
+
+describe("handleOnboardLanguageCallback", () => {
+  it("stores the chosen locale and renders the level step in that language", async () => {
+    const api = mockApi();
+    const { ctx, reply } = fakeCtx({
+      from: { id: 7 },
+      callbackData: setLanguageData("en"),
+      session: { step: "awaiting_language", name: "Марко" }
+    });
+    expect(await handleOnboardLanguageCallback(ctx, api, catalogFor)).toBe(true);
+    expect(ctx.session).toEqual({ step: "awaiting_level", name: "Марко", language: "en" });
+    expect(reply.mock.calls.at(-1)?.[0]).toBe(en["bot.onboarding.askLevel"]);
+  });
+
+  it("does nothing outside the language step (returning-user switch handled elsewhere)", async () => {
+    const api = mockApi();
+    const { ctx } = fakeCtx({
+      from: { id: 7 },
+      callbackData: setLanguageData("en"),
+      session: {}
+    });
+    expect(await handleOnboardLanguageCallback(ctx, api, catalogFor)).toBe(false);
   });
 });
 
@@ -157,9 +194,9 @@ describe("handleLevelCallback", () => {
     const { ctx, reply } = fakeCtx({
       from: { id: 7, username: "marko" },
       callbackData: onboardLevelData(LEVELS[0].id),
-      session: { step: "awaiting_level", name: "Марко" }
+      session: { step: "awaiting_level", name: "Марко", language: "ru" }
     });
-    expect(await handleLevelCallback(ctx, api)).toBe(true);
+    expect(await handleLevelCallback(ctx, api, catalogFor, menuFor)).toBe(true);
     expect(api.onboardClient).toHaveBeenCalledWith({
       telegramId: 7,
       name: "Марко",
@@ -170,17 +207,27 @@ describe("handleLevelCallback", () => {
     expect(ctx.session.step).toBeUndefined();
   });
 
+  it("persists a non-default chosen language on the client", async () => {
+    const setLanguage = vi.fn().mockResolvedValue(EXISTING);
+    const api = mockApi({ setClientLanguage: setLanguage });
+    const { ctx } = fakeCtx({
+      from: { id: 7, username: "marko" },
+      callbackData: onboardLevelData(LEVELS[0].id),
+      session: { step: "awaiting_level", name: "Марко", language: "en" }
+    });
+    await handleLevelCallback(ctx, api, catalogFor, menuFor);
+    expect(setLanguage).toHaveBeenCalledWith(7, "en");
+  });
+
   it("sends null level for the 'Не знаю' pick", async () => {
     const api = mockApi();
     const { ctx } = fakeCtx({
       from: { id: 7, username: "marko" },
       callbackData: ONBOARD_ACTIONS.levelNone,
-      session: { step: "awaiting_level", name: "Марко" }
+      session: { step: "awaiting_level", name: "Марко", language: "ru" }
     });
-    await handleLevelCallback(ctx, api);
-    expect(api.onboardClient).toHaveBeenCalledWith(
-      expect.objectContaining({ levelId: null })
-    );
+    await handleLevelCallback(ctx, api, catalogFor, menuFor);
+    expect(api.onboardClient).toHaveBeenCalledWith(expect.objectContaining({ levelId: null }));
   });
 
   it("omits telegramUsername for a user without a username", async () => {
@@ -188,9 +235,9 @@ describe("handleLevelCallback", () => {
     const { ctx } = fakeCtx({
       from: { id: 8 },
       callbackData: ONBOARD_ACTIONS.levelNone,
-      session: { step: "awaiting_level", name: "Без ника" }
+      session: { step: "awaiting_level", name: "Без ника", language: "ru" }
     });
-    await handleLevelCallback(ctx, api);
+    await handleLevelCallback(ctx, api, catalogFor, menuFor);
     const payload = (api.onboardClient as ReturnType<typeof vi.fn>).mock.calls[0][0];
     expect("telegramUsername" in payload).toBe(false);
   });
@@ -200,9 +247,9 @@ describe("handleLevelCallback", () => {
     const { ctx } = fakeCtx({
       from: { id: 7 },
       callbackData: "menu:available",
-      session: { step: "awaiting_level", name: "Марко" }
+      session: { step: "awaiting_level", name: "Марко", language: "ru" }
     });
-    expect(await handleLevelCallback(ctx, api)).toBe(false);
+    expect(await handleLevelCallback(ctx, api, catalogFor, menuFor)).toBe(false);
     expect(api.onboardClient).not.toHaveBeenCalled();
   });
 
@@ -213,7 +260,7 @@ describe("handleLevelCallback", () => {
       callbackData: onboardLevelData(LEVELS[0].id),
       session: {}
     });
-    expect(await handleLevelCallback(ctx, api)).toBe(true);
+    expect(await handleLevelCallback(ctx, api, catalogFor, menuFor)).toBe(true);
     expect(api.onboardClient).not.toHaveBeenCalled();
     expect(reply.mock.calls.at(-1)?.[0]).toBe(ONBOARD_WELCOME);
     expect(ctx.session.step).toBe("awaiting_name");

@@ -2,10 +2,11 @@ import { InlineKeyboard } from "grammy";
 import type { Training, TrainingStatus } from "@beosand/types";
 import { backHomeKeyboard, NAV_ACTIONS } from "./menu";
 import { showMainMenu, type MenuReplyCtx } from "./navigation";
-import { NOT_ADMIN_TEXT } from "./broadcast";
+import { broadcastNotAdminText } from "./broadcast";
 import { BROADCAST_ACTIONS } from "./broadcast";
 import { STATS_ACTIONS } from "./stats";
 import type { ApiClient } from "./api-client";
+import { t, type Catalog } from "./i18n";
 
 /**
  * Manager / admin console (A1 — ТЗ §14, §15). The bot is an interaction layer
@@ -122,35 +123,10 @@ export function parseCapSet(data: string | undefined): CapChange | undefined {
   return { trainingId, capacity };
 }
 
-const STATUS_LABELS: Record<TrainingStatus, string> = {
-  open: "открыта",
-  full: "заполнена",
-  cancelled: "отменена",
-  completed: "завершена"
-};
-
-export const MANAGER_MENU_TEXT = "Меню менеджера. Выберите действие:";
-
-export const NO_TRAININGS_TEXT =
-  "В ближайшие 30 дней нет тренировок. Сгенерируйте расписание на месяц.";
-
-export const OVERVIEW_HEADER = "Заполненность тренировок (30 дней):";
-
-export const PICK_CANCEL_TEXT = "Какую тренировку отменить?";
-
-export const PICK_CAP_TEXT = "У какой тренировки изменить вместимость?";
-
-export const CANCEL_DONE_TEXT =
-  "✅ Тренировка отменена. Записанные клиенты уведомлены, места освобождены.";
-
-export const CANCEL_ALREADY_TEXT = "Эта тренировка уже отменена.";
-
-export const CANCEL_NOT_FOUND_TEXT = "Тренировка не найдена.";
-
-export const CAP_DONE_TEXT = "✅ Вместимость обновлена.";
-
-export const CAP_BELOW_BOOKED_TEXT =
-  "Нельзя задать вместимость меньше числа уже записанных. Выберите большее значение.";
+/** Localized training-status label, e.g. "open" → "открыта". */
+function statusLabel(catalog: Catalog, status: TrainingStatus): string {
+  return t(catalog, `bot.manager.status.${status}`);
+}
 
 /** Copy another keyboard's text buttons onto `target` as fresh rows. */
 function appendKeyboard(target: InlineKeyboard, source: InlineKeyboard): void {
@@ -165,19 +141,19 @@ function appendKeyboard(target: InlineKeyboard, source: InlineKeyboard): void {
 }
 
 /** The manager menu keyboard: the eight A1 actions, then the back/home footer. */
-export function managerMenuKeyboard(): InlineKeyboard {
+export function managerMenuKeyboard(catalog: Catalog): InlineKeyboard {
   const keyboard = new InlineKeyboard()
-    .text("📊 Обзор заполненности", MANAGER_ACTIONS.overview)
+    .text(t(catalog, "bot.manager.btn.overview"), MANAGER_ACTIONS.overview)
     .row()
-    .text("🔢 Изменить вместимость", MANAGER_ACTIONS.capEntry)
+    .text(t(catalog, "bot.manager.btn.capacity"), MANAGER_ACTIONS.capEntry)
     .row()
-    .text("🚫 Отменить тренировку", MANAGER_ACTIONS.cancelEntry)
+    .text(t(catalog, "bot.manager.btn.cancel"), MANAGER_ACTIONS.cancelEntry)
     .row()
-    .text("📨 Рассылки", BROADCAST_ACTIONS.entry)
+    .text(t(catalog, "bot.manager.btn.broadcasts"), BROADCAST_ACTIONS.entry)
     .row()
-    .text("📈 Сводка по школе", STATS_ACTIONS.entry)
+    .text(t(catalog, "bot.manager.btn.stats"), STATS_ACTIONS.entry)
     .row();
-  appendKeyboard(keyboard, backHomeKeyboard());
+  appendKeyboard(keyboard, backHomeKeyboard(catalog));
   return keyboard;
 }
 
@@ -198,19 +174,27 @@ function isoDate(d: Date): string {
 }
 
 /** One overview line per training: date/time + booked/capacity + status. */
-export function formatOverviewLine(training: Training): string {
+export function formatOverviewLine(catalog: Catalog, training: Training): string {
   return [
     `🏐 ${training.date}, ${training.startTime}–${training.endTime}`,
-    `${training.bookedCount}/${training.capacity} · ${STATUS_LABELS[training.status]}`
+    t(catalog, "bot.manager.overviewLine", {
+      booked: training.bookedCount,
+      capacity: training.capacity,
+      status: statusLabel(catalog, training.status)
+    })
   ].join("\n");
 }
 
 /** Overview body: header + a block per training, or a "no trainings" note. */
-export function renderOverviewText(trainings: Training[]): string {
+export function renderOverviewText(catalog: Catalog, trainings: Training[]): string {
   if (trainings.length === 0) {
-    return NO_TRAININGS_TEXT;
+    return t(catalog, "bot.manager.noTrainings");
   }
-  return [OVERVIEW_HEADER, "", ...trainings.map(formatOverviewLine).flatMap((l) => [l, ""])]
+  return [
+    t(catalog, "bot.manager.overviewHeader"),
+    "",
+    ...trainings.map((tr) => formatOverviewLine(catalog, tr)).flatMap((l) => [l, ""])
+  ]
     .join("\n")
     .trimEnd();
 }
@@ -231,41 +215,49 @@ function isActionable(training: Training): boolean {
 }
 
 /** Pick-a-training keyboard for the cancel flow: one button per actionable training. */
-export function cancelPickKeyboard(trainings: Training[]): InlineKeyboard {
+export function cancelPickKeyboard(catalog: Catalog, trainings: Training[]): InlineKeyboard {
   const keyboard = new InlineKeyboard();
-  for (const t of trainings.filter(isActionable)) {
-    keyboard.text(`🚫 ${trainingButtonLabel(t)}`, cancelPickData(t.id)).row();
+  for (const tr of trainings.filter(isActionable)) {
+    keyboard
+      .text(t(catalog, "bot.manager.cancelButton", { label: trainingButtonLabel(tr) }), cancelPickData(tr.id))
+      .row();
   }
-  appendKeyboard(keyboard, backHomeKeyboard());
+  appendKeyboard(keyboard, backHomeKeyboard(catalog));
   return keyboard;
 }
 
 /** Pick-a-training keyboard for the capacity flow: one button per actionable training. */
-export function capPickKeyboard(trainings: Training[]): InlineKeyboard {
+export function capPickKeyboard(catalog: Catalog, trainings: Training[]): InlineKeyboard {
   const keyboard = new InlineKeyboard();
-  for (const t of trainings.filter(isActionable)) {
-    keyboard.text(`🔢 ${trainingButtonLabel(t)}`, capPickData(t.id)).row();
+  for (const tr of trainings.filter(isActionable)) {
+    keyboard
+      .text(t(catalog, "bot.manager.capButton", { label: trainingButtonLabel(tr) }), capPickData(tr.id))
+      .row();
   }
-  appendKeyboard(keyboard, backHomeKeyboard());
+  appendKeyboard(keyboard, backHomeKeyboard(catalog));
   return keyboard;
 }
 
 /** Confirmation text for cancelling one training (server owns the effects). */
-export function cancelConfirmText(training: Training): string {
+export function cancelConfirmText(catalog: Catalog, training: Training): string {
   return [
-    `Отменить тренировку ${training.date}, ${training.startTime}–${training.endTime}?`,
-    `Записано: ${training.bookedCount}. Все записанные клиенты будут уведомлены.`
+    t(catalog, "bot.manager.cancelConfirmTitle", {
+      date: training.date,
+      start: training.startTime,
+      end: training.endTime
+    }),
+    t(catalog, "bot.manager.cancelConfirmBody", { booked: training.bookedCount })
   ].join("\n");
 }
 
 /** Cancel confirmation keyboard: confirm (carrying the id) + back to the menu. */
-export function cancelConfirmKeyboard(trainingId: string): InlineKeyboard {
+export function cancelConfirmKeyboard(catalog: Catalog, trainingId: string): InlineKeyboard {
   return new InlineKeyboard()
-    .text("✅ Да, отменить", cancelOkData(trainingId))
+    .text(t(catalog, "bot.manager.cancelConfirmButton"), cancelOkData(trainingId))
     .row()
-    .text("⬅️ Назад", MANAGER_ACTIONS.cancelEntry)
+    .text(t(catalog, "bot.nav.back"), MANAGER_ACTIONS.cancelEntry)
     .row()
-    .text("🏠 Главное меню", NAV_ACTIONS.home);
+    .text(t(catalog, "bot.nav.home"), NAV_ACTIONS.home);
 }
 
 /**
@@ -284,23 +276,31 @@ export function capacityOptions(training: Training): number[] {
 }
 
 /** Capacity-picker text: current state and the below-booked guard reminder. */
-export function capPickText(training: Training): string {
+export function capPickText(catalog: Catalog, training: Training): string {
   return [
-    `Тренировка ${training.date}, ${training.startTime}–${training.endTime}.`,
-    `Сейчас: ${training.bookedCount}/${training.capacity}.`,
-    "Выберите новую вместимость:"
+    t(catalog, "bot.manager.capPickTitle", {
+      date: training.date,
+      start: training.startTime,
+      end: training.endTime
+    }),
+    t(catalog, "bot.manager.capPickCurrent", {
+      booked: training.bookedCount,
+      capacity: training.capacity
+    }),
+    t(catalog, "bot.manager.capPickPrompt")
   ].join("\n");
 }
 
 /** Capacity-picker keyboard: one button per offered seat count, then back/home. */
-export function capPickerKeyboard(training: Training): InlineKeyboard {
+export function capPickerKeyboard(catalog: Catalog, training: Training): InlineKeyboard {
   const keyboard = new InlineKeyboard();
   for (const n of capacityOptions(training)) {
-    const label = n === training.capacity ? `${n} (сейчас)` : String(n);
+    const label =
+      n === training.capacity ? t(catalog, "bot.manager.capCurrentOption", { count: n }) : String(n);
     keyboard.text(label, capSetData(training.id, n)).row();
   }
-  keyboard.text("⬅️ Назад", MANAGER_ACTIONS.capEntry).row();
-  keyboard.text("🏠 Главное меню", NAV_ACTIONS.home);
+  keyboard.text(t(catalog, "bot.nav.back"), MANAGER_ACTIONS.capEntry).row();
+  keyboard.text(t(catalog, "bot.nav.home"), NAV_ACTIONS.home);
   return keyboard;
 }
 
@@ -319,15 +319,16 @@ export type ManagerApi = Pick<
 async function ensureAdmin(
   ctx: MenuReplyCtx,
   api: ManagerApi,
+  catalog: Catalog,
   telegramId: number | undefined
 ): Promise<boolean> {
   if (telegramId === undefined) {
-    await showMainMenu(ctx);
+    await showMainMenu(ctx, catalog);
     return false;
   }
   const probe = await api.getAnalyticsSummary(undefined, undefined, telegramId);
   if (probe === null) {
-    await ctx.reply(NOT_ADMIN_TEXT, { reply_markup: backHomeKeyboard() });
+    await ctx.reply(broadcastNotAdminText(catalog), { reply_markup: backHomeKeyboard(catalog) });
     return false;
   }
   return true;
@@ -337,46 +338,51 @@ async function ensureAdmin(
 export async function handleManagerMenu(
   ctx: MenuReplyCtx,
   api: ManagerApi,
+  catalog: Catalog,
   telegramId: number | undefined
 ): Promise<void> {
-  if (!(await ensureAdmin(ctx, api, telegramId))) {
+  if (!(await ensureAdmin(ctx, api, catalog, telegramId))) {
     return;
   }
-  await ctx.reply(MANAGER_MENU_TEXT, { reply_markup: managerMenuKeyboard() });
+  await ctx.reply(t(catalog, "bot.manager.menu"), { reply_markup: managerMenuKeyboard(catalog) });
 }
 
 /** Fill overview: list the next 30 days' trainings with booked/capacity (admin-gated). */
 export async function handleManagerOverview(
   ctx: MenuReplyCtx,
   api: ManagerApi,
+  catalog: Catalog,
   telegramId: number | undefined,
   now: Date = new Date()
 ): Promise<void> {
-  if (telegramId === undefined || !(await ensureAdmin(ctx, api, telegramId))) {
+  if (telegramId === undefined || !(await ensureAdmin(ctx, api, catalog, telegramId))) {
     return;
   }
   const range = fillRange(now);
   const trainings = await api.listTrainings(range, telegramId);
-  await ctx.reply(renderOverviewText(trainings), { reply_markup: backHomeKeyboard() });
+  await ctx.reply(renderOverviewText(catalog, trainings), { reply_markup: backHomeKeyboard(catalog) });
 }
 
 /** Cancel flow step 1: list actionable trainings to pick one to cancel (admin-gated). */
 export async function handleCancelPickList(
   ctx: MenuReplyCtx,
   api: ManagerApi,
+  catalog: Catalog,
   telegramId: number | undefined,
   now: Date = new Date()
 ): Promise<void> {
-  if (telegramId === undefined || !(await ensureAdmin(ctx, api, telegramId))) {
+  if (telegramId === undefined || !(await ensureAdmin(ctx, api, catalog, telegramId))) {
     return;
   }
   const trainings = await api.listTrainings(fillRange(now), telegramId);
-  const actionable = trainings.filter((t) => t.status === "open" || t.status === "full");
+  const actionable = trainings.filter((tr) => tr.status === "open" || tr.status === "full");
   if (actionable.length === 0) {
-    await ctx.reply(NO_TRAININGS_TEXT, { reply_markup: backHomeKeyboard() });
+    await ctx.reply(t(catalog, "bot.manager.noTrainings"), { reply_markup: backHomeKeyboard(catalog) });
     return;
   }
-  await ctx.reply(PICK_CANCEL_TEXT, { reply_markup: cancelPickKeyboard(trainings) });
+  await ctx.reply(t(catalog, "bot.manager.pickCancel"), {
+    reply_markup: cancelPickKeyboard(catalog, trainings)
+  });
 }
 
 /**
@@ -387,21 +393,22 @@ export async function handleCancelPickList(
 export async function handleCancelConfirm(
   ctx: MenuReplyCtx,
   api: ManagerApi,
+  catalog: Catalog,
   telegramId: number | undefined,
   trainingId: string,
   now: Date = new Date()
 ): Promise<void> {
-  if (telegramId === undefined || !(await ensureAdmin(ctx, api, telegramId))) {
+  if (telegramId === undefined || !(await ensureAdmin(ctx, api, catalog, telegramId))) {
     return;
   }
   const trainings = await api.listTrainings(fillRange(now), telegramId);
-  const training = trainings.find((t) => t.id === trainingId);
+  const training = trainings.find((tr) => tr.id === trainingId);
   if (training === undefined) {
-    await ctx.reply(CANCEL_NOT_FOUND_TEXT, { reply_markup: backHomeKeyboard() });
+    await ctx.reply(t(catalog, "bot.manager.cancelNotFound"), { reply_markup: backHomeKeyboard(catalog) });
     return;
   }
-  await ctx.reply(cancelConfirmText(training), {
-    reply_markup: cancelConfirmKeyboard(trainingId)
+  await ctx.reply(cancelConfirmText(catalog, training), {
+    reply_markup: cancelConfirmKeyboard(catalog, trainingId)
   });
 }
 
@@ -414,44 +421,50 @@ export async function handleCancelConfirm(
 export async function handleCancelDo(
   ctx: MenuReplyCtx,
   api: ManagerApi,
+  catalog: Catalog,
   telegramId: number | undefined,
   trainingId: string
 ): Promise<void> {
   if (telegramId === undefined) {
-    await showMainMenu(ctx);
+    await showMainMenu(ctx, catalog);
     return;
   }
   const result = await api.cancelTraining(trainingId, telegramId);
   if (!result.ok) {
     const text =
       result.reason === "forbidden"
-        ? NOT_ADMIN_TEXT
+        ? broadcastNotAdminText(catalog)
         : result.reason === "notFound"
-          ? CANCEL_NOT_FOUND_TEXT
-          : CANCEL_ALREADY_TEXT;
-    await ctx.reply(text, { reply_markup: backHomeKeyboard() });
+          ? t(catalog, "bot.manager.cancelNotFound")
+          : t(catalog, "bot.manager.cancelAlready");
+    await ctx.reply(text, { reply_markup: backHomeKeyboard(catalog) });
     return;
   }
-  await ctx.reply(CANCEL_DONE_TEXT, { reply_markup: managerMenuKeyboard() });
+  await ctx.reply(t(catalog, "bot.manager.cancelDone"), {
+    reply_markup: managerMenuKeyboard(catalog)
+  });
 }
 
 /** Capacity flow step 1: list actionable trainings to pick one (admin-gated). */
 export async function handleCapPickList(
   ctx: MenuReplyCtx,
   api: ManagerApi,
+  catalog: Catalog,
   telegramId: number | undefined,
   now: Date = new Date()
 ): Promise<void> {
-  if (telegramId === undefined || !(await ensureAdmin(ctx, api, telegramId))) {
+  if (telegramId === undefined || !(await ensureAdmin(ctx, api, catalog, telegramId))) {
     return;
   }
   const trainings = await api.listTrainings(fillRange(now), telegramId);
-  const actionable = trainings.filter((t) => t.status === "open" || t.status === "full");
+  const actionable = trainings.filter((tr) => tr.status === "open" || tr.status === "full");
   if (actionable.length === 0) {
-    await ctx.reply(NO_TRAININGS_TEXT, { reply_markup: backHomeKeyboard() });
+    await ctx.reply(t(catalog, "bot.manager.noTrainings"), { reply_markup: backHomeKeyboard(catalog) });
     return;
   }
-  await ctx.reply(PICK_CAP_TEXT, { reply_markup: capPickKeyboard(trainings) });
+  await ctx.reply(t(catalog, "bot.manager.pickCap"), {
+    reply_markup: capPickKeyboard(catalog, trainings)
+  });
 }
 
 /**
@@ -462,20 +475,23 @@ export async function handleCapPickList(
 export async function handleCapPicker(
   ctx: MenuReplyCtx,
   api: ManagerApi,
+  catalog: Catalog,
   telegramId: number | undefined,
   trainingId: string,
   now: Date = new Date()
 ): Promise<void> {
-  if (telegramId === undefined || !(await ensureAdmin(ctx, api, telegramId))) {
+  if (telegramId === undefined || !(await ensureAdmin(ctx, api, catalog, telegramId))) {
     return;
   }
   const trainings = await api.listTrainings(fillRange(now), telegramId);
-  const training = trainings.find((t) => t.id === trainingId);
+  const training = trainings.find((tr) => tr.id === trainingId);
   if (training === undefined) {
-    await ctx.reply(CANCEL_NOT_FOUND_TEXT, { reply_markup: backHomeKeyboard() });
+    await ctx.reply(t(catalog, "bot.manager.cancelNotFound"), { reply_markup: backHomeKeyboard(catalog) });
     return;
   }
-  await ctx.reply(capPickText(training), { reply_markup: capPickerKeyboard(training) });
+  await ctx.reply(capPickText(catalog, training), {
+    reply_markup: capPickerKeyboard(catalog, training)
+  });
 }
 
 /**
@@ -487,11 +503,12 @@ export async function handleCapPicker(
 export async function handleCapSet(
   ctx: MenuReplyCtx,
   api: ManagerApi,
+  catalog: Catalog,
   telegramId: number | undefined,
   change: CapChange
 ): Promise<void> {
   if (telegramId === undefined) {
-    await showMainMenu(ctx);
+    await showMainMenu(ctx, catalog);
     return;
   }
   const result = await api.changeTrainingCapacity(
@@ -500,9 +517,14 @@ export async function handleCapSet(
     telegramId
   );
   if (!result.ok) {
-    const text = result.reason === "forbidden" ? NOT_ADMIN_TEXT : CAP_BELOW_BOOKED_TEXT;
-    await ctx.reply(text, { reply_markup: backHomeKeyboard() });
+    const text =
+      result.reason === "forbidden"
+        ? broadcastNotAdminText(catalog)
+        : t(catalog, "bot.manager.capBelowBooked");
+    await ctx.reply(text, { reply_markup: backHomeKeyboard(catalog) });
     return;
   }
-  await ctx.reply(CAP_DONE_TEXT, { reply_markup: managerMenuKeyboard() });
+  await ctx.reply(t(catalog, "bot.manager.capDone"), {
+    reply_markup: managerMenuKeyboard(catalog)
+  });
 }
