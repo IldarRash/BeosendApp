@@ -3,6 +3,7 @@ import { useNavigate } from "react-router-dom";
 import { telegramLoginPayloadSchema, type TelegramLoginPayload } from "@beosand/types";
 import { useLogin } from "../hooks/useSession";
 import { useToast } from "../ui/Toast";
+import { useT } from "../i18n/LanguageProvider";
 
 const WIDGET_SRC = "https://telegram.org/js/telegram-widget.js?22";
 const ONAUTH_CALLBACK = "onTelegramAuth";
@@ -24,6 +25,7 @@ export function Login(): JSX.Element {
   const navigate = useNavigate();
   const login = useLogin();
   const { notify } = useToast();
+  const t = useT();
   const widgetRef = useRef<HTMLDivElement>(null);
   const botUsername = import.meta.env.VITE_TELEGRAM_BOT_USERNAME;
 
@@ -31,7 +33,7 @@ export function Login(): JSX.Element {
     window[ONAUTH_CALLBACK] = (user: unknown) => {
       const parsed = telegramLoginPayloadSchema.safeParse(user);
       if (!parsed.success) {
-        notify("Некорректный ответ Telegram", "error");
+        notify(t("admin.login.badResponse"), "error");
         return;
       }
       handleLogin(parsed.data);
@@ -64,7 +66,7 @@ export function Login(): JSX.Element {
         navigate("/", { replace: true });
       },
       onError: (error: Error) => {
-        notify(loginErrorMessage(error), "error");
+        notify(loginErrorMessage(error, t), "error");
       }
     });
   }
@@ -77,28 +79,30 @@ export function Login(): JSX.Element {
             Beo<em>Sand</em>
           </span>
         </div>
-        <span className="brand__sub">Admin console</span>
-        <h1 className="login__title">Вход для администратора</h1>
-        <p className="login__lead">
-          Войдите через Telegram. Доступ к консоли есть только у администраторов школы.
-        </p>
+        <span className="brand__sub">{t("admin.brand.sub")}</span>
+        <h1 className="login__title">{t("admin.login.title")}</h1>
+        <p className="login__lead">{t("admin.login.lead")}</p>
         {botUsername ? (
-          <div className="login__widget" ref={widgetRef} aria-label="Кнопка входа через Telegram" />
+          <div
+            className="login__widget"
+            ref={widgetRef}
+            aria-label={t("admin.login.widgetLabel")}
+          />
         ) : (
           <p className="field__error" role="alert">
-            Не задан VITE_TELEGRAM_BOT_USERNAME — кнопка входа недоступна.
+            {t("admin.login.noBotUsername")}
           </p>
         )}
-        {login.isPending ? <p className="login__status">Проверяем доступ…</p> : null}
+        {login.isPending ? <p className="login__status">{t("admin.login.checking")}</p> : null}
       </div>
     </div>
   );
 }
 
 /** A 403 from the API means the Telegram account is not an admin. */
-function loginErrorMessage(error: Error): string {
+function loginErrorMessage(error: Error, t: (key: string) => string): string {
   if (/\b403\b/.test(error.message)) {
-    return "Этот аккаунт не является администратором.";
+    return t("admin.login.notAdmin");
   }
-  return "Не удалось войти. Попробуйте ещё раз.";
+  return t("admin.login.failed");
 }

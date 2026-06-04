@@ -6,6 +6,7 @@ import { DataTable, type Column } from "../ui/DataTable";
 import { Modal } from "../ui/Modal";
 import { TextField, SelectField } from "../ui/Field";
 import { useToast } from "../ui/Toast";
+import { useT } from "../i18n/LanguageProvider";
 import { useLevels, useCreateLevel, useUpdateLevel } from "../hooks/useLevels";
 
 type EditorState =
@@ -13,29 +14,28 @@ type EditorState =
   | { mode: "edit"; level: Level }
   | null;
 
-const STATUS_LABEL: Record<Level["status"], string> = {
-  active: "Активен",
-  inactive: "Неактивен"
-};
-
 /** M1 — Levels: reference data CRUD (create, rename, activate/deactivate). */
 export function Levels(): JSX.Element {
+  const t = useT();
   const levels = useLevels();
   const [editor, setEditor] = useState<EditorState>(null);
 
+  const statusLabel = (status: Level["status"]): string =>
+    status === "active" ? t("admin.status.active") : t("admin.status.inactive");
+
   const columns: Column<Level>[] = [
-    { key: "name", header: "Название", render: (row) => row.name },
+    { key: "name", header: t("admin.levels.colName"), render: (row) => row.name },
     {
       key: "status",
-      header: "Статус",
-      render: (row) => STATUS_LABEL[row.status]
+      header: t("admin.levels.colStatus"),
+      render: (row) => statusLabel(row.status)
     },
     {
       key: "actions",
-      header: "Действия",
+      header: t("admin.levels.colActions"),
       render: (row) => (
         <Button variant="ghost" onClick={() => setEditor({ mode: "edit", level: row })}>
-          Изменить
+          {t("admin.action.edit")}
         </Button>
       )
     }
@@ -45,25 +45,25 @@ export function Levels(): JSX.Element {
     <AppShell>
       <header className="page-head">
         <div>
-          <h1>Уровни</h1>
-          <p>Справочник уровней подготовки: создание, переименование и деактивация.</p>
+          <h1>{t("admin.levels.title")}</h1>
+          <p>{t("admin.levels.lead")}</p>
         </div>
-        <Button onClick={() => setEditor({ mode: "create" })}>Новый уровень</Button>
+        <Button onClick={() => setEditor({ mode: "create" })}>{t("admin.levels.new")}</Button>
       </header>
 
       {levels.isLoading ? (
-        <p className="state state--loading">Загрузка…</p>
+        <p className="state state--loading">{t("admin.state.loading")}</p>
       ) : levels.isError ? (
         <p className="state state--error" role="alert">
-          Не удалось загрузить уровни: {levels.error.message}
+          {t("admin.levels.loadError", { message: levels.error.message })}
         </p>
       ) : (
         <DataTable
-          caption="Уровни подготовки"
+          caption={t("admin.levels.caption")}
           columns={columns}
           rows={levels.data ?? []}
           rowKey={(row) => row.id}
-          emptyLabel="Уровней пока нет. Создайте первый."
+          emptyLabel={t("admin.levels.empty")}
         />
       )}
 
@@ -79,6 +79,7 @@ interface LevelEditorProps {
 
 /** Create / edit dialog for a single level. Server owns all validation. */
 function LevelEditor({ state, onClose }: LevelEditorProps): JSX.Element {
+  const t = useT();
   const toast = useToast();
   const create = useCreateLevel();
   const update = useUpdateLevel();
@@ -97,7 +98,7 @@ function LevelEditor({ state, onClose }: LevelEditorProps): JSX.Element {
         { id: state.level.id, input: { name, status } },
         {
           onSuccess: () => {
-            toast.notify("Уровень обновлён", "success");
+            toast.notify(t("admin.levels.updated"), "success");
             onClose();
           }
         }
@@ -107,7 +108,7 @@ function LevelEditor({ state, onClose }: LevelEditorProps): JSX.Element {
         { name },
         {
           onSuccess: () => {
-            toast.notify("Уровень создан", "success");
+            toast.notify(t("admin.levels.created"), "success");
             onClose();
           }
         }
@@ -119,21 +120,21 @@ function LevelEditor({ state, onClose }: LevelEditorProps): JSX.Element {
     <Modal
       open
       onClose={onClose}
-      title={isEdit ? "Изменить уровень" : "Новый уровень"}
+      title={isEdit ? t("admin.levels.editTitle") : t("admin.levels.createTitle")}
       footer={
         <>
           <Button variant="ghost" onClick={onClose} disabled={pending}>
-            Отмена
+            {t("admin.action.cancel")}
           </Button>
           <Button type="submit" form="level-form" disabled={pending}>
-            {pending ? "Сохранение…" : "Сохранить"}
+            {pending ? t("admin.action.saving") : t("admin.action.save")}
           </Button>
         </>
       }
     >
       <form id="level-form" onSubmit={handleSubmit} className="form">
         <TextField
-          label="Название"
+          label={t("admin.field.name")}
           value={name}
           onChange={(event) => setName(event.target.value)}
           required
@@ -141,14 +142,14 @@ function LevelEditor({ state, onClose }: LevelEditorProps): JSX.Element {
         />
         {isEdit ? (
           <SelectField
-            label="Статус"
+            label={t("admin.field.status")}
             value={status}
             onChange={(event) => setStatus(event.target.value as Level["status"])}
             options={[
-              { value: "active", label: STATUS_LABEL.active },
-              { value: "inactive", label: STATUS_LABEL.inactive }
+              { value: "active", label: t("admin.status.active") },
+              { value: "inactive", label: t("admin.status.inactive") }
             ]}
-            hint="Неактивные уровни не предлагаются в новых группах."
+            hint={t("admin.levels.statusHint")}
           />
         ) : null}
         {error ? (

@@ -15,8 +15,6 @@ import {
   handleBroadcastMenu,
   handleBroadcastPreview,
   handleBroadcastSend,
-  NOT_ADMIN_TEXT,
-  NO_SLOTS_PREVIEW_TEXT,
   parseBroadcastAudience,
   parseBroadcastLevelPick,
   parseBroadcastSend,
@@ -27,6 +25,11 @@ import {
   type BroadcastSelection
 } from "./broadcast";
 import { SLOT_ACTIONS } from "./slots";
+import { getStaticCatalog } from "@beosand/i18n";
+
+const ru = getStaticCatalog("ru");
+const NOT_ADMIN_TEXT = ru["bot.broadcast.notAdmin"];
+const NO_SLOTS_PREVIEW_TEXT = ru["bot.broadcast.noSlots"];
 
 const TRAINING_ID = "11111111-1111-1111-1111-111111111111";
 const LEVEL_ID = "44444444-4444-4444-4444-444444444444";
@@ -151,7 +154,7 @@ describe("broadcast callback round-trips", () => {
 
 describe("broadcastMenuKeyboard", () => {
   it("offers all four broadcast types plus back/home", () => {
-    const callbacks = callbacksOf(broadcastMenuKeyboard());
+    const callbacks = callbacksOf(broadcastMenuKeyboard(ru));
     expect(callbacks).toContain(broadcastTypeData("today"));
     expect(callbacks).toContain(broadcastTypeData("tomorrow"));
     expect(callbacks).toContain(broadcastTypeData("week"));
@@ -162,7 +165,7 @@ describe("broadcastMenuKeyboard", () => {
 
 describe("broadcastAudienceKeyboard", () => {
   it("offers all/active/lapsed direct previews plus a per-level entry", () => {
-    const callbacks = callbacksOf(broadcastAudienceKeyboard("today"));
+    const callbacks = callbacksOf(broadcastAudienceKeyboard(ru, "today"));
     expect(callbacks).toContain(broadcastAudienceData("today", { kind: "all" }));
     expect(callbacks).toContain(
       broadcastAudienceData("today", { kind: "active", days: SEGMENT_DAYS })
@@ -176,7 +179,7 @@ describe("broadcastAudienceKeyboard", () => {
 
 describe("broadcastLevelKeyboard", () => {
   it("offers one level segment per active level", () => {
-    const callbacks = callbacksOf(broadcastLevelKeyboard("today", levels));
+    const callbacks = callbacksOf(broadcastLevelKeyboard(ru, "today", levels));
     expect(callbacks).toContain(
       broadcastAudienceData("today", { kind: "level", levelId: LEVEL_ID })
     );
@@ -185,13 +188,13 @@ describe("broadcastLevelKeyboard", () => {
 
 describe("broadcastPreviewKeyboard", () => {
   it("deep-links each slot into the T1.8 booking flow (book:slot/start entry)", () => {
-    const callbacks = callbacksOf(broadcastPreviewKeyboard(preview, { kind: "all" }));
+    const callbacks = callbacksOf(broadcastPreviewKeyboard(ru, preview, { kind: "all" }));
     expect(callbacks).toContain(`${SLOT_ACTIONS.bookStartPrefix}${TRAINING_ID}`);
   });
 
   it("offers a send button carrying the type AND audience when there are slots", () => {
     const callbacks = callbacksOf(
-      broadcastPreviewKeyboard(preview, { kind: "level", levelId: LEVEL_ID })
+      broadcastPreviewKeyboard(ru, preview, { kind: "level", levelId: LEVEL_ID })
     );
     expect(callbacks).toContain(
       broadcastSendData("today", { kind: "level", levelId: LEVEL_ID })
@@ -200,46 +203,46 @@ describe("broadcastPreviewKeyboard", () => {
 
   it("omits the send button when there are no slots to broadcast", () => {
     const empty: BroadcastPreview = { ...preview, slots: [] };
-    const callbacks = callbacksOf(broadcastPreviewKeyboard(empty, { kind: "all" }));
+    const callbacks = callbacksOf(broadcastPreviewKeyboard(ru, empty, { kind: "all" }));
     expect(callbacks).not.toContain(broadcastSendData("today", { kind: "all" }));
   });
 
   it("always lets the manager change the audience", () => {
-    const callbacks = callbacksOf(broadcastPreviewKeyboard(preview, { kind: "all" }));
+    const callbacks = callbacksOf(broadcastPreviewKeyboard(ru, preview, { kind: "all" }));
     expect(callbacks).toContain(broadcastTypeData("today"));
   });
 });
 
 describe("renderBroadcastPreview", () => {
   it("shows the server text and the segment recipient count", () => {
-    const text = renderBroadcastPreview(preview);
+    const text = renderBroadcastPreview(ru, preview);
     expect(text).toContain("Свободные места сегодня");
     expect(text).toContain("Получателей в сегменте: 42");
   });
 
   it("shows an empty-state message when there are no slots", () => {
-    expect(renderBroadcastPreview({ ...preview, slots: [] })).toBe(NO_SLOTS_PREVIEW_TEXT);
+    expect(renderBroadcastPreview(ru, { ...preview, slots: [] })).toBe(NO_SLOTS_PREVIEW_TEXT);
   });
 });
 
 describe("handleBroadcastMenu", () => {
   it("opens the type picker for an admin", async () => {
     const { reply, replies } = makeCtx();
-    await handleBroadcastMenu({ reply }, makeApi(), 999);
+    await handleBroadcastMenu({ reply }, makeApi(), ru, 999);
     expect(replies[0]?.text).toContain("рассылку");
   });
 
   it("shows a managers-only message for a non-admin (API resolves to null)", async () => {
     const { reply, replies } = makeCtx();
     const api = makeApi({ previewBroadcast: vi.fn(async () => null) });
-    await handleBroadcastMenu({ reply }, api, 123);
+    await handleBroadcastMenu({ reply }, api, ru, 123);
     expect(replies[0]?.text).toBe(NOT_ADMIN_TEXT);
   });
 
   it("never calls the API without a telegram id", async () => {
     const { reply } = makeCtx();
     const probe = vi.fn(async () => preview);
-    await handleBroadcastMenu({ reply }, makeApi({ previewBroadcast: probe }), undefined);
+    await handleBroadcastMenu({ reply }, makeApi({ previewBroadcast: probe }), ru, undefined);
     expect(probe).not.toHaveBeenCalled();
   });
 });
@@ -247,14 +250,14 @@ describe("handleBroadcastMenu", () => {
 describe("handleBroadcastAudiencePicker", () => {
   it("opens the segment picker for an admin", async () => {
     const { reply, replies } = makeCtx();
-    await handleBroadcastAudiencePicker({ reply }, makeApi(), 999, "today");
+    await handleBroadcastAudiencePicker({ reply }, makeApi(), ru, 999, "today");
     expect(replies[0]?.text).toContain("Кому отправить");
   });
 
   it("gates a non-admin", async () => {
     const { reply, replies } = makeCtx();
     const api = makeApi({ previewBroadcast: vi.fn(async () => null) });
-    await handleBroadcastAudiencePicker({ reply }, api, 123, "today");
+    await handleBroadcastAudiencePicker({ reply }, api, ru, 123, "today");
     expect(replies[0]?.text).toBe(NOT_ADMIN_TEXT);
   });
 });
@@ -262,7 +265,7 @@ describe("handleBroadcastAudiencePicker", () => {
 describe("handleBroadcastLevelPick", () => {
   it("lists levels for an admin", async () => {
     const { reply, replies } = makeCtx();
-    await handleBroadcastLevelPick({ reply }, makeApi(), 999, "today");
+    await handleBroadcastLevelPick({ reply }, makeApi(), ru, 999, "today");
     const callbacks = callbacksOf(replies[0]?.markup as { inline_keyboard: unknown[][] });
     expect(callbacks).toContain(
       broadcastAudienceData("today", { kind: "level", levelId: LEVEL_ID })
@@ -278,7 +281,7 @@ describe("handleBroadcastPreview", () => {
       type: "today",
       audience: { kind: "active", days: SEGMENT_DAYS }
     };
-    await handleBroadcastPreview({ reply }, makeApi({ previewBroadcast: previewFn }), 999, selection);
+    await handleBroadcastPreview({ reply }, makeApi({ previewBroadcast: previewFn }), ru, 999, selection);
     expect(previewFn).toHaveBeenCalledWith("today", 999, { kind: "active", days: SEGMENT_DAYS });
     expect(replies[0]?.text).toContain("Получателей в сегменте: 42");
   });
@@ -286,7 +289,7 @@ describe("handleBroadcastPreview", () => {
   it("gates a non-admin", async () => {
     const { reply, replies } = makeCtx();
     const api = makeApi({ previewBroadcast: vi.fn(async () => null) });
-    await handleBroadcastPreview({ reply }, api, 123, ALL_SELECTION);
+    await handleBroadcastPreview({ reply }, api, ru, 123, ALL_SELECTION);
     expect(replies[0]?.text).toBe(NOT_ADMIN_TEXT);
   });
 });
@@ -299,7 +302,7 @@ describe("handleBroadcastSend", () => {
       type: "today",
       audience: { kind: "level", levelId: LEVEL_ID }
     };
-    await handleBroadcastSend({ reply }, makeApi({ sendBroadcast: send }), 999, selection);
+    await handleBroadcastSend({ reply }, makeApi({ sendBroadcast: send }), ru, 999, selection);
     expect(send).toHaveBeenCalledWith("today", 999, { kind: "level", levelId: LEVEL_ID });
     expect(replies[0]?.text).toContain("42 получателям");
   });
@@ -307,7 +310,7 @@ describe("handleBroadcastSend", () => {
   it("gates a non-admin and does not confirm a send (reaches nobody)", async () => {
     const { reply, replies } = makeCtx();
     const send = vi.fn(async () => null);
-    await handleBroadcastSend({ reply }, makeApi({ sendBroadcast: send }), 123, ALL_SELECTION);
+    await handleBroadcastSend({ reply }, makeApi({ sendBroadcast: send }), ru, 123, ALL_SELECTION);
     expect(replies[0]?.text).toBe(NOT_ADMIN_TEXT);
   });
 });

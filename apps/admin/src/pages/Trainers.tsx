@@ -6,6 +6,7 @@ import { DataTable, type Column } from "../ui/DataTable";
 import { Modal } from "../ui/Modal";
 import { TextField, SelectField, NumberField } from "../ui/Field";
 import { useToast } from "../ui/Toast";
+import { useT } from "../i18n/LanguageProvider";
 import { useTrainers, useCreateTrainer, useUpdateTrainer } from "../hooks/useTrainers";
 
 type EditorState =
@@ -13,41 +14,37 @@ type EditorState =
   | { mode: "edit"; trainer: Trainer }
   | null;
 
-const TYPE_LABEL: Record<Trainer["type"], string> = {
-  main: "Основной",
-  guest: "Приглашённый"
-};
-
-const STATUS_LABEL: Record<Trainer["status"], string> = {
-  active: "Активен",
-  inactive: "Неактивен"
-};
-
 /** M1 — Trainers: CRUD plus Telegram-ID linking (the key that opens the bot UI). */
 export function Trainers(): JSX.Element {
+  const t = useT();
   const trainers = useTrainers();
   const [editor, setEditor] = useState<EditorState>(null);
 
+  const typeLabel = (type: Trainer["type"]): string =>
+    type === "main" ? t("admin.trainers.typeMain") : t("admin.trainers.typeGuest");
+  const statusLabel = (status: Trainer["status"]): string =>
+    status === "active" ? t("admin.status.active") : t("admin.status.inactive");
+
   const columns: Column<Trainer>[] = [
-    { key: "name", header: "Имя", render: (row) => row.name },
-    { key: "type", header: "Тип", render: (row) => TYPE_LABEL[row.type] },
+    { key: "name", header: t("admin.trainers.colName"), render: (row) => row.name },
+    { key: "type", header: t("admin.trainers.colType"), render: (row) => typeLabel(row.type) },
     {
       key: "telegram",
-      header: "Telegram",
+      header: t("admin.trainers.colTelegram"),
       render: (row) =>
         row.telegramId === null ? (
-          <span className="state state--loading">Не привязан</span>
+          <span className="state state--loading">{t("admin.trainers.notLinked")}</span>
         ) : (
           <code>{row.telegramId}</code>
         )
     },
-    { key: "status", header: "Статус", render: (row) => STATUS_LABEL[row.status] },
+    { key: "status", header: t("admin.trainers.colStatus"), render: (row) => statusLabel(row.status) },
     {
       key: "actions",
-      header: "Действия",
+      header: t("admin.trainers.colActions"),
       render: (row) => (
         <Button variant="ghost" onClick={() => setEditor({ mode: "edit", trainer: row })}>
-          Изменить
+          {t("admin.action.edit")}
         </Button>
       )
     }
@@ -57,28 +54,25 @@ export function Trainers(): JSX.Element {
     <AppShell>
       <header className="page-head">
         <div>
-          <h1>Тренеры</h1>
-          <p>
-            Создание и редактирование тренеров. Привязка Telegram-ID открывает тренеру его
-            интерфейс в боте.
-          </p>
+          <h1>{t("admin.trainers.title")}</h1>
+          <p>{t("admin.trainers.lead")}</p>
         </div>
-        <Button onClick={() => setEditor({ mode: "create" })}>Новый тренер</Button>
+        <Button onClick={() => setEditor({ mode: "create" })}>{t("admin.trainers.new")}</Button>
       </header>
 
       {trainers.isLoading ? (
-        <p className="state state--loading">Загрузка…</p>
+        <p className="state state--loading">{t("admin.state.loading")}</p>
       ) : trainers.isError ? (
         <p className="state state--error" role="alert">
-          Не удалось загрузить тренеров: {trainers.error.message}
+          {t("admin.trainers.loadError", { message: trainers.error.message })}
         </p>
       ) : (
         <DataTable
-          caption="Тренеры школы"
+          caption={t("admin.trainers.caption")}
           columns={columns}
           rows={trainers.data ?? []}
           rowKey={(row) => row.id}
-          emptyLabel="Тренеров пока нет. Создайте первого."
+          emptyLabel={t("admin.trainers.empty")}
         />
       )}
 
@@ -94,6 +88,7 @@ interface TrainerEditorProps {
 
 /** Create / edit dialog for a single trainer. Server owns all validation. */
 function TrainerEditor({ state, onClose }: TrainerEditorProps): JSX.Element {
+  const t = useT();
   const toast = useToast();
   const create = useCreateTrainer();
   const update = useUpdateTrainer();
@@ -118,7 +113,7 @@ function TrainerEditor({ state, onClose }: TrainerEditorProps): JSX.Element {
         { id: state.trainer.id, input: { name, type, status, telegramId } },
         {
           onSuccess: () => {
-            toast.notify("Тренер обновлён", "success");
+            toast.notify(t("admin.trainers.updated"), "success");
             onClose();
           }
         }
@@ -128,7 +123,7 @@ function TrainerEditor({ state, onClose }: TrainerEditorProps): JSX.Element {
         { name, type, telegramId },
         {
           onSuccess: () => {
-            toast.notify("Тренер создан", "success");
+            toast.notify(t("admin.trainers.created"), "success");
             onClose();
           }
         }
@@ -140,49 +135,49 @@ function TrainerEditor({ state, onClose }: TrainerEditorProps): JSX.Element {
     <Modal
       open
       onClose={onClose}
-      title={isEdit ? "Изменить тренера" : "Новый тренер"}
+      title={isEdit ? t("admin.trainers.editTitle") : t("admin.trainers.createTitle")}
       footer={
         <>
           <Button variant="ghost" onClick={onClose} disabled={pending}>
-            Отмена
+            {t("admin.action.cancel")}
           </Button>
           <Button type="submit" form="trainer-form" disabled={pending}>
-            {pending ? "Сохранение…" : "Сохранить"}
+            {pending ? t("admin.action.saving") : t("admin.action.save")}
           </Button>
         </>
       }
     >
       <form id="trainer-form" onSubmit={handleSubmit} className="form">
         <TextField
-          label="Имя"
+          label={t("admin.field.personName")}
           value={name}
           onChange={(event) => setName(event.target.value)}
           required
           autoComplete="off"
         />
         <SelectField
-          label="Тип"
+          label={t("admin.trainers.fieldType")}
           value={type}
           onChange={(event) => setType(event.target.value as Trainer["type"])}
           options={[
-            { value: "main", label: TYPE_LABEL.main },
-            { value: "guest", label: TYPE_LABEL.guest }
+            { value: "main", label: t("admin.trainers.typeMain") },
+            { value: "guest", label: t("admin.trainers.typeGuest") }
           ]}
         />
         <NumberField
-          label="Telegram-ID"
+          label={t("admin.trainers.fieldTelegram")}
           value={telegramId}
           onValueChange={setTelegramId}
-          hint="Необязательно. Привязка Telegram-ID открывает тренеру его интерфейс в боте."
+          hint={t("admin.trainers.telegramHint")}
         />
         {isEdit ? (
           <SelectField
-            label="Статус"
+            label={t("admin.field.status")}
             value={status}
             onChange={(event) => setStatus(event.target.value as Trainer["status"])}
             options={[
-              { value: "active", label: STATUS_LABEL.active },
-              { value: "inactive", label: STATUS_LABEL.inactive }
+              { value: "active", label: t("admin.status.active") },
+              { value: "inactive", label: t("admin.status.inactive") }
             ]}
           />
         ) : null}

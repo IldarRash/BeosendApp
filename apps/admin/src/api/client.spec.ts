@@ -148,3 +148,66 @@ describe("ApiClient auth contracts", () => {
     await expect(api.me()).rejects.toBeInstanceOf(AuthError);
   });
 });
+
+describe("ApiClient i18n", () => {
+  afterEach(() => {
+    vi.unstubAllGlobals();
+  });
+
+  it("fetches the merged catalog for a locale (flat key→string map)", async () => {
+    const calls = mockFetchOnce({
+      "admin.action.save": "Сачувај",
+      "bot.menu.welcome": "Добродошли"
+    });
+    const result = await new ApiClient("http://api.test").getI18nCatalog("sr");
+    expect(calls[0]?.url).toBe("http://api.test/i18n/catalog?locale=sr");
+    expect(result["admin.action.save"]).toBe("Сачувај");
+  });
+
+  it("rejects a malformed catalog value (contract enforced)", async () => {
+    mockFetchOnce({ "admin.action.save": 123 });
+    await expect(new ApiClient("http://api.test").getI18nCatalog("ru")).rejects.toThrow();
+  });
+
+  it("lists editor rows for a locale", async () => {
+    mockFetchOnce([{ key: "admin.action.save", defaultValue: "Сохранить", override: null }]);
+    const rows = await new ApiClient("http://api.test").listLabels("ru");
+    expect(rows[0].override).toBeNull();
+  });
+
+  it("rejects a label entry with an extra field (strict contract)", async () => {
+    mockFetchOnce([
+      { key: "admin.action.save", defaultValue: "Сохранить", override: null, injected: "x" }
+    ]);
+    await expect(new ApiClient("http://api.test").listLabels("ru")).rejects.toThrow();
+  });
+
+  it("sends a PATCH to upsert an override and returns the updated row", async () => {
+    const calls = mockFetchOnce({
+      key: "admin.action.save",
+      defaultValue: "Сохранить",
+      override: "Записать"
+    });
+    const result = await new ApiClient("http://api.test").updateLabel({
+      locale: "ru",
+      key: "admin.action.save",
+      value: "Записать"
+    });
+    expect(calls[0]?.init?.method).toBe("PATCH");
+    expect(result.override).toBe("Записать");
+  });
+
+  it("sends a DELETE to reset an override to default", async () => {
+    const calls = mockFetchOnce({
+      key: "admin.action.save",
+      defaultValue: "Сохранить",
+      override: null
+    });
+    const result = await new ApiClient("http://api.test").resetLabel({
+      locale: "ru",
+      key: "admin.action.save"
+    });
+    expect(calls[0]?.init?.method).toBe("DELETE");
+    expect(result.override).toBeNull();
+  });
+});

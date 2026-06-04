@@ -2,6 +2,7 @@ import { InlineKeyboard } from "grammy";
 import type { CourtAvailability, CourtDurationHours, CourtRequestPreview } from "@beosand/types";
 import { courtDurationHours } from "@beosand/types";
 import { MENU_ACTIONS } from "./menu";
+import { t, type Catalog } from "./i18n";
 
 /**
  * Court-rental request flow (Edition 2, C2). The bot is an interaction layer
@@ -49,7 +50,7 @@ export function courtDateOptions(today: Date): string[] {
   return dates;
 }
 
-export function courtDateKeyboard(dates: string[]): InlineKeyboard {
+export function courtDateKeyboard(catalog: Catalog, dates: string[]): InlineKeyboard {
   const kb = new InlineKeyboard();
   dates.forEach((date, idx) => {
     kb.text(formatDayMonth(date), `${COURT_ACTIONS.datePrefix}${date}`);
@@ -57,14 +58,14 @@ export function courtDateKeyboard(dates: string[]): InlineKeyboard {
       kb.row();
     }
   });
-  return kb.row().text("⬅️ В меню", MENU_ACTIONS.backToMenu);
+  return kb.row().text(t(catalog, "bot.nav.toMenu"), MENU_ACTIONS.backToMenu);
 }
 
 /**
  * Start-time keyboard from the API availability. Only offerable hours (a free
  * court exists) are rendered; the bot does no availability math.
  */
-export function courtTimeKeyboard(availability: CourtAvailability): InlineKeyboard {
+export function courtTimeKeyboard(catalog: Catalog, availability: CourtAvailability): InlineKeyboard {
   const kb = new InlineKeyboard();
   const bookable = availability.hours.filter((h) => h.freeCourts > 0);
   bookable.forEach((h, idx) => {
@@ -73,55 +74,73 @@ export function courtTimeKeyboard(availability: CourtAvailability): InlineKeyboa
       kb.row();
     }
   });
-  return kb.row().text("⬅️ Назад", COURT_ACTIONS.open);
+  return kb.row().text(t(catalog, "bot.nav.back"), COURT_ACTIONS.open);
 }
 
-export function courtDurationKeyboard(date: string, startTime: string): InlineKeyboard {
+export function courtDurationKeyboard(
+  catalog: Catalog,
+  date: string,
+  startTime: string
+): InlineKeyboard {
   const kb = new InlineKeyboard();
   for (const dur of courtDurationHours.options.map((o) => o.value)) {
-    kb.text(`${dur} ч`, `${COURT_ACTIONS.durationPrefix}${dur}:${date}:${startTime}`).row();
+    kb.text(
+      t(catalog, "bot.court.durationHours", { hours: dur }),
+      `${COURT_ACTIONS.durationPrefix}${dur}:${date}:${startTime}`
+    ).row();
   }
-  return kb.text("⬅️ Назад", `${COURT_ACTIONS.datePrefix}${date}`);
+  return kb.text(t(catalog, "bot.nav.back"), `${COURT_ACTIONS.datePrefix}${date}`);
 }
 
-export function courtPreviewKeyboard(preview: CourtRequestPreview): InlineKeyboard {
+export function courtPreviewKeyboard(
+  catalog: Catalog,
+  preview: CourtRequestPreview
+): InlineKeyboard {
   const kb = new InlineKeyboard();
   if (preview.available) {
     kb.text(
-      "✅ Отправить заявку",
+      t(catalog, "bot.court.send"),
       `${COURT_ACTIONS.confirmPrefix}${preview.date}:${preview.startTime}:${preview.durationHours}`
     ).row();
   }
-  return kb.text("⬅️ В меню", MENU_ACTIONS.backToMenu);
+  return kb.text(t(catalog, "bot.nav.toMenu"), MENU_ACTIONS.backToMenu);
 }
 
-const DURATION_WORD: Record<CourtDurationHours, string> = {
-  1: "1 час",
-  2: "2 часа"
-};
+/** Localized duration word, e.g. 2 → "2 часа". */
+export function durationWord(catalog: Catalog, durationHours: CourtDurationHours): string {
+  return t(catalog, `bot.court.duration.${durationHours}`);
+}
 
 /** Preview text the bot shows, e.g. "Дата: 15.06, Время: 14:00–16:00 (2 часа). Итого: 4 000 RSD". */
-export function courtPreviewText(preview: CourtRequestPreview): string {
-  const head =
-    `Дата: ${formatDayMonth(preview.date)}, ` +
-    `Время: ${preview.startTime}–${preview.endTime} (${DURATION_WORD[preview.durationHours]}). ` +
-    `Итого: ${formatRsd(preview.priceRsd)} RSD`;
+export function courtPreviewText(catalog: Catalog, preview: CourtRequestPreview): string {
+  const head = t(catalog, "bot.court.previewLine", {
+    date: formatDayMonth(preview.date),
+    start: preview.startTime,
+    end: preview.endTime,
+    duration: durationWord(catalog, preview.durationHours),
+    price: formatRsd(preview.priceRsd)
+  });
   if (!preview.available) {
-    return `${head}\n\nК сожалению, это время уже занято. Выберите другое.`;
+    return `${head}\n\n${t(catalog, "bot.court.previewUnavailable")}`;
   }
   return head;
 }
 
-export const COURT_OPEN_TEXT =
-  "🏖 Аренда корта\n\nВыберите дату:";
-export const COURT_PICK_TIME_TEXT =
-  "Выберите время начала:";
-export const COURT_PICK_DURATION_TEXT =
-  "Выберите длительность:";
-export const COURT_NO_SLOTS_TEXT =
-  "На эту дату нет свободных кортов. Выберите другую дату.";
-export const COURT_SUBMITTED_TEXT =
-  "Заявка отправлена на подтверждение администратору. Ожидайте уведомления с номером корта.";
+export function courtOpenText(catalog: Catalog): string {
+  return t(catalog, "bot.court.open");
+}
+export function courtPickTimeText(catalog: Catalog): string {
+  return t(catalog, "bot.court.pickTime");
+}
+export function courtPickDurationText(catalog: Catalog): string {
+  return t(catalog, "bot.court.pickDuration");
+}
+export function courtNoSlotsText(catalog: Catalog): string {
+  return t(catalog, "bot.court.noSlots");
+}
+export function courtSubmittedText(catalog: Catalog): string {
+  return t(catalog, "bot.court.submitted");
+}
 
 /** Parse "court:date:2026-06-15" -> "2026-06-15". */
 export function parseDate(data: string): string {

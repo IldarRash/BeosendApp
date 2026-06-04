@@ -1,7 +1,10 @@
 import { describe, expect, it, vi } from "vitest";
 import type { Booking, SlotCard } from "@beosand/types";
+import { getStaticCatalog } from "@beosand/i18n";
 import { handleBookConfirm, handleBookStart, type BookingApi } from "./booking";
 import type { CreateSingleBookingResult } from "./api-client";
+
+const ru = getStaticCatalog("ru");
 
 const TRAINING_ID = "11111111-1111-1111-1111-111111111111";
 const CLIENT_ID = "22222222-2222-2222-2222-222222222222";
@@ -56,7 +59,7 @@ describe("handleBookStart", () => {
   it("renders the confirmation card for a bookable slot", async () => {
     const { reply, replies } = makeCtx();
     const api = makeApi();
-    await handleBookStart({ reply }, api, TRAINING_ID);
+    await handleBookStart({ reply }, api, ru, TRAINING_ID);
     expect(replies[0]?.text).toContain("Подтвердите запись");
     expect(replies[0]?.text).toContain("Марко");
   });
@@ -64,7 +67,7 @@ describe("handleBookStart", () => {
   it("tells the user the slot is gone when it is no longer bookable", async () => {
     const { reply, replies } = makeCtx();
     const api = makeApi({ listAvailableSlots: vi.fn(async () => []) });
-    await handleBookStart({ reply }, api, TRAINING_ID);
+    await handleBookStart({ reply }, api, ru, TRAINING_ID);
     expect(replies[0]?.text).toContain("больше недоступна");
   });
 });
@@ -74,7 +77,7 @@ describe("handleBookConfirm", () => {
     const { reply, replies } = makeCtx();
     const create = vi.fn(async (): Promise<CreateSingleBookingResult> => ({ ok: true, booking }));
     const api = makeApi({ createSingleBooking: create });
-    await handleBookConfirm({ reply }, api, 12345, CLIENT_ID, TRAINING_ID);
+    await handleBookConfirm({ reply }, api, ru, 12345, CLIENT_ID, TRAINING_ID);
     expect(create).toHaveBeenCalledWith({ clientId: CLIENT_ID, trainingId: TRAINING_ID }, 12345);
     expect(replies[0]?.text).toContain("Вы записаны");
   });
@@ -86,7 +89,7 @@ describe("handleBookConfirm", () => {
       reason: "conflict"
     }));
     const api = makeApi({ createSingleBooking: create });
-    await handleBookConfirm({ reply }, api, 12345, CLIENT_ID, TRAINING_ID);
+    await handleBookConfirm({ reply }, api, ru, 12345, CLIENT_ID, TRAINING_ID);
     expect(replies[0]?.text).toContain("лист ожидания");
   });
 
@@ -94,14 +97,14 @@ describe("handleBookConfirm", () => {
     const { reply } = makeCtx();
     const create = vi.fn(async (): Promise<CreateSingleBookingResult> => ({ ok: true, booking }));
     const api = makeApi({ createSingleBooking: create });
-    await handleBookConfirm({ reply }, api, 12345, null, TRAINING_ID);
+    await handleBookConfirm({ reply }, api, ru, 12345, null, TRAINING_ID);
     expect(create).not.toHaveBeenCalled();
   });
 
   it("falls back to a generic success card when the slot flipped to full", async () => {
     const { reply, replies } = makeCtx();
     const api = makeApi({ listAvailableSlots: vi.fn(async () => []) });
-    await handleBookConfirm({ reply }, api, 12345, CLIENT_ID, TRAINING_ID);
+    await handleBookConfirm({ reply }, api, ru, 12345, CLIENT_ID, TRAINING_ID);
     expect(replies[0]?.text).toContain("Вы записаны");
   });
 });

@@ -8,8 +8,9 @@ import type {
   Trainer
 } from "@beosand/types";
 import { NAV_ACTIONS } from "./menu";
-import { renderSlotsText, slotsKeyboard } from "./slots";
+import { renderSlotsText, slotsKeyboard, weekdayShort } from "./slots";
 import type { ApiClient } from "./api-client";
+import { t, type Catalog } from "./i18n";
 
 /**
  * Client available-slot filters (T3.2). The bot is an interaction layer only:
@@ -50,21 +51,9 @@ export const FILTER_ACTIONS = {
   setLevelPrefix: "filter:set:level:"
 } as const;
 
-const WEEKDAY_LABELS: Record<DayOfWeek, string> = {
-  1: "Пн",
-  2: "Вт",
-  3: "Ср",
-  4: "Чт",
-  5: "Пт",
-  6: "Сб",
-  7: "Вс"
-};
-
-const TIME_OF_DAY_LABELS: Record<TimeOfDay, string> = {
-  morning: "Утро",
-  afternoon: "День",
-  evening: "Вечер"
-};
+function timeOfDayLabel(catalog: Catalog, tod: TimeOfDay): string {
+  return t(catalog, `bot.filter.timeOfDay.${tod}`);
+}
 
 const WEEKDAYS: readonly DayOfWeek[] = [1, 2, 3, 4, 5, 6, 7];
 const TIMES_OF_DAY: readonly TimeOfDay[] = ["morning", "afternoon", "evening"];
@@ -166,39 +155,47 @@ export function toQuery(state: SlotFilterState): AvailableSlotsQuery {
 
 /** Human label for the active-filters summary line. */
 function activeFiltersLabel(
+  catalog: Catalog,
   state: SlotFilterState,
   trainers: Trainer[],
   levels: Level[]
 ): string {
   const parts: string[] = [];
   if (state.weekday !== undefined) {
-    parts.push(WEEKDAY_LABELS[state.weekday]);
+    parts.push(weekdayShort(catalog, state.weekday));
   }
   if (state.timeOfDay !== undefined) {
-    parts.push(TIME_OF_DAY_LABELS[state.timeOfDay]);
+    parts.push(timeOfDayLabel(catalog, state.timeOfDay));
   }
   if (state.trainerId !== undefined) {
-    parts.push(trainers.find((t) => t.id === state.trainerId)?.name ?? "тренер");
+    parts.push(
+      trainers.find((tr) => tr.id === state.trainerId)?.name ?? t(catalog, "bot.filter.trainerFallback")
+    );
   }
   if (state.levelId !== undefined) {
-    parts.push(levels.find((l) => l.id === state.levelId)?.name ?? "уровень");
+    parts.push(
+      levels.find((l) => l.id === state.levelId)?.name ?? t(catalog, "bot.filter.levelFallback")
+    );
   }
-  return parts.length > 0 ? `Фильтры: ${parts.join(" · ")}` : "Фильтры не выбраны";
+  return parts.length > 0
+    ? t(catalog, "bot.filter.active", { filters: parts.join(" · ") })
+    : t(catalog, "bot.filter.none");
 }
 
 const CHECK = "✅ ";
 
 /** Chip bar: one button per filter axis (✅ when set), clear, then the slot cards' footer. */
-export function filterChipsKeyboard(state: SlotFilterState): InlineKeyboard {
+export function filterChipsKeyboard(catalog: Catalog, state: SlotFilterState): InlineKeyboard {
+  const mark = (set: boolean): string => (set ? CHECK : "");
   const keyboard = new InlineKeyboard()
-    .text(`${state.weekday !== undefined ? CHECK : ""}День недели`, FILTER_ACTIONS.pickWeekday)
-    .text(`${state.timeOfDay !== undefined ? CHECK : ""}Время`, FILTER_ACTIONS.pickTimeOfDay)
+    .text(`${mark(state.weekday !== undefined)}${t(catalog, "bot.filter.chip.weekday")}`, FILTER_ACTIONS.pickWeekday)
+    .text(`${mark(state.timeOfDay !== undefined)}${t(catalog, "bot.filter.chip.time")}`, FILTER_ACTIONS.pickTimeOfDay)
     .row()
-    .text(`${state.trainerId !== undefined ? CHECK : ""}Тренер`, FILTER_ACTIONS.pickTrainer)
-    .text(`${state.levelId !== undefined ? CHECK : ""}Уровень`, FILTER_ACTIONS.pickLevel)
+    .text(`${mark(state.trainerId !== undefined)}${t(catalog, "bot.filter.chip.trainer")}`, FILTER_ACTIONS.pickTrainer)
+    .text(`${mark(state.levelId !== undefined)}${t(catalog, "bot.filter.chip.level")}`, FILTER_ACTIONS.pickLevel)
     .row();
   if (hasAnyFilter(state)) {
-    keyboard.text("🧹 Сбросить фильтры", FILTER_ACTIONS.clear).row();
+    keyboard.text(t(catalog, "bot.filter.clear"), FILTER_ACTIONS.clear).row();
   }
   return keyboard;
 }
@@ -213,57 +210,67 @@ function hasAnyFilter(state: SlotFilterState): boolean {
 }
 
 /** Weekday sub-picker: 7 days + "Любой" + back/home. */
-export function weekdayPickerKeyboard(): InlineKeyboard {
+export function weekdayPickerKeyboard(catalog: Catalog): InlineKeyboard {
   const keyboard = new InlineKeyboard();
   for (const day of WEEKDAYS) {
-    keyboard.text(WEEKDAY_LABELS[day], setWeekdayData(day));
+    keyboard.text(weekdayShort(catalog, day), setWeekdayData(day));
     if (day % 4 === 0) {
       keyboard.row();
     }
   }
-  keyboard.row().text("Любой день", `${FILTER_ACTIONS.setWeekdayPrefix}${ANY}`).row();
-  return withBackHome(keyboard);
+  keyboard.row().text(t(catalog, "bot.filter.anyWeekday"), `${FILTER_ACTIONS.setWeekdayPrefix}${ANY}`).row();
+  return withBackHome(catalog, keyboard);
 }
 
 /** Time-of-day sub-picker: morning/afternoon/evening + "Любое" + back/home. */
-export function timeOfDayPickerKeyboard(): InlineKeyboard {
+export function timeOfDayPickerKeyboard(catalog: Catalog): InlineKeyboard {
   const keyboard = new InlineKeyboard();
   for (const tod of TIMES_OF_DAY) {
-    keyboard.text(TIME_OF_DAY_LABELS[tod], setTimeOfDayData(tod)).row();
+    keyboard.text(timeOfDayLabel(catalog, tod), setTimeOfDayData(tod)).row();
   }
-  keyboard.text("Любое время", `${FILTER_ACTIONS.setTimeOfDayPrefix}${ANY}`).row();
-  return withBackHome(keyboard);
+  keyboard.text(t(catalog, "bot.filter.anyTime"), `${FILTER_ACTIONS.setTimeOfDayPrefix}${ANY}`).row();
+  return withBackHome(catalog, keyboard);
 }
 
 /** Trainer sub-picker: one button per active trainer + "Любой" + back/home. */
-export function trainerPickerKeyboard(trainers: Trainer[]): InlineKeyboard {
+export function trainerPickerKeyboard(catalog: Catalog, trainers: Trainer[]): InlineKeyboard {
   const keyboard = new InlineKeyboard();
   for (const trainer of trainers) {
     keyboard.text(trainer.name, setTrainerData(trainer.id)).row();
   }
-  keyboard.text("Любой тренер", `${FILTER_ACTIONS.setTrainerPrefix}${ANY}`).row();
-  return withBackHome(keyboard);
+  keyboard.text(t(catalog, "bot.filter.anyTrainer"), `${FILTER_ACTIONS.setTrainerPrefix}${ANY}`).row();
+  return withBackHome(catalog, keyboard);
 }
 
 /** Level sub-picker: one button per active level + "Любой" + back/home. */
-export function levelPickerKeyboard(levels: Level[]): InlineKeyboard {
+export function levelPickerKeyboard(catalog: Catalog, levels: Level[]): InlineKeyboard {
   const keyboard = new InlineKeyboard();
   for (const level of levels) {
     keyboard.text(level.name, setLevelData(level.id)).row();
   }
-  keyboard.text("Любой уровень", `${FILTER_ACTIONS.setLevelPrefix}${ANY}`).row();
-  return withBackHome(keyboard);
+  keyboard.text(t(catalog, "bot.filter.anyLevel"), `${FILTER_ACTIONS.setLevelPrefix}${ANY}`).row();
+  return withBackHome(catalog, keyboard);
 }
 
-function withBackHome(keyboard: InlineKeyboard): InlineKeyboard {
-  return keyboard.text("⬅️ К списку", FILTER_ACTIONS.open).text("🏠 Меню", NAV_ACTIONS.home);
+function withBackHome(catalog: Catalog, keyboard: InlineKeyboard): InlineKeyboard {
+  return keyboard
+    .text(t(catalog, "bot.filter.backToList"), FILTER_ACTIONS.open)
+    .text(t(catalog, "bot.nav.menuShort"), NAV_ACTIONS.home);
 }
 
 /** Body for a sub-picker prompt. */
-export const PICK_WEEKDAY_TEXT = "Выберите день недели:";
-export const PICK_TIME_OF_DAY_TEXT = "Выберите время дня:";
-export const PICK_TRAINER_TEXT = "Выберите тренера:";
-export const PICK_LEVEL_TEXT = "Выберите уровень:";
+export function pickWeekdayText(catalog: Catalog): string {
+  return t(catalog, "bot.filter.pickWeekday");
+}
+export function pickTimeOfDayText(catalog: Catalog): string {
+  return t(catalog, "bot.filter.pickTimeOfDay");
+}
+export function pickTrainerText(catalog: Catalog): string {
+  return t(catalog, "bot.filter.pickTrainer");
+}
+export function pickLevelText(catalog: Catalog): string {
+  return t(catalog, "bot.filter.pickLevel");
+}
 
 /**
  * Render the filtered slots screen: the active-filters summary, the bookable
@@ -272,15 +279,20 @@ export const PICK_LEVEL_TEXT = "Выберите уровень:";
  * client can both book and adjust filters in 2–3 taps.
  */
 export function renderFilteredSlots(
+  catalog: Catalog,
   cards: SlotCard[],
   state: SlotFilterState,
   trainers: Trainer[],
   levels: Level[]
 ): { text: string; keyboard: InlineKeyboard } {
-  const text = [activeFiltersLabel(state, trainers, levels), "", renderSlotsText(cards)].join("\n");
-  const keyboard = filterChipsKeyboard(state);
+  const text = [
+    activeFiltersLabel(catalog, state, trainers, levels),
+    "",
+    renderSlotsText(catalog, cards)
+  ].join("\n");
+  const keyboard = filterChipsKeyboard(catalog, state);
   // Append the slot cards' own book/back/home keyboard beneath the chips.
-  appendKeyboard(keyboard, slotsKeyboard(cards));
+  appendKeyboard(keyboard, slotsKeyboard(catalog, cards));
   return { text, keyboard };
 }
 
@@ -312,6 +324,7 @@ export interface FilterReplyCtx {
 export async function showFilteredSlots(
   ctx: FilterReplyCtx,
   api: FilterApi,
+  catalog: Catalog,
   state: SlotFilterState
 ): Promise<void> {
   const [cards, trainers, levels] = await Promise.all([
@@ -319,18 +332,28 @@ export async function showFilteredSlots(
     api.listTrainers(),
     api.listLevels()
   ]);
-  const { text, keyboard } = renderFilteredSlots(cards, state, trainers, levels);
+  const { text, keyboard } = renderFilteredSlots(catalog, cards, state, trainers, levels);
   await ctx.reply(text, { reply_markup: keyboard });
 }
 
 /** Show the trainer sub-picker (needs reference data). */
-export async function showTrainerPicker(ctx: FilterReplyCtx, api: FilterApi): Promise<void> {
+export async function showTrainerPicker(
+  ctx: FilterReplyCtx,
+  api: FilterApi,
+  catalog: Catalog
+): Promise<void> {
   const trainers = await api.listTrainers();
-  await ctx.reply(PICK_TRAINER_TEXT, { reply_markup: trainerPickerKeyboard(trainers) });
+  await ctx.reply(pickTrainerText(catalog), {
+    reply_markup: trainerPickerKeyboard(catalog, trainers)
+  });
 }
 
 /** Show the level sub-picker (needs reference data). */
-export async function showLevelPicker(ctx: FilterReplyCtx, api: FilterApi): Promise<void> {
+export async function showLevelPicker(
+  ctx: FilterReplyCtx,
+  api: FilterApi,
+  catalog: Catalog
+): Promise<void> {
   const levels = await api.listLevels();
-  await ctx.reply(PICK_LEVEL_TEXT, { reply_markup: levelPickerKeyboard(levels) });
+  await ctx.reply(pickLevelText(catalog), { reply_markup: levelPickerKeyboard(catalog, levels) });
 }

@@ -2,6 +2,8 @@ import { z } from "zod";
 import {
   adminMeSchema,
   adminSessionSchema,
+  labelCatalogSchema,
+  labelEntrySchema,
   analyticsSummarySchema,
   bookingSchema,
   broadcastEffectivenessSchema,
@@ -50,8 +52,12 @@ import {
   type FillRate,
   type GenerateMonthInput,
   type Group,
+  type LabelCatalog,
+  type LabelEntry,
   type Level,
   type ListTrainingsQuery,
+  type Locale,
+  type UpdateLabelInput,
   type MarkAttendanceInput,
   type NoShowStats,
   type OnboardClientInput,
@@ -68,6 +74,7 @@ import {
 } from "@beosand/types";
 
 const healthSchema = z.object({ status: z.literal("ok"), service: z.string() });
+const labelEntriesSchema = z.array(labelEntrySchema);
 const courtBlocksSchema = z.array(courtBlockSchema);
 const courtRequestsSchema = z.array(courtRequestAdminViewSchema);
 const courtsSchema = z.array(courtSchema);
@@ -519,6 +526,51 @@ export class ApiClient {
       `/analytics/broadcast-effectiveness?${this.rangeQuery(range)}`,
       broadcastEffectivenessSchema
     );
+  }
+
+  // ── Localization (i18n) ────────────────────────────────────────────────────
+
+  /**
+   * The merged catalog for a locale (GET /i18n/catalog?locale=…): static defaults
+   * overlaid with admin overrides, as a flat dotted-key → string map. Public on the
+   * API; the console renders it through the resolver with the bundled static catalog
+   * as the offline fallback.
+   */
+  getI18nCatalog(locale: Locale): Promise<LabelCatalog> {
+    const query = new URLSearchParams({ locale }).toString();
+    return this.request(`/i18n/catalog?${query}`, labelCatalogSchema);
+  }
+
+  /**
+   * Editor rows for a locale (GET /i18n/labels?locale=…) — one per known key, each
+   * carrying its canonical default and the current override (null when using the
+   * default). Admin-only on the server.
+   */
+  listLabels(locale: Locale): Promise<LabelEntry[]> {
+    const query = new URLSearchParams({ locale }).toString();
+    return this.request(`/i18n/labels?${query}`, labelEntriesSchema);
+  }
+
+  /**
+   * Upsert one label override (PATCH /i18n/labels). The server rejects unknown keys
+   * and unknown fields; it returns the updated editor row. Admin-only.
+   */
+  updateLabel(input: UpdateLabelInput): Promise<LabelEntry> {
+    return this.request("/i18n/labels", labelEntrySchema, {
+      method: "PATCH",
+      body: JSON.stringify(input)
+    });
+  }
+
+  /**
+   * Reset a label to its canonical default (DELETE /i18n/labels), removing any
+   * override. Idempotent; returns the editor row with `override: null`. Admin-only.
+   */
+  resetLabel(input: { locale: Locale; key: string }): Promise<LabelEntry> {
+    return this.request("/i18n/labels", labelEntrySchema, {
+      method: "DELETE",
+      body: JSON.stringify(input)
+    });
   }
 }
 

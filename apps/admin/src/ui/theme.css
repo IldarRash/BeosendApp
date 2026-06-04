@@ -268,6 +268,14 @@ h3 {
   padding-top: 16px;
 }
 
+.lang-select {
+  display: block;
+}
+
+.lang-select .input {
+  width: 100%;
+}
+
 .who {
   display: flex;
   flex-direction: column;

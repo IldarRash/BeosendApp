@@ -3,8 +3,6 @@ import type { MyBookingItem } from "@beosand/types";
 import type { Booking } from "@beosand/types";
 import { MENU_ACTIONS, NAV_ACTIONS } from "./menu";
 import {
-  CANCEL_CONFIRM_TEXT,
-  CANCEL_DONE_TEXT,
   cancelBookingData,
   cancelConfirmKeyboard,
   cancelDoneKeyboard,
@@ -13,17 +11,22 @@ import {
   handleCancelPrompt,
   handleMyBookings,
   myBookingsKeyboard,
-  NO_BOOKINGS_TEXT,
-  NOT_ONBOARDED_TEXT,
   parseBookingCancel,
   parseBookingCancelConfirm,
-  PAST_HEADER,
   renderMyBookingsText,
-  UPCOMING_HEADER,
   type CancelBookingApi,
   type MyBookingsApi
 } from "./my-bookings";
 import type { MenuReplyCtx } from "./navigation";
+import { getStaticCatalog } from "@beosand/i18n";
+
+const ru = getStaticCatalog("ru");
+const UPCOMING_HEADER = ru["bot.myBookings.upcomingHeader"];
+const PAST_HEADER = ru["bot.myBookings.pastHeader"];
+const NO_BOOKINGS_TEXT = ru["bot.myBookings.none"];
+const NOT_ONBOARDED_TEXT = ru["bot.myBookings.notOnboarded"];
+const CANCEL_CONFIRM_TEXT = ru["bot.myBookings.cancelConfirm"];
+const CANCEL_DONE_TEXT = ru["bot.myBookings.cancelDone"];
 
 const CLIENT = { id: "22222222-2222-2222-2222-222222222222" };
 
@@ -84,11 +87,12 @@ describe("confirm-cancel callback data", () => {
 
 describe("renderMyBookingsText", () => {
   it("shows the no-bookings line when both lists are empty", () => {
-    expect(renderMyBookingsText([], [])).toBe(NO_BOOKINGS_TEXT);
+    expect(renderMyBookingsText(ru, [], [])).toBe(NO_BOOKINGS_TEXT);
   });
 
   it("renders both sections in order (upcoming first, then past)", () => {
     const text = renderMyBookingsText(
+      ru,
       [item()],
       [item({ date: "2026-05-01", bookingStatus: "attended" })]
     );
@@ -98,20 +102,20 @@ describe("renderMyBookingsText", () => {
   });
 
   it("renders only the upcoming section when there are no past items", () => {
-    const text = renderMyBookingsText([item()], []);
+    const text = renderMyBookingsText(ru, [item()], []);
     expect(text).toContain(UPCOMING_HEADER);
     expect(text).not.toContain(PAST_HEADER);
   });
 
   it("shows the outcome for a completed (attended/no_show) past item", () => {
-    const text = renderMyBookingsText([], [item({ bookingStatus: "attended" })]);
+    const text = renderMyBookingsText(ru, [], [item({ bookingStatus: "attended" })]);
     expect(text).toContain("посещено");
   });
 });
 
 describe("myBookingsKeyboard", () => {
   it("adds a cancel button only for canCancel items, then the back/home footer", () => {
-    const keyboard = myBookingsKeyboard([
+    const keyboard = myBookingsKeyboard(ru, [
       item({ bookingId: "aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa", canCancel: true }),
       item({ bookingId: "bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb", canCancel: false })
     ]);
@@ -122,7 +126,7 @@ describe("myBookingsKeyboard", () => {
   });
 
   it("renders only the footer when nothing is cancellable", () => {
-    const keyboard = myBookingsKeyboard([item({ canCancel: false })]);
+    const keyboard = myBookingsKeyboard(ru, [item({ canCancel: false })]);
     expect(callbacksOf(keyboard)).toEqual([NAV_ACTIONS.back, NAV_ACTIONS.home]);
   });
 });
@@ -142,7 +146,7 @@ describe("handleMyBookings", () => {
       )
     };
     const { ctx, reply } = fakeCtx();
-    await handleMyBookings(ctx, api, 999);
+    await handleMyBookings(ctx, api, ru, 999);
     expect(api.getClientByTelegramId).toHaveBeenCalledWith(999);
     expect(api.listMyBookings).toHaveBeenCalledWith(CLIENT.id, "upcoming", 999);
     expect(api.listMyBookings).toHaveBeenCalledWith(CLIENT.id, "past", 999);
@@ -156,7 +160,7 @@ describe("handleMyBookings", () => {
       listMyBookings: vi.fn()
     };
     const { ctx, reply } = fakeCtx();
-    await handleMyBookings(ctx, api, 999);
+    await handleMyBookings(ctx, api, ru, 999);
     expect(api.listMyBookings).not.toHaveBeenCalled();
     expect(reply.mock.calls[0][0]).toBe(NOT_ONBOARDED_TEXT);
   });
@@ -167,7 +171,7 @@ describe("handleMyBookings", () => {
       listMyBookings: vi.fn().mockResolvedValue([])
     };
     const { ctx, reply } = fakeCtx();
-    await handleMyBookings(ctx, api, 999);
+    await handleMyBookings(ctx, api, ru, 999);
     expect(reply.mock.calls[0][0]).toBe(NO_BOOKINGS_TEXT);
     const other = reply.mock.calls[0][1] as { reply_markup: { inline_keyboard: unknown[][] } };
     expect(callbacksOf(other.reply_markup)).toContain(NAV_ACTIONS.home);
@@ -179,21 +183,21 @@ describe("handleMyBookings", () => {
       listMyBookings: vi.fn()
     };
     const { ctx } = fakeCtx(undefined);
-    await handleMyBookings(ctx, api, undefined);
+    await handleMyBookings(ctx, api, ru, undefined);
     expect(api.getClientByTelegramId).not.toHaveBeenCalled();
   });
 });
 
 describe("cancel flow keyboards", () => {
   it("confirm prompt carries the bookingId confirm action plus a path home", () => {
-    const callbacks = callbacksOf(cancelConfirmKeyboard(CLIENT.id));
+    const callbacks = callbacksOf(cancelConfirmKeyboard(ru, CLIENT.id));
     expect(callbacks).toContain(confirmCancelData(CLIENT.id));
     expect(callbacks).toContain(MENU_ACTIONS.myBookings);
     expect(callbacks).toContain(NAV_ACTIONS.home);
   });
 
   it("done keyboard offers book again / my bookings / home", () => {
-    expect(callbacksOf(cancelDoneKeyboard())).toEqual([
+    expect(callbacksOf(cancelDoneKeyboard(ru))).toEqual([
       MENU_ACTIONS.availableTrainings,
       MENU_ACTIONS.myBookings,
       NAV_ACTIONS.home
@@ -205,7 +209,7 @@ describe("handleCancelPrompt", () => {
   it("shows the are-you-sure prompt and performs no write", async () => {
     const reply = vi.fn().mockResolvedValue(undefined);
     const ctx: MenuReplyCtx = { reply, from: { id: 999 } };
-    await handleCancelPrompt(ctx, CLIENT.id);
+    await handleCancelPrompt(ctx, ru, CLIENT.id);
     expect(reply).toHaveBeenCalledOnce();
     expect(reply.mock.calls[0][0]).toBe(CANCEL_CONFIRM_TEXT);
   });
@@ -217,7 +221,7 @@ describe("handleCancelConfirm", () => {
     const api: CancelBookingApi = { cancelBooking };
     const reply = vi.fn().mockResolvedValue(undefined);
     const ctx: MenuReplyCtx = { reply, from: { id: 999 } };
-    await handleCancelConfirm(ctx, api, 999, CLIENT.id);
+    await handleCancelConfirm(ctx, api, ru, 999, CLIENT.id);
     expect(cancelBooking).toHaveBeenCalledWith(CLIENT.id, 999);
     expect(reply.mock.calls[0][0]).toBe(CANCEL_DONE_TEXT);
   });
@@ -227,7 +231,7 @@ describe("handleCancelConfirm", () => {
     const api: CancelBookingApi = { cancelBooking };
     const reply = vi.fn().mockResolvedValue(undefined);
     const ctx: MenuReplyCtx = { reply };
-    await handleCancelConfirm(ctx, api, undefined, CLIENT.id);
+    await handleCancelConfirm(ctx, api, ru, undefined, CLIENT.id);
     expect(cancelBooking).not.toHaveBeenCalled();
   });
 });

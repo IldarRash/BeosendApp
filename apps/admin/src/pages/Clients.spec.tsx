@@ -14,6 +14,8 @@ vi.mock("../ui/AppShell", () => ({
   AppShell: ({ children }: { children: React.ReactNode }) => <div>{children}</div>
 }));
 
+vi.mock("../i18n/LanguageProvider", async () => import("../i18n/test-utils"));
+
 const useClientByTelegram = vi.fn();
 const onboardMutate = vi.fn();
 const useOnboardClient = vi.fn();
@@ -48,7 +50,8 @@ const foundClient: Client = {
   telegramUsername: "anya",
   levelId: sampleLevels[0].id,
   registeredAt: "2026-01-01T00:00:00.000Z",
-  status: "active"
+  status: "active",
+  language: "ru"
 };
 
 const idleQuery = { isFetching: false, isError: false, error: null, data: undefined };

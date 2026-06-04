@@ -1,6 +1,9 @@
 import { describe, expect, it, vi } from "vitest";
 import type { Level, SlotCard, Trainer } from "@beosand/types";
 import { NAV_ACTIONS } from "./menu";
+import { getStaticCatalog } from "@beosand/i18n";
+
+const ru = getStaticCatalog("ru");
 import {
   applyFilterEdit,
   FILTER_ACTIONS,
@@ -115,14 +118,14 @@ describe("toQuery", () => {
 
 describe("filterChipsKeyboard", () => {
   it("offers one chip per axis and shows the clear button only when a filter is set", () => {
-    const empty = callbacksOf(filterChipsKeyboard({}));
+    const empty = callbacksOf(filterChipsKeyboard(ru, {}));
     expect(empty).toContain(FILTER_ACTIONS.pickWeekday);
     expect(empty).toContain(FILTER_ACTIONS.pickTimeOfDay);
     expect(empty).toContain(FILTER_ACTIONS.pickTrainer);
     expect(empty).toContain(FILTER_ACTIONS.pickLevel);
     expect(empty).not.toContain(FILTER_ACTIONS.clear);
 
-    const withFilter = callbacksOf(filterChipsKeyboard({ weekday: 3 }));
+    const withFilter = callbacksOf(filterChipsKeyboard(ru, { weekday: 3 }));
     expect(withFilter).toContain(FILTER_ACTIONS.clear);
   });
 });
@@ -130,6 +133,7 @@ describe("filterChipsKeyboard", () => {
 describe("renderFilteredSlots", () => {
   it("summarises the active filters and ends with the slot cards' back/home footer", () => {
     const { text, keyboard } = renderFilteredSlots(
+      ru,
       [card],
       { weekday: 3, trainerId: TRAINER_ID },
       trainers,
@@ -144,7 +148,7 @@ describe("renderFilteredSlots", () => {
   });
 
   it("says no filters are chosen when the state is empty", () => {
-    const { text } = renderFilteredSlots([], {}, trainers, levels);
+    const { text } = renderFilteredSlots(ru, [], {}, trainers, levels);
     expect(text).toContain("Фильтры не выбраны");
   });
 });
@@ -158,7 +162,7 @@ describe("showFilteredSlots", () => {
       listLevels: vi.fn(async () => levels)
     };
     const reply = vi.fn(async () => undefined);
-    await showFilteredSlots({ reply }, api, { weekday: 3, timeOfDay: "evening" });
+    await showFilteredSlots({ reply }, api, ru, { weekday: 3, timeOfDay: "evening" });
     // The bot forwards the filters; it never filters locally.
     expect(listAvailableSlots).toHaveBeenCalledWith({ weekday: 3, timeOfDay: "evening" });
     expect(reply).toHaveBeenCalledOnce();

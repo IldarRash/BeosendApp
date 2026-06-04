@@ -3,14 +3,14 @@ import type {
   BroadcastAudience,
   BroadcastPreview,
   BroadcastType,
-  DayOfWeek,
   Level,
   SlotCard
 } from "@beosand/types";
 import { backHomeKeyboard, NAV_ACTIONS } from "./menu";
 import { showMainMenu, type MenuReplyCtx } from "./navigation";
-import { bookStartData } from "./slots";
+import { bookStartData, weekdayShort } from "./slots";
 import type { ApiClient } from "./api-client";
+import { t, type Catalog } from "./i18n";
 
 /**
  * Default rolling window (days) for the `active` / `lapsed` segments (T3.2). The
@@ -30,15 +30,12 @@ export const SEGMENT_DAYS = 30;
  * which re-checks availability — the broadcast itself never books.
  */
 
-/** The four broadcast types, in menu order, with their Russian labels. */
-const BROADCAST_TYPE_LABELS: Record<BroadcastType, string> = {
-  today: "Сегодня",
-  tomorrow: "Завтра",
-  week: "На неделю",
-  "freed-up": "Освободившиеся места"
-};
-
 const BROADCAST_TYPES: readonly BroadcastType[] = ["today", "tomorrow", "week", "freed-up"];
+
+/** Localized label for a broadcast type, e.g. "today" → "Сегодня". */
+function broadcastTypeLabel(catalog: Catalog, type: BroadcastType): string {
+  return t(catalog, `bot.broadcast.type.${type}`);
+}
 
 /**
  * Broadcast-flow callbacks (T2.4 + T3.2 segments). Payloads carry only a type
@@ -173,31 +170,18 @@ function asBroadcastType(value: string): BroadcastType | undefined {
     : undefined;
 }
 
-const WEEKDAY_LABELS: Record<DayOfWeek, string> = {
-  1: "Пн",
-  2: "Вт",
-  3: "Ср",
-  4: "Чт",
-  5: "Пт",
-  6: "Сб",
-  7: "Вс"
-};
-
-export const NOT_ADMIN_TEXT =
-  "Этот раздел доступен только менеджеру. Если вы менеджер — обратитесь к администратору.";
-
-export const BROADCAST_MENU_TEXT = "Какую рассылку свободных мест подготовить?";
-
-export const NO_SLOTS_PREVIEW_TEXT =
-  "Свободных мест для этой рассылки сейчас нет. Выберите другой тип или загляните позже.";
+/** Shared "managers only" message; consumed by stats/manager-menu too. */
+export function broadcastNotAdminText(catalog: Catalog): string {
+  return t(catalog, "bot.broadcast.notAdmin");
+}
 
 /** Type picker: one button per broadcast type, then the back/home footer. */
-export function broadcastMenuKeyboard(): InlineKeyboard {
+export function broadcastMenuKeyboard(catalog: Catalog): InlineKeyboard {
   const keyboard = new InlineKeyboard();
   for (const type of BROADCAST_TYPES) {
-    keyboard.text(BROADCAST_TYPE_LABELS[type], broadcastTypeData(type)).row();
+    keyboard.text(broadcastTypeLabel(catalog, type), broadcastTypeData(type)).row();
   }
-  appendKeyboard(keyboard, backHomeKeyboard());
+  appendKeyboard(keyboard, backHomeKeyboard(catalog));
   return keyboard;
 }
 
@@ -213,52 +197,54 @@ function appendKeyboard(target: InlineKeyboard, source: InlineKeyboard): void {
   }
 }
 
-export const BROADCAST_AUDIENCE_TEXT = "Кому отправить рассылку?";
-
-export const BROADCAST_PICK_LEVEL_TEXT = "Выберите уровень для рассылки:";
-
-const AUDIENCE_LABEL: Record<BroadcastAudience["kind"], string> = {
-  all: "Всем активным",
-  level: "По уровню",
-  active: `Активным (за ${SEGMENT_DAYS} дн.)`,
-  lapsed: `Давно не были (${SEGMENT_DAYS} дн.)`
-};
-
 /**
  * Audience picker (T3.2): all / active / lapsed direct previews, plus a "по
  * уровню" entry that opens the per-level sub-picker. The bot only forwards the
  * chosen segment; the API resolves it and counts recipients. Each callback
  * carries the broadcast type so the preview is for that type + segment.
  */
-export function broadcastAudienceKeyboard(type: BroadcastType): InlineKeyboard {
+export function broadcastAudienceKeyboard(catalog: Catalog, type: BroadcastType): InlineKeyboard {
   const keyboard = new InlineKeyboard()
-    .text(AUDIENCE_LABEL.all, broadcastAudienceData(type, { kind: "all" }))
+    .text(t(catalog, "bot.broadcast.audience.all"), broadcastAudienceData(type, { kind: "all" }))
     .row()
-    .text(AUDIENCE_LABEL.active, broadcastAudienceData(type, { kind: "active", days: SEGMENT_DAYS }))
+    .text(
+      t(catalog, "bot.broadcast.audience.active", { days: SEGMENT_DAYS }),
+      broadcastAudienceData(type, { kind: "active", days: SEGMENT_DAYS })
+    )
     .row()
-    .text(AUDIENCE_LABEL.lapsed, broadcastAudienceData(type, { kind: "lapsed", days: SEGMENT_DAYS }))
+    .text(
+      t(catalog, "bot.broadcast.audience.lapsed", { days: SEGMENT_DAYS }),
+      broadcastAudienceData(type, { kind: "lapsed", days: SEGMENT_DAYS })
+    )
     .row()
-    .text(AUDIENCE_LABEL.level, broadcastLevelPickData(type))
+    .text(t(catalog, "bot.broadcast.audience.level"), broadcastLevelPickData(type))
     .row();
-  appendKeyboard(keyboard, backHomeKeyboard());
+  appendKeyboard(keyboard, backHomeKeyboard(catalog));
   return keyboard;
 }
 
 /** Per-level audience sub-picker: one button per level, then back/home. */
-export function broadcastLevelKeyboard(type: BroadcastType, levels: Level[]): InlineKeyboard {
+export function broadcastLevelKeyboard(
+  catalog: Catalog,
+  type: BroadcastType,
+  levels: Level[]
+): InlineKeyboard {
   const keyboard = new InlineKeyboard();
   for (const level of levels) {
     keyboard
       .text(level.name, broadcastAudienceData(type, { kind: "level", levelId: level.id }))
       .row();
   }
-  appendKeyboard(keyboard, backHomeKeyboard());
+  appendKeyboard(keyboard, backHomeKeyboard(catalog));
   return keyboard;
 }
 
 /** Short per-slot label for the inline "Записаться" button in the preview. */
-function slotButtonLabel(card: SlotCard): string {
-  return `Записаться · ${WEEKDAY_LABELS[card.dayOfWeek]} ${card.startTime}`;
+function slotButtonLabel(catalog: Catalog, card: SlotCard): string {
+  return t(catalog, "bot.broadcast.slotButton", {
+    day: weekdayShort(catalog, card.dayOfWeek),
+    time: card.startTime
+  });
 }
 
 /**
@@ -269,18 +255,19 @@ function slotButtonLabel(card: SlotCard): string {
  * is nothing to broadcast.
  */
 export function broadcastPreviewKeyboard(
+  catalog: Catalog,
   preview: BroadcastPreview,
   audience: BroadcastAudience
 ): InlineKeyboard {
   const keyboard = new InlineKeyboard();
   for (const card of preview.slots) {
-    keyboard.text(slotButtonLabel(card), bookStartData(card.trainingId)).row();
+    keyboard.text(slotButtonLabel(catalog, card), bookStartData(card.trainingId)).row();
   }
   if (preview.slots.length > 0) {
-    keyboard.text("📨 Отправить", broadcastSendData(preview.type, audience)).row();
+    keyboard.text(t(catalog, "bot.broadcast.send"), broadcastSendData(preview.type, audience)).row();
   }
-  keyboard.text("👥 Сменить аудиторию", broadcastTypeData(preview.type)).row();
-  appendKeyboard(keyboard, backHomeKeyboard());
+  keyboard.text(t(catalog, "bot.broadcast.changeAudience"), broadcastTypeData(preview.type)).row();
+  appendKeyboard(keyboard, backHomeKeyboard(catalog));
   return keyboard;
 }
 
@@ -290,29 +277,29 @@ export function broadcastPreviewKeyboard(
  * sending. All text (slot lines, prices, free counts) and the count come from
  * the API; nothing is composed or counted here.
  */
-export function renderBroadcastPreview(preview: BroadcastPreview): string {
+export function renderBroadcastPreview(catalog: Catalog, preview: BroadcastPreview): string {
   if (preview.slots.length === 0) {
-    return NO_SLOTS_PREVIEW_TEXT;
+    return t(catalog, "bot.broadcast.noSlots");
   }
   return [
     preview.text,
     "",
-    `Получателей в сегменте: ${preview.recipientsCount}`,
-    "Нажмите «Отправить», чтобы разослать."
+    t(catalog, "bot.broadcast.previewRecipients", { count: preview.recipientsCount }),
+    t(catalog, "bot.broadcast.previewHint")
   ].join("\n");
 }
 
 /** Confirmation shown after a send, reporting the server's recipient count. */
-export function renderBroadcastSent(recipientsCount: number): string {
-  return `✅ Рассылка отправлена ${recipientsCount} получателям.`;
+export function renderBroadcastSent(catalog: Catalog, recipientsCount: number): string {
+  return t(catalog, "bot.broadcast.sent", { count: recipientsCount });
 }
 
 /** Post-send footer: back to the broadcast menu and the main menu. */
-export function broadcastSentKeyboard(): InlineKeyboard {
+export function broadcastSentKeyboard(catalog: Catalog): InlineKeyboard {
   return new InlineKeyboard()
-    .text("📨 Другая рассылка", BROADCAST_ACTIONS.entry)
+    .text(t(catalog, "bot.broadcast.another"), BROADCAST_ACTIONS.entry)
     .row()
-    .text("🏠 Главное меню", NAV_ACTIONS.home);
+    .text(t(catalog, "bot.nav.home"), NAV_ACTIONS.home);
 }
 
 /** The slice of ApiClient the broadcast handlers need. */
@@ -330,20 +317,23 @@ export type BroadcastApi = Pick<
 export async function handleBroadcastMenu(
   ctx: MenuReplyCtx,
   api: BroadcastApi,
+  catalog: Catalog,
   telegramId: number | undefined
 ): Promise<void> {
   if (telegramId === undefined) {
-    await showMainMenu(ctx);
+    await showMainMenu(ctx, catalog);
     return;
   }
   // Probe admin role via the API (the bot never decides who is an admin). A
   // non-admin gets the same "managers only" message and no broadcast UI.
   const probe = await api.previewBroadcast("today", telegramId);
   if (probe === null) {
-    await ctx.reply(NOT_ADMIN_TEXT, { reply_markup: backHomeKeyboard() });
+    await ctx.reply(broadcastNotAdminText(catalog), { reply_markup: backHomeKeyboard(catalog) });
     return;
   }
-  await ctx.reply(BROADCAST_MENU_TEXT, { reply_markup: broadcastMenuKeyboard() });
+  await ctx.reply(t(catalog, "bot.broadcast.menu"), {
+    reply_markup: broadcastMenuKeyboard(catalog)
+  });
 }
 
 /**
@@ -354,19 +344,22 @@ export async function handleBroadcastMenu(
 export async function handleBroadcastAudiencePicker(
   ctx: MenuReplyCtx,
   api: BroadcastApi,
+  catalog: Catalog,
   telegramId: number | undefined,
   type: BroadcastType
 ): Promise<void> {
   if (telegramId === undefined) {
-    await showMainMenu(ctx);
+    await showMainMenu(ctx, catalog);
     return;
   }
   const probe = await api.previewBroadcast(type, telegramId);
   if (probe === null) {
-    await ctx.reply(NOT_ADMIN_TEXT, { reply_markup: backHomeKeyboard() });
+    await ctx.reply(broadcastNotAdminText(catalog), { reply_markup: backHomeKeyboard(catalog) });
     return;
   }
-  await ctx.reply(BROADCAST_AUDIENCE_TEXT, { reply_markup: broadcastAudienceKeyboard(type) });
+  await ctx.reply(t(catalog, "bot.broadcast.audiencePrompt"), {
+    reply_markup: broadcastAudienceKeyboard(catalog, type)
+  });
 }
 
 /**
@@ -376,21 +369,22 @@ export async function handleBroadcastAudiencePicker(
 export async function handleBroadcastLevelPick(
   ctx: MenuReplyCtx,
   api: BroadcastApi,
+  catalog: Catalog,
   telegramId: number | undefined,
   type: BroadcastType
 ): Promise<void> {
   if (telegramId === undefined) {
-    await showMainMenu(ctx);
+    await showMainMenu(ctx, catalog);
     return;
   }
   const probe = await api.previewBroadcast(type, telegramId);
   if (probe === null) {
-    await ctx.reply(NOT_ADMIN_TEXT, { reply_markup: backHomeKeyboard() });
+    await ctx.reply(broadcastNotAdminText(catalog), { reply_markup: backHomeKeyboard(catalog) });
     return;
   }
   const levels = await api.listLevels();
-  await ctx.reply(BROADCAST_PICK_LEVEL_TEXT, {
-    reply_markup: broadcastLevelKeyboard(type, levels)
+  await ctx.reply(t(catalog, "bot.broadcast.pickLevel"), {
+    reply_markup: broadcastLevelKeyboard(catalog, type, levels)
   });
 }
 
@@ -404,20 +398,21 @@ export async function handleBroadcastLevelPick(
 export async function handleBroadcastPreview(
   ctx: MenuReplyCtx,
   api: BroadcastApi,
+  catalog: Catalog,
   telegramId: number | undefined,
   selection: BroadcastSelection
 ): Promise<void> {
   if (telegramId === undefined) {
-    await showMainMenu(ctx);
+    await showMainMenu(ctx, catalog);
     return;
   }
   const preview = await api.previewBroadcast(selection.type, telegramId, selection.audience);
   if (preview === null) {
-    await ctx.reply(NOT_ADMIN_TEXT, { reply_markup: backHomeKeyboard() });
+    await ctx.reply(broadcastNotAdminText(catalog), { reply_markup: backHomeKeyboard(catalog) });
     return;
   }
-  await ctx.reply(renderBroadcastPreview(preview), {
-    reply_markup: broadcastPreviewKeyboard(preview, selection.audience)
+  await ctx.reply(renderBroadcastPreview(catalog, preview), {
+    reply_markup: broadcastPreviewKeyboard(catalog, preview, selection.audience)
   });
 }
 
@@ -431,19 +426,20 @@ export async function handleBroadcastPreview(
 export async function handleBroadcastSend(
   ctx: MenuReplyCtx,
   api: BroadcastApi,
+  catalog: Catalog,
   telegramId: number | undefined,
   selection: BroadcastSelection
 ): Promise<void> {
   if (telegramId === undefined) {
-    await showMainMenu(ctx);
+    await showMainMenu(ctx, catalog);
     return;
   }
   const result = await api.sendBroadcast(selection.type, telegramId, selection.audience);
   if (result === null) {
-    await ctx.reply(NOT_ADMIN_TEXT, { reply_markup: backHomeKeyboard() });
+    await ctx.reply(broadcastNotAdminText(catalog), { reply_markup: backHomeKeyboard(catalog) });
     return;
   }
-  await ctx.reply(renderBroadcastSent(result.recipientsCount), {
-    reply_markup: broadcastSentKeyboard()
+  await ctx.reply(renderBroadcastSent(catalog, result.recipientsCount), {
+    reply_markup: broadcastSentKeyboard(catalog)
   });
 }

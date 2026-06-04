@@ -13,6 +13,7 @@ import { DataTable, type Column } from "../ui/DataTable";
 import { Modal } from "../ui/Modal";
 import { NumberField, SelectField, TextField, type SelectOption } from "../ui/Field";
 import { useToast } from "../ui/Toast";
+import { useT } from "../i18n/LanguageProvider";
 import { useGroups } from "../hooks/useGroups";
 import { useTrainers } from "../hooks/useTrainers";
 import {
@@ -22,32 +23,24 @@ import {
   useTrainings
 } from "../hooks/useTrainings";
 
-/** RU labels for the training status the API returns (never recomputed here). */
-const STATUS_LABEL: Record<TrainingStatus, string> = {
-  open: "Открыта",
-  full: "Заполнена",
-  cancelled: "Отменена",
-  completed: "Завершена"
-};
+type Translate = (key: string, params?: Record<string, string | number>) => string;
 
-const MONTH_OPTIONS: SelectOption[] = [
-  { value: "1", label: "Январь" },
-  { value: "2", label: "Февраль" },
-  { value: "3", label: "Март" },
-  { value: "4", label: "Апрель" },
-  { value: "5", label: "Май" },
-  { value: "6", label: "Июнь" },
-  { value: "7", label: "Июль" },
-  { value: "8", label: "Август" },
-  { value: "9", label: "Сентябрь" },
-  { value: "10", label: "Октябрь" },
-  { value: "11", label: "Ноябрь" },
-  { value: "12", label: "Декабрь" }
-];
+/** Catalog key for a training status the API returns (never recomputed here). */
+function statusLabel(status: TrainingStatus, t: Translate): string {
+  return t(`admin.trainings.status${status.charAt(0).toUpperCase()}${status.slice(1)}`);
+}
+
+/** Month options 1..12 with localized names. */
+function monthOptions(t: Translate): SelectOption[] {
+  return Array.from({ length: 12 }, (_, i) => ({
+    value: String(i + 1),
+    label: t(`admin.trainings.month.${i + 1}`)
+  }));
+}
 
 /** Human-readable error from a failed mutation (the API decides the message). */
-function errorText(error: unknown): string {
-  return error instanceof Error ? error.message : "Не удалось выполнить операцию.";
+function errorText(error: unknown, t: Translate): string {
+  return error instanceof Error ? error.message : t("admin.trainings.opFailed");
 }
 
 /**
@@ -58,6 +51,7 @@ function errorText(error: unknown): string {
  * rejects a value below bookedCount; that error is rendered, never the floor).
  */
 export function Trainings(): JSX.Element {
+  const t = useT();
   const { notify } = useToast();
 
   // ── Range / group filter ───────────────────────────────────────────────
@@ -74,17 +68,17 @@ export function Trainings(): JSX.Element {
 
   const groupOptions = useMemo<SelectOption[]>(
     () => [
-      { value: "", label: "Все группы" },
+      { value: "", label: t("admin.trainings.allGroups") },
       ...(groups.data ?? []).map((g) => ({ value: g.id, label: g.name }))
     ],
-    [groups.data]
+    [groups.data, t]
   );
 
   const groupName = useMemo(() => {
     const map = new Map<string, string>();
     for (const g of groups.data ?? []) map.set(g.id, g.name);
-    return (id: string | null): string => (id ? (map.get(id) ?? "—") : "Разовая");
-  }, [groups.data]);
+    return (id: string | null): string => (id ? (map.get(id) ?? "—") : t("admin.trainings.oneOff"));
+  }, [groups.data, t]);
 
   const trainerName = useMemo(() => {
     const map = new Map<string, string>();
@@ -105,49 +99,49 @@ export function Trainings(): JSX.Element {
   const changeCapacity = useChangeCapacity();
 
   const columns: Column<Training>[] = [
-    { key: "date", header: "Дата", render: (t) => t.date },
+    { key: "date", header: t("admin.trainings.colDate"), render: (row) => row.date },
     {
       key: "time",
-      header: "Время",
-      render: (t) => `${t.startTime}–${t.endTime}`
+      header: t("admin.trainings.colTime"),
+      render: (row) => `${row.startTime}–${row.endTime}`
     },
-    { key: "group", header: "Группа", render: (t) => groupName(t.groupId) },
-    { key: "trainer", header: "Тренер", render: (t) => trainerName(t.trainerId) },
+    { key: "group", header: t("admin.trainings.colGroup"), render: (row) => groupName(row.groupId) },
+    { key: "trainer", header: t("admin.trainings.colTrainer"), render: (row) => trainerName(row.trainerId) },
     {
       key: "occupancy",
-      header: "Занятость",
+      header: t("admin.trainings.colOccupancy"),
       numeric: true,
-      render: (t) => `${t.bookedCount} / ${t.capacity}`
+      render: (row) => `${row.bookedCount} / ${row.capacity}`
     },
     {
       key: "status",
-      header: "Статус",
-      render: (t) => STATUS_LABEL[t.status]
+      header: t("admin.trainings.colStatus"),
+      render: (row) => statusLabel(row.status, t)
     },
     {
       key: "actions",
-      header: "Действия",
-      render: (t) => (
+      header: t("admin.trainings.colActions"),
+      render: (row) => (
         <div style={{ display: "flex", gap: 8 }}>
           <Button
             variant="ghost"
             onClick={() => {
               changeCapacity.reset();
-              setCapacityTarget(t);
+              setCapacityTarget(row);
             }}
-            disabled={t.status === "cancelled"}
+            disabled={row.status === "cancelled"}
           >
-            Вместимость
+            {t("admin.trainings.actionCapacity")}
           </Button>
           <Button
             variant="danger"
             onClick={() => {
               cancel.reset();
-              setCancelTarget(t);
+              setCancelTarget(row);
             }}
-            disabled={t.status === "cancelled" || t.status === "completed"}
+            disabled={row.status === "cancelled" || row.status === "completed"}
           >
-            Отменить
+            {t("admin.trainings.actionCancel")}
           </Button>
         </div>
       )
@@ -158,26 +152,31 @@ export function Trainings(): JSX.Element {
     <AppShell>
       <header className="page-head">
         <div>
-          <h1>Тренировки</h1>
-          <p>Список по периоду и группе: статус, занятость, отмена и изменение вместимости.</p>
+          <h1>{t("admin.trainings.title")}</h1>
+          <p>{t("admin.trainings.lead")}</p>
         </div>
-        <Button onClick={() => setGenOpen(true)}>Сгенерировать месяц</Button>
+        <Button onClick={() => setGenOpen(true)}>{t("admin.trainings.generate")}</Button>
       </header>
 
       <form
-        aria-label="Фильтр тренировок"
+        aria-label={t("admin.trainings.filterLabel")}
         onSubmit={(e) => e.preventDefault()}
         style={{ display: "flex", gap: 16, flexWrap: "wrap", alignItems: "flex-end" }}
       >
         <TextField
-          label="С даты"
+          label={t("admin.field.fromDate")}
           type="date"
           value={from}
           onChange={(e) => setFrom(e.target.value)}
         />
-        <TextField label="По дату" type="date" value={to} onChange={(e) => setTo(e.target.value)} />
+        <TextField
+          label={t("admin.field.toDate")}
+          type="date"
+          value={to}
+          onChange={(e) => setTo(e.target.value)}
+        />
         <SelectField
-          label="Группа"
+          label={t("admin.field.group")}
           options={groupOptions}
           value={filterGroupId}
           onChange={(e) => setFilterGroupId(e.target.value)}
@@ -185,20 +184,20 @@ export function Trainings(): JSX.Element {
       </form>
 
       {query === null ? (
-        <p className="state">Укажите период (с даты и по дату), чтобы увидеть тренировки.</p>
+        <p className="state">{t("admin.trainings.pickRange")}</p>
       ) : trainings.isPending ? (
-        <p className="state">Загрузка тренировок…</p>
+        <p className="state">{t("admin.trainings.loading")}</p>
       ) : trainings.isError ? (
         <p className="state state--error" role="alert">
-          {errorText(trainings.error)}
+          {errorText(trainings.error, t)}
         </p>
       ) : (
         <DataTable
-          caption="Тренировки за выбранный период"
+          caption={t("admin.trainings.caption")}
           columns={columns}
           rows={trainings.data}
-          rowKey={(t) => t.id}
-          emptyLabel="За выбранный период тренировок нет."
+          rowKey={(row) => row.id}
+          emptyLabel={t("admin.trainings.empty")}
         />
       )}
 
@@ -206,7 +205,7 @@ export function Trainings(): JSX.Element {
         open={genOpen}
         groups={groups.data ?? []}
         pending={generate.isPending}
-        error={generate.isError ? errorText(generate.error) : undefined}
+        error={generate.isError ? errorText(generate.error, t) : undefined}
         onClose={() => {
           generate.reset();
           setGenOpen(false);
@@ -215,10 +214,7 @@ export function Trainings(): JSX.Element {
           generate.mutate(input, {
             onSuccess: (rows) => {
               setGenOpen(false);
-              notify(
-                `Месяц сгенерирован: тренировок в группе — ${rows.length}.`,
-                "success"
-              );
+              notify(t("admin.trainings.generated", { count: rows.length }), "success");
             }
           });
         }}
@@ -226,12 +222,12 @@ export function Trainings(): JSX.Element {
 
       <Modal
         open={cancelTarget !== null}
-        title="Отменить тренировку"
+        title={t("admin.trainings.cancelTitle")}
         onClose={() => setCancelTarget(null)}
         footer={
           <>
             <Button variant="ghost" onClick={() => setCancelTarget(null)}>
-              Не отменять
+              {t("admin.trainings.cancelKeep")}
             </Button>
             <Button
               variant="danger"
@@ -242,28 +238,31 @@ export function Trainings(): JSX.Element {
                   onSuccess: (updated) => {
                     setCancelTarget(null);
                     notify(
-                      `Тренировка отменена. Уведомлено записанных: ${updated.bookedCount}.`,
+                      t("admin.trainings.cancelled", { count: updated.bookedCount }),
                       "success"
                     );
                   }
                 });
               }}
             >
-              {cancel.isPending ? "Отмена…" : "Отменить тренировку"}
+              {cancel.isPending ? t("admin.trainings.cancelling") : t("admin.trainings.cancelConfirm")}
             </Button>
           </>
         }
       >
         {cancelTarget ? (
           <p>
-            Отменить тренировку {cancelTarget.date} {cancelTarget.startTime}–
-            {cancelTarget.endTime}? Записанные клиенты ({cancelTarget.bookedCount}) получат
-            уведомление.
+            {t("admin.trainings.cancelPrompt", {
+              date: cancelTarget.date,
+              start: cancelTarget.startTime,
+              end: cancelTarget.endTime,
+              count: cancelTarget.bookedCount
+            })}
           </p>
         ) : null}
         {cancel.isError ? (
           <p className="state state--error" role="alert">
-            {errorText(cancel.error)}
+            {errorText(cancel.error, t)}
           </p>
         ) : null}
       </Modal>
@@ -271,7 +270,7 @@ export function Trainings(): JSX.Element {
       <ChangeCapacityModal
         target={capacityTarget}
         pending={changeCapacity.isPending}
-        error={changeCapacity.isError ? errorText(changeCapacity.error) : undefined}
+        error={changeCapacity.isError ? errorText(changeCapacity.error, t) : undefined}
         onClose={() => setCapacityTarget(null)}
         onSubmit={(capacity) => {
           if (!capacityTarget) return;
@@ -282,7 +281,10 @@ export function Trainings(): JSX.Element {
               onSuccess: (updated) => {
                 setCapacityTarget(null);
                 notify(
-                  `Вместимость обновлена: ${updated.capacity}, статус — ${STATUS_LABEL[updated.status]}.`,
+                  t("admin.trainings.capacityUpdated", {
+                    capacity: updated.capacity,
+                    status: statusLabel(updated.status, t)
+                  }),
                   "success"
                 );
               }
@@ -313,13 +315,14 @@ function GenerateMonthModal({
   onClose,
   onSubmit
 }: GenerateMonthModalProps): JSX.Element {
+  const t = useT();
   const now = new Date();
   const [groupId, setGroupId] = useState("");
   const [year, setYear] = useState<number | null>(now.getFullYear());
   const [month, setMonth] = useState(String(now.getMonth() + 1));
 
   const groupOptions: SelectOption[] = [
-    { value: "", label: "Выберите группу" },
+    { value: "", label: t("admin.trainings.pickGroup") },
     ...groups.map((g) => ({ value: g.id, label: g.name }))
   ];
 
@@ -328,12 +331,12 @@ function GenerateMonthModal({
   return (
     <Modal
       open={open}
-      title="Сгенерировать месяц"
+      title={t("admin.trainings.genMonthTitle")}
       onClose={onClose}
       footer={
         <>
           <Button variant="ghost" onClick={onClose}>
-            Отмена
+            {t("admin.action.cancel")}
           </Button>
           <Button
             disabled={!canSubmit}
@@ -342,25 +345,22 @@ function GenerateMonthModal({
               onSubmit({ groupId, year, month: Number.parseInt(month, 10) });
             }}
           >
-            {pending ? "Генерация…" : "Сгенерировать"}
+            {pending ? t("admin.trainings.generating") : t("admin.trainings.genSubmit")}
           </Button>
         </>
       }
     >
-      <p className="state">
-        Создаёт тренировки на каждый день недели группы за месяц. Операция идемпотентна —
-        существующие тренировки не дублируются.
-      </p>
+      <p className="state">{t("admin.trainings.genHint")}</p>
       <SelectField
-        label="Группа"
+        label={t("admin.field.group")}
         options={groupOptions}
         value={groupId}
         onChange={(e) => setGroupId(e.target.value)}
       />
-      <NumberField label="Год" value={year} onValueChange={setYear} />
+      <NumberField label={t("admin.trainings.fieldYear")} value={year} onValueChange={setYear} />
       <SelectField
-        label="Месяц"
-        options={MONTH_OPTIONS}
+        label={t("admin.trainings.fieldMonth")}
+        options={monthOptions(t)}
         value={month}
         onChange={(e) => setMonth(e.target.value)}
       />
@@ -390,6 +390,7 @@ function ChangeCapacityModal({
   onClose,
   onSubmit
 }: ChangeCapacityModalProps): JSX.Element {
+  const t = useT();
   const [capacity, setCapacity] = useState<number | null>(target?.capacity ?? null);
 
   // Reset the field to the target's capacity whenever a new row is opened.
@@ -402,12 +403,12 @@ function ChangeCapacityModal({
   return (
     <Modal
       open={target !== null}
-      title="Изменить вместимость"
+      title={t("admin.trainings.capacityTitle")}
       onClose={onClose}
       footer={
         <>
           <Button variant="ghost" onClick={onClose}>
-            Отмена
+            {t("admin.action.cancel")}
           </Button>
           <Button
             disabled={capacity === null || pending}
@@ -416,18 +417,18 @@ function ChangeCapacityModal({
               onSubmit(capacity);
             }}
           >
-            {pending ? "Сохранение…" : "Сохранить"}
+            {pending ? t("admin.action.saving") : t("admin.action.save")}
           </Button>
         </>
       }
     >
       {target ? (
         <NumberField
-          label="Вместимость"
+          label={t("admin.field.capacity")}
           value={capacity}
           onValueChange={setCapacity}
           min={1}
-          hint={`Сейчас записано: ${target.bookedCount}. Сервер отклонит значение ниже записанных.`}
+          hint={t("admin.trainings.capacityHint", { booked: target.bookedCount })}
           error={error}
         />
       ) : null}

@@ -1,8 +1,10 @@
 import { InlineKeyboard } from "grammy";
-import type { BookingStatus, DayOfWeek, MyBookingItem } from "@beosand/types";
+import type { BookingStatus, MyBookingItem } from "@beosand/types";
 import type { ApiClient } from "./api-client";
 import { backHomeKeyboard, MENU_ACTIONS, NAV_ACTIONS } from "./menu";
 import { showMainMenu, type MenuReplyCtx } from "./navigation";
+import { t, type Catalog } from "./i18n";
+import { weekdayShort } from "./slots";
 
 /**
  * "My bookings" screen (T1.10). Pure render/keyboard helpers kept here so they
@@ -49,43 +51,26 @@ export function parseBookingCancelConfirm(data: string | undefined): string | un
   return data.slice(MY_BOOKINGS_ACTIONS.confirmPrefix.length);
 }
 
-const WEEKDAY_LABELS: Record<DayOfWeek, string> = {
-  1: "Пн",
-  2: "Вт",
-  3: "Ср",
-  4: "Чт",
-  5: "Пт",
-  6: "Сб",
-  7: "Вс"
-};
-
 /** Human label for a past item's outcome, when the API has set one. */
-const OUTCOME_LABELS: Partial<Record<BookingStatus, string>> = {
-  attended: "✅ посещено",
-  no_show: "🚫 не пришёл",
-  cancelled: "❌ отменено"
-};
-
-export const NO_BOOKINGS_TEXT = "У вас пока нет записей. Запишитесь на тренировку 🏐";
-
-export const NOT_ONBOARDED_TEXT =
-  "Чтобы видеть свои записи, сначала зарегистрируйтесь — нажмите /start.";
-
-export const UPCOMING_HEADER = "Предстоящие тренировки:";
-export const PAST_HEADER = "Прошедшие тренировки:";
+function outcomeLabel(catalog: Catalog, status: BookingStatus): string | undefined {
+  if (status === "attended" || status === "no_show" || status === "cancelled") {
+    return t(catalog, `bot.myBookings.outcome.${status}`);
+  }
+  return undefined;
+}
 
 /** One human-readable line for an upcoming item. All data is server-provided. */
-export function formatUpcomingLine(item: MyBookingItem): string {
+export function formatUpcomingLine(catalog: Catalog, item: MyBookingItem): string {
   return [
-    `🏐 ${WEEKDAY_LABELS[item.dayOfWeek]} ${item.date}, ${item.startTime}–${item.endTime}`,
+    `🏐 ${weekdayShort(catalog, item.dayOfWeek)} ${item.date}, ${item.startTime}–${item.endTime}`,
     `${item.trainerName} · ${item.levelName}`
   ].join("\n");
 }
 
 /** One human-readable line for a past item, with its outcome when set. */
-export function formatPastLine(item: MyBookingItem): string {
-  const outcome = OUTCOME_LABELS[item.bookingStatus];
-  const head = `🗓 ${WEEKDAY_LABELS[item.dayOfWeek]} ${item.date}, ${item.startTime}–${item.endTime}`;
+export function formatPastLine(catalog: Catalog, item: MyBookingItem): string {
+  const outcome = outcomeLabel(catalog, item.bookingStatus);
+  const head = `🗓 ${weekdayShort(catalog, item.dayOfWeek)} ${item.date}, ${item.startTime}–${item.endTime}`;
   return [head, `${item.trainerName} · ${item.levelName}${outcome ? ` · ${outcome}` : ""}`].join(
     "\n"
   );
@@ -97,23 +82,34 @@ export function formatPastLine(item: MyBookingItem): string {
  * just renders the two server-provided lists in order.
  */
 export function renderMyBookingsText(
+  catalog: Catalog,
   upcoming: MyBookingItem[],
   past: MyBookingItem[]
 ): string {
   if (upcoming.length === 0 && past.length === 0) {
-    return NO_BOOKINGS_TEXT;
+    return t(catalog, "bot.myBookings.none");
   }
   const blocks: string[] = [];
   if (upcoming.length > 0) {
     blocks.push(
-      [UPCOMING_HEADER, "", ...upcoming.map(formatUpcomingLine).flatMap((l) => [l, ""])]
+      [
+        t(catalog, "bot.myBookings.upcomingHeader"),
+        "",
+        ...upcoming.map((i) => formatUpcomingLine(catalog, i)).flatMap((l) => [l, ""])
+      ]
         .join("\n")
         .trimEnd()
     );
   }
   if (past.length > 0) {
     blocks.push(
-      [PAST_HEADER, "", ...past.map(formatPastLine).flatMap((l) => [l, ""])].join("\n").trimEnd()
+      [
+        t(catalog, "bot.myBookings.pastHeader"),
+        "",
+        ...past.map((i) => formatPastLine(catalog, i)).flatMap((l) => [l, ""])
+      ]
+        .join("\n")
+        .trimEnd()
     );
   }
   return blocks.join("\n\n");
@@ -137,24 +133,27 @@ function appendKeyboard(target: InlineKeyboard, source: InlineKeyboard): void {
  * never get a cancel button — `canCancel` is server-computed and never inferred
  * here.
  */
-export function myBookingsKeyboard(upcoming: MyBookingItem[]): InlineKeyboard {
+export function myBookingsKeyboard(catalog: Catalog, upcoming: MyBookingItem[]): InlineKeyboard {
   const keyboard = new InlineKeyboard();
   for (const item of upcoming) {
     if (item.canCancel) {
-      const label = `❌ Отменить · ${WEEKDAY_LABELS[item.dayOfWeek]} ${item.startTime}`;
+      const label = t(catalog, "bot.myBookings.cancelButton", {
+        day: weekdayShort(catalog, item.dayOfWeek),
+        time: item.startTime
+      });
       keyboard.text(label, cancelBookingData(item.bookingId)).row();
     }
   }
-  appendKeyboard(keyboard, backHomeKeyboard());
+  appendKeyboard(keyboard, backHomeKeyboard(catalog));
   return keyboard;
 }
 
 /** "Записаться" + back/home footer, shown when the client has no bookings yet. */
-export function noBookingsKeyboard(): InlineKeyboard {
+export function noBookingsKeyboard(catalog: Catalog): InlineKeyboard {
   return new InlineKeyboard()
-    .text("🏐 Доступные тренировки", MENU_ACTIONS.availableTrainings)
+    .text(t(catalog, "bot.menu.availableTrainings"), MENU_ACTIONS.availableTrainings)
     .row()
-    .text("🏠 Главное меню", NAV_ACTIONS.home);
+    .text(t(catalog, "bot.nav.home"), NAV_ACTIONS.home);
 }
 
 /** The slice of ApiClient the "my bookings" handler needs. */
@@ -169,15 +168,18 @@ export type MyBookingsApi = Pick<ApiClient, "getClientByTelegramId" | "listMyBoo
 export async function handleMyBookings(
   ctx: MenuReplyCtx,
   api: MyBookingsApi,
+  catalog: Catalog,
   telegramId: number | undefined
 ): Promise<void> {
   if (telegramId === undefined) {
-    await showMainMenu(ctx);
+    await showMainMenu(ctx, catalog);
     return;
   }
   const client = await api.getClientByTelegramId(telegramId);
   if (!client) {
-    await ctx.reply(NOT_ONBOARDED_TEXT, { reply_markup: backHomeKeyboard() });
+    await ctx.reply(t(catalog, "bot.myBookings.notOnboarded"), {
+      reply_markup: backHomeKeyboard(catalog)
+    });
     return;
   }
   const [upcoming, past] = await Promise.all([
@@ -185,42 +187,39 @@ export async function handleMyBookings(
     api.listMyBookings(client.id, "past", telegramId)
   ]);
   if (upcoming.length === 0 && past.length === 0) {
-    await ctx.reply(NO_BOOKINGS_TEXT, { reply_markup: noBookingsKeyboard() });
+    await ctx.reply(t(catalog, "bot.myBookings.none"), {
+      reply_markup: noBookingsKeyboard(catalog)
+    });
     return;
   }
-  await ctx.reply(renderMyBookingsText(upcoming, past), {
-    reply_markup: myBookingsKeyboard(upcoming)
+  await ctx.reply(renderMyBookingsText(catalog, upcoming, past), {
+    reply_markup: myBookingsKeyboard(catalog, upcoming)
   });
 }
 
 // --- Cancellation flow (T1.11) ---
 
-export const CANCEL_CONFIRM_TEXT =
-  "Вы уверены, что хотите отменить запись? Место снова станет доступным для других.";
-
-export const CANCEL_DONE_TEXT = "✅ Запись отменена.";
-
 /**
  * The "Вы уверены?" prompt keyboard: confirm (carrying the bookingId) plus a way
  * back to the bookings list. No domain logic — the write happens only on confirm.
  */
-export function cancelConfirmKeyboard(bookingId: string): InlineKeyboard {
+export function cancelConfirmKeyboard(catalog: Catalog, bookingId: string): InlineKeyboard {
   return new InlineKeyboard()
-    .text("✅ Да, отменить", confirmCancelData(bookingId))
+    .text(t(catalog, "bot.myBookings.cancelConfirmButton"), confirmCancelData(bookingId))
     .row()
-    .text("⬅️ Назад", MENU_ACTIONS.myBookings)
+    .text(t(catalog, "bot.nav.back"), MENU_ACTIONS.myBookings)
     .row()
-    .text("🏠 Главное меню", NAV_ACTIONS.home);
+    .text(t(catalog, "bot.nav.home"), NAV_ACTIONS.home);
 }
 
 /** Post-cancel footer: book again / my bookings / main menu (UX §11). */
-export function cancelDoneKeyboard(): InlineKeyboard {
+export function cancelDoneKeyboard(catalog: Catalog): InlineKeyboard {
   return new InlineKeyboard()
-    .text("🏐 Записаться снова", MENU_ACTIONS.availableTrainings)
+    .text(t(catalog, "bot.myBookings.bookAgain"), MENU_ACTIONS.availableTrainings)
     .row()
-    .text("📋 Мои записи", MENU_ACTIONS.myBookings)
+    .text(t(catalog, "bot.menu.myBookings"), MENU_ACTIONS.myBookings)
     .row()
-    .text("🏠 Главное меню", NAV_ACTIONS.home);
+    .text(t(catalog, "bot.nav.home"), NAV_ACTIONS.home);
 }
 
 /** The slice of ApiClient the cancellation confirm handler needs. */
@@ -232,9 +231,12 @@ export type CancelBookingApi = Pick<ApiClient, "cancelBooking">;
  */
 export async function handleCancelPrompt(
   ctx: MenuReplyCtx,
+  catalog: Catalog,
   bookingId: string
 ): Promise<void> {
-  await ctx.reply(CANCEL_CONFIRM_TEXT, { reply_markup: cancelConfirmKeyboard(bookingId) });
+  await ctx.reply(t(catalog, "bot.myBookings.cancelConfirm"), {
+    reply_markup: cancelConfirmKeyboard(catalog, bookingId)
+  });
 }
 
 /**
@@ -246,13 +248,16 @@ export async function handleCancelPrompt(
 export async function handleCancelConfirm(
   ctx: MenuReplyCtx,
   api: CancelBookingApi,
+  catalog: Catalog,
   telegramId: number | undefined,
   bookingId: string
 ): Promise<void> {
   if (telegramId === undefined) {
-    await showMainMenu(ctx);
+    await showMainMenu(ctx, catalog);
     return;
   }
   await api.cancelBooking(bookingId, telegramId);
-  await ctx.reply(CANCEL_DONE_TEXT, { reply_markup: cancelDoneKeyboard() });
+  await ctx.reply(t(catalog, "bot.myBookings.cancelDone"), {
+    reply_markup: cancelDoneKeyboard(catalog)
+  });
 }

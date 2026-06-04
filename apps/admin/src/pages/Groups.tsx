@@ -14,24 +14,17 @@ import { DayOfWeekPicker } from "../ui/DayOfWeekPicker";
 import { Modal } from "../ui/Modal";
 import { NumberField, SelectField, TextField, TimeField, type SelectOption } from "../ui/Field";
 import { useToast } from "../ui/Toast";
+import { useT } from "../i18n/LanguageProvider";
 import { useGroups, useCreateGroup, useUpdateGroup } from "../hooks/useGroups";
 import { useLevels } from "../hooks/useLevels";
 import { useTrainers } from "../hooks/useTrainers";
 import { formatRsd } from "../lib/format";
 
-const DAY_LABELS: Record<DayOfWeek, string> = {
-  1: "Пн",
-  2: "Вт",
-  3: "Ср",
-  4: "Чт",
-  5: "Пт",
-  6: "Сб",
-  7: "Вс"
-};
+type Translate = (key: string, params?: Record<string, string | number>) => string;
 
-/** Render the selected weekdays as short RU labels in ISO order. Display only. */
-function formatDays(days: readonly DayOfWeek[]): string {
-  return days.map((day) => DAY_LABELS[day]).join(", ");
+/** Render the selected weekdays as short labels in ISO order. Display only. */
+function formatDays(days: readonly DayOfWeek[], t: Translate): string {
+  return days.map((day) => t(`admin.day.short.${day}`)).join(", ");
 }
 
 /** Editable group fields held in the form before submit. Prices/capacity stay nullable while typing. */
@@ -107,67 +100,68 @@ interface GroupFormProps {
 }
 
 function GroupForm({ form, onChange, levels, trainers, error }: GroupFormProps): JSX.Element {
+  const t = useT();
   const levelOptions: SelectOption[] = [
-    { value: "", label: "Выберите уровень" },
+    { value: "", label: t("admin.groups.pickLevel") },
     ...levels.map((level) => ({ value: level.id, label: level.name }))
   ];
   const trainerOptions: SelectOption[] = [
-    { value: "", label: "Выберите тренера" },
+    { value: "", label: t("admin.groups.pickTrainer") },
     ...trainers.map((trainer) => ({ value: trainer.id, label: trainer.name }))
   ];
 
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: "16px" }}>
       <TextField
-        label="Название"
+        label={t("admin.field.name")}
         value={form.name}
         onChange={(event) => onChange({ ...form, name: event.target.value })}
         required
       />
       <SelectField
-        label="Уровень"
+        label={t("admin.field.level")}
         options={levelOptions}
         value={form.levelId}
         onChange={(event) => onChange({ ...form, levelId: event.target.value })}
       />
       <SelectField
-        label="Тренер"
+        label={t("admin.field.trainer")}
         options={trainerOptions}
         value={form.trainerId}
         onChange={(event) => onChange({ ...form, trainerId: event.target.value })}
       />
       <DayOfWeekPicker
-        label="Дни недели"
+        label={t("admin.groups.fieldDays")}
         value={form.daysOfWeek}
         onChange={(days) => onChange({ ...form, daysOfWeek: days })}
       />
       <div className="grid">
         <TimeField
-          label="Начало"
+          label={t("admin.field.startTime")}
           value={form.startTime}
           onChange={(event) => onChange({ ...form, startTime: event.target.value })}
         />
         <TimeField
-          label="Конец"
+          label={t("admin.field.endTime")}
           value={form.endTime}
           onChange={(event) => onChange({ ...form, endTime: event.target.value })}
         />
       </div>
       <NumberField
-        label="Вместимость"
+        label={t("admin.field.capacity")}
         value={form.capacity}
         onValueChange={(value) => onChange({ ...form, capacity: value })}
         min={1}
       />
       <div className="grid">
         <NumberField
-          label="Цена за занятие (RSD)"
+          label={t("admin.groups.fieldPriceSingle")}
           value={form.priceSingleRsd}
           onValueChange={(value) => onChange({ ...form, priceSingleRsd: value })}
           min={0}
         />
         <NumberField
-          label="Цена за месяц (RSD)"
+          label={t("admin.groups.fieldPriceMonth")}
           value={form.priceMonthRsd}
           onValueChange={(value) => onChange({ ...form, priceMonthRsd: value })}
           min={0}
@@ -186,6 +180,7 @@ type EditTarget = { mode: "create" } | { mode: "edit"; group: Group };
 
 /** M1 — Groups: data-dense table + create/edit modal form. The API owns all domain rules. */
 export function Groups(): JSX.Element {
+  const t = useT();
   const groups = useGroups();
   const levels = useLevels();
   const trainers = useTrainers();
@@ -233,7 +228,7 @@ export function Groups(): JSX.Element {
     if (target.mode === "create") {
       createGroup.mutate(input, {
         onSuccess: () => {
-          notify("Группа создана", "success");
+          notify(t("admin.groups.created"), "success");
           closeModal();
         },
         onError: (mutationError) => notify(mutationError.message, "error")
@@ -244,7 +239,7 @@ export function Groups(): JSX.Element {
         { id: target.group.id, input: update },
         {
           onSuccess: () => {
-            notify("Группа обновлена", "success");
+            notify(t("admin.groups.updated"), "success");
             closeModal();
           },
           onError: (mutationError) => notify(mutationError.message, "error")
@@ -254,47 +249,52 @@ export function Groups(): JSX.Element {
   };
 
   const columns: Column<Group>[] = [
-    { key: "name", header: "Название", render: (group) => group.name },
-    { key: "days", header: "Дни", render: (group) => formatDays(group.daysOfWeek) },
+    { key: "name", header: t("admin.groups.colName"), render: (group) => group.name },
+    { key: "days", header: t("admin.groups.colDays"), render: (group) => formatDays(group.daysOfWeek, t) },
     {
       key: "time",
-      header: "Время",
+      header: t("admin.groups.colTime"),
       render: (group) => `${group.startTime}–${group.endTime}`
     },
-    { key: "capacity", header: "Мест", numeric: true, render: (group) => group.capacity },
+    { key: "capacity", header: t("admin.groups.colCapacity"), numeric: true, render: (group) => group.capacity },
     {
       key: "trainer",
-      header: "Тренер",
+      header: t("admin.groups.colTrainer"),
       render: (group) => nameFor(group.trainerId, trainerOptions)
     },
     {
       key: "level",
-      header: "Уровень",
+      header: t("admin.groups.colLevel"),
       render: (group) => nameFor(group.levelId, levelOptions)
     },
     {
       key: "priceSingle",
-      header: "За занятие",
+      header: t("admin.groups.colPriceSingle"),
       numeric: true,
       render: (group) => formatRsd(group.priceSingleRsd)
     },
     {
       key: "priceMonth",
-      header: "За месяц",
+      header: t("admin.groups.colPriceMonth"),
       numeric: true,
       render: (group) => formatRsd(group.priceMonthRsd)
     },
     {
       key: "status",
-      header: "Статус",
-      render: (group) => (group.status === "active" ? "Активна" : "Неактивна")
+      header: t("admin.groups.colStatus"),
+      render: (group) =>
+        group.status === "active" ? t("admin.groups.statusActive") : t("admin.groups.statusInactive")
     },
     {
       key: "actions",
       header: "",
       render: (group) => (
-        <Button variant="ghost" onClick={() => openEdit(group)} aria-label={`Изменить группу ${group.name}`}>
-          Изменить
+        <Button
+          variant="ghost"
+          onClick={() => openEdit(group)}
+          aria-label={t("admin.groups.editAria", { name: group.name })}
+        >
+          {t("admin.action.edit")}
         </Button>
       )
     }
@@ -306,41 +306,41 @@ export function Groups(): JSX.Element {
     <AppShell>
       <header className="page-head">
         <div>
-          <h1>Группы</h1>
-          <p>Регулярные слоты тренировок: расписание, тренер, цены. Все правила проверяет сервер.</p>
+          <h1>{t("admin.groups.title")}</h1>
+          <p>{t("admin.groups.lead")}</p>
         </div>
         <Button onClick={openCreate} disabled={referenceLoading}>
-          Создать группу
+          {t("admin.groups.create")}
         </Button>
       </header>
 
       {groups.isLoading ? (
-        <p className="state state--loading">Загрузка групп…</p>
+        <p className="state state--loading">{t("admin.groups.loading")}</p>
       ) : groups.isError ? (
         <p className="state state--error" role="alert">
-          Не удалось загрузить группы.
+          {t("admin.groups.error")}
         </p>
       ) : (
         <DataTable
-          caption="Группы тренировок"
+          caption={t("admin.groups.caption")}
           columns={columns}
           rows={groups.data ?? []}
           rowKey={(group) => group.id}
-          emptyLabel="Групп пока нет. Создайте первую."
+          emptyLabel={t("admin.groups.empty")}
         />
       )}
 
       <Modal
         open={target !== null}
         onClose={closeModal}
-        title={target?.mode === "edit" ? "Изменить группу" : "Создать группу"}
+        title={target?.mode === "edit" ? t("admin.groups.editTitle") : t("admin.groups.createTitle")}
         footer={
           <>
             <Button variant="ghost" onClick={closeModal} disabled={activeMutation.isPending}>
-              Отмена
+              {t("admin.action.cancel")}
             </Button>
             <Button type="submit" form="group-form" disabled={activeMutation.isPending}>
-              {activeMutation.isPending ? "Сохранение…" : "Сохранить"}
+              {activeMutation.isPending ? t("admin.action.saving") : t("admin.action.save")}
             </Button>
           </>
         }

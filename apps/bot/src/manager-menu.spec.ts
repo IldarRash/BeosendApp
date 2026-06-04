@@ -19,13 +19,16 @@ import {
   parseCapPick,
   parseCapSet,
   renderOverviewText,
-  CAP_BELOW_BOOKED_TEXT,
-  CAP_DONE_TEXT,
-  CANCEL_ALREADY_TEXT,
-  CANCEL_DONE_TEXT,
   type ManagerApi
 } from "./manager-menu";
-import { NOT_ADMIN_TEXT } from "./broadcast";
+import { getStaticCatalog } from "@beosand/i18n";
+
+const ru = getStaticCatalog("ru");
+const NOT_ADMIN_TEXT = ru["bot.broadcast.notAdmin"];
+const CAP_BELOW_BOOKED_TEXT = ru["bot.manager.capBelowBooked"];
+const CAP_DONE_TEXT = ru["bot.manager.capDone"];
+const CANCEL_ALREADY_TEXT = ru["bot.manager.cancelAlready"];
+const CANCEL_DONE_TEXT = ru["bot.manager.cancelDone"];
 
 const TRAINING_ID = "11111111-1111-1111-1111-111111111111";
 
@@ -139,7 +142,7 @@ describe("callback round-trips", () => {
 
 describe("managerMenuKeyboard", () => {
   it("offers the new writes and the reused flows plus a back/home footer", () => {
-    const callbacks = callbacksOf(managerMenuKeyboard());
+    const callbacks = callbacksOf(managerMenuKeyboard(ru));
     expect(callbacks).toContain(MANAGER_ACTIONS.overview);
     expect(callbacks).toContain(MANAGER_ACTIONS.capEntry);
     expect(callbacks).toContain(MANAGER_ACTIONS.cancelEntry);
@@ -165,13 +168,13 @@ describe("capacityOptions", () => {
 
 describe("renderOverviewText", () => {
   it("shows booked/capacity and status per training", () => {
-    const text = renderOverviewText([openTraining]);
+    const text = renderOverviewText(ru, [openTraining]);
     expect(text).toContain("3/8");
     expect(text).toContain("открыта");
   });
 
   it("nudges to generate a schedule when empty", () => {
-    expect(renderOverviewText([])).toContain("Сгенерируйте");
+    expect(renderOverviewText(ru, [])).toContain("Сгенерируйте");
   });
 });
 
@@ -186,7 +189,7 @@ describe("fillRange", () => {
 describe("handleManagerMenu (admin gating)", () => {
   it("shows the menu for an admin (API probe resolves)", async () => {
     const { reply, replies } = makeCtx();
-    await handleManagerMenu({ reply }, makeApi(), 999);
+    await handleManagerMenu({ reply }, makeApi(), ru, 999);
     expect(callbacksOf(replies[0]?.markup as { inline_keyboard: unknown[][] })).toContain(
       MANAGER_ACTIONS.overview
     );
@@ -196,14 +199,14 @@ describe("handleManagerMenu (admin gating)", () => {
   it("shows managers-only for a non-admin (probe resolves to null)", async () => {
     const { reply, replies } = makeCtx();
     const api = makeApi({ getAnalyticsSummary: vi.fn(async () => null) });
-    await handleManagerMenu({ reply }, api, 123);
+    await handleManagerMenu({ reply }, api, ru, 123);
     expect(replies[0]?.text).toBe(NOT_ADMIN_TEXT);
   });
 
   it("never probes the API without an identity", async () => {
     const { reply } = makeCtx();
     const probe = vi.fn(async () => summary);
-    await handleManagerMenu({ reply }, makeApi({ getAnalyticsSummary: probe }), undefined);
+    await handleManagerMenu({ reply }, makeApi({ getAnalyticsSummary: probe }), ru, undefined);
     expect(probe).not.toHaveBeenCalled();
   });
 });
@@ -215,6 +218,7 @@ describe("handleManagerOverview", () => {
     await handleManagerOverview(
       { reply },
       makeApi({ listTrainings: list }),
+      ru,
       999,
       new Date("2026-06-04T00:00:00.000Z")
     );
@@ -228,6 +232,7 @@ describe("handleManagerOverview", () => {
     await handleManagerOverview(
       { reply },
       makeApi({ getAnalyticsSummary: vi.fn(async () => null), listTrainings: list }),
+      ru,
       123
     );
     expect(list).not.toHaveBeenCalled();
@@ -237,7 +242,7 @@ describe("handleManagerOverview", () => {
 describe("handleCancelPickList", () => {
   it("only offers actionable (non-cancelled) trainings", async () => {
     const { reply, replies } = makeCtx();
-    await handleCancelPickList({ reply }, makeApi(), 999);
+    await handleCancelPickList({ reply }, makeApi(), ru, 999);
     const callbacks = callbacksOf(replies[0]?.markup as { inline_keyboard: unknown[][] });
     expect(callbacks).toContain(cancelPickData(openTraining.id));
     expect(callbacks).not.toContain(cancelPickData(cancelledTraining.id));
@@ -247,7 +252,7 @@ describe("handleCancelPickList", () => {
 describe("handleCancelDo (outcomes)", () => {
   it("confirms a successful cancel and returns to the manager menu", async () => {
     const { reply, replies } = makeCtx();
-    await handleCancelDo({ reply }, makeApi(), 999, TRAINING_ID);
+    await handleCancelDo({ reply }, makeApi(), ru, 999, TRAINING_ID);
     expect(replies[0]?.text).toBe(CANCEL_DONE_TEXT);
   });
 
@@ -256,7 +261,7 @@ describe("handleCancelDo (outcomes)", () => {
     const api = makeApi({
       cancelTraining: vi.fn(async () => ({ ok: false, reason: "forbidden" }) as const)
     });
-    await handleCancelDo({ reply }, api, 123, TRAINING_ID);
+    await handleCancelDo({ reply }, api, ru, 123, TRAINING_ID);
     expect(replies[0]?.text).toBe(NOT_ADMIN_TEXT);
   });
 
@@ -265,7 +270,7 @@ describe("handleCancelDo (outcomes)", () => {
     const api = makeApi({
       cancelTraining: vi.fn(async () => ({ ok: false, reason: "alreadyCancelled" }) as const)
     });
-    await handleCancelDo({ reply }, api, 999, TRAINING_ID);
+    await handleCancelDo({ reply }, api, ru, 999, TRAINING_ID);
     expect(replies[0]?.text).toBe(CANCEL_ALREADY_TEXT);
   });
 });
@@ -273,7 +278,7 @@ describe("handleCancelDo (outcomes)", () => {
 describe("handleCapSet (outcomes)", () => {
   it("confirms a successful capacity change", async () => {
     const { reply, replies } = makeCtx();
-    await handleCapSet({ reply }, makeApi(), 999, { trainingId: TRAINING_ID, capacity: 10 });
+    await handleCapSet({ reply }, makeApi(), ru, 999, { trainingId: TRAINING_ID, capacity: 10 });
     expect(replies[0]?.text).toBe(CAP_DONE_TEXT);
   });
 
@@ -284,7 +289,7 @@ describe("handleCapSet (outcomes)", () => {
     const api = makeApi({
       changeTrainingCapacity: vi.fn(async () => ({ ok: false, reason: "belowBooked" }) as const)
     });
-    await handleCapSet({ reply }, api, 999, { trainingId: TRAINING_ID, capacity: 1 });
+    await handleCapSet({ reply }, api, ru, 999, { trainingId: TRAINING_ID, capacity: 1 });
     expect(replies[0]?.text).toBe(CAP_BELOW_BOOKED_TEXT);
   });
 
@@ -293,7 +298,7 @@ describe("handleCapSet (outcomes)", () => {
     const api = makeApi({
       changeTrainingCapacity: vi.fn(async () => ({ ok: false, reason: "forbidden" }) as const)
     });
-    await handleCapSet({ reply }, api, 123, { trainingId: TRAINING_ID, capacity: 9 });
+    await handleCapSet({ reply }, api, ru, 123, { trainingId: TRAINING_ID, capacity: 9 });
     expect(replies[0]?.text).toBe(NOT_ADMIN_TEXT);
   });
 });

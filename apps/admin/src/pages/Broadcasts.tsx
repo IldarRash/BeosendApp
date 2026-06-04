@@ -12,45 +12,28 @@ import { DataTable, type Column } from "../ui/DataTable";
 import { SelectField, NumberField } from "../ui/Field";
 import { StatCard } from "../ui/StatCard";
 import { useToast } from "../ui/Toast";
+import { useT } from "../i18n/LanguageProvider";
 import { useLevels } from "../hooks/useLevels";
 import { useBroadcastPreview, useSendBroadcast } from "../hooks/useBroadcasts";
 import { formatRsd } from "../lib/format";
 
-/** Localized broadcast-type labels. The server owns the composed message text. */
-const TYPE_LABEL: Record<BroadcastType, string> = {
-  today: "Сегодня",
-  tomorrow: "Завтра",
-  week: "На неделю",
-  "freed-up": "Освободившиеся места"
+/** Catalog key for a broadcast type. The server owns the composed message text. */
+const TYPE_KEY: Record<BroadcastType, string> = {
+  today: "admin.broadcasts.typeToday",
+  tomorrow: "admin.broadcasts.typeTomorrow",
+  week: "admin.broadcasts.typeWeek",
+  "freed-up": "admin.broadcasts.typeFreedUp"
 };
-
-const TYPE_OPTIONS: { value: BroadcastType; label: string }[] = [
-  { value: "today", label: TYPE_LABEL.today },
-  { value: "tomorrow", label: TYPE_LABEL.tomorrow },
-  { value: "week", label: TYPE_LABEL.week },
-  { value: "freed-up", label: TYPE_LABEL["freed-up"] }
-];
 
 /** The audience selector kinds, kept separate from the API union so the screen can
  * hold a partial selection (e.g. "level" chosen before a level is picked). */
 type AudienceKind = BroadcastAudience["kind"];
 
-const AUDIENCE_OPTIONS: { value: AudienceKind; label: string }[] = [
-  { value: "all", label: "Все активные клиенты" },
-  { value: "level", label: "По уровню" },
-  { value: "active", label: "Активные за N дней" },
-  { value: "lapsed", label: "Неактивные за N дней" }
-];
-
-/** Russian short weekday labels for a server-decided dayOfWeek (1=Mon … 7=Sun). */
-const WEEKDAY_LABEL: Record<DayOfWeek, string> = {
-  1: "Пн",
-  2: "Вт",
-  3: "Ср",
-  4: "Чт",
-  5: "Пт",
-  6: "Сб",
-  7: "Вс"
+const AUDIENCE_KEY: Record<AudienceKind, string> = {
+  all: "admin.broadcasts.audAll",
+  level: "admin.broadcasts.audLevel",
+  active: "admin.broadcasts.audActive",
+  lapsed: "admin.broadcasts.audLapsed"
 };
 
 /**
@@ -84,6 +67,7 @@ function buildAudience(
  * send action; recipient counts and message text come only from the API.
  */
 export function Broadcasts(): JSX.Element {
+  const t = useT();
   const toast = useToast();
   const levels = useLevels();
   const [type, setType] = useState<BroadcastType>("today");
@@ -101,18 +85,29 @@ export function Broadcasts(): JSX.Element {
 
   const hasPreview = preview.data !== undefined;
 
+  const typeOptions = useMemo(
+    () => (Object.keys(TYPE_KEY) as BroadcastType[]).map((value) => ({ value, label: t(TYPE_KEY[value]) })),
+    [t]
+  );
+  const audienceOptions = useMemo(
+    () => (Object.keys(AUDIENCE_KEY) as AudienceKind[]).map((value) => ({ value, label: t(AUDIENCE_KEY[value]) })),
+    [t]
+  );
+
   function handleSend(): void {
     send.mutate(
       { type, audience: audience ?? undefined },
       {
         onSuccess: (broadcast) => {
           toast.notify(
-            `Рассылка отправлена · охват ${broadcast.recipientsCount.toLocaleString("ru-RU")}`,
+            t("admin.broadcasts.sent", {
+              count: broadcast.recipientsCount.toLocaleString("ru-RU")
+            }),
             "success"
           );
         },
         onError: (error) => {
-          toast.notify(`Не удалось отправить: ${error.message}`, "error");
+          toast.notify(t("admin.broadcasts.sendFailed", { message: error.message }), "error");
         }
       }
     );
@@ -127,61 +122,61 @@ export function Broadcasts(): JSX.Element {
     <AppShell>
       <header className="page-head">
         <div>
-          <h1>Рассылки</h1>
-          <p>Подготовьте рассылку о свободных слотах, проверьте охват и отправьте.</p>
+          <h1>{t("admin.broadcasts.title")}</h1>
+          <p>{t("admin.broadcasts.lead")}</p>
         </div>
       </header>
 
       <div className="stack">
-        <form className="form" aria-label="Параметры рассылки">
+        <form className="form" aria-label={t("admin.broadcasts.paramsLabel")}>
           <SelectField
-            label="Тип рассылки"
+            label={t("admin.broadcasts.fieldType")}
             value={type}
             onChange={(event) => setType(event.target.value as BroadcastType)}
-            options={TYPE_OPTIONS}
-            hint="Сервер составляет текст сообщения по выбранному типу."
+            options={typeOptions}
+            hint={t("admin.broadcasts.typeHint")}
           />
 
           <SelectField
-            label="Аудитория"
+            label={t("admin.broadcasts.fieldAudience")}
             value={audienceKind}
             onChange={(event) => {
               setAudienceKind(event.target.value as AudienceKind);
             }}
-            options={AUDIENCE_OPTIONS}
+            options={audienceOptions}
             aria-controls="audience-detail"
           />
 
           <div id="audience-detail">
             {audienceKind === "level" ? (
               levels.isLoading ? (
-                <p className="state state--loading">Загрузка уровней…</p>
+                <p className="state state--loading">{t("admin.broadcasts.levelsLoading")}</p>
               ) : levels.isError ? (
                 <p className="state state--error" role="alert">
-                  Не удалось загрузить уровни: {levels.error.message}
+                  {t("admin.broadcasts.levelsError", { message: levels.error.message })}
                 </p>
               ) : (
                 <SelectField
-                  label="Уровень"
+                  label={t("admin.broadcasts.fieldLevel")}
                   value={levelId}
                   onChange={(event) => setLevelId(event.target.value)}
-                  options={[{ value: "", label: "Выберите уровень" }, ...levelOptions]}
-                  hint="Рассылка дойдёт только до активных клиентов этого уровня."
+                  options={[{ value: "", label: t("admin.broadcasts.pickLevel") }, ...levelOptions]}
+                  hint={t("admin.broadcasts.levelHint")}
                 />
               )
             ) : null}
 
             {audienceKind === "active" || audienceKind === "lapsed" ? (
               <NumberField
-                label="Период, дней"
+                label={t("admin.broadcasts.fieldDays")}
                 value={days}
                 onValueChange={setDays}
                 min={1}
                 max={365}
                 hint={
                   audienceKind === "active"
-                    ? "Клиенты с бронированием за последние N дней."
-                    : "Клиенты без бронирования за последние N дней."
+                    ? t("admin.broadcasts.daysActiveHint")
+                    : t("admin.broadcasts.daysLapsedHint")
                 }
               />
             ) : null}
@@ -203,10 +198,10 @@ export function Broadcasts(): JSX.Element {
             disabled={!hasPreview || send.isPending}
             aria-disabled={!hasPreview || send.isPending}
           >
-            {send.isPending ? "Отправка…" : "Отправить"}
+            {send.isPending ? t("admin.broadcasts.sending") : t("admin.broadcasts.send")}
           </Button>
           {!hasPreview ? (
-            <span className="field__hint">Сначала проверьте охват и текст рассылки.</span>
+            <span className="field__hint">{t("admin.broadcasts.previewFirst")}</span>
           ) : null}
         </div>
       </div>
@@ -235,33 +230,36 @@ function BroadcastPreviewPanel({
   incompleteAudience,
   preview
 }: BroadcastPreviewPanelProps): JSX.Element {
+  const t = useT();
+  const weekdayLabel = (day: DayOfWeek): string => t(`admin.day.short.${day}`);
+
   if (incompleteAudience) {
     return (
-      <section className="stack" aria-label="Предпросмотр рассылки">
-        <p className="state state--loading">Завершите выбор аудитории, чтобы увидеть охват.</p>
+      <section className="stack" aria-label={t("admin.broadcasts.previewLabel")}>
+        <p className="state state--loading">{t("admin.broadcasts.completeAudience")}</p>
       </section>
     );
   }
   if (isLoading) {
     return (
-      <section className="stack" aria-label="Предпросмотр рассылки">
-        <p className="state state--loading">Расчёт охвата…</p>
+      <section className="stack" aria-label={t("admin.broadcasts.previewLabel")}>
+        <p className="state state--loading">{t("admin.broadcasts.calculating")}</p>
       </section>
     );
   }
   if (isError) {
     return (
-      <section className="stack" aria-label="Предпросмотр рассылки">
+      <section className="stack" aria-label={t("admin.broadcasts.previewLabel")}>
         <p className="state state--error" role="alert">
-          Не удалось рассчитать охват: {errorMessage}
+          {t("admin.broadcasts.calcError", { message: errorMessage ?? "" })}
         </p>
       </section>
     );
   }
   if (!preview) {
     return (
-      <section className="stack" aria-label="Предпросмотр рассылки">
-        <p className="state state--loading">Предпросмотр недоступен.</p>
+      <section className="stack" aria-label={t("admin.broadcasts.previewLabel")}>
+        <p className="state state--loading">{t("admin.broadcasts.previewUnavailable")}</p>
       </section>
     );
   }
@@ -269,49 +267,58 @@ function BroadcastPreviewPanel({
   const slotColumns: Column<SlotCard>[] = [
     {
       key: "when",
-      header: "Когда",
-      render: (slot) => `${WEEKDAY_LABEL[slot.dayOfWeek]} ${slot.date}, ${slot.startTime}–${slot.endTime}`
+      header: t("admin.broadcasts.colWhen"),
+      render: (slot) =>
+        t("admin.broadcasts.slotWhen", {
+          day: weekdayLabel(slot.dayOfWeek),
+          date: slot.date,
+          start: slot.startTime,
+          end: slot.endTime
+        })
     },
-    { key: "level", header: "Уровень", render: (slot) => slot.levelName },
-    { key: "trainer", header: "Тренер", render: (slot) => slot.trainerName },
+    { key: "level", header: t("admin.broadcasts.colLevel"), render: (slot) => slot.levelName },
+    { key: "trainer", header: t("admin.broadcasts.colTrainer"), render: (slot) => slot.trainerName },
     {
       key: "freeSeats",
-      header: "Свободно",
+      header: t("admin.broadcasts.colFreeSeats"),
       numeric: true,
       render: (slot) => slot.freeSeats.toLocaleString("ru-RU")
     },
     {
       key: "price",
-      header: "Цена",
+      header: t("admin.broadcasts.colPrice"),
       numeric: true,
       render: (slot) => formatRsd(slot.priceSingleRsd)
     }
   ];
 
   return (
-    <section className="stack" aria-label="Предпросмотр рассылки">
+    <section className="stack" aria-label={t("admin.broadcasts.previewLabel")}>
       <div className="grid">
         <StatCard
-          label="Получатели"
+          label={t("admin.broadcasts.cardRecipients")}
           value={preview.recipientsCount.toLocaleString("ru-RU")}
-          hint="по данным сервера"
+          hint={t("admin.broadcasts.cardRecipientsHint")}
         />
-        <StatCard label="Свободных слотов" value={preview.slots.length.toLocaleString("ru-RU")} />
+        <StatCard
+          label={t("admin.broadcasts.cardFreeSlots")}
+          value={preview.slots.length.toLocaleString("ru-RU")}
+        />
       </div>
 
       <article className="card">
-        <span className="card__label">Текст сообщения</span>
+        <span className="card__label">{t("admin.broadcasts.cardMessage")}</span>
         <p className="broadcast-preview__text" style={{ whiteSpace: "pre-wrap" }}>
           {preview.text}
         </p>
       </article>
 
       <DataTable
-        caption="Слоты в рассылке"
+        caption={t("admin.broadcasts.slotsCaption")}
         columns={slotColumns}
         rows={preview.slots}
         rowKey={(slot) => slot.trainingId}
-        emptyLabel="В рассылке нет слотов для показа."
+        emptyLabel={t("admin.broadcasts.slotsEmpty")}
       />
     </section>
   );

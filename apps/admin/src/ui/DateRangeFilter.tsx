@@ -1,4 +1,5 @@
 import { TextField } from "./Field";
+import { useT } from "../i18n/LanguageProvider";
 
 export interface DateRange {
   /** Inclusive start, ISO `yyyy-mm-dd`. */
@@ -25,23 +26,24 @@ interface DateRangeFilterProps {
 export function DateRangeFilter({
   value,
   onChange,
-  legend = "Период"
+  legend
 }: DateRangeFilterProps): JSX.Element {
+  const t = useT();
   return (
     <form
       className="cluster"
-      aria-label={legend}
+      aria-label={legend ?? t("admin.dateRange.legend")}
       onSubmit={(event) => event.preventDefault()}
     >
       <TextField
-        label="С"
+        label={t("admin.dateRange.from")}
         type="date"
         value={value.from}
         max={value.to || undefined}
         onChange={(event) => onChange({ ...value, from: event.target.value })}
       />
       <TextField
-        label="По"
+        label={t("admin.dateRange.to")}
         type="date"
         value={value.to}
         min={value.from || undefined}

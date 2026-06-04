@@ -1,4 +1,5 @@
 import { createContext, useCallback, useContext, useMemo, useState, type ReactNode } from "react";
+import { useT } from "../i18n/LanguageProvider";
 
 type ToastTone = "info" | "success" | "error";
 
@@ -18,6 +19,7 @@ let nextId = 0;
 
 /** App-wide notice stack. Toasts auto-dismiss; the region is a polite live area. */
 export function ToastProvider({ children }: { children: ReactNode }): JSX.Element {
+  const t = useT();
   const [toasts, setToasts] = useState<Toast[]>([]);
 
   const notify = useCallback((message: string, tone: ToastTone = "info") => {
@@ -33,7 +35,7 @@ export function ToastProvider({ children }: { children: ReactNode }): JSX.Elemen
   return (
     <ToastContext.Provider value={api}>
       {children}
-      <div className="toasts" role="region" aria-live="polite" aria-label="Уведомления">
+      <div className="toasts" role="region" aria-live="polite" aria-label={t("admin.notify.label")}>
         {toasts.map((toast) => (
           <div key={toast.id} className={`toast toast--${toast.tone}`}>
             {toast.message}

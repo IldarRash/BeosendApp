@@ -72,6 +72,7 @@ describe("clientSchema (bot-facing client record)", () => {
       telegramId: 42,
       telegramUsername: "anya",
       levelId: UUID,
+      language: "ru" as const,
       registeredAt: "2026-01-01T00:00:00.000Z",
       status: "active" as const
     };
@@ -85,10 +86,26 @@ describe("clientSchema (bot-facing client record)", () => {
       telegramId: 42,
       telegramUsername: null,
       levelId: null,
+      language: "sr" as const,
       registeredAt: "2026-01-01T00:00:00.000Z",
       status: "active" as const
     };
     expect(clientSchema.parse(client)).toEqual(client);
+  });
+
+  it("rejects an unsupported language", () => {
+    expect(
+      clientSchema.safeParse({
+        id: UUID,
+        name: "Аня",
+        telegramId: 42,
+        telegramUsername: null,
+        levelId: null,
+        language: "de",
+        registeredAt: "2026-01-01T00:00:00.000Z",
+        status: "active"
+      }).success
+    ).toBe(false);
   });
 
   it("rejects a non-ISO registeredAt", () => {
@@ -99,6 +116,7 @@ describe("clientSchema (bot-facing client record)", () => {
         telegramId: 42,
         telegramUsername: null,
         levelId: null,
+        language: "ru",
         registeredAt: "2026-01-01",
         status: "active"
       }).success

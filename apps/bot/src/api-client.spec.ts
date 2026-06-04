@@ -732,3 +732,60 @@ describe("ApiClient.changeTrainingCapacity", () => {
     expect(fetchMock).not.toHaveBeenCalled();
   });
 });
+
+const clientBody = {
+  id: CLIENT_ID,
+  name: "Аня",
+  telegramId: 999,
+  telegramUsername: "anya",
+  levelId: null,
+  registeredAt: "2026-01-01T00:00:00.000Z",
+  status: "active" as const,
+  language: "sr" as const
+};
+
+describe("ApiClient.getLabelCatalog", () => {
+  afterEach(() => {
+    vi.unstubAllGlobals();
+  });
+
+  it("GETs /i18n/catalog?locale=<locale> and returns the merged catalog", async () => {
+    const catalog = { "bot.menu.back": "Назад", "bot.menu.welcome": "Добро пожаловать" };
+    const fetchMock = mockFetch(catalog);
+    const result = await new ApiClient("http://api.test").getLabelCatalog("en");
+    expect(result).toEqual(catalog);
+    const url = new URL(fetchMock.mock.calls[0][0] as string);
+    expect(url.pathname).toBe("/i18n/catalog");
+    expect(url.searchParams.get("locale")).toBe("en");
+  });
+
+  it("rejects a non-record (contract-violating) body", async () => {
+    mockFetch([1, 2, 3]);
+    await expect(new ApiClient("http://api.test").getLabelCatalog("ru")).rejects.toThrow();
+  });
+});
+
+describe("ApiClient.setClientLanguage", () => {
+  afterEach(() => {
+    vi.unstubAllGlobals();
+  });
+
+  it("PATCHes the language with the caller's telegram header and returns the updated client", async () => {
+    const fetchMock = mockFetch(clientBody);
+    const result = await new ApiClient("http://api.test").setClientLanguage(999, "sr");
+    expect(result).toEqual(clientBody);
+    const [url, init] = fetchMock.mock.calls[0] as [string, RequestInit];
+    expect(url).toBe("http://api.test/clients/by-telegram/999/language");
+    expect(init.method).toBe("PATCH");
+    expect((init.headers as Record<string, string>)["x-telegram-id"]).toBe("999");
+    expect(JSON.parse(init.body as string)).toEqual({ language: "sr" });
+  });
+
+  it("rejects a 2xx body missing the required language field", async () => {
+    const { language: _omit, ...withoutLanguage } = clientBody;
+    mockFetch(withoutLanguage);
+    await expect(
+      new ApiClient("http://api.test").setClientLanguage(999, "sr")
+    ).rejects.toThrow();
+  });
+});
