@@ -6,7 +6,7 @@
     "watchPatterns": ["apps/admin/**", "packages/**"]
   },
   "deploy": {
-    "startCommand": "serve -s apps/admin/dist -l ${PORT:-3000}",
+    "startCommand": "sh -c \"serve -s apps/admin/dist -l tcp://0.0.0.0:${PORT:-3000}\"",
     "restartPolicyType": "ON_FAILURE",
     "restartPolicyMaxRetries": 10
   }

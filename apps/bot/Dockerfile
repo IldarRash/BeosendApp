@@ -29,6 +29,7 @@ FROM base AS deps
 COPY package.json pnpm-lock.yaml pnpm-workspace.yaml turbo.json ./
 COPY apps/bot/package.json ./apps/bot/
 COPY packages/config/package.json ./packages/config/
+COPY packages/i18n/package.json ./packages/i18n/
 COPY packages/types/package.json ./packages/types/
 
 RUN pnpm install --frozen-lockfile --filter @beosand/bot...
@@ -49,6 +50,7 @@ ENV NODE_ENV=production
 COPY package.json pnpm-lock.yaml pnpm-workspace.yaml ./
 COPY apps/bot/package.json ./apps/bot/
 COPY packages/config/package.json ./packages/config/
+COPY packages/i18n/package.json ./packages/i18n/
 COPY packages/types/package.json ./packages/types/
 
 RUN pnpm install --frozen-lockfile --prod --filter @beosand/bot...
@@ -57,6 +59,7 @@ RUN pnpm install --frozen-lockfile --prod --filter @beosand/bot...
 # resolved via the workspace symlinks created by the install above.
 COPY --from=build /app/apps/bot/dist ./apps/bot/dist
 COPY --from=build /app/packages/config/dist ./packages/config/dist
+COPY --from=build /app/packages/i18n/dist ./packages/i18n/dist
 COPY --from=build /app/packages/types/dist ./packages/types/dist
 
 # No EXPOSE / no HEALTHCHECK: long-polling worker, no inbound HTTP.

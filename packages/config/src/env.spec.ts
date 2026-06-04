@@ -13,6 +13,20 @@ describe("loadEnv", () => {
     expect(env.PORT).toBe(3000);
     expect(env.NODE_ENV).toBe("development");
     expect(env.ADMIN_TELEGRAM_IDS).toEqual(["111", "222", "333"]);
+    expect(env.ADMIN_ALLOWED_ORIGINS).toEqual([]);
+  });
+
+  it("parses the production admin CORS allowlist", () => {
+    const env = loadEnv({
+      ...base,
+      ADMIN_ALLOWED_ORIGINS:
+        "https://beosand-admin-production.up.railway.app, https://admin.example.com"
+    });
+
+    expect(env.ADMIN_ALLOWED_ORIGINS).toEqual([
+      "https://beosand-admin-production.up.railway.app",
+      "https://admin.example.com"
+    ]);
   });
 
   it("fails closed on missing required vars", () => {

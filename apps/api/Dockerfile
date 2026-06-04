@@ -32,6 +32,7 @@ COPY apps/api/package.json ./apps/api/
 COPY apps/bot/package.json ./apps/bot/
 COPY apps/admin/package.json ./apps/admin/
 COPY packages/config/package.json ./packages/config/
+COPY packages/i18n/package.json ./packages/i18n/
 COPY packages/types/package.json ./packages/types/
 COPY packages/db/package.json ./packages/db/
 

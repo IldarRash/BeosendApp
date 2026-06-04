@@ -188,6 +188,16 @@ describe("availableSlotsQuerySchema", () => {
     ).toBe(true);
   });
 
+  it("coerces weekday from a GET query string", () => {
+    const parsed = availableSlotsQuerySchema.parse({
+      weekday: "3",
+      timeOfDay: "evening",
+      trainerId: "33333333-3333-3333-3333-333333333333"
+    });
+
+    expect(parsed.weekday).toBe(3);
+  });
+
   it("rejects a bad weekday or timeOfDay value", () => {
     expect(availableSlotsQuerySchema.safeParse({ weekday: 0 }).success).toBe(false);
     expect(availableSlotsQuerySchema.safeParse({ weekday: 8 }).success).toBe(false);
