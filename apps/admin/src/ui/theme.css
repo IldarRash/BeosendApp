@@ -669,6 +669,29 @@ h3 {
   gap: 16px;
 }
 
+/* ── Fieldset / radio picker (M3 court confirm) ────────────────────────────
+ * A bare <fieldset>/<legend> carries UA defaults — a groove border, padding,
+ * and a `min-inline-size: min-content` that collapses the element inside the
+ * flex confirm modal, piling the radio inputs ("все квадратики в одно место").
+ * Reset the box and label the legend like a field, so the free-court picker
+ * reads as a clean vertical list of full-width options. */
+
+fieldset {
+  margin: 0;
+  padding: 0;
+  border: 0;
+  min-inline-size: 0;
+}
+
+legend {
+  padding: 0;
+  font-family: var(--font-mono);
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.12em;
+  color: var(--ink-500);
+}
+
 /* ── Status tag (M2) ──────────────────────────────────────────────────────
  * Inline pill for an API-decided status (e.g. booking attended/no_show). The
  * value shown is always the server's; the modifier only tints it. */

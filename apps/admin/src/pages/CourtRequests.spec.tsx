@@ -30,6 +30,7 @@ const notify = vi.fn();
 vi.mock("../ui/Toast", () => ({ useToast: () => ({ notify }) }));
 
 import { CourtRequests } from "./CourtRequests";
+import { ConflictError } from "../api/client";
 
 const PENDING: CourtRequestAdminView = {
   id: "11111111-1111-1111-1111-111111111111",
@@ -160,6 +161,30 @@ describe("CourtRequests page", () => {
 
     // The page renders the API's message via the toast; it never pre-checks availability.
     expect(notify).toHaveBeenCalledWith("Слот уже занят.", "error");
+  });
+
+  it("shows the localized conflict line for a 409 ConflictError (not the raw English text)", () => {
+    const mutate = vi.fn((_vars, opts: { onError?: (e: Error) => void }) => {
+      opts.onError?.(new ConflictError("This request has already been decided."));
+    });
+    useConfirmRequest.mockReturnValue({ ...idleMutation(), mutate });
+    useFreeCourts.mockReturnValue({
+      isPending: false,
+      isError: false,
+      error: null,
+      data: FREE_COURTS
+    });
+    render(<CourtRequests />);
+
+    fireEvent.click(screen.getByRole("button", { name: "Подтвердить" }));
+    const dialog = screen.getByRole("dialog");
+    fireEvent.click(within(dialog).getByLabelText("Корт № 3"));
+    fireEvent.click(within(dialog).getByRole("button", { name: "Подтвердить" }));
+
+    expect(notify).toHaveBeenCalledWith(
+      "Слот уже занят или заявка обработана — список обновлён.",
+      "error"
+    );
   });
 
   it("rejects a pending request with the admin's telegram id", () => {

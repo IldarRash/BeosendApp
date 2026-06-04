@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { clientSchema, onboardClientSchema } from "./client-contracts";
+import { clientSchema, listClientsQuerySchema, onboardClientSchema } from "./client-contracts";
 
 const UUID = "11111111-1111-4111-8111-111111111111";
 
@@ -61,6 +61,28 @@ describe("onboardClientSchema (POST /clients/onboard body)", () => {
     expect(
       onboardClientSchema.safeParse({ telegramId: 42, name: "Аня", levelId: "not-a-uuid" }).success
     ).toBe(false);
+  });
+});
+
+describe("listClientsQuerySchema (GET /clients query)", () => {
+  it("accepts an empty query (list all)", () => {
+    expect(listClientsQuerySchema.parse({})).toEqual({});
+  });
+
+  it("accepts a search term and trims surrounding whitespace", () => {
+    expect(listClientsQuerySchema.parse({ search: "  @anya  " }).search).toBe("@anya");
+  });
+
+  it("accepts a status filter", () => {
+    expect(listClientsQuerySchema.parse({ status: "inactive" }).status).toBe("inactive");
+  });
+
+  it("rejects an unknown status value", () => {
+    expect(listClientsQuerySchema.safeParse({ status: "banned" }).success).toBe(false);
+  });
+
+  it("rejects unknown fields (strict)", () => {
+    expect(listClientsQuerySchema.safeParse({ search: "a", page: 2 }).success).toBe(false);
   });
 });
 

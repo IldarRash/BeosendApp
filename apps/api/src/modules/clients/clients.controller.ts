@@ -6,9 +6,16 @@ import {
   Headers,
   Param,
   Patch,
-  Post
+  Post,
+  Query
 } from "@nestjs/common";
-import { type Client, clientSchema, localeSchema, onboardClientSchema } from "@beosand/types";
+import {
+  type Client,
+  clientSchema,
+  listClientsQuerySchema,
+  localeSchema,
+  onboardClientSchema
+} from "@beosand/types";
 import type { ZodSchema } from "zod";
 import { z } from "zod";
 import { ClientsService } from "./clients.service";
@@ -16,10 +23,29 @@ import { ClientsService } from "./clients.service";
 /** Bot's set-language body: only the new locale. */
 const setLanguageSchema = z.object({ language: localeSchema }).strict();
 
+/** Response contract for the admin clients list. */
+const clientListSchema = z.array(clientSchema);
+
 /** Thin: parse + Zod-validate input, resolve actor, call one service method. */
 @Controller("clients")
 export class ClientsController {
   constructor(private readonly clients: ClientsService) {}
+
+  /**
+   * Admin-only clients list (GET /clients?search=&status=). The Bearer admin
+   * session is bridged to x-telegram-id upstream; the service enforces the admin
+   * gate and normalizes the search. Unknown query fields are rejected (400).
+   */
+  @Get()
+  async list(
+    @Headers("x-telegram-id") telegramIdHeader: string | undefined,
+    @Query() query: unknown
+  ): Promise<Client[]> {
+    const actorTelegramId = parseTelegramId(telegramIdHeader);
+    const filters = validate(listClientsQuerySchema, query ?? {});
+    const clients = await this.clients.listClients(actorTelegramId, filters);
+    return validate(clientListSchema, clients);
+  }
 
   @Get("by-telegram/:telegramId")
   async getByTelegram(

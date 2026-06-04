@@ -21,6 +21,7 @@ const client: Client = {
 function makeService(overrides: Partial<ClientsService> = {}): ClientsService {
   return {
     getByTelegramId: vi.fn(async () => client),
+    listClients: vi.fn(async () => [client]),
     onboard: vi.fn(async () => client),
     setLanguage: vi.fn(async () => ({ ...client, language: "sr" }) as Client),
     ...overrides
@@ -34,6 +35,31 @@ describe("ClientsController", () => {
   beforeEach(() => {
     service = makeService();
     controller = new ClientsController(service);
+  });
+
+  it("GET list passes the header actor and validated filters to the service", async () => {
+    await expect(controller.list(HEADER, { search: "ana", status: "active" })).resolves.toEqual([
+      client
+    ]);
+    expect(service.listClients).toHaveBeenCalledWith(TELEGRAM_ID, {
+      search: "ana",
+      status: "active"
+    });
+  });
+
+  it("GET list defaults to no filters when the query is empty", async () => {
+    await expect(controller.list(HEADER, {})).resolves.toEqual([client]);
+    expect(service.listClients).toHaveBeenCalledWith(TELEGRAM_ID, {});
+  });
+
+  it("GET list rejects unknown query fields (strict) before calling the service", async () => {
+    await expect(controller.list(HEADER, { nope: "1" })).rejects.toBeInstanceOf(BadRequestException);
+    expect(service.listClients).not.toHaveBeenCalled();
+  });
+
+  it("GET list rejects a missing x-telegram-id header before calling the service", async () => {
+    await expect(controller.list(undefined, {})).rejects.toBeInstanceOf(BadRequestException);
+    expect(service.listClients).not.toHaveBeenCalled();
   });
 
   it("GET by-telegram passes actor and target to the service and returns the validated client", async () => {

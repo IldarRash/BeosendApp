@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { cleanup, fireEvent, render, screen } from "@testing-library/react";
+import { act, cleanup, fireEvent, render, screen } from "@testing-library/react";
 import type { Client, Level } from "@beosand/types";
 import { MemoryRouter } from "react-router-dom";
 
@@ -16,11 +16,11 @@ vi.mock("../ui/AppShell", () => ({
 
 vi.mock("../i18n/LanguageProvider", async () => import("../i18n/test-utils"));
 
-const useClientByTelegram = vi.fn();
+const useClientsList = vi.fn();
 const onboardMutate = vi.fn();
 const useOnboardClient = vi.fn();
 vi.mock("../hooks/useClients", () => ({
-  useClientByTelegram: (id: number | null) => useClientByTelegram(id),
+  useClientsList: (filters: unknown) => useClientsList(filters),
   useOnboardClient: () => useOnboardClient()
 }));
 
@@ -43,7 +43,7 @@ const sampleLevels: Level[] = [
   { id: "aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa", name: "Начальный", status: "active" }
 ];
 
-const foundClient: Client = {
+const anya: Client = {
   id: "11111111-1111-1111-1111-111111111111",
   name: "Аня",
   telegramId: 4242,
@@ -54,12 +54,13 @@ const foundClient: Client = {
   language: "ru"
 };
 
-const idleQuery = { isFetching: false, isError: false, error: null, data: undefined };
+const listQuery = (data: Client[]) => ({ isPending: false, isError: false, error: null, data });
 
 beforeEach(() => {
   notify.mockReset();
   onboardMutate.mockReset();
-  useClientByTelegram.mockReturnValue(idleQuery);
+  useClientsList.mockReset();
+  useClientsList.mockReturnValue(listQuery([]));
   useOnboardClient.mockReturnValue({ mutate: onboardMutate, isPending: false, error: null });
   useLevels.mockReturnValue({ isLoading: false, isError: false, data: sampleLevels });
 });
@@ -67,61 +68,67 @@ beforeEach(() => {
 afterEach(cleanup);
 
 describe("Clients page", () => {
-  it("renders the found client's record from the API", () => {
-    useClientByTelegram.mockImplementation((id: number | null) =>
-      id === null ? idleQuery : { ...idleQuery, data: foundClient }
-    );
+  it("renders all clients returned by the API, with @tag and resolved level", () => {
+    useClientsList.mockReturnValue(listQuery([anya]));
     renderPage();
-    const idFields = screen.getAllByLabelText("Telegram ID");
-    fireEvent.change(idFields[0], { target: { value: "4242" } });
-    fireEvent.click(screen.getByRole("button", { name: "Найти" }));
     expect(screen.getByText("Аня")).toBeTruthy();
-    expect(screen.getByText("4242")).toBeTruthy();
     expect(screen.getByText("@anya")).toBeTruthy();
-    // Level name resolved from the levels list via the contract id; it appears in
-    // the card and (as an option) in the onboard form's level select.
+    expect(screen.getByText("4242")).toBeTruthy();
+    // Level name resolved from the levels list (table cell + onboard select option).
     expect(screen.getAllByText("Начальный").length).toBeGreaterThanOrEqual(1);
-    expect(screen.getByText("Активен")).toBeTruthy();
+    // Status pill in the table (the filter select also has an "Активен" option).
+    expect(screen.getAllByText("Активен").length).toBeGreaterThanOrEqual(1);
   });
 
-  it("shows a not-found state when the lookup resolves to null", () => {
-    // Simulate a submitted lookup that resolved to null (404 → null in the client).
-    useClientByTelegram.mockImplementation((id: number | null) =>
-      id === null ? idleQuery : { ...idleQuery, data: null }
-    );
+  it("shows an empty state when no clients match", () => {
+    useClientsList.mockReturnValue(listQuery([]));
     renderPage();
-    // The lookup field is the first Telegram ID input on the page.
-    const idFields = screen.getAllByLabelText("Telegram ID");
-    fireEvent.change(idFields[0], { target: { value: "999" } });
-    fireEvent.click(screen.getByRole("button", { name: "Найти" }));
-    expect(screen.getByRole("status").textContent).toContain("не найден");
+    expect(screen.getByText("Клиенты не найдены.")).toBeTruthy();
   });
 
-  it("does not render a result before a lookup is submitted", () => {
+  it("surfaces a list error", () => {
+    useClientsList.mockReturnValue({
+      isPending: false,
+      isError: true,
+      error: new Error("boom"),
+      data: undefined
+    });
     renderPage();
-    expect(screen.queryByRole("group", { name: "Карточка клиента" })).toBeNull();
-    expect(screen.queryByRole("status")).toBeNull();
-  });
-
-  it("surfaces a lookup error", () => {
-    useClientByTelegram.mockImplementation((id: number | null) =>
-      id === null
-        ? idleQuery
-        : { ...idleQuery, isError: true, error: new Error("boom"), data: undefined }
-    );
-    renderPage();
-    const idFields = screen.getAllByLabelText("Telegram ID");
-    fireEvent.change(idFields[0], { target: { value: "5" } });
-    fireEvent.click(screen.getByRole("button", { name: "Найти" }));
     expect(screen.getByRole("alert").textContent).toContain("boom");
   });
 
-  it("onboards a client and surfaces success via a toast", () => {
-    onboardMutate.mockImplementation((_input, opts) => opts?.onSuccess?.(foundClient));
+  it("passes the debounced search term to the list hook", () => {
+    vi.useFakeTimers();
+    try {
+      useClientsList.mockReturnValue(listQuery([anya]));
+      renderPage();
+      fireEvent.change(screen.getByLabelText("Поиск"), { target: { value: "@anya" } });
+      act(() => {
+        vi.advanceTimersByTime(300);
+      });
+      const calledWithSearch = useClientsList.mock.calls.some(
+        ([filters]) => (filters as { search?: string }).search === "@anya"
+      );
+      expect(calledWithSearch).toBe(true);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("passes the status filter to the list hook", () => {
+    useClientsList.mockReturnValue(listQuery([anya]));
     renderPage();
-    const idFields = screen.getAllByLabelText("Telegram ID");
-    // Second Telegram ID field belongs to the onboard form.
-    fireEvent.change(idFields[1], { target: { value: "4242" } });
+    fireEvent.change(screen.getByLabelText("Статус"), { target: { value: "inactive" } });
+    const calledWithStatus = useClientsList.mock.calls.some(
+      ([filters]) => (filters as { status?: string }).status === "inactive"
+    );
+    expect(calledWithStatus).toBe(true);
+  });
+
+  it("onboards a client and surfaces success via a toast", () => {
+    onboardMutate.mockImplementation((_input, opts) => opts?.onSuccess?.(anya));
+    renderPage();
+    fireEvent.change(screen.getByLabelText("Telegram ID"), { target: { value: "4242" } });
     fireEvent.change(screen.getByLabelText("Имя"), { target: { value: "Аня" } });
     fireEvent.change(screen.getByLabelText("Username"), { target: { value: "anya" } });
     fireEvent.change(screen.getByLabelText("Уровень"), { target: { value: sampleLevels[0].id } });
@@ -139,8 +146,7 @@ describe("Clients page", () => {
 
   it("onboards with null username/level when left empty", () => {
     renderPage();
-    const idFields = screen.getAllByLabelText("Telegram ID");
-    fireEvent.change(idFields[1], { target: { value: "777" } });
+    fireEvent.change(screen.getByLabelText("Telegram ID"), { target: { value: "777" } });
     fireEvent.change(screen.getByLabelText("Имя"), { target: { value: "Без уровня" } });
     fireEvent.click(screen.getByRole("button", { name: "Зарегистрировать" }));
     expect(onboardMutate.mock.calls[0][0]).toEqual({

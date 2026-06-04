@@ -8,7 +8,7 @@ import {
 } from "@nestjs/common";
 import type { Env } from "@beosand/config";
 import { isAdmin } from "@beosand/config";
-import type { Client, Locale } from "@beosand/types";
+import type { Client, ListClientsQuery, Locale } from "@beosand/types";
 import { ENV } from "../../config/config.module";
 import { DatabaseService } from "../../db/database.service";
 import { LevelsRepository } from "../levels/levels.repository";
@@ -49,6 +49,24 @@ export class ClientsService {
       throw new NotFoundException(`Client with telegram_id ${targetTelegramId} not found`);
     }
     return client;
+  }
+
+  /**
+   * Admin-only: the full clients list for the console, optionally filtered by a
+   * name/@username search and status. The search is normalized here — a leading
+   * "@" is dropped and blank means "no filter" — so the repository only queries.
+   */
+  async listClients(
+    actorTelegramId: number,
+    filters: ListClientsQuery = {}
+  ): Promise<Client[]> {
+    if (!isAdmin(this.env, actorTelegramId)) {
+      throw new ForbiddenException("Only an admin may list clients");
+    }
+    return this.clients.findAll({
+      search: normalizeSearch(filters.search),
+      status: filters.status
+    });
   }
 
   async onboard(actorTelegramId: number, input: OnboardInput): Promise<Client> {
@@ -117,4 +135,17 @@ export class ClientsService {
       throw new ForbiddenException("Cannot act on another client's record");
     }
   }
+}
+
+/**
+ * Normalize a clients-list search term: drop a leading "@" (admins type "@handle"
+ * but the column stores the bare username) and treat blank/whitespace as "no
+ * filter". Returns undefined when nothing meaningful remains.
+ */
+function normalizeSearch(raw?: string): string | undefined {
+  if (!raw) {
+    return undefined;
+  }
+  const cleaned = raw.replace(/^@+/, "").trim();
+  return cleaned.length > 0 ? cleaned : undefined;
 }
