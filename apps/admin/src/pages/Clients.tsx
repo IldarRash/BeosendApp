@@ -1,30 +1,73 @@
-import { useMemo, useState } from "react";
-import type { Client, EntityStatus, Level, OnboardClientInput } from "@beosand/types";
+import { useEffect, useMemo, useState } from "react";
+import type { Client, EntityStatus, Level, ListClientsQuery, OnboardClientInput } from "@beosand/types";
 import { AppShell } from "../ui/AppShell";
 import { Button } from "../ui/Button";
+import { DataTable, type Column } from "../ui/DataTable";
 import { NumberField, SelectField, TextField } from "../ui/Field";
 import { useToast } from "../ui/Toast";
 import { useT } from "../i18n/LanguageProvider";
-import { useClientByTelegram, useOnboardClient } from "../hooks/useClients";
+import { useClientsList, useOnboardClient } from "../hooks/useClients";
 import { useLevels } from "../hooks/useLevels";
 
+type StatusFilter = EntityStatus | "all";
+
 /**
- * M2 — Клиенты: look a client up by Telegram id and onboard a new one. The API
- * owns identity and idempotency; this screen only collects input and renders the
- * validated record it gets back. No domain logic here.
+ * M2 — Клиенты: the full client roster with a name/@tag search, plus onboarding
+ * of a new client. The API owns identity, search normalization, and the admin
+ * gate; this screen only collects the filters and renders the validated rows. No
+ * domain logic or client-side filtering here.
  */
 export function Clients(): JSX.Element {
   const t = useT();
-  const [draftId, setDraftId] = useState<number | null>(null);
-  const [lookupId, setLookupId] = useState<number | null>(null);
+  const [search, setSearch] = useState("");
+  const [statusFilter, setStatusFilter] = useState<StatusFilter>("all");
+
+  // Debounce the search so typing doesn't fire a request per keystroke; the
+  // server does the actual matching against name + @username.
+  const debouncedSearch = useDebounced(search.trim(), 250);
 
   const levels = useLevels();
-  const lookup = useClientByTelegram(lookupId);
+  const filters: ListClientsQuery = {
+    ...(debouncedSearch ? { search: debouncedSearch } : {}),
+    ...(statusFilter !== "all" ? { status: statusFilter } : {})
+  };
+  const clients = useClientsList(filters);
 
-  function handleLookup(event: React.FormEvent): void {
-    event.preventDefault();
-    setLookupId(draftId);
-  }
+  const levelName = useMemo(() => {
+    const byId = new Map((levels.data ?? []).map((level) => [level.id, level.name]));
+    return (levelId: string | null): string =>
+      levelId === null ? t("admin.clients.levelUnset") : (byId.get(levelId) ?? "—");
+  }, [levels.data, t]);
+
+  const columns: Column<Client>[] = [
+    { key: "name", header: t("admin.clients.cardName"), render: (c) => c.name },
+    {
+      key: "tag",
+      header: t("admin.clients.cardUsername"),
+      render: (c) => (c.telegramUsername ? <code>@{c.telegramUsername}</code> : "—")
+    },
+    {
+      key: "telegram",
+      header: t("admin.clients.cardTelegramId"),
+      render: (c) => <code>{c.telegramId}</code>
+    },
+    { key: "level", header: t("admin.clients.cardLevel"), render: (c) => levelName(c.levelId) },
+    {
+      key: "status",
+      header: t("admin.clients.cardStatus"),
+      render: (c) => (
+        <span className={`tag ${c.status === "active" ? "tag--ok" : "tag--warn"}`}>
+          {c.status === "active" ? t("admin.status.active") : t("admin.status.inactive")}
+        </span>
+      )
+    }
+  ];
+
+  const statusOptions = [
+    { value: "all", label: t("admin.clients.statusAll") },
+    { value: "active", label: t("admin.status.active") },
+    { value: "inactive", label: t("admin.status.inactive") }
+  ];
 
   return (
     <AppShell>
@@ -36,28 +79,40 @@ export function Clients(): JSX.Element {
       </header>
 
       <div className="stack">
-        <section className="stack" aria-labelledby="lookup-heading">
-          <h2 id="lookup-heading">{t("admin.clients.lookupHeading")}</h2>
-          <form className="cluster" onSubmit={handleLookup}>
-            <NumberField
-              label={t("admin.field.telegramId")}
-              value={draftId}
-              onValueChange={setDraftId}
-              hint={t("admin.clients.telegramHint")}
+        <section className="stack" aria-labelledby="clients-list-heading">
+          <h2 id="clients-list-heading">{t("admin.clients.listHeading")}</h2>
+          <div className="cluster">
+            <TextField
+              type="search"
+              label={t("admin.clients.searchLabel")}
+              value={search}
+              onChange={(event) => setSearch(event.target.value)}
+              hint={t("admin.clients.searchHint")}
+              autoComplete="off"
             />
-            <Button type="submit" disabled={draftId === null || lookup.isFetching}>
-              {lookup.isFetching ? t("admin.action.searching") : t("admin.action.find")}
-            </Button>
-          </form>
+            <SelectField
+              label={t("admin.clients.statusFilter")}
+              value={statusFilter}
+              onChange={(event) => setStatusFilter(event.target.value as StatusFilter)}
+              options={statusOptions}
+            />
+          </div>
 
-          <LookupResult
-            lookupId={lookupId}
-            isFetching={lookup.isFetching}
-            isError={lookup.isError}
-            error={lookup.error ?? null}
-            client={lookup.data ?? null}
-            levels={levels.data ?? []}
-          />
+          {clients.isPending ? (
+            <p className="state state--loading">{t("admin.clients.loading")}</p>
+          ) : clients.isError ? (
+            <p className="state state--error" role="alert">
+              {t("admin.clients.listError", { message: clients.error.message })}
+            </p>
+          ) : (
+            <DataTable
+              caption={t("admin.clients.listCaption")}
+              columns={columns}
+              rows={clients.data}
+              rowKey={(c) => c.id}
+              emptyLabel={t("admin.clients.empty")}
+            />
+          )}
         </section>
 
         <OnboardForm levels={levels.data ?? []} levelsLoading={levels.isLoading} />
@@ -66,94 +121,14 @@ export function Clients(): JSX.Element {
   );
 }
 
-interface LookupResultProps {
-  lookupId: number | null;
-  isFetching: boolean;
-  isError: boolean;
-  error: Error | null;
-  client: Client | null;
-  levels: Level[];
-}
-
-/** Renders the lookup outcome: idle / loading / error / found card / not-found. */
-function LookupResult({
-  lookupId,
-  isFetching,
-  isError,
-  error,
-  client,
-  levels
-}: LookupResultProps): JSX.Element | null {
-  const t = useT();
-  if (lookupId === null) {
-    return null;
-  }
-  if (isFetching) {
-    return <p className="state state--loading">{t("admin.clients.loading")}</p>;
-  }
-  if (isError) {
-    return (
-      <p className="state state--error" role="alert">
-        {t("admin.clients.lookupError", { message: error?.message ?? "" })}
-      </p>
-    );
-  }
-  if (client === null) {
-    return (
-      <p className="state state--loading" role="status">
-        {t("admin.clients.notFound", { id: lookupId })}
-      </p>
-    );
-  }
-  return <ClientCard client={client} levels={levels} />;
-}
-
-interface ClientCardProps {
-  client: Client;
-  levels: Level[];
-}
-
-/** Read-only card for a found client. Renders only fields the contract exposes. */
-function ClientCard({ client, levels }: ClientCardProps): JSX.Element {
-  const t = useT();
-  const statusLabel = (status: EntityStatus): string =>
-    status === "active" ? t("admin.status.active") : t("admin.status.inactive");
-  const levelName = client.levelId
-    ? (levels.find((level) => level.id === client.levelId)?.name ?? "—")
-    : t("admin.clients.levelUnset");
-
-  return (
-    <dl className="card" role="group" aria-label={t("admin.clients.cardLabel")}>
-      <div>
-        <dt className="card__label">{t("admin.clients.cardName")}</dt>
-        <dd className="card__value">{client.name}</dd>
-      </div>
-      <div>
-        <dt className="card__label">{t("admin.clients.cardTelegramId")}</dt>
-        <dd>
-          <code>{client.telegramId}</code>
-        </dd>
-      </div>
-      <div>
-        <dt className="card__label">{t("admin.clients.cardUsername")}</dt>
-        <dd>
-          {client.telegramUsername ? <code>@{client.telegramUsername}</code> : "—"}
-        </dd>
-      </div>
-      <div>
-        <dt className="card__label">{t("admin.clients.cardLevel")}</dt>
-        <dd>{levelName}</dd>
-      </div>
-      <div>
-        <dt className="card__label">{t("admin.clients.cardStatus")}</dt>
-        <dd>
-          <span className={`tag ${client.status === "active" ? "tag--ok" : "tag--warn"}`}>
-            {statusLabel(client.status)}
-          </span>
-        </dd>
-      </div>
-    </dl>
-  );
+/** Debounce a value: returns the latest value only after `delayMs` of quiet. */
+function useDebounced<T>(value: T, delayMs: number): T {
+  const [debounced, setDebounced] = useState(value);
+  useEffect(() => {
+    const id = setTimeout(() => setDebounced(value), delayMs);
+    return () => clearTimeout(id);
+  }, [value, delayMs]);
+  return debounced;
 }
 
 interface OnboardFormProps {

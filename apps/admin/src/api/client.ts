@@ -55,6 +55,7 @@ import {
   type LabelCatalog,
   type LabelEntry,
   type Level,
+  type ListClientsQuery,
   type ListTrainingsQuery,
   type Locale,
   type UpdateLabelInput,
@@ -78,6 +79,7 @@ const labelEntriesSchema = z.array(labelEntrySchema);
 const courtBlocksSchema = z.array(courtBlockSchema);
 const courtRequestsSchema = z.array(courtRequestAdminViewSchema);
 const courtsSchema = z.array(courtSchema);
+const clientsSchema = z.array(clientSchema);
 const levelsSchema = z.array(levelSchema);
 const trainersSchema = z.array(trainerSchema);
 const groupsSchema = z.array(groupSchema);
@@ -106,16 +108,28 @@ export class AuthError extends Error {
 }
 
 /**
- * Thrown when the API returns 404 for a resource the caller asked for by id (e.g.
- * a client lookup by Telegram id that doesn't exist yet). A typed signal so a
- * screen can branch on "not found" — offer onboarding — without sniffing message
- * strings. `getClientByTelegram` swallows this into `null`; raw `request<T>` raises
- * it so other callers can decide.
+ * Thrown when the API returns 404 for a resource the caller asked for by id. A
+ * typed signal so a screen can branch on "not found" without sniffing message
+ * strings, raised by the shared `request<T>` for any 404.
  */
 export class NotFoundError extends Error {
   constructor(message = "Not found") {
     super(message);
     this.name = "NotFoundError";
+  }
+}
+
+/**
+ * Thrown when the API returns 409 for a write whose precondition no longer holds
+ * — e.g. confirming a court request another admin (or the bot) already decided.
+ * Carries the server's human-readable message so the screen can show it verbatim
+ * and react (refetch the now-stale queue, close the modal) instead of treating it
+ * as a generic failure. A 409 is expected here, not a bug: the API owns the check.
+ */
+export class ConflictError extends Error {
+  constructor(message = "Conflict") {
+    super(message);
+    this.name = "ConflictError";
   }
 }
 
@@ -173,7 +187,7 @@ export class ApiClient {
       throw new NotFoundError(`API ${path} not found`);
     }
     if (!res.ok) {
-      throw new Error(`API ${path} failed: ${res.status}`);
+      throw await errorFromResponse(res, path);
     }
     return schema.parse(await res.json());
   }
@@ -229,7 +243,7 @@ export class ApiClient {
       throw new AuthError(`API /court-blocks/${id} rejected the session`);
     }
     if (!res.ok) {
-      throw new Error(`API /court-blocks/${id} failed: ${res.status}`);
+      throw await errorFromResponse(res, `/court-blocks/${id}`);
     }
   }
 
@@ -424,19 +438,21 @@ export class ApiClient {
   // ── Clients (M2) ──────────────────────────────────────────────────────────
 
   /**
-   * Look up a client by Telegram id (GET /clients/by-telegram/:telegramId).
-   * Resolves to `null` when the API answers 404 (no such client yet) so a screen
-   * can offer onboarding; any other failure (auth, 5xx) still throws.
+   * Admin clients list (GET /clients), optionally filtered by a name/@username
+   * `search` and `status`. The server owns the admin gate, search normalization
+   * (a leading "@" is dropped), and ordering; the SPA only renders the validated
+   * rows and never filters domain data itself.
    */
-  async getClientByTelegram(telegramId: number): Promise<Client | null> {
-    try {
-      return await this.request(`/clients/by-telegram/${telegramId}`, clientSchema);
-    } catch (error) {
-      if (error instanceof NotFoundError) {
-        return null;
-      }
-      throw error;
+  listClients(query?: ListClientsQuery): Promise<Client[]> {
+    const params = new URLSearchParams();
+    if (query?.search) {
+      params.set("search", query.search);
     }
+    if (query?.status) {
+      params.set("status", query.status);
+    }
+    const qs = params.toString();
+    return this.request(`/clients${qs ? `?${qs}` : ""}`, clientsSchema);
   }
 
   /** Register a client (POST /clients/onboard); idempotent on telegram_id. */
@@ -572,6 +588,37 @@ export class ApiClient {
       body: JSON.stringify(input)
     });
   }
+}
+
+/**
+ * Build a typed error from a failed (non-2xx) response, preferring the server's
+ * human-readable message over a status code. NestJS exceptions serialize as
+ * `{ statusCode, message, error }`, where `message` is a string or string[]. A
+ * 409 becomes a {@link ConflictError} the UI can branch on (refetch + close);
+ * any other status stays a generic Error.
+ */
+async function errorFromResponse(res: Response, path: string): Promise<Error> {
+  const message = await readErrorMessage(res, `API ${path} failed: ${res.status}`);
+  return res.status === 409 ? new ConflictError(message) : new Error(message);
+}
+
+/** Extract a NestJS `{ message }` (string or string[]) from a body, or fall back. */
+async function readErrorMessage(res: Response, fallback: string): Promise<string> {
+  try {
+    const body: unknown = await res.json();
+    if (body && typeof body === "object" && "message" in body) {
+      const message = (body as { message: unknown }).message;
+      if (typeof message === "string" && message.length > 0) {
+        return message;
+      }
+      if (Array.isArray(message) && message.length > 0) {
+        return message.join("; ");
+      }
+    }
+  } catch {
+    // Non-JSON body (e.g. a proxy/HTML error page): use the status fallback.
+  }
+  return fallback;
 }
 
 /** Read a persisted session JWT from sessionStorage (page reload survives login). */

@@ -20,5 +20,19 @@ export const onboardClientSchema = z.object({
   name: z.string().min(1),
   levelId: uuid.nullable().optional()
 });
+/**
+ * Admin clients-list filter (GET /clients). `search` is a case-insensitive
+ * substring matched against the client's name OR Telegram @username (the service
+ * strips a leading "@" and treats blank as "no filter"); `status` narrows by
+ * active/inactive. Unknown fields are rejected. Admin-only, enforced server-side.
+ */
+export const listClientsQuerySchema = z
+  .object({
+    search: z.string().trim().optional(),
+    status: entityStatus.optional()
+  })
+  .strict();
+
 export type Client = z.infer<typeof clientSchema>;
 export type OnboardClientInput = z.infer<typeof onboardClientSchema>;
+export type ListClientsQuery = z.infer<typeof listClientsQuerySchema>;

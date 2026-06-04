@@ -78,7 +78,9 @@ export function useConfirmRequest(): UseMutationResult<
   const queryClient = useQueryClient();
   return useMutation({
     mutationFn: ({ id, input }) => api.confirmRequest(id, input),
-    onSuccess: () => invalidateAfterDecision(queryClient)
+    // Refetch on settle, not just success: a 409 means the request was already
+    // decided elsewhere, so the stale row must leave the queue too.
+    onSettled: () => invalidateAfterDecision(queryClient)
   });
 }
 
@@ -92,6 +94,7 @@ export function useRejectRequest(): UseMutationResult<
   const queryClient = useQueryClient();
   return useMutation({
     mutationFn: ({ id, input }) => api.rejectRequest(id, input),
-    onSuccess: () => invalidateAfterDecision(queryClient)
+    // Refetch on settle (see useConfirmRequest): a 409 still needs the queue refreshed.
+    onSettled: () => invalidateAfterDecision(queryClient)
   });
 }

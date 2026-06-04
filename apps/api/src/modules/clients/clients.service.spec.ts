@@ -40,6 +40,7 @@ function makeDatabase(): DatabaseService {
 function makeClientsRepo(overrides: Partial<ClientsRepository> = {}): ClientsRepository {
   return {
     findByTelegramId: vi.fn(async () => undefined),
+    findAll: vi.fn(async () => [existingClient]),
     insertIgnoreConflict: vi.fn(async (values: { telegramId: number; name: string; levelId: string | null; telegramUsername: string | null }) => ({
       ...existingClient,
       name: values.name,
@@ -181,6 +182,31 @@ describe("ClientsService", () => {
     service = new ClientsService(clientsRepo, levelsRepo, makeDatabase(), env);
     const result = await service.onboard(TELEGRAM_ID, { telegramId: TELEGRAM_ID, name: "Ana" });
     expect(result).toEqual(existingClient);
+  });
+
+  it("forbids a non-admin from listing clients and never queries", async () => {
+    await expect(service.listClients(TELEGRAM_ID)).rejects.toBeInstanceOf(ForbiddenException);
+    expect(clientsRepo.findAll).not.toHaveBeenCalled();
+  });
+
+  it("lets an admin list all clients", async () => {
+    await expect(service.listClients(ADMIN_ID)).resolves.toEqual([existingClient]);
+    expect(clientsRepo.findAll).toHaveBeenCalledWith({ search: undefined, status: undefined });
+  });
+
+  it("strips a leading @ from the search before querying", async () => {
+    await service.listClients(ADMIN_ID, { search: "@Ana" });
+    expect(clientsRepo.findAll).toHaveBeenCalledWith({ search: "Ana", status: undefined });
+  });
+
+  it("treats a blank/whitespace search as no filter", async () => {
+    await service.listClients(ADMIN_ID, { search: "   " });
+    expect(clientsRepo.findAll).toHaveBeenCalledWith({ search: undefined, status: undefined });
+  });
+
+  it("passes the status filter through to the repository", async () => {
+    await service.listClients(ADMIN_ID, { status: "inactive" });
+    expect(clientsRepo.findAll).toHaveBeenCalledWith({ search: undefined, status: "inactive" });
   });
 
   it("sets the caller's own language", async () => {

@@ -283,13 +283,16 @@ export const adminSr: Record<string, string> = {
 
   // ── Clients page ──────────────────────────────────────────────────────────
   "admin.clients.title": "Klijenti",
-  "admin.clients.lead": "Pretraga klijenta po Telegram ID-u i registracija novog.",
-  "admin.clients.lookupHeading": "Pretraga klijenta",
-  "admin.clients.telegramHint": "Numerički identifikator Telegram korisnika.",
+  "admin.clients.lead": "Svi klijenti sa pretragom po imenu ili @tagu i registracija novih.",
+  "admin.clients.listHeading": "Lista klijenata",
+  "admin.clients.listCaption": "Lista klijenata",
+  "admin.clients.searchLabel": "Pretraga",
+  "admin.clients.searchHint": "Po imenu ili @korisničkom imenu; prazno polje — svi klijenti.",
+  "admin.clients.statusFilter": "Status",
+  "admin.clients.statusAll": "Svi",
   "admin.clients.loading": "Učitavanje…",
-  "admin.clients.lookupError": "Neuspešna pretraga: {message}",
-  "admin.clients.notFound": "Klijent sa Telegram ID-em {id} nije pronađen. Registrujte ga ispod.",
-  "admin.clients.cardLabel": "Kartica klijenta",
+  "admin.clients.listError": "Neuspešno učitavanje klijenata: {message}",
+  "admin.clients.empty": "Klijenti nisu pronađeni.",
   "admin.clients.cardName": "Ime",
   "admin.clients.cardTelegramId": "Telegram ID",
   "admin.clients.cardUsername": "Korisničko ime",
@@ -335,6 +338,7 @@ export const adminSr: Record<string, string> = {
   "admin.courtRequests.confirmed": "Zahtev je potvrđen za {client}.",
   "admin.courtRequests.rejected": "Zahtev je odbijen za {client}.",
   "admin.courtRequests.opFailed": "Neuspešno izvršavanje operacije.",
+  "admin.courtRequests.conflict": "Termin je već zauzet ili je zahtev obrađen — lista je osvežena.",
 
   // ── Court blocks page ─────────────────────────────────────────────────────
   "admin.courtBlocks.title": "Blokade terena",

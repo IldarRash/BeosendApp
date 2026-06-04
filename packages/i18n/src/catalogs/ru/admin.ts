@@ -289,13 +289,16 @@ export const adminRu: Record<string, string> = {
 
   // ── Clients page ──────────────────────────────────────────────────────────
   "admin.clients.title": "Клиенты",
-  "admin.clients.lead": "Поиск клиента по Telegram ID и регистрация нового.",
-  "admin.clients.lookupHeading": "Поиск клиента",
-  "admin.clients.telegramHint": "Числовой идентификатор пользователя Telegram.",
+  "admin.clients.lead": "Все клиенты с поиском по имени или @тегу и регистрацией новых.",
+  "admin.clients.listHeading": "Список клиентов",
+  "admin.clients.listCaption": "Список клиентов",
+  "admin.clients.searchLabel": "Поиск",
+  "admin.clients.searchHint": "По имени или @username; пустое поле — все клиенты.",
+  "admin.clients.statusFilter": "Статус",
+  "admin.clients.statusAll": "Все",
   "admin.clients.loading": "Загрузка…",
-  "admin.clients.lookupError": "Не удалось выполнить поиск: {message}",
-  "admin.clients.notFound": "Клиент с Telegram ID {id} не найден. Зарегистрируйте его ниже.",
-  "admin.clients.cardLabel": "Карточка клиента",
+  "admin.clients.listError": "Не удалось загрузить клиентов: {message}",
+  "admin.clients.empty": "Клиенты не найдены.",
   "admin.clients.cardName": "Имя",
   "admin.clients.cardTelegramId": "Telegram ID",
   "admin.clients.cardUsername": "Username",
@@ -341,6 +344,7 @@ export const adminRu: Record<string, string> = {
   "admin.courtRequests.confirmed": "Заявка подтверждена для {client}.",
   "admin.courtRequests.rejected": "Заявка отклонена для {client}.",
   "admin.courtRequests.opFailed": "Не удалось выполнить операцию.",
+  "admin.courtRequests.conflict": "Слот уже занят или заявка обработана — список обновлён.",
 
   // ── Court blocks page ─────────────────────────────────────────────────────
   "admin.courtBlocks.title": "Блокировки кортов",

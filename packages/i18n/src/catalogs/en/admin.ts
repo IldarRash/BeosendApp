@@ -283,13 +283,16 @@ export const adminEn: Record<string, string> = {
 
   // ── Clients page ──────────────────────────────────────────────────────────
   "admin.clients.title": "Clients",
-  "admin.clients.lead": "Look up a client by Telegram ID and register a new one.",
-  "admin.clients.lookupHeading": "Client lookup",
-  "admin.clients.telegramHint": "The numeric identifier of the Telegram user.",
+  "admin.clients.lead": "All clients with search by name or @tag, and registration of new ones.",
+  "admin.clients.listHeading": "Client list",
+  "admin.clients.listCaption": "Client list",
+  "admin.clients.searchLabel": "Search",
+  "admin.clients.searchHint": "By name or @username; an empty field shows all clients.",
+  "admin.clients.statusFilter": "Status",
+  "admin.clients.statusAll": "All",
   "admin.clients.loading": "Loading…",
-  "admin.clients.lookupError": "Lookup failed: {message}",
-  "admin.clients.notFound": "Client with Telegram ID {id} not found. Register them below.",
-  "admin.clients.cardLabel": "Client card",
+  "admin.clients.listError": "Failed to load clients: {message}",
+  "admin.clients.empty": "No clients found.",
   "admin.clients.cardName": "Name",
   "admin.clients.cardTelegramId": "Telegram ID",
   "admin.clients.cardUsername": "Username",
@@ -335,6 +338,7 @@ export const adminEn: Record<string, string> = {
   "admin.courtRequests.confirmed": "Request confirmed for {client}.",
   "admin.courtRequests.rejected": "Request rejected for {client}.",
   "admin.courtRequests.opFailed": "Failed to perform the operation.",
+  "admin.courtRequests.conflict": "That slot was just taken or the request was already decided — the list has been refreshed.",
 
   // ── Court blocks page ─────────────────────────────────────────────────────
   "admin.courtBlocks.title": "Court blocks",

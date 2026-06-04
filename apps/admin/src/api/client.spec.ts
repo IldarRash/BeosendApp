@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { ApiClient, AuthError } from "./client";
+import { ApiClient, AuthError, ConflictError } from "./client";
 
 interface FetchCall {
   url: string;
@@ -146,6 +146,69 @@ describe("ApiClient auth contracts", () => {
     const api = new ApiClient("http://api.test");
     api.setSession("stale-jwt");
     await expect(api.me()).rejects.toBeInstanceOf(AuthError);
+  });
+});
+
+describe("ApiClient error handling & clients", () => {
+  afterEach(() => {
+    vi.unstubAllGlobals();
+  });
+
+  const sampleClient = {
+    id: "11111111-1111-4111-8111-111111111111",
+    name: "Аня",
+    telegramId: 4242,
+    telegramUsername: "anya",
+    levelId: null,
+    language: "ru",
+    registeredAt: "2026-01-01T00:00:00.000Z",
+    status: "active"
+  };
+
+  it("maps a 409 to a typed ConflictError carrying the server message", async () => {
+    mockFetchOnce({ message: "This request has already been decided.", error: "Conflict" }, false, 409);
+    const api = new ApiClient("http://api.test");
+    await expect(
+      api.confirmRequest("11111111-1111-1111-1111-111111111111", {
+        courtId: "22222222-2222-2222-2222-222222222222",
+        decidedBy: 99
+      })
+    ).rejects.toBeInstanceOf(ConflictError);
+  });
+
+  it("surfaces the server's error message (not just the status) on a non-2xx", async () => {
+    mockFetchOnce({ message: "No active court with that id.", error: "Bad Request" }, false, 400);
+    const api = new ApiClient("http://api.test");
+    await expect(
+      api.confirmRequest("11111111-1111-1111-1111-111111111111", {
+        courtId: "22222222-2222-2222-2222-222222222222",
+        decidedBy: 99
+      })
+    ).rejects.toThrow("No active court with that id.");
+  });
+
+  it("joins a NestJS string[] message when the body carries multiple issues", async () => {
+    mockFetchOnce({ message: ["a is required", "b must be a uuid"] }, false, 400);
+    await expect(new ApiClient("http://api.test").listClients()).rejects.toThrow(
+      "a is required; b must be a uuid"
+    );
+  });
+
+  it("lists clients and encodes the search/status filters into the query", async () => {
+    const calls = mockFetchOnce([sampleClient]);
+    const result = await new ApiClient("http://api.test").listClients({
+      search: "@anya",
+      status: "active"
+    });
+    expect(result).toHaveLength(1);
+    expect(result[0].telegramUsername).toBe("anya");
+    expect(calls[0]?.url).toBe("http://api.test/clients?search=%40anya&status=active");
+  });
+
+  it("requests the bare /clients path when no filters are given", async () => {
+    const calls = mockFetchOnce([]);
+    await new ApiClient("http://api.test").listClients();
+    expect(calls[0]?.url).toBe("http://api.test/clients");
   });
 });
 
