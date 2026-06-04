@@ -182,6 +182,8 @@ export interface CourtCellOccupant {
   startTime: string;
   /** Whole clock hours held. Blocks may span >2h; confirmed requests are 1 or 2. */
   durationHours: number;
+  /** Confirmed-request id, so a `request` cell can link to its detail. Blocks omit it. */
+  requestId?: string;
 }
 
 /**
@@ -197,40 +199,49 @@ export function courtLoadGrid(input: {
   closeHour: number;
   confirmed: readonly CourtCellOccupant[];
   blocks: readonly CourtCellOccupant[];
-}): { courtId: string; courtNumber: number; cells: { hour: number; state: CourtLoadCellState }[] }[] {
+}): {
+  courtId: string;
+  courtNumber: number;
+  cells: { hour: number; state: CourtLoadCellState; requestId: string | null }[];
+}[] {
   const blockHours = occupiedHoursByCourt(input.blocks);
   const requestHours = occupiedHoursByCourt(input.confirmed);
 
   return input.courts.map((court) => {
     const blocked = blockHours.get(court.id);
     const requested = requestHours.get(court.id);
-    const cells: { hour: number; state: CourtLoadCellState }[] = [];
+    const cells: { hour: number; state: CourtLoadCellState; requestId: string | null }[] = [];
     for (let hour = input.openHour; hour < input.closeHour; hour += 1) {
-      const state: CourtLoadCellState = blocked?.has(hour)
-        ? "block"
-        : requested?.has(hour)
-          ? "request"
-          : "free";
-      cells.push({ hour, state });
+      if (blocked?.has(hour)) {
+        cells.push({ hour, state: "block", requestId: null });
+      } else if (requested?.has(hour)) {
+        cells.push({ hour, state: "request", requestId: requested.get(hour) ?? null });
+      } else {
+        cells.push({ hour, state: "free", requestId: null });
+      }
     }
     return { courtId: court.id, courtNumber: court.number, cells };
   });
 }
 
-/** Map each court id to the set of whole clock hours its occupants cover. */
+/**
+ * Map each court id to its occupied whole clock hours. Each hour maps to the
+ * occupant's `requestId` (or `null` for blocks / unidentified occupants), so a
+ * `request` cell can carry the covering request id.
+ */
 function occupiedHoursByCourt(
   occupants: readonly CourtCellOccupant[]
-): Map<string, Set<number>> {
-  const byCourt = new Map<string, Set<number>>();
+): Map<string, Map<number, string | null>> {
+  const byCourt = new Map<string, Map<number, string | null>>();
   for (const occupant of occupants) {
     const startHour = Number(occupant.startTime.slice(0, 2));
     let hours = byCourt.get(occupant.courtId);
     if (!hours) {
-      hours = new Set<number>();
+      hours = new Map<number, string | null>();
       byCourt.set(occupant.courtId, hours);
     }
     for (let i = 0; i < occupant.durationHours; i += 1) {
-      hours.add(startHour + i);
+      hours.set(startHour + i, occupant.requestId ?? null);
     }
   }
   return byCourt;

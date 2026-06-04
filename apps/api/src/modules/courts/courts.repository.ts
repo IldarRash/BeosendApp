@@ -7,6 +7,8 @@ export interface CourtOccupancyRow {
   courtId: string;
   startTime: string;
   durationHours: number;
+  /** Covering confirmed-request id, so the load grid can link a `request` cell to its detail. */
+  requestId?: string;
 }
 
 /** Only place that touches Drizzle for courts. No business rules. */
@@ -36,6 +38,7 @@ export class CourtsRepository {
   async confirmedCourtOccupancyForDate(date: string): Promise<CourtOccupancyRow[]> {
     const rows = await this.database.db
       .select({
+        requestId: tables.courtRequests.id,
         courtId: tables.courtRequests.courtId,
         startTime: tables.courtRequests.startTime,
         durationHours: tables.courtRequests.durationHours
@@ -43,8 +46,13 @@ export class CourtsRepository {
       .from(tables.courtRequests)
       .where(and(eq(tables.courtRequests.date, date), eq(tables.courtRequests.status, "confirmed")));
     return rows
-      .filter((row): row is CourtOccupancyRow => row.courtId !== null)
-      .map((row) => ({ ...row, startTime: row.startTime.slice(0, 5) }));
+      .filter((row): row is typeof row & { courtId: string } => row.courtId !== null)
+      .map((row) => ({
+        requestId: row.requestId,
+        courtId: row.courtId,
+        startTime: row.startTime.slice(0, 5),
+        durationHours: row.durationHours
+      }));
   }
 
   /**

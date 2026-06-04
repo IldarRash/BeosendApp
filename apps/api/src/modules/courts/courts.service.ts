@@ -74,7 +74,8 @@ export class CourtsService {
         cells: row.cells.map((cell) => ({
           hour: cell.hour,
           startTime: hourToTime(cell.hour),
-          state: cell.state
+          state: cell.state,
+          requestId: cell.requestId
         }))
       }))
     });

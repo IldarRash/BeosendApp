@@ -530,6 +530,34 @@ describe("CourtRequestsService.listQueue (C4 admin)", () => {
   });
 });
 
+describe("CourtRequestsService.getRequestDetail (court-load popup)", () => {
+  it("rejects a non-admin caller", async () => {
+    const service = makeService(makeModerationRepo({}));
+    await expect(service.getRequestDetail(123, requestId)).rejects.toBeInstanceOf(
+      ForbiddenException
+    );
+  });
+
+  it("returns the admin view with client name/telegram and a derived end time", async () => {
+    const service = makeService(makeModerationRepo({}));
+    const view = await service.getRequestDetail(adminId, requestId);
+    expect(view.id).toBe(requestId);
+    expect(view.clientName).toBe("Ana");
+    expect(view.clientTelegramId).toBe(7001);
+    expect(view.endTime).toBe("16:00"); // 14:00 + 2h
+  });
+
+  it("404s when no request has that id", async () => {
+    const repo = makeModerationRepo({});
+    // The repo helper coalesces null → a default row, so force the not-found path here.
+    (repo.findWithClientById as ReturnType<typeof vi.fn>).mockResolvedValue(null);
+    const service = makeService(repo);
+    await expect(service.getRequestDetail(adminId, requestId)).rejects.toBeInstanceOf(
+      NotFoundException
+    );
+  });
+});
+
 describe("CourtRequestsService.freeCourts (C4 admin)", () => {
   it("rejects a non-admin caller", async () => {
     const service = makeService(makeModerationRepo({}));

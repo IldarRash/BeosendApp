@@ -18,7 +18,7 @@ const grid: CourtLoadGrid = {
     {
       courtId: "11111111-1111-1111-1111-111111111111",
       courtNumber: 1,
-      cells: [{ hour: 8, startTime: "08:00", state: "free" }]
+      cells: [{ hour: 8, startTime: "08:00", state: "free", requestId: null }]
     }
   ]
 };

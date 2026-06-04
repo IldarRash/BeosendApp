@@ -143,11 +143,16 @@ export type CourtAvailability = z.infer<typeof courtAvailabilitySchema>;
 export const courtLoadCellState = z.enum(["free", "request", "block"]);
 export type CourtLoadCellState = z.infer<typeof courtLoadCellState>;
 
-/** One court/hour cell: what (if anything) holds it. */
+/**
+ * One court/hour cell: what (if anything) holds it. For a `request` cell this is
+ * the confirmed court request covering that court/hour, so the admin grid can link
+ * to its detail; `free`/`block` cells carry `null` (a block is not a request).
+ */
 export const courtLoadCellSchema = z.object({
   hour: z.number().int(),
   startTime: timeString,
-  state: courtLoadCellState
+  state: courtLoadCellState,
+  requestId: uuid.nullable()
 });
 export type CourtLoadCell = z.infer<typeof courtLoadCellSchema>;
 

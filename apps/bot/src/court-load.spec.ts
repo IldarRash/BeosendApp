@@ -23,7 +23,8 @@ function cells(
     out.push({
       hour: h,
       startTime: `${String(h).padStart(2, "0")}:00`,
-      state: occupied[h] ?? "free"
+      state: occupied[h] ?? "free",
+      requestId: null
     });
   }
   return out;

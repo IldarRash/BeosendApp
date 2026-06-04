@@ -723,40 +723,173 @@ legend {
   color: var(--coral-ink);
 }
 
-/* ── Court load grid cell (M3) ─────────────────────────────────────────────
- * A compact courts × working-hours cell. State (free | request | block) is the
- * API's decision — the modifier only tints it; the screen never computes it.
- * Used by the Загрузка кортов grid; reuse rather than re-styling per screen. */
+/* ── Court load: control toolbar (M3) ──────────────────────────────────────
+ * The date + legend form one control block above the grid, so the manager has
+ * a single "what am I looking at / for when" panel rather than loose elements. */
 
-.load-cell {
+.toolbar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: 16px 24px;
+  padding: 16px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  background: var(--paper);
+  box-shadow: var(--shadow);
+}
+
+.toolbar__date {
+  margin: 0;
+}
+
+.legend {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px 18px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.legend__item {
   display: inline-flex;
   align-items: center;
+  gap: 8px;
+  font-size: 13px;
+  color: var(--ink-700);
+}
+
+/* A small colour chip explaining a state — reuses the cell state modifiers. */
+.legend__swatch {
+  width: 18px;
+  height: 18px;
+  border-radius: 5px;
+  border: 1px solid var(--line);
+}
+
+/* ── Court load grid (M3) ──────────────────────────────────────────────────
+ * Dense courts × working-hours grid. State (free | request | block) is the
+ * API's decision — the modifier only tints it; the screen never computes it.
+ * Fixed layout makes the hour columns share the full width (no empty gutter),
+ * and the court column stays pinned while the hours scroll. Reuse rather than
+ * re-styling per screen. */
+
+.load-grid {
+  table-layout: fixed;
+}
+
+.load-grid th,
+.load-grid td {
+  padding: 3px;
+  border-bottom: none;
+  text-align: center;
+}
+
+.load-grid thead th.datatable__num {
+  text-align: center;
+}
+
+/* Pinned court column (header corner + each row's court number). */
+.load-grid__corner,
+.load-grid__court {
+  position: sticky;
+  left: 0;
+  z-index: 1;
+  width: 92px;
+  text-align: right;
+}
+
+.load-grid__corner {
+  background: var(--sand-50);
+}
+
+.load-grid__court {
+  background: var(--paper);
+}
+
+.load-cell {
+  display: flex;
+  align-items: center;
   justify-content: center;
-  min-width: 36px;
-  height: 28px;
-  padding: 0 6px;
+  width: 100%;
+  height: 40px;
   border-radius: 6px;
   border: 1px solid var(--line);
   background: var(--sand-50);
   color: var(--ink-500);
   font-family: var(--font-mono);
-  font-size: 12px;
+  font-size: 13px;
   line-height: 1;
+}
+
+/* A request cell is an actionable button (opens the booking detail). */
+button.load-cell {
+  padding: 0;
+  font: inherit;
+  cursor: pointer;
+  transition: filter 120ms ease;
+}
+
+.load-cell--clickable:hover {
+  filter: brightness(0.96);
+}
+
+.load-cell--clickable:focus-visible {
+  outline: 2px solid var(--coral);
+  outline-offset: 2px;
 }
 
 .load-cell--free {
   background: var(--paper);
-  color: var(--ink-500);
+  color: color-mix(in srgb, var(--ink-500) 45%, var(--paper));
 }
 
 .load-cell--request {
-  border-color: color-mix(in srgb, var(--teal) 45%, var(--line));
-  background: color-mix(in srgb, var(--teal) 14%, var(--paper));
+  border-color: var(--teal);
+  background: color-mix(in srgb, var(--teal) 24%, var(--paper));
   color: var(--teal);
+  font-weight: 600;
 }
 
 .load-cell--block {
-  border-color: color-mix(in srgb, var(--coral) 45%, var(--line));
-  background: color-mix(in srgb, var(--coral) 14%, var(--paper));
+  border-color: var(--coral);
+  background: color-mix(in srgb, var(--coral) 24%, var(--paper));
   color: var(--coral-ink);
+  font-weight: 600;
+}
+
+/* ── Detail definition list (booking popup) ────────────────────────────────
+ * Label/value rows for the court-load "who booked this?" popup. */
+
+.detail-list {
+  display: flex;
+  flex-direction: column;
+  margin: 0;
+}
+
+.detail-list__row {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 24px;
+  padding: 10px 0;
+  border-bottom: 1px solid var(--line);
+}
+
+.detail-list__row:last-child {
+  border-bottom: none;
+}
+
+.detail-list dt {
+  color: var(--ink-500);
+  font-size: 13px;
+}
+
+.detail-list dd {
+  margin: 0;
+  font-weight: 600;
+  text-align: right;
 }

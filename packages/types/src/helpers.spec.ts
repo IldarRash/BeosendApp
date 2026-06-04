@@ -295,6 +295,30 @@ describe("courtLoadGrid", () => {
     expect(cellAt(rows, courtA, 10)).toBe("block");
   });
 
+  it("threads the covering request id onto every request cell; free/block carry null", () => {
+    const requestId = "cccccccc-cccc-cccc-cccc-cccccccccccc";
+    const requestIdAt = (
+      rows: ReturnType<typeof courtLoadGrid>,
+      courtId: string,
+      hour: number
+    ): string | null | undefined =>
+      rows.find((r) => r.courtId === courtId)?.cells.find((c) => c.hour === hour)?.requestId;
+
+    const rows = courtLoadGrid({
+      courts,
+      ...window,
+      confirmed: [{ courtId: courtA, startTime: "10:00", durationHours: 2, requestId }],
+      blocks: [{ courtId: courtB, startTime: "09:00", durationHours: 1 }]
+    });
+
+    // Both covered hours of the 2h request carry the request id.
+    expect(requestIdAt(rows, courtA, 10)).toBe(requestId);
+    expect(requestIdAt(rows, courtA, 11)).toBe(requestId);
+    // A free cell and a block cell never carry a request id.
+    expect(requestIdAt(rows, courtA, 12)).toBeNull();
+    expect(requestIdAt(rows, courtB, 9)).toBeNull();
+  });
+
   it("free-cell count per hour matches freeCourtsByHour for the same data (C3 consistency)", () => {
     const confirmed = [
       { courtId: courtA, startTime: "10:00", durationHours: 2 as const }
