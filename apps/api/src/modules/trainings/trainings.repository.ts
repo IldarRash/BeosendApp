@@ -153,15 +153,22 @@ export class TrainingsRepository {
   }
 
   /**
-   * Flip this training's still-`booked` bookings to `cancelled` (siblings,
-   * attended, no_show, waitlist are untouched) and return the affected clientIds.
-   * Bookings move status; they are never deleted. Caller must hold a tx.
+   * Flip this training's seat-occupying bookings ('booked' or 'pending') to
+   * `cancelled` (attended, no_show, waitlist, already-cancelled are untouched) and
+   * return the affected clientIds. A `pending` booking holds a seat and an awaiting
+   * client, so an admin training cancel must release those holds and notify those
+   * clients too. Bookings move status; they are never deleted. Caller must hold a tx.
    */
   async cancelBookedBookingsForTraining(tx: Database, id: string): Promise<string[]> {
     const rows = await tx
       .update(tables.bookings)
       .set({ status: "cancelled" })
-      .where(and(eq(tables.bookings.trainingId, id), eq(tables.bookings.status, "booked")))
+      .where(
+        and(
+          eq(tables.bookings.trainingId, id),
+          inArray(tables.bookings.status, ["booked", "pending"])
+        )
+      )
       .returning({ clientId: tables.bookings.clientId });
     return rows.map((row) => row.clientId);
   }
@@ -330,6 +337,48 @@ export class TrainingsRepository {
     }));
   }
 
+  /**
+   * A trainer's trainings within [from, to] (the confirmation-queue horizon),
+   * joined to the (nullable) group's level name (empty when the training has no
+   * group). Ordered by date then start time. No business rules: the service has
+   * already resolved the trainer. Mirrors listForTrainerOnDate over a date range.
+   */
+  async listForTrainerInRange(
+    trainerId: string,
+    from: string,
+    to: string
+  ): Promise<TrainerTrainingRow[]> {
+    const rows = await this.database.db
+      .select({
+        trainingId: tables.trainings.id,
+        date: tables.trainings.date,
+        startTime: tables.trainings.startTime,
+        endTime: tables.trainings.endTime,
+        levelName: tables.levels.name,
+        status: tables.trainings.status,
+        bookedCount: tables.trainings.bookedCount,
+        capacity: tables.trainings.capacity
+      })
+      .from(tables.trainings)
+      .leftJoin(tables.groups, eq(tables.trainings.groupId, tables.groups.id))
+      .leftJoin(tables.levels, eq(tables.groups.levelId, tables.levels.id))
+      .where(
+        and(
+          eq(tables.trainings.trainerId, trainerId),
+          gte(tables.trainings.date, from),
+          lte(tables.trainings.date, to)
+        )
+      )
+      .orderBy(asc(tables.trainings.date), asc(tables.trainings.startTime));
+
+    return rows.map((row) => ({
+      ...row,
+      startTime: row.startTime.slice(0, 5),
+      endTime: row.endTime.slice(0, 5),
+      levelName: row.levelName ?? ""
+    }));
+  }
+
   /** A training's roster header (with its trainerId for the ownership check). */
   async findHeaderById(trainingId: string): Promise<TrainingHeaderRow | undefined> {
     const [row] = await this.database.db
@@ -358,9 +407,10 @@ export class TrainingsRepository {
   }
 
   /**
-   * A training's roster rows (T2.3): bookings joined to client names, restricted
-   * to attendance-relevant statuses (booked/attended/no_show);
-   * cancelled/waitlist are excluded. Ordered by client name.
+   * A training's roster rows (T2.3): bookings joined to client names, restricted to
+   * statuses that occupy a seat or record attendance (pending/booked/attended/
+   * no_show); cancelled/waitlist are excluded. `pending` is included so the trainer
+   * sees who is awaiting their confirmation. Ordered by client name.
    */
   async listRoster(trainingId: string): Promise<RosterRow[]> {
     return this.database.db
@@ -375,7 +425,7 @@ export class TrainingsRepository {
       .where(
         and(
           eq(tables.bookings.trainingId, trainingId),
-          inArray(tables.bookings.status, ["booked", "attended", "no_show"])
+          inArray(tables.bookings.status, ["pending", "booked", "attended", "no_show"])
         )
       )
       .orderBy(asc(tables.clients.name));

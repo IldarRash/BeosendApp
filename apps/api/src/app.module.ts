@@ -14,6 +14,7 @@ import { GroupsModule } from "./modules/groups/groups.module";
 import { I18nModule } from "./modules/i18n/i18n.module";
 import { LevelsModule } from "./modules/levels/levels.module";
 import { NotificationsModule } from "./modules/notifications/notifications.module";
+import { SubscriptionsModule } from "./modules/subscriptions/subscriptions.module";
 import { TrainersModule } from "./modules/trainers/trainers.module";
 import { TrainingsModule } from "./modules/trainings/trainings.module";
 import { WaitlistModule } from "./modules/waitlist/waitlist.module";
@@ -42,6 +43,7 @@ import { WaitlistModule } from "./modules/waitlist/waitlist.module";
     AnalyticsModule,
     CourtsModule,
     CourtRequestsModule,
+    SubscriptionsModule,
     I18nModule
   ]
 })

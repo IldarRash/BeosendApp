@@ -32,6 +32,20 @@ export interface GroupTrainingLockRow extends TrainingLockRow {
 }
 
 /**
+ * One booking of a group-subscription batch (ANY status), locked FOR UPDATE and
+ * joined to its training's trainerId — the confirm/decline decision uses the full
+ * batch to (a) detect existence (404 when empty) and (b) authorize against the
+ * owning trainer BEFORE filtering to the pending rows it actually mutates.
+ */
+export interface SubscriptionRow {
+  id: string;
+  clientId: string;
+  trainingId: string;
+  trainerId: string;
+  status: BookingStatus;
+}
+
+/**
  * A booking locked FOR UPDATE joined to its training's trainerId/date — the
  * attendance write needs both for the ownership and today/past checks (T2.3).
  */
@@ -173,7 +187,12 @@ export class BookingsRepository {
     }));
   }
 
-  /** An existing active ('booked') booking for this client + training — drives the duplicate check. */
+  /**
+   * An existing seat-occupying booking ('booked' or 'pending') for this client +
+   * training — drives the duplicate check. A `pending` booking holds a seat, so a
+   * client awaiting trainer confirmation is already "on" the training and must not
+   * be allowed to book it again.
+   */
   async findActiveBookingForClient(
     tx: Database,
     clientId: string,
@@ -186,7 +205,7 @@ export class BookingsRepository {
         and(
           eq(tables.bookings.clientId, clientId),
           eq(tables.bookings.trainingId, trainingId),
-          eq(tables.bookings.status, "booked")
+          inArray(tables.bookings.status, ["booked", "pending"])
         )
       )
       .limit(1);
@@ -255,6 +274,32 @@ export class BookingsRepository {
     return row;
   }
 
+  /**
+   * Every booking of one group-subscription batch (ANY status), locked FOR UPDATE
+   * and joined to its training's trainerId. Matched by groupSubscriptionId ONLY, so
+   * the service can detect an empty batch (404) and authorize against the owning
+   * trainer before short-circuiting on an already-decided batch. The lock is scoped
+   * to the booking rows (`of` bookings) so the join to trainings does not lock them.
+   */
+  async findBySubscriptionForUpdate(
+    tx: Database,
+    groupSubscriptionId: string
+  ): Promise<SubscriptionRow[]> {
+    return tx
+      .select({
+        id: tables.bookings.id,
+        clientId: tables.bookings.clientId,
+        trainingId: tables.bookings.trainingId,
+        trainerId: tables.trainings.trainerId,
+        status: tables.bookings.status
+      })
+      .from(tables.bookings)
+      .innerJoin(tables.trainings, eq(tables.bookings.trainingId, tables.trainings.id))
+      .where(eq(tables.bookings.groupSubscriptionId, groupSubscriptionId))
+      .orderBy(asc(tables.bookings.id))
+      .for("update", { of: tables.bookings });
+  }
+
   /** Set one booking's status (matched by id only) inside the caller's tx; returns the row. */
   async updateBookingStatus(
     tx: Database,
@@ -299,7 +344,10 @@ function toBooking(row: BookingRow): Booking {
     groupSubscriptionId: row.groupSubscriptionId,
     createdAt: row.createdAt.toISOString(),
     status: row.status,
-    source: bookingSourceOf(row.source)
+    source: bookingSourceOf(row.source),
+    paymentStatus: row.paymentStatus,
+    paidAt: row.paidAt?.toISOString() ?? null,
+    paidBy: row.paidBy ?? null
   };
 }
 

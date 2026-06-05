@@ -148,7 +148,6 @@ export const miniappSr: Record<string, string> = {
   "miniapp.myBookings.status.attended": "Posećeno",
   "miniapp.myBookings.status.noShow": "Propušteno",
   "miniapp.myBookings.status.cancelled": "Otkazano",
-  "miniapp.myBookings.cancel": "Otkaži",
   "miniapp.myBookings.cancelAria": "Otkaži prijavu",
   "miniapp.myBookings.cancelConfirmTitle": "Otkazati prijavu?",
   "miniapp.myBookings.cancelConfirmBody":

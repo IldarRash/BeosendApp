@@ -20,7 +20,10 @@ const booking: Booking = {
   groupSubscriptionId: null,
   createdAt: "2026-06-03T10:00:00.000Z",
   status: "booked",
-  source: "telegram"
+  source: "telegram",
+  paymentStatus: "unpaid",
+  paidAt: null,
+  paidBy: null
 };
 
 const card: SlotCard = {

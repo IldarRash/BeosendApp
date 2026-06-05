@@ -80,6 +80,12 @@ const ICONS: Record<string, JSX.Element> = {
       <path d="M4 21c0-4 3.6-7 8-7s8 3 8 7" />
     </Icon>
   ),
+  subscriptions: (
+    <Icon>
+      <path d="M5 3h11l3 3v15l-2.5-1.5L14 21l-2.5-1.5L9 21l-2.5-1.5L5 21V3z" />
+      <path d="M9 8h6M9 12h6M9 16h3" />
+    </Icon>
+  ),
   // Courts group
   courtRequests: (
     <Icon>

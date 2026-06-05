@@ -50,6 +50,20 @@
       "when": 1780598142168,
       "tag": "0006_oval_captain_marvel",
       "breakpoints": true
+    },
+    {
+      "idx": 7,
+      "version": "7",
+      "when": 1780676498363,
+      "tag": "0007_black_the_enforcers",
+      "breakpoints": true
+    },
+    {
+      "idx": 8,
+      "version": "7",
+      "when": 1780679051819,
+      "tag": "0008_spotty_toro",
+      "breakpoints": true
     }
   ]
 }

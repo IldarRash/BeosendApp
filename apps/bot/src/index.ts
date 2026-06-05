@@ -81,10 +81,12 @@ import {
   handleMarkAttendance,
   handleTrainerRoster,
   handleTrainerToday,
+  handleTrainerUpcoming,
   parseAttend,
   parseRoster,
   TRAINER_ACTIONS
 } from "./trainer-today";
+import { handleTrainerDecision, parseTrainerDecision } from "./trainer-confirm";
 import {
   BROADCAST_ACTIONS,
   handleBroadcastAudiencePicker,
@@ -202,6 +204,16 @@ async function main(): Promise<void> {
   bot.command("today", async (ctx) => {
     const catalog = await resolveCatalog(ctx.from?.id);
     await handleTrainerToday(ctx, api, catalog, ctx.from?.id);
+  });
+
+  // Trainer-only entry (trainer-confirmation): the upcoming-trainings overview,
+  // role-gated via the API exactly like /today. Each item opens the existing
+  // roster (now including pending participants); the per-booking confirm/decline
+  // happens from the DMs the API pushes. Non-trainers get the "trainers only"
+  // message and never see the list.
+  bot.command("upcoming", async (ctx) => {
+    const catalog = await resolveCatalog(ctx.from?.id);
+    await handleTrainerUpcoming(ctx, api, catalog, ctx.from?.id);
   });
 
   // Manager-only entry (T2.4): free-slot broadcasts. Admin role is gated by the
@@ -551,6 +563,16 @@ async function main(): Promise<void> {
     const attendMark = parseAttend(ctx.callbackQuery.data);
     if (attendMark !== undefined) {
       await handleMarkAttendance(ctx, api, catalog, ctx.from.id, attendMark);
+      return;
+    }
+    // Trainer confirmation (trainer-confirmation): confirm/decline a pending
+    // single booking (`confirm:bk:` / `decline:bk:`) or a monthly subscription
+    // batch (`confirm:sub:` / `decline:sub:`) from the DM the API pushed. The API
+    // authorizes the caller, performs the status transition and sends every
+    // client/waitlist DM; the bot forwards the id and edits the DM to the outcome.
+    const trainerDecision = parseTrainerDecision(ctx.callbackQuery.data);
+    if (trainerDecision !== undefined) {
+      await handleTrainerDecision(ctx, api, catalog, ctx.from.id, trainerDecision);
       return;
     }
     // Free-slot broadcasts (T2.4 + T3.2 segments): admin-gated by the API. Menu

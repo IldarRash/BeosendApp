@@ -54,30 +54,12 @@
 
 /* =========================================================
  * Dark theme — mirror surface/text/separator/accent vars.
- * Applied when the OS or Telegram client is in dark mode.
- * telegram-ui's AppRoot also sets data-appearance="dark" /
- * a platform class; we match both system and tgui signals.
+ * Driven by the TELEGRAM client appearance, not the OS: useThemeSync()
+ * toggles .tg-theme--dark on <html> from the SDK isMiniAppDark signal, so the
+ * custom --tg-* tokens flip in lockstep with telegram-ui's own appearance.
+ * (We must NOT key this off prefers-color-scheme — the OS theme and the
+ * Telegram client theme can disagree, which is what caused white-on-white.)
  * ========================================================= */
-@media (prefers-color-scheme: dark) {
-  :root {
-    --tg-bg: #1c1c1e;
-    --tg-secondary: #000000;
-    --tg-text: #ffffff;
-    --tg-subtitle: #ebebf5cc;
-    --tg-hint: #8e8e93;
-    --tg-sep: rgba(84, 84, 88, 0.6);
-    --tg-sep-soft: rgba(84, 84, 88, 0.3);
-    /* Coral stays the same; it's saturated enough for dark surfaces */
-    --co: #E15B43;
-    --co-ink: #C24A34;
-    --co-soft: #3d1c14;
-    --beosand-coral-tint: rgba(225, 91, 67, 0.18);
-    --teal-soft: #0d2e2b;
-    --amber-soft: #2e2008;
-  }
-}
-
-/* tgui dark signal (class added by AppRoot in Telegram dark) */
 .tg-theme--dark {
   --tg-bg: #1c1c1e;
   --tg-secondary: #000000;
@@ -273,6 +255,16 @@ body {
   color: var(--tg-hint);
 }
 
+/* In-content page title (flat, theme-flipping — not a native Section/Title). */
+.screen__title {
+  font-size: 22px;
+  font-weight: 700;
+  letter-spacing: -0.4px;
+  color: var(--tg-text);
+  padding: 4px 0 14px;
+  margin: 0;
+}
+
 /* =========================================================
  * Telegram-style section header
  * ========================================================= */
@@ -309,7 +301,7 @@ body {
 .lrow + .lrow { border-top: 0.5px solid var(--tg-sep); }
 
 .lrow__main { flex: 1; min-width: 0; }
-.lrow__title { font-size: 16px; font-weight: 500; }
+.lrow__title { font-size: 16px; font-weight: 500; color: var(--tg-text); }
 .lrow__sub { font-size: 13px; color: var(--tg-hint); margin-top: 1px; }
 .lrow__chev { color: var(--tg-sep); }
 .lrow__chev svg { width: 8px; height: 14px; display: block; }
@@ -361,12 +353,12 @@ button.slot { display: block; }
 
 .slot__top { display: flex; align-items: center; justify-content: space-between; margin-bottom: 9px; }
 .slot__when { display: flex; align-items: baseline; gap: 8px; }
-.slot__time { font-size: 20px; font-weight: 700; letter-spacing: -0.4px; }
+.slot__time { font-size: 20px; font-weight: 700; letter-spacing: -0.4px; color: var(--tg-text); }
 .slot__date { font-size: 13px; color: var(--tg-hint); }
-.slot__group { font-size: 15px; font-weight: 600; margin-bottom: 3px; }
+.slot__group { font-size: 15px; font-weight: 600; margin-bottom: 3px; color: var(--tg-text); }
 .slot__meta { font-size: 13.5px; color: var(--tg-subtitle); display: flex; gap: 6px; align-items: center; flex-wrap: wrap; }
 .slot__foot { display: flex; align-items: center; justify-content: space-between; margin-top: 11px; padding-top: 11px; border-top: 0.5px solid var(--tg-sep-soft); }
-.slot__price { font-size: 16px; font-weight: 700; }
+.slot__price { font-size: 16px; font-weight: 700; color: var(--tg-text); }
 .slot__price small { font-size: 12px; font-weight: 500; color: var(--tg-hint); }
 
 .slot:focus-visible {
@@ -440,19 +432,6 @@ button.slot { display: block; }
 }
 
 .chiprow::-webkit-scrollbar { display: none; }
-
-/* Legacy chip-bar alias (used by ChipBar wrapper) */
-.chip-bar {
-  display: flex;
-  gap: var(--beosand-gap-xs);
-  overflow-x: auto;
-  padding: 2px var(--beosand-gap-xs);
-  margin: 0 calc(-1 * var(--beosand-gap-xs));
-  scrollbar-width: none;
-  -webkit-overflow-scrolling: touch;
-}
-
-.chip-bar::-webkit-scrollbar { display: none; }
 
 /* =========================================================
  * Status chip (mini) — .schip
@@ -557,7 +536,7 @@ button.slot { display: block; }
 }
 
 .optrow__main { flex: 1; }
-.optrow__title { font-size: 16px; font-weight: 500; }
+.optrow__title { font-size: 16px; font-weight: 500; color: var(--tg-text); }
 .optrow__sub { font-size: 13px; color: var(--tg-hint); margin-top: 1px; }
 .optrow__detail { font-size: 15px; color: var(--tg-hint); font-weight: 500; }
 
@@ -664,17 +643,6 @@ button.slot { display: block; }
 
 @keyframes spin { to { transform: rotate(360deg); } }
 
-/* Legacy .state-view alias (retained for existing callers) */
-.state-view {
-  min-height: 40vh;
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  justify-content: center;
-  text-align: center;
-  gap: var(--beosand-gap-sm);
-}
-
 /* =========================================================
  * Date strip (court) — .datestrip / .dchip
  * ========================================================= */
@@ -778,32 +746,6 @@ button.slot { display: block; }
 .note svg { width: 15px; height: 15px; flex: none; margin-top: 1px; color: var(--co); }
 
 /* =========================================================
- * Pick-row (language / level pickers in onboarding)
- * Kept for backward compat — OptionList now uses .optrow
- * ========================================================= */
-.pick-row--selected {
-  background: var(--beosand-coral-tint);
-}
-
-.pick-row:focus-visible {
-  outline: 2px solid var(--co);
-  outline-offset: -2px;
-  border-radius: 8px;
-}
-
-.pick-marker {
-  display: inline-block;
-  width: 10px;
-  height: 10px;
-  border-radius: 50%;
-  background: var(--co);
-}
-
-.screen-hint {
-  padding: var(--beosand-gap-xs) var(--beosand-screen-pad) 0;
-}
-
-/* =========================================================
  * Trailing chevron on interactive rows
  * ========================================================= */
 .chevron {
@@ -854,12 +796,6 @@ button.slot { display: block; }
   display: block;
 }
 
-.menu-row:focus-visible {
-  outline: 2px solid var(--co);
-  outline-offset: -2px;
-  border-radius: 8px;
-}
-
 /* =========================================================
  * Browse / browse-flow glyphs
  * ========================================================= */
@@ -877,22 +813,8 @@ button.slot { display: block; }
 }
 
 /* =========================================================
- * Slot card (legacy .slot-card classes retained for
- * BrowseView / WaitlistJoinView that still reference them)
+ * Slot badges
  * ========================================================= */
-.slot-card:focus-visible {
-  outline: 2px solid var(--co);
-  outline-offset: -2px;
-  border-radius: 10px;
-}
-
-.slot-card__meta {
-  display: inline-flex;
-  align-items: center;
-  gap: var(--beosand-gap-xs);
-  margin-top: 4px;
-}
-
 .slot-badge {
   display: inline-flex;
   align-items: center;
@@ -941,12 +863,8 @@ button.slot { display: block; }
 }
 
 /* =========================================================
- * Confirm step (legacy classes retained for ConfirmView/CourtPreview)
+ * Confirm step
  * ========================================================= */
-.confirm-price {
-  font-weight: 600;
-}
-
 .confirm-error {
   padding: var(--beosand-gap-sm) var(--beosand-screen-pad);
   border-radius: 10px;
@@ -993,69 +911,9 @@ button.slot { display: block; }
   color: var(--tg-hint);
 }
 
-.waitlist-position {
-  align-self: center;
-  padding: var(--beosand-gap-xs) var(--beosand-gap-sm);
-  border-radius: 14px;
-  background: var(--beosand-coral-tint);
-  color: var(--co-ink);
-  font-size: 14px;
-  font-weight: 600;
-}
-
 /* =========================================================
- * My bookings (legacy booking-chip classes — retained since
- * BookingItemCard now uses .schip but CancelSheet / other
- * code may still reference these)
+ * My bookings — cancel sheet
  * ========================================================= */
-.segmented {
-  margin-bottom: var(--beosand-gap-sm);
-}
-
-.booking-card:focus-visible {
-  outline: 2px solid var(--co);
-  outline-offset: -2px;
-  border-radius: 10px;
-}
-
-.booking-card__meta {
-  display: inline-flex;
-  align-items: center;
-  gap: var(--beosand-gap-xs);
-  margin-top: 4px;
-}
-
-.booking-chip {
-  display: inline-flex;
-  align-items: center;
-  gap: 5px;
-  height: 22px;
-  padding: 0 9px;
-  border-radius: 11px;
-  font-size: 13px;
-  font-weight: 600;
-  line-height: 1;
-}
-
-.booking-chip svg { width: 13px; height: 13px; display: block; }
-
-.booking-chip--booked {
-  background: var(--beosand-coral-tint);
-  color: var(--co-ink);
-}
-
-.booking-chip--attended {
-  background: rgba(127, 127, 127, 0.12);
-  color: var(--tg-text);
-}
-
-.booking-chip--noShow,
-.booking-chip--cancelled {
-  background: rgba(127, 127, 127, 0.14);
-  color: var(--tg-hint);
-}
-
-
 .cancel-sheet { padding-bottom: var(--beosand-gap-sm); }
 
 .cancel-sheet__actions {
@@ -1067,12 +925,6 @@ button.slot { display: block; }
 /* =========================================================
  * Group monthly subscription
  * ========================================================= */
-.group-card:focus-visible {
-  outline: 2px solid var(--co);
-  outline-offset: -2px;
-  border-radius: 10px;
-}
-
 .group-card__meta {
   display: inline-flex;
   align-items: center;
@@ -1127,12 +979,6 @@ button.slot { display: block; }
 /* =========================================================
  * Individual training request
  * ========================================================= */
-.trainer-card:focus-visible {
-  outline: 2px solid var(--co);
-  outline-offset: -2px;
-  border-radius: 10px;
-}
-
 .trainer-type {
   display: inline-flex;
   align-items: center;

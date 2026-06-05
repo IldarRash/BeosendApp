@@ -148,7 +148,6 @@ export const miniappEn: Record<string, string> = {
   "miniapp.myBookings.status.attended": "Attended",
   "miniapp.myBookings.status.noShow": "Missed",
   "miniapp.myBookings.status.cancelled": "Cancelled",
-  "miniapp.myBookings.cancel": "Cancel",
   "miniapp.myBookings.cancelAria": "Cancel booking",
   "miniapp.myBookings.cancelConfirmTitle": "Cancel this booking?",
   "miniapp.myBookings.cancelConfirmBody":

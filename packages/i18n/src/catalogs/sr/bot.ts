@@ -195,6 +195,14 @@ export const botSr: Record<string, string> = {
   "bot.trainer.attendance.no_show": "❌ nije došao",
   "bot.trainer.rosterButton": "📋 Spisak · {day} {time}",
   "bot.trainer.backToTrainings": "⬅️ Na treninge",
+  "bot.trainer.upcomingHeader": "Vaši predstojeći treninzi:",
+  "bot.trainer.noUpcoming": "Nemate predstojećih treninga 🙌",
+
+  // --- Trainer confirmation (trainer-confirm.ts) ---
+  "bot.trainerConfirm.confirmed": "✅ Prijava je potvrđena.",
+  "bot.trainerConfirm.declined": "❌ Prijava je odbijena.",
+  "bot.trainerConfirm.alreadyDecided": "Ova prijava je već obrađena.",
+  "bot.trainerConfirm.notAuthorized": "Nemate dozvolu za ovu radnju.",
 
   // --- Broadcasts (broadcast.ts) ---
   "bot.broadcast.notAdmin":

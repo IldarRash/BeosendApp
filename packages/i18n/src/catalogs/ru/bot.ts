@@ -201,6 +201,14 @@ export const botRu: Record<string, string> = {
   "bot.trainer.attendance.no_show": "❌ не пришёл",
   "bot.trainer.rosterButton": "📋 Список · {day} {time}",
   "bot.trainer.backToTrainings": "⬅️ К тренировкам",
+  "bot.trainer.upcomingHeader": "Ваши ближайшие тренировки:",
+  "bot.trainer.noUpcoming": "У вас нет ближайших тренировок 🙌",
+
+  // --- Trainer confirmation (trainer-confirm.ts) ---
+  "bot.trainerConfirm.confirmed": "✅ Запись подтверждена.",
+  "bot.trainerConfirm.declined": "❌ Запись отклонена.",
+  "bot.trainerConfirm.alreadyDecided": "Эта заявка уже обработана.",
+  "bot.trainerConfirm.notAuthorized": "Нет прав на это действие.",
 
   // --- Broadcasts (broadcast.ts) ---
   "bot.broadcast.notAdmin":
