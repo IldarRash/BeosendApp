@@ -1,0 +1,242 @@
+/**
+ * SR miniapp-namespace strings. Mirrors the RU key set exactly (enforced by
+ * catalog-parity.spec); any not-yet-translated key may carry the RU value until
+ * the translation phase.
+ */
+export const miniappSr: Record<string, string> = {
+  // --- Onboarding wizard ---
+  "miniapp.onboarding.step": "Korak {n} od 3",
+  "miniapp.onboarding.nameHeader": "Kako se zovete?",
+  "miniapp.onboarding.nameHint": "Pod ovim imenom vas vidi trener.",
+  "miniapp.onboarding.namePlaceholder": "Vaše ime",
+  "miniapp.onboarding.langHeader": "Jezik",
+  "miniapp.onboarding.levelHeader": "Vaš nivo",
+  "miniapp.onboarding.levelFooter": "Možete izabrati kasnije",
+  "miniapp.onboarding.levelSkip": "Još ne znam",
+
+  // --- Primary actions ---
+  "miniapp.action.continue": "Nastavi",
+  "miniapp.action.done": "Gotovo",
+
+  // --- Home menu & navigation shell (S2) ---
+  "miniapp.home.title": "BeoSand",
+  "miniapp.home.subtitle": "Škola odbojke na pesku · Beograd",
+  "miniapp.home.sectionTrainings": "Treninzi",
+  "miniapp.home.sectionCourts": "Tereni",
+  "miniapp.home.sectionAccount": "Profil",
+  "miniapp.home.browse": "Raspored",
+  "miniapp.home.browseHint": "Izaberite trening i prijavite se",
+  "miniapp.home.myBookings": "Moje prijave",
+  "miniapp.home.myBookingsHint": "Predstojeće i prošle",
+  "miniapp.home.group": "Pretplata (grupa)",
+  "miniapp.home.groupHint": "Mesečna pretplata na grupu",
+  "miniapp.home.individual": "Individualni trening",
+  "miniapp.home.individualHint": "Zahtev treneru jedan na jedan",
+  "miniapp.home.court": "Iznajmljivanje terena",
+  "miniapp.home.courtHint": "Zahtev za slobodan teren",
+  "miniapp.home.profile": "Profil i jezik",
+  "miniapp.home.profileHint": "Vaši podaci i jezik interfejsa",
+  "miniapp.home.placeholderTitle": "Uskoro",
+  "miniapp.home.placeholderBody": "Ovaj odeljak stiže u sledećem ažuriranju.",
+
+  // --- Profile ---
+  "miniapp.profile.title": "Profil",
+  "miniapp.profile.settings": "Podešavanja",
+  "miniapp.profile.level": "Nivo",
+  "miniapp.profile.levelNone": "Nije navedeno",
+  "miniapp.profile.language": "Jezik interfejsa",
+
+  // --- Common states ---
+  "miniapp.common.loading": "Učitavanje…",
+  "miniapp.common.error": "Nešto je pošlo po zlu",
+  "miniapp.common.errorBody": "Zahtev nije mogao da se izvrši. Pokušajte ponovo.",
+  "miniapp.common.notTelegram": "Otvorite ovu aplikaciju iz Telegrama da biste nastavili.",
+  "miniapp.common.authPending": "Autorizacija…",
+  "miniapp.common.authError": "Autorizacija nije uspela",
+
+  // --- Weekday names (1 = Pon … 7 = Ned) ---
+  "miniapp.weekday.short.1": "Pon",
+  "miniapp.weekday.short.2": "Uto",
+  "miniapp.weekday.short.3": "Sre",
+  "miniapp.weekday.short.4": "Čet",
+  "miniapp.weekday.short.5": "Pet",
+  "miniapp.weekday.short.6": "Sub",
+  "miniapp.weekday.short.7": "Ned",
+  "miniapp.weekday.full.1": "Ponedeljak",
+  "miniapp.weekday.full.2": "Utorak",
+  "miniapp.weekday.full.3": "Sreda",
+  "miniapp.weekday.full.4": "Četvrtak",
+  "miniapp.weekday.full.5": "Petak",
+  "miniapp.weekday.full.6": "Subota",
+  "miniapp.weekday.full.7": "Nedelja",
+
+  // --- Time-of-day bands ---
+  "miniapp.timeOfDay.morning": "Jutro",
+  "miniapp.timeOfDay.afternoon": "Dan",
+  "miniapp.timeOfDay.evening": "Veče",
+
+  // --- Browse slots (S3) ---
+  "miniapp.browse.title": "Raspored",
+  "miniapp.browse.today": "Danas",
+  "miniapp.browse.filtersAria": "Filteri rasporeda",
+  "miniapp.browse.seats": "{count} mesta",
+  "miniapp.browse.seatsNone": "Nema mesta",
+  "miniapp.browse.price": "{price} RSD",
+  "miniapp.browse.bookAria": "Prijavi se",
+  "miniapp.browse.waitlist": "Lista čekanja",
+  "miniapp.browse.waitlistAria": "Stani na listu čekanja",
+  "miniapp.browse.emptyTitle": "Nema odgovarajućih treninga",
+  "miniapp.browse.emptyBody": "Promenite filtere ili pogledajte kasnije.",
+  "miniapp.browse.errorBody": "Učitavanje rasporeda nije uspelo. Pokušajte ponovo.",
+
+  // --- Browse filter sheet ---
+  "miniapp.browse.filter.title": "Filteri",
+  "miniapp.browse.filter.any": "Bilo koji",
+  "miniapp.browse.filter.weekday": "Dan u nedelji",
+  "miniapp.browse.filter.timeOfDay": "Doba dana",
+  "miniapp.browse.filter.trainer": "Trener",
+  "miniapp.browse.filter.level": "Nivo",
+  "miniapp.browse.filter.apply": "Primeni",
+  "miniapp.browse.filter.reset": "Poništi",
+
+  // --- Single booking confirm (S4) ---
+  "miniapp.booking.confirm": "Prijavi se",
+  "miniapp.booking.confirmHeader": "Potvrda prijave",
+  "miniapp.booking.dateLabel": "Datum",
+  "miniapp.booking.timeLabel": "Vreme",
+  "miniapp.booking.trainerLabel": "Trener",
+  "miniapp.booking.levelLabel": "Nivo",
+  "miniapp.booking.seatsLabel": "Slobodnih mesta",
+  "miniapp.booking.priceLabel": "Cena",
+  "miniapp.booking.successTitle": "Prijavljeni ste!",
+  "miniapp.booking.backToList": "Na raspored",
+  "miniapp.booking.conflict": "Ovo mesto je upravo zauzeto. Izaberite drugi trening.",
+
+  // --- Waitlist (S6): join + accept ---
+  "miniapp.waitlist.joinConfirm": "Stani na listu čekanja",
+  "miniapp.waitlist.joinConfirmHeader": "Lista čekanja",
+  "miniapp.waitlist.joinConfirmBody":
+    "Ovo mesto je zauzeto. Stanite na listu čekanja — poslaćemo obaveštenje čim se oslobodi.",
+  "miniapp.waitlist.joinOfferTitle": "Mesto je upravo zauzeto",
+  "miniapp.waitlist.joinedTitle": "Na listi ste čekanja",
+  "miniapp.waitlist.joinedBody": "Obavestićemo vas čim se mesto oslobodi.",
+  "miniapp.waitlist.positionLabel": "Vaša pozicija: {position}",
+  "miniapp.waitlist.joinConflict":
+    "Nije uspelo dodavanje na listu čekanja. Možda ste već na njoj ili je mesto ponovo dostupno.",
+  "miniapp.waitlist.acceptHeader": "Oslobodilo se mesto",
+  "miniapp.waitlist.acceptBody": "Potvrdite prijavu dok je mesto slobodno.",
+  "miniapp.waitlist.accept": "Potvrdi",
+  "miniapp.waitlist.acceptedTitle": "Prijavljeni ste!",
+  "miniapp.waitlist.acceptedBody": "Mesto je vaše. Detalji su u odeljku „Moje prijave”.",
+  "miniapp.waitlist.expiredTitle": "Prozor za potvrdu je zatvoren",
+  "miniapp.waitlist.expiredBody": "Mesto je već zauzeto ili je isteklo vreme za potvrdu.",
+  "miniapp.waitlist.toSchedule": "Na raspored",
+  "miniapp.waitlist.toMyBookings": "Na moje prijave",
+  "miniapp.waitlist.toHome": "Na početnu",
+
+  // --- My bookings + cancel (S5) ---
+  "miniapp.myBookings.title": "Moje prijave",
+  "miniapp.myBookings.tabUpcoming": "Predstojeće",
+  "miniapp.myBookings.tabPast": "Prošle",
+  "miniapp.myBookings.tabsAria": "Predstojeće i prošle prijave",
+  "miniapp.myBookings.emptyUpcomingTitle": "Nema predstojećih prijava",
+  "miniapp.myBookings.emptyUpcomingBody": "Izaberite trening u rasporedu i prijavite se.",
+  "miniapp.myBookings.emptyPastTitle": "Nema prošlih prijava",
+  "miniapp.myBookings.emptyPastBody": "Ovde će se pojaviti vaši završeni treninzi.",
+  "miniapp.myBookings.toBrowse": "Na raspored",
+  "miniapp.myBookings.status.booked": "Prijava",
+  "miniapp.myBookings.status.attended": "Posećeno",
+  "miniapp.myBookings.status.noShow": "Propušteno",
+  "miniapp.myBookings.status.cancelled": "Otkazano",
+  "miniapp.myBookings.cancel": "Otkaži",
+  "miniapp.myBookings.cancelAria": "Otkaži prijavu",
+  "miniapp.myBookings.cancelConfirmTitle": "Otkazati prijavu?",
+  "miniapp.myBookings.cancelConfirmBody":
+    "Prijava za ovaj trening biće otkazana. Ova radnja se ne može poništiti.",
+  "miniapp.myBookings.cancelConfirm": "Otkaži prijavu",
+  "miniapp.myBookings.cancelKeep": "Zadrži",
+  "miniapp.myBookings.cancelledTitle": "Prijava je otkazana",
+  "miniapp.myBookings.cancelledBody": "Mesto je ponovo slobodno za druge.",
+  "miniapp.myBookings.cancelConflict":
+    "Otkazivanje nije uspelo. Možda je prijava već otkazana ili se više ne može otkazati.",
+  "miniapp.myBookings.errorBody": "Učitavanje vaših prijava nije uspelo. Pokušajte ponovo.",
+
+  // --- Group monthly subscription (S7) ---
+  "miniapp.group.listTitle": "Grupe",
+  "miniapp.group.none": "Nema dostupnih grupa",
+  "miniapp.group.noneBody": "Trenutno nema grupa za prijavu. Pogledajte kasnije.",
+  "miniapp.group.monthSubscription": "{price} RSD / mesec",
+  "miniapp.group.openAria": "Otvori grupu",
+  "miniapp.group.daysLabel": "Dani",
+  "miniapp.group.priceLabel": "Cena",
+  "miniapp.group.pickMonth": "Izaberite mesec",
+  "miniapp.group.confirm": "Prijava na mesec",
+  "miniapp.group.back": "Nazad",
+  "miniapp.group.groupLabel": "Grupa",
+  "miniapp.group.monthLabel": "Mesec",
+  "miniapp.group.confirmBody":
+    "Pretplata na grupu „{name}” za {month}. Biće vam naplaćeno {price} RSD za mesec.",
+  "miniapp.group.resultTitle": "Gotovo!",
+  "miniapp.group.createdCount": "Prijavljeni ste na {count} treninga",
+  "miniapp.group.skippedHeader": "Preskočeni datumi (nema mesta)",
+  "miniapp.group.toMyBookings": "Na moje prijave",
+  "miniapp.group.toHome": "Na početnu",
+  "miniapp.group.conflict":
+    "Pretplata nije uspela. Možda grupa nije dostupna ili je mesec zatvoren.",
+
+  // --- Individual training request (S8) ---
+  "miniapp.individual.listTitle": "Izaberite trenera",
+  "miniapp.individual.none": "Nema dostupnih trenera",
+  "miniapp.individual.noneBody": "Trenutno nema koga da izaberete. Pogledajte kasnije.",
+  "miniapp.individual.typeMain": "Glavni trener",
+  "miniapp.individual.typeGuest": "Gostujući trener",
+  "miniapp.individual.typeLabel": "Trener",
+  "miniapp.individual.openAria": "Zatraži trening",
+  "miniapp.individual.confirmTitle": "Individualni trening",
+  "miniapp.individual.confirmBody":
+    "Poslaćemo treneru „{name}” zahtev za individualni trening. Trener će vas kontaktirati da dogovorite termin.",
+  "miniapp.individual.request": "Zatraži trening",
+  "miniapp.individual.sentTitle": "Zahtev je poslat",
+  "miniapp.individual.sentBody": "Trener je primio vaš zahtev i kontaktiraće vas.",
+  "miniapp.individual.toHome": "Početna",
+  "miniapp.individual.unavailableTitle": "Trener trenutno nije dostupan",
+  "miniapp.individual.unavailableBody":
+    "Za sada nije moguće stupiti u kontakt. Pokušajte da izaberete drugog trenera.",
+  "miniapp.individual.pickAnother": "Izaberi drugog",
+
+  // --- Court rental request (S9) ---
+  "miniapp.court.pickDate": "Izaberite datum",
+  "miniapp.court.pickTime": "Izaberite vreme",
+  "miniapp.court.freeCount": "{count} slobodno",
+  "miniapp.court.noTimesTitle": "Nema slobodnog vremena",
+  "miniapp.court.noTimesBody": "Za ovaj dan nema slobodnih terena. Izaberite drugi datum.",
+  "miniapp.court.pickDuration": "Trajanje",
+  "miniapp.court.duration1": "1 sat",
+  "miniapp.court.duration1_5": "1,5 sat",
+  "miniapp.court.duration2": "2 sata",
+  "miniapp.court.durationLabel": "Trajanje",
+  "miniapp.court.previewTitle": "Potvrda zahteva",
+  "miniapp.court.previewBody": "Dodelićemo slobodan teren i obavestiti vas.",
+  "miniapp.court.submit": "Pošalji zahtev",
+  "miniapp.court.sentTitle": "Zahtev je poslat",
+  "miniapp.court.sentBody": "Dodelićemo teren i obavestiti vas.",
+  "miniapp.court.toHome": "Početna",
+  "miniapp.court.unavailableTitle": "Ovo vreme je zauzeto",
+  "miniapp.court.unavailableBody": "Ovo vreme je upravo zauzeto. Izaberite drugo.",
+  "miniapp.court.pickAnotherTime": "Izaberi drugo vreme",
+  "miniapp.court.conflict": "Slanje zahteva nije uspelo. Možda je ovo vreme već zauzeto.",
+
+  // --- Month names (1 = Januar … 12 = Decembar) ---
+  "miniapp.month.1": "Januar",
+  "miniapp.month.2": "Februar",
+  "miniapp.month.3": "Mart",
+  "miniapp.month.4": "April",
+  "miniapp.month.5": "Maj",
+  "miniapp.month.6": "Jun",
+  "miniapp.month.7": "Jul",
+  "miniapp.month.8": "Avgust",
+  "miniapp.month.9": "Septembar",
+  "miniapp.month.10": "Oktobar",
+  "miniapp.month.11": "Novembar",
+  "miniapp.month.12": "Decembar"
+};

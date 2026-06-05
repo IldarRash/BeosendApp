@@ -12,6 +12,7 @@ export const botEn: Record<string, string> = {
   // --- Main menu (menu.ts) ---
   "bot.menu.welcomeFull":
     "Welcome to BeoSand 🏐\n\nHere you can:\n• book a training session\n• view free slots\n• see your bookings",
+  "bot.menu.openApp": "🚀 Open the app",
   "bot.menu.availableTrainings": "🎫 Single visit",
   "bot.menu.todayFreeSlots": "📅 Free slots today",
   "bot.menu.joinGroup": "👥 Join a group",

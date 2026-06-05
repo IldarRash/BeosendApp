@@ -1,0 +1,166 @@
+import { useState } from "react";
+import { Placeholder, Spinner } from "@telegram-apps/telegram-ui";
+import type { Client } from "@beosand/types";
+import { useApi } from "../api/ApiProvider";
+import { useClient } from "../api/hooks";
+import { useT } from "../i18n/LanguageProvider";
+import { useTg } from "../tg/TgSdkProvider";
+import { useBackButton } from "../tg/buttons";
+import { BrowseScreen } from "../screens/BrowseScreen";
+import { CourtRequestScreen } from "../screens/CourtRequestScreen";
+import { GroupBookingScreen } from "../screens/GroupBookingScreen";
+import { HomeScreen } from "../screens/HomeScreen";
+import { MyBookingsScreen } from "../screens/MyBookingsScreen";
+import { OnboardingWizard } from "../screens/OnboardingWizard";
+import { ProfileScreen } from "../screens/ProfileScreen";
+import { TrainerRequestScreen } from "../screens/TrainerRequestScreen";
+import { WaitlistAcceptScreen } from "../screens/WaitlistAcceptScreen";
+import { NavProvider, useNav } from "./NavProvider";
+import { HOME_SECTIONS, resolveStartTarget, toRouteId } from "./routes";
+
+/**
+ * The Mini App's navigation shell. Boot + onboarding gate exactly as S1:
+ *
+ *   boot auth (no-telegram / pending / error) → status screen
+ *   → resolve the caller's Client by verified Telegram id
+ *     → 404 (not onboarded) → OnboardingWizard
+ *     → 200                 → NavShell (Home menu + typed route stack)
+ *
+ * Once onboarded, the S1 `wizard | landing` state machine is gone: the shell
+ * mounts a {@link NavProvider} (seeded from the deep-link `startParam`) wrapping a
+ * {@link RouteView} that switches on the current route. Every RouteId now resolves
+ * to a real screen; the switch's default arm is only a defensive Home fallback.
+ */
+export function Router(): JSX.Element {
+  const { status } = useApi();
+  const t = useT();
+
+  if (status === "no-telegram") {
+    return centered(<Placeholder header="BeoSand" description={t("miniapp.common.notTelegram")} />);
+  }
+  if (status === "pending") {
+    return centered(
+      <>
+        <Spinner size="l" />
+        <span className="muted">{t("miniapp.common.authPending")}</span>
+      </>
+    );
+  }
+  if (status === "error") {
+    return centered(
+      <Placeholder header={t("miniapp.common.error")} description={t("miniapp.common.authError")} />
+    );
+  }
+
+  return <AuthedRouter />;
+}
+
+/** Routes once boot authentication is ready and the session identity exists. */
+function AuthedRouter(): JSX.Element {
+  const t = useT();
+  const clientQuery = useClient();
+
+  if (clientQuery.isError && !clientQuery.notOnboarded) {
+    const message =
+      clientQuery.error instanceof Error ? clientQuery.error.message : t("miniapp.common.error");
+    return centered(<Placeholder header={t("miniapp.common.error")} description={message} />);
+  }
+
+  if (clientQuery.notOnboarded) {
+    // A not-onboarded caller sees the wizard before the Home menu ever renders.
+    // The mutation seeds the client cache, so onboarding success re-renders into NavShell.
+    return (
+      <OnboardingWizard
+        onDone={() => {
+          void clientQuery.refetch();
+        }}
+      />
+    );
+  }
+
+  if (!clientQuery.data) {
+    return centered(
+      <>
+        <Spinner size="l" />
+        <span className="muted">{t("miniapp.common.loading")}</span>
+      </>
+    );
+  }
+
+  return <NavShell client={clientQuery.data} />;
+}
+
+/**
+ * Mounts the route stack for an onboarded client, seeded from the deep-link
+ * `startParam` (read once on boot; unknown/unreachable → Home, never an error).
+ */
+function NavShell({ client }: { client: Client }): JSX.Element {
+  const { startParam } = useTg();
+  // Read the deep link once: a later startParam change must not re-seed the stack.
+  // A `waitlist_<uuid>` link seeds the accept screen and remembers its entry id; the
+  // stack itself stays a bare RouteId[] (the entry id rides this boot-only state).
+  const [target] = useState(() => resolveStartTarget(startParam));
+  const acceptEntryId = target.route === "waitlist-accept" ? target.entryId : null;
+  return (
+    <NavProvider initial={target.route}>
+      <RouteView client={client} acceptEntryId={acceptEntryId} />
+    </NavProvider>
+  );
+}
+
+/**
+ * Renders the screen for the current route and wires the native BackButton once:
+ * shown on any sub-screen (pops to Home), hidden on Home (the stack root).
+ */
+function RouteView({
+  client,
+  acceptEntryId
+}: {
+  client: Client;
+  acceptEntryId: string | null;
+}): JSX.Element {
+  const { current, canPop, pop, push } = useNav();
+  useBackButton(canPop, pop);
+
+  const onSelect = (routeId: string): void => {
+    const id = toRouteId(routeId);
+    if (id) {
+      push(id);
+    }
+  };
+
+  switch (current) {
+    case "home":
+      return <HomeScreen sections={HOME_SECTIONS} onSelect={onSelect} />;
+    case "browse":
+      return <BrowseScreen />;
+    case "my-bookings":
+      return <MyBookingsScreen onBrowse={() => push("browse")} />;
+    case "group":
+      return <GroupBookingScreen />;
+    case "individual":
+      return <TrainerRequestScreen />;
+    case "court":
+      return <CourtRequestScreen />;
+    case "profile":
+      return <ProfileScreen client={client} />;
+    case "waitlist-accept":
+      // Only reachable via the boot deep link, which always carries the entry id; if
+      // the id is somehow absent (defensive), fall back to Home rather than calling
+      // the API with no id.
+      return acceptEntryId ? (
+        <WaitlistAcceptScreen entryId={acceptEntryId} onHome={pop} />
+      ) : (
+        <HomeScreen sections={HOME_SECTIONS} onSelect={onSelect} />
+      );
+    default:
+      // Exhaustive: every RouteId has an explicit case above (court was the last
+      // placeholder). This arm is unreachable; it keeps the switch total and falls
+      // back to Home defensively rather than rendering nothing.
+      return <HomeScreen sections={HOME_SECTIONS} onSelect={onSelect} />;
+  }
+}
+
+function centered(children: JSX.Element): JSX.Element {
+  return <div className="screen screen__center">{children}</div>;
+}

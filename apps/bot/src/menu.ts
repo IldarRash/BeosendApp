@@ -46,8 +46,18 @@ export function parseSetLanguage(data: string | undefined): Locale | undefined {
   return (LOCALES as readonly string[]).includes(raw) ? (raw as Locale) : undefined;
 }
 
-export function mainMenuKeyboard(catalog: Catalog): InlineKeyboard {
-  return new InlineKeyboard()
+/**
+ * Main menu keyboard. When a Mini App URL is configured, a prominent web_app
+ * button to open the Mini App is placed at the top (FOUNDATION slice D); the
+ * existing inline flow buttons stay during migration. `miniappUrl` is omitted in
+ * a tunnel-less local setup, in which case only the legacy inline buttons show.
+ */
+export function mainMenuKeyboard(catalog: Catalog, miniappUrl?: string): InlineKeyboard {
+  const keyboard = new InlineKeyboard();
+  if (miniappUrl) {
+    keyboard.webApp(t(catalog, "bot.menu.openApp"), miniappUrl).row();
+  }
+  return keyboard
     .text(t(catalog, "bot.menu.todayFreeSlots"), MENU_ACTIONS.todayFreeSlots)
     .row()
     .text(t(catalog, "bot.menu.availableTrainings"), MENU_ACTIONS.availableTrainings)
@@ -95,8 +105,8 @@ export const ADMIN_ACTIONS = {
   courtLoad: "court_load:open"
 } as const;
 
-export function adminMenuKeyboard(catalog: Catalog): InlineKeyboard {
-  return mainMenuKeyboard(catalog)
+export function adminMenuKeyboard(catalog: Catalog, miniappUrl?: string): InlineKeyboard {
+  return mainMenuKeyboard(catalog, miniappUrl)
     .row()
     .text(t(catalog, "bot.menu.adminCourtModeration"), ADMIN_ACTIONS.courtModeration)
     .row()

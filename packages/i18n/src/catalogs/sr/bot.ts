@@ -12,6 +12,7 @@ export const botSr: Record<string, string> = {
   // --- Main menu (menu.ts) ---
   "bot.menu.welcomeFull":
     "Dobro došli u BeoSand 🏐\n\nOvde možete:\n• prijaviti se za trening\n• pogledati slobodna mesta\n• videti svoje prijave",
+  "bot.menu.openApp": "🚀 Otvori aplikaciju",
   "bot.menu.availableTrainings": "🎫 Pojedinačni dolazak",
   "bot.menu.todayFreeSlots": "📅 Slobodna mesta danas",
   "bot.menu.joinGroup": "👥 Prijava u grupu",

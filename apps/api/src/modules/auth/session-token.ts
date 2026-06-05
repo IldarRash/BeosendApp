@@ -11,12 +11,23 @@ const HEADER = { alg: "HS256", typ: "JWT" } as const;
 /** ~12h session lifetime, per the admin-console brief default. */
 export const SESSION_TTL_SECONDS = 12 * 60 * 60;
 
+/**
+ * Authorization scope of a session token. `"admin"` tokens come from the
+ * Telegram Login Widget seam and are the ONLY tokens the AdminAuthGuard accepts;
+ * `"client"` tokens come from the Mini App initData seam and can never satisfy an
+ * admin check. This claim is the load-bearing barrier against client→admin
+ * escalation.
+ */
+export type SessionScope = "client" | "admin";
+
 /** Claims carried in the session token. */
 export interface SessionClaims {
-  /** Admin Telegram id (numeric). */
+  /** Telegram id (numeric). */
   sub: number;
   /** Display name for "logged in as". */
   name: string;
+  /** Authorization scope; gates the admin guard. */
+  scope: SessionScope;
   /** Optional Telegram username. */
   username?: string;
   /** Issued-at, seconds since epoch. */
@@ -46,13 +57,14 @@ function sign(signingInput: string, secret: string): string {
  * default is the current time.
  */
 export function signSessionToken(
-  claims: Pick<SessionClaims, "sub" | "name" | "username">,
+  claims: Pick<SessionClaims, "sub" | "name" | "scope" | "username">,
   secret: string,
   nowSeconds: number = Math.floor(Date.now() / 1000)
 ): string {
   const payload: SessionClaims = {
     sub: claims.sub,
     name: claims.name,
+    scope: claims.scope,
     ...(claims.username !== undefined ? { username: claims.username } : {}),
     iat: nowSeconds,
     exp: nowSeconds + SESSION_TTL_SECONDS
@@ -93,10 +105,14 @@ export function verifySessionToken(
     return null;
   }
 
+  // A valid scope claim is required. NOTE: this means any session minted before
+  // the scope claim existed is treated as invalid — deploying this rotates all
+  // in-flight admin-console sessions (admins simply log in again once).
   if (
     typeof claims.sub !== "number" ||
     typeof claims.name !== "string" ||
-    typeof claims.exp !== "number"
+    typeof claims.exp !== "number" ||
+    (claims.scope !== "client" && claims.scope !== "admin")
   ) {
     return null;
   }

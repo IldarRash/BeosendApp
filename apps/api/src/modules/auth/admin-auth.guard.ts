@@ -20,12 +20,19 @@ interface GuardedRequest {
  * for the web session WITHOUT a rewrite — ALSO injects that header for the
  * downstream handler.
  *
- * RESIDUAL SECURITY GAP (pre-existing, out of M0 scope): a raw `x-telegram-id`
- * is still accepted from any caller. That is intended for the trusted bot
- * (server-to-server), but it means a browser-origin request could still send a
- * raw id and bypass the session if it reaches a controller not behind this
- * guard. Fully rejecting browser-origin raw ids (e.g. a trusted-caller
- * allowlist / origin check) is a follow-up hardening, not part of M0.
+ * SCOPE BARRIER: resolveSession requires the token's scope to be "admin", so a
+ * scope:"client" Mini App token is rejected here. This guard is defence in depth
+ * for controllers that adopt it; the primary barrier against client→admin
+ * escalation is the SessionBridgeMiddleware, which routes a client token to
+ * x-client-telegram-id ONLY (never the x-telegram-id that services' isAdmin()
+ * gates read), so a Mini App client token can't pass an admin gate regardless.
+ *
+ * RESIDUAL SECURITY GAP (pre-existing): a raw `x-telegram-id` is still accepted
+ * from any caller. That is intended for the trusted bot (server-to-server), but
+ * a browser-origin request on a trusted network could still send a raw id. This
+ * is unchanged by the Mini App (whose client token can never set x-telegram-id);
+ * fully rejecting browser-origin raw ids (a trusted-caller allowlist / origin
+ * check) remains a separate follow-up hardening.
  */
 @Injectable()
 export class AdminAuthGuard implements CanActivate {

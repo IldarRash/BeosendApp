@@ -5,6 +5,7 @@
     "DATABASE_URL",
     "TELEGRAM_BOT_TOKEN",
     "API_URL",
+    "VITE_API_URL",
     "ADMIN_TELEGRAM_IDS"
   ],
   "tasks": {

@@ -10,6 +10,8 @@ import {
 import {
   type AdminMe,
   type AdminSession,
+  type MiniappSession,
+  miniappAuthSchema,
   telegramLoginPayloadSchema
 } from "@beosand/types";
 import type { ZodSchema } from "zod";
@@ -25,6 +27,13 @@ export class AuthController {
   loginWithTelegram(@Body() body: unknown): AdminSession {
     const payload = validate(telegramLoginPayloadSchema, body ?? {});
     return this.auth.loginWithTelegram(payload);
+  }
+
+  /** Exchange a verified Telegram Mini App initData string for a client session. */
+  @Post("miniapp")
+  loginWithMiniapp(@Body() body: unknown): MiniappSession {
+    const { initData } = validate(miniappAuthSchema, body ?? {});
+    return this.auth.loginWithMiniapp(initData);
   }
 
   /** Return the admin identity for the bearer session ("logged in as"). */

@@ -55,18 +55,23 @@ export class TrainersController {
 
   /**
    * Client-facing, self-only (Feature 8): the caller requests an individual
-   * session with this trainer. The body `telegramId` must equal the header id
-   * (the requester acts only as themselves) — not admin-gated. The service DMs
-   * the trainer and returns a typed result (soft `trainer-unavailable` rather
-   * than a 500 when the trainer has no Telegram channel).
+   * session with this trainer. The actor is resolved from the verified session
+   * (`x-client-telegram-id ?? x-telegram-id`) so a Mini App client (bridged to
+   * x-client-telegram-id only, no x-telegram-id) and the bot both work. The body
+   * `telegramId` must equal the resolved actor — the requester acts only as
+   * themselves; a mismatched body id is rejected (no impersonation). Not
+   * admin-gated. The service DMs the trainer and returns a typed result (soft
+   * `trainer-unavailable` rather than a 500 when the trainer has no Telegram
+   * channel).
    */
   @Post(":id/individual-request")
   requestIndividual(
     @Headers("x-telegram-id") telegramIdHeader: string | undefined,
     @Param("id") id: string,
-    @Body() body: unknown
+    @Body() body: unknown,
+    @Headers("x-client-telegram-id") clientTelegramIdHeader?: string
   ): Promise<IndividualRequestResult> {
-    const actorTelegramId = parseTelegramId(telegramIdHeader);
+    const actorTelegramId = parseTelegramId(clientTelegramIdHeader ?? telegramIdHeader);
     const trainerId = validate(uuid, id);
     const input = validate(individualRequestSchema, body ?? {});
     if (input.telegramId !== actorTelegramId) {
@@ -76,7 +81,13 @@ export class TrainersController {
   }
 }
 
-/** Resolve the caller's numeric Telegram id from the x-telegram-id header. */
+/**
+ * Resolve the caller's numeric Telegram id. Admin endpoints pass the
+ * x-telegram-id header (bot raw / admin-session bridge); the client/self
+ * individual-request endpoint passes `x-client-telegram-id ?? x-telegram-id` so
+ * a Mini App client session (bridged to x-client-telegram-id only) and the bot
+ * both resolve their actor.
+ */
 function parseTelegramId(header: string | undefined): number {
   const value = Number(header);
   if (!header || !Number.isInteger(value)) {

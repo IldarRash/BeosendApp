@@ -25,17 +25,49 @@ function run(req: Req): void {
 }
 
 describe("SessionBridgeMiddleware", () => {
-  it("bridges a valid Bearer session into x-telegram-id (= sub)", () => {
-    const token = signSessionToken({ sub: ADMIN_ID, name: "Ada" }, SESSION_SECRET);
+  it("bridges an admin Bearer session into x-telegram-id (= sub), not the client header", () => {
+    const token = signSessionToken({ sub: ADMIN_ID, name: "Ada", scope: "admin" }, SESSION_SECRET);
     const req: Req = { headers: { authorization: `Bearer ${token}` } };
 
     run(req);
 
     expect(req.headers["x-telegram-id"]).toBe(String(ADMIN_ID));
+    expect(req.headers["x-client-telegram-id"]).toBeUndefined();
+  });
+
+  it("bridges a client-scope Mini App token to x-client-telegram-id ONLY, never x-telegram-id", () => {
+    const token = signSessionToken({ sub: 1234, name: "Bea", scope: "client" }, SESSION_SECRET);
+    const req: Req = { headers: { authorization: `Bearer ${token}` } };
+
+    run(req);
+
+    expect(req.headers["x-client-telegram-id"]).toBe("1234");
+    expect(req.headers["x-telegram-id"]).toBeUndefined();
+  });
+
+  it("strips a forged x-telegram-id riding alongside a client token (no admin escalation)", () => {
+    const token = signSessionToken({ sub: 1234, name: "Bea", scope: "client" }, SESSION_SECRET);
+    const req: Req = {
+      headers: { authorization: `Bearer ${token}`, "x-telegram-id": String(ADMIN_ID) }
+    };
+
+    run(req);
+
+    expect(req.headers["x-telegram-id"]).toBeUndefined();
+    expect(req.headers["x-client-telegram-id"]).toBe("1234");
+  });
+
+  it("strips an inbound x-client-telegram-id when there is no valid client token", () => {
+    const req: Req = { headers: { "x-client-telegram-id": "1234", "x-telegram-id": "7777" } };
+
+    run(req);
+
+    expect(req.headers["x-client-telegram-id"]).toBeUndefined();
+    expect(req.headers["x-telegram-id"]).toBe("7777");
   });
 
   it("overrides any raw x-telegram-id sent alongside a valid Bearer with the verified sub", () => {
-    const token = signSessionToken({ sub: ADMIN_ID, name: "Ada" }, SESSION_SECRET);
+    const token = signSessionToken({ sub: ADMIN_ID, name: "Ada", scope: "admin" }, SESSION_SECRET);
     const req: Req = {
       headers: { authorization: `Bearer ${token}`, "x-telegram-id": "9999" }
     };
@@ -62,7 +94,7 @@ describe("SessionBridgeMiddleware", () => {
   });
 
   it("does not bridge an invalid/tampered Bearer token, and never throws", () => {
-    const token = signSessionToken({ sub: ADMIN_ID, name: "Ada" }, SESSION_SECRET);
+    const token = signSessionToken({ sub: ADMIN_ID, name: "Ada", scope: "admin" }, SESSION_SECRET);
     const req: Req = { headers: { authorization: `Bearer ${token}tampered` } };
 
     expect(() => run(req)).not.toThrow();
@@ -70,7 +102,7 @@ describe("SessionBridgeMiddleware", () => {
   });
 
   it("does not bridge a token signed with the wrong secret", () => {
-    const token = signSessionToken({ sub: ADMIN_ID, name: "Ada" }, "wrong-secret-also-16-chars");
+    const token = signSessionToken({ sub: ADMIN_ID, name: "Ada", scope: "admin" }, "wrong-secret-also-16-chars");
     const req: Req = { headers: { authorization: `Bearer ${token}` } };
 
     run(req);
@@ -80,7 +112,7 @@ describe("SessionBridgeMiddleware", () => {
 
   it("ignores an expired session token", () => {
     const longAgo = Math.floor(Date.now() / 1000) - 100 * 60 * 60;
-    const token = signSessionToken({ sub: ADMIN_ID, name: "Ada" }, SESSION_SECRET, longAgo);
+    const token = signSessionToken({ sub: ADMIN_ID, name: "Ada", scope: "admin" }, SESSION_SECRET, longAgo);
     const req: Req = { headers: { authorization: `Bearer ${token}` } };
 
     run(req);

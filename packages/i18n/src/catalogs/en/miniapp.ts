@@ -1,0 +1,242 @@
+/**
+ * EN miniapp-namespace strings. Mirrors the RU key set exactly (enforced by
+ * catalog-parity.spec); any not-yet-translated key may carry the RU value until
+ * the translation phase.
+ */
+export const miniappEn: Record<string, string> = {
+  // --- Onboarding wizard ---
+  "miniapp.onboarding.step": "Step {n} of 3",
+  "miniapp.onboarding.nameHeader": "What is your name?",
+  "miniapp.onboarding.nameHint": "Your trainer will see you under this name.",
+  "miniapp.onboarding.namePlaceholder": "Your name",
+  "miniapp.onboarding.langHeader": "Language",
+  "miniapp.onboarding.levelHeader": "Your level",
+  "miniapp.onboarding.levelFooter": "You can choose later",
+  "miniapp.onboarding.levelSkip": "Not sure yet",
+
+  // --- Primary actions ---
+  "miniapp.action.continue": "Continue",
+  "miniapp.action.done": "Done",
+
+  // --- Home menu & navigation shell (S2) ---
+  "miniapp.home.title": "BeoSand",
+  "miniapp.home.subtitle": "Beach volleyball school · Belgrade",
+  "miniapp.home.sectionTrainings": "Trainings",
+  "miniapp.home.sectionCourts": "Courts",
+  "miniapp.home.sectionAccount": "Account",
+  "miniapp.home.browse": "Schedule",
+  "miniapp.home.browseHint": "Pick a session and book",
+  "miniapp.home.myBookings": "My bookings",
+  "miniapp.home.myBookingsHint": "Upcoming and past",
+  "miniapp.home.group": "Subscription (group)",
+  "miniapp.home.groupHint": "Monthly group subscription",
+  "miniapp.home.individual": "Individual training",
+  "miniapp.home.individualHint": "One-on-one request to a trainer",
+  "miniapp.home.court": "Court rental",
+  "miniapp.home.courtHint": "Request a free court",
+  "miniapp.home.profile": "Profile & language",
+  "miniapp.home.profileHint": "Your details and interface language",
+  "miniapp.home.placeholderTitle": "Coming soon",
+  "miniapp.home.placeholderBody": "This section is arriving in an upcoming update.",
+
+  // --- Profile ---
+  "miniapp.profile.title": "Profile",
+  "miniapp.profile.settings": "Settings",
+  "miniapp.profile.level": "Level",
+  "miniapp.profile.levelNone": "Not set",
+  "miniapp.profile.language": "Interface language",
+
+  // --- Common states ---
+  "miniapp.common.loading": "Loading…",
+  "miniapp.common.error": "Something went wrong",
+  "miniapp.common.errorBody": "The request could not be completed. Please try again.",
+  "miniapp.common.notTelegram": "Open this app from Telegram to continue.",
+  "miniapp.common.authPending": "Authorizing…",
+  "miniapp.common.authError": "Could not authorize",
+
+  // --- Weekday names (1 = Mon … 7 = Sun) ---
+  "miniapp.weekday.short.1": "Mon",
+  "miniapp.weekday.short.2": "Tue",
+  "miniapp.weekday.short.3": "Wed",
+  "miniapp.weekday.short.4": "Thu",
+  "miniapp.weekday.short.5": "Fri",
+  "miniapp.weekday.short.6": "Sat",
+  "miniapp.weekday.short.7": "Sun",
+  "miniapp.weekday.full.1": "Monday",
+  "miniapp.weekday.full.2": "Tuesday",
+  "miniapp.weekday.full.3": "Wednesday",
+  "miniapp.weekday.full.4": "Thursday",
+  "miniapp.weekday.full.5": "Friday",
+  "miniapp.weekday.full.6": "Saturday",
+  "miniapp.weekday.full.7": "Sunday",
+
+  // --- Time-of-day bands ---
+  "miniapp.timeOfDay.morning": "Morning",
+  "miniapp.timeOfDay.afternoon": "Afternoon",
+  "miniapp.timeOfDay.evening": "Evening",
+
+  // --- Browse slots (S3) ---
+  "miniapp.browse.title": "Schedule",
+  "miniapp.browse.today": "Today",
+  "miniapp.browse.filtersAria": "Schedule filters",
+  "miniapp.browse.seats": "{count} seats",
+  "miniapp.browse.seatsNone": "No seats",
+  "miniapp.browse.price": "{price} RSD",
+  "miniapp.browse.bookAria": "Book",
+  "miniapp.browse.waitlist": "Waitlist",
+  "miniapp.browse.waitlistAria": "Join the waitlist",
+  "miniapp.browse.emptyTitle": "No matching sessions",
+  "miniapp.browse.emptyBody": "Adjust the filters or check back later.",
+  "miniapp.browse.errorBody": "Could not load the schedule. Please try again.",
+
+  // --- Browse filter sheet ---
+  "miniapp.browse.filter.title": "Filters",
+  "miniapp.browse.filter.any": "Any",
+  "miniapp.browse.filter.weekday": "Weekday",
+  "miniapp.browse.filter.timeOfDay": "Time of day",
+  "miniapp.browse.filter.trainer": "Trainer",
+  "miniapp.browse.filter.level": "Level",
+  "miniapp.browse.filter.apply": "Apply",
+  "miniapp.browse.filter.reset": "Reset",
+
+  // --- Single booking confirm (S4) ---
+  "miniapp.booking.confirm": "Book",
+  "miniapp.booking.confirmHeader": "Confirm booking",
+  "miniapp.booking.dateLabel": "Date",
+  "miniapp.booking.timeLabel": "Time",
+  "miniapp.booking.trainerLabel": "Trainer",
+  "miniapp.booking.levelLabel": "Level",
+  "miniapp.booking.seatsLabel": "Free seats",
+  "miniapp.booking.priceLabel": "Price",
+  "miniapp.booking.successTitle": "You are booked!",
+  "miniapp.booking.backToList": "Back to schedule",
+  "miniapp.booking.conflict": "This seat was just taken. Please choose another session.",
+
+  // --- Waitlist (S6): join + accept ---
+  "miniapp.waitlist.joinConfirm": "Join the waitlist",
+  "miniapp.waitlist.joinConfirmHeader": "Waitlist",
+  "miniapp.waitlist.joinConfirmBody":
+    "This seat is taken. Join the waitlist — we'll notify you as soon as a seat opens up.",
+  "miniapp.waitlist.joinOfferTitle": "The seat was just taken",
+  "miniapp.waitlist.joinedTitle": "You're on the waitlist",
+  "miniapp.waitlist.joinedBody": "We'll notify you when a seat opens up.",
+  "miniapp.waitlist.positionLabel": "Your position: {position}",
+  "miniapp.waitlist.joinConflict":
+    "Could not join the waitlist. You may already be on it, or the seat is available again.",
+  "miniapp.waitlist.acceptHeader": "A seat opened up",
+  "miniapp.waitlist.acceptBody": "Confirm your booking while the seat is free.",
+  "miniapp.waitlist.accept": "Confirm",
+  "miniapp.waitlist.acceptedTitle": "You're booked!",
+  "miniapp.waitlist.acceptedBody": "The seat is yours. Details are in “My bookings”.",
+  "miniapp.waitlist.expiredTitle": "The confirmation window closed",
+  "miniapp.waitlist.expiredBody": "The seat is already taken or the time to confirm ran out.",
+  "miniapp.waitlist.toSchedule": "Back to schedule",
+  "miniapp.waitlist.toMyBookings": "My bookings",
+  "miniapp.waitlist.toHome": "Home",
+
+  // --- My bookings + cancel (S5) ---
+  "miniapp.myBookings.title": "My bookings",
+  "miniapp.myBookings.tabUpcoming": "Upcoming",
+  "miniapp.myBookings.tabPast": "Past",
+  "miniapp.myBookings.tabsAria": "Upcoming and past bookings",
+  "miniapp.myBookings.emptyUpcomingTitle": "No upcoming bookings",
+  "miniapp.myBookings.emptyUpcomingBody": "Pick a training in the schedule and book it.",
+  "miniapp.myBookings.emptyPastTitle": "No past bookings",
+  "miniapp.myBookings.emptyPastBody": "Your finished trainings will appear here.",
+  "miniapp.myBookings.toBrowse": "Back to schedule",
+  "miniapp.myBookings.status.booked": "Booked",
+  "miniapp.myBookings.status.attended": "Attended",
+  "miniapp.myBookings.status.noShow": "Missed",
+  "miniapp.myBookings.status.cancelled": "Cancelled",
+  "miniapp.myBookings.cancel": "Cancel",
+  "miniapp.myBookings.cancelAria": "Cancel booking",
+  "miniapp.myBookings.cancelConfirmTitle": "Cancel this booking?",
+  "miniapp.myBookings.cancelConfirmBody":
+    "Your booking for this training will be cancelled. This action cannot be undone.",
+  "miniapp.myBookings.cancelConfirm": "Cancel booking",
+  "miniapp.myBookings.cancelKeep": "Keep",
+  "miniapp.myBookings.cancelledTitle": "Booking cancelled",
+  "miniapp.myBookings.cancelledBody": "The seat is free for others again.",
+  "miniapp.myBookings.cancelConflict":
+    "Couldn't cancel the booking. It may already be cancelled or no longer cancellable.",
+  "miniapp.myBookings.errorBody": "Couldn't load your bookings. Please try again.",
+
+  // --- Group monthly subscription (S7) ---
+  "miniapp.group.listTitle": "Groups",
+  "miniapp.group.none": "No groups available",
+  "miniapp.group.noneBody": "There are no groups to join yet. Check back later.",
+  "miniapp.group.monthSubscription": "{price} RSD / month",
+  "miniapp.group.openAria": "Open group",
+  "miniapp.group.daysLabel": "Days",
+  "miniapp.group.priceLabel": "Price",
+  "miniapp.group.pickMonth": "Choose a month",
+  "miniapp.group.confirm": "Subscribe for a month",
+  "miniapp.group.back": "Back",
+  "miniapp.group.groupLabel": "Group",
+  "miniapp.group.monthLabel": "Month",
+  "miniapp.group.confirmBody":
+    "Subscription to group “{name}” for {month}. You'll be charged {price} RSD for the month.",
+  "miniapp.group.resultTitle": "Done!",
+  "miniapp.group.createdCount": "You're booked for {count} trainings",
+  "miniapp.group.skippedHeader": "Skipped dates (no seats)",
+  "miniapp.group.toMyBookings": "My bookings",
+  "miniapp.group.toHome": "Home",
+  "miniapp.group.conflict":
+    "Couldn't create the subscription. The group may be unavailable or the month closed.",
+
+  // --- Individual training request (S8) ---
+  "miniapp.individual.listTitle": "Choose a trainer",
+  "miniapp.individual.none": "No trainers available",
+  "miniapp.individual.noneBody": "There's no one to choose yet. Check back later.",
+  "miniapp.individual.typeMain": "Main trainer",
+  "miniapp.individual.typeGuest": "Guest trainer",
+  "miniapp.individual.typeLabel": "Trainer",
+  "miniapp.individual.openAria": "Request a training",
+  "miniapp.individual.confirmTitle": "Individual training",
+  "miniapp.individual.confirmBody":
+    "We'll send trainer “{name}” a request for an individual training. The trainer will contact you to agree on a time.",
+  "miniapp.individual.request": "Request a training",
+  "miniapp.individual.sentTitle": "Request sent",
+  "miniapp.individual.sentBody": "The trainer received your request and will get in touch.",
+  "miniapp.individual.toHome": "Home",
+  "miniapp.individual.unavailableTitle": "The trainer is unavailable right now",
+  "miniapp.individual.unavailableBody":
+    "We couldn't reach them for now. Try choosing another trainer.",
+  "miniapp.individual.pickAnother": "Choose another",
+
+  // --- Court rental request (S9) ---
+  "miniapp.court.pickDate": "Pick a date",
+  "miniapp.court.pickTime": "Pick a time",
+  "miniapp.court.freeCount": "{count} free",
+  "miniapp.court.noTimesTitle": "No times available",
+  "miniapp.court.noTimesBody": "No free courts for this day. Pick another date.",
+  "miniapp.court.pickDuration": "Duration",
+  "miniapp.court.duration1": "1 hour",
+  "miniapp.court.duration1_5": "1.5 hours",
+  "miniapp.court.duration2": "2 hours",
+  "miniapp.court.durationLabel": "Duration",
+  "miniapp.court.previewTitle": "Confirm request",
+  "miniapp.court.previewBody": "We'll assign a free court and let you know.",
+  "miniapp.court.submit": "Send request",
+  "miniapp.court.sentTitle": "Request sent",
+  "miniapp.court.sentBody": "We'll assign a court and let you know.",
+  "miniapp.court.toHome": "Home",
+  "miniapp.court.unavailableTitle": "This time was taken",
+  "miniapp.court.unavailableBody": "This time was just taken. Pick another.",
+  "miniapp.court.pickAnotherTime": "Pick another time",
+  "miniapp.court.conflict": "Couldn't send the request. This time may already be taken.",
+
+  // --- Month names (1 = January … 12 = December) ---
+  "miniapp.month.1": "January",
+  "miniapp.month.2": "February",
+  "miniapp.month.3": "March",
+  "miniapp.month.4": "April",
+  "miniapp.month.5": "May",
+  "miniapp.month.6": "June",
+  "miniapp.month.7": "July",
+  "miniapp.month.8": "August",
+  "miniapp.month.9": "September",
+  "miniapp.month.10": "October",
+  "miniapp.month.11": "November",
+  "miniapp.month.12": "December"
+};

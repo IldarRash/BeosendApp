@@ -30,9 +30,10 @@ export class BookingsController {
   @Post("single")
   createSingle(
     @Headers("x-telegram-id") telegramIdHeader: string | undefined,
-    @Body() body: unknown
+    @Body() body: unknown,
+    @Headers("x-client-telegram-id") clientTelegramIdHeader?: string
   ): Promise<Booking> {
-    const actorTelegramId = parseTelegramId(telegramIdHeader);
+    const actorTelegramId = parseTelegramId(clientTelegramIdHeader ?? telegramIdHeader);
     const input = validate(createSingleBookingSchema, body ?? {});
     return this.bookings.createSingle(actorTelegramId, input);
   }
@@ -56,9 +57,10 @@ export class BookingsController {
   @Post("group")
   createGroup(
     @Headers("x-telegram-id") telegramIdHeader: string | undefined,
-    @Body() body: unknown
+    @Body() body: unknown,
+    @Headers("x-client-telegram-id") clientTelegramIdHeader?: string
   ): Promise<GroupBookingResult> {
-    const actorTelegramId = parseTelegramId(telegramIdHeader);
+    const actorTelegramId = parseTelegramId(clientTelegramIdHeader ?? telegramIdHeader);
     const input = validate(createGroupBookingSchema, body ?? {});
     return this.bookings.createGroupBooking(actorTelegramId, input);
   }
@@ -67,9 +69,10 @@ export class BookingsController {
   @Get("mine")
   listMine(
     @Headers("x-telegram-id") telegramIdHeader: string | undefined,
-    @Query() query: unknown
+    @Query() query: unknown,
+    @Headers("x-client-telegram-id") clientTelegramIdHeader?: string
   ): Promise<MyBookingItem[]> {
-    const actorTelegramId = parseTelegramId(telegramIdHeader);
+    const actorTelegramId = parseTelegramId(clientTelegramIdHeader ?? telegramIdHeader);
     const { clientId, scope } = validate(myBookingsQuerySchema, query ?? {});
     return this.bookings.listMine(actorTelegramId, clientId, scope);
   }
@@ -78,9 +81,10 @@ export class BookingsController {
   @Post(":id/cancel")
   cancel(
     @Headers("x-telegram-id") telegramIdHeader: string | undefined,
-    @Param("id") id: string
+    @Param("id") id: string,
+    @Headers("x-client-telegram-id") clientTelegramIdHeader?: string
   ): Promise<Booking> {
-    const actorTelegramId = parseTelegramId(telegramIdHeader);
+    const actorTelegramId = parseTelegramId(clientTelegramIdHeader ?? telegramIdHeader);
     const bookingId = validate(uuid, id);
     return this.bookings.cancelBooking(actorTelegramId, bookingId);
   }
@@ -99,7 +103,12 @@ export class BookingsController {
   }
 }
 
-/** Resolve the caller's numeric Telegram id from the x-telegram-id header. */
+/**
+ * Resolve the caller's numeric Telegram id. Admin/trainer endpoints pass the
+ * x-telegram-id header (bot raw / admin-session bridge); client/self endpoints
+ * pass `x-client-telegram-id ?? x-telegram-id` so a Mini App client session
+ * (bridged to x-client-telegram-id only) and the bot both resolve their actor.
+ */
 function parseTelegramId(header: string | undefined): number {
   const value = Number(header);
   if (!header || !Number.isInteger(value)) {

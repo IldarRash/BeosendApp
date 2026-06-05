@@ -56,9 +56,10 @@ const client: Client = {
   status: "active"
 };
 
-function makeClients(): ClientsRepository {
+function makeClients(overrides: Partial<ClientsRepository> = {}): ClientsRepository {
   return {
-    findByTelegramId: vi.fn(async () => client)
+    findByTelegramId: vi.fn(async () => client),
+    ...overrides
   } as unknown as ClientsRepository;
 }
 
@@ -173,7 +174,7 @@ describe("TrainersController", () => {
       ).toThrow(BadRequestException);
     });
 
-    it("on a self request delivers and returns the typed result", async () => {
+    it("on a self request via the bot header (x-telegram-id + matching body) delivers", async () => {
       const reachable: Trainer = { ...milena, telegramId: 555 };
       repo = makeRepo({ findById: vi.fn(async () => reachable) });
       notifications = makeNotifications();
@@ -184,6 +185,60 @@ describe("TrainersController", () => {
         controller.requestIndividual(String(777), TRAINER_ID, { telegramId: 777 })
       ).resolves.toEqual({ delivered: true });
       expect(notifications.requestIndividualSession).toHaveBeenCalledOnce();
+    });
+
+    it("resolves the actor from x-client-telegram-id when no x-telegram-id is sent (Mini App)", async () => {
+      const reachable: Trainer = { ...milena, telegramId: 555 };
+      repo = makeRepo({ findById: vi.fn(async () => reachable) });
+      notifications = makeNotifications();
+      controller = new TrainersController(
+        new TrainersService(repo, makeClients(), notifications, env)
+      );
+      await expect(
+        controller.requestIndividual(undefined, TRAINER_ID, { telegramId: 777 }, String(777))
+      ).resolves.toEqual({ delivered: true });
+      expect(notifications.requestIndividualSession).toHaveBeenCalledOnce();
+    });
+
+    it("prefers x-client-telegram-id over x-telegram-id for the actor", async () => {
+      const reachable: Trainer = { ...milena, telegramId: 555 };
+      repo = makeRepo({ findById: vi.fn(async () => reachable) });
+      notifications = makeNotifications();
+      controller = new TrainersController(
+        new TrainersService(repo, makeClients(), notifications, env)
+      );
+      // body must match the client-header actor (777), not the raw header (888).
+      await expect(
+        controller.requestIndividual(String(888), TRAINER_ID, { telegramId: 777 }, String(777))
+      ).resolves.toEqual({ delivered: true });
+      expect(notifications.requestIndividualSession).toHaveBeenCalledOnce();
+    });
+
+    it("rejects a foreign body id against the client-header actor with ForbiddenException and no send", () => {
+      expect(() =>
+        controller.requestIndividual(undefined, TRAINER_ID, { telegramId: 888 }, String(777))
+      ).toThrow(ForbiddenException);
+      expect(notifications.requestIndividualSession).not.toHaveBeenCalled();
+    });
+
+    // The two-header split is load-bearing: the requester the service looks up must
+    // be the actor resolved from the verified session (the client header), NOT the
+    // raw x-telegram-id. A regression that passed the wrong header through would
+    // still pass the outcome-only tests above, so assert the resolved id explicitly.
+    it("derives the requesting client from the resolved actor (client header), not the raw x-telegram-id", async () => {
+      const reachable: Trainer = { ...milena, telegramId: 555 };
+      const clients = makeClients();
+      repo = makeRepo({ findById: vi.fn(async () => reachable) });
+      notifications = makeNotifications();
+      controller = new TrainersController(new TrainersService(repo, clients, notifications, env));
+
+      await expect(
+        controller.requestIndividual(String(888), TRAINER_ID, { telegramId: 777 }, String(777))
+      ).resolves.toEqual({ delivered: true });
+      // The actor (777, from x-client-telegram-id) is the id the requester is looked
+      // up by — never the bot/raw header (888).
+      expect(clients.findByTelegramId).toHaveBeenCalledWith(777);
+      expect(clients.findByTelegramId).not.toHaveBeenCalledWith(888);
     });
   });
 });

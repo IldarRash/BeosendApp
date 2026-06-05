@@ -17,9 +17,10 @@ export class WaitlistController {
   @Post()
   join(
     @Headers("x-telegram-id") telegramIdHeader: string | undefined,
-    @Body() body: unknown
+    @Body() body: unknown,
+    @Headers("x-client-telegram-id") clientTelegramIdHeader?: string
   ): Promise<WaitlistEntry> {
-    const actorTelegramId = parseTelegramId(telegramIdHeader);
+    const actorTelegramId = parseTelegramId(clientTelegramIdHeader ?? telegramIdHeader);
     const input = validate(createWaitlistEntrySchema, body ?? {});
     return this.waitlist.join(actorTelegramId, input);
   }
@@ -28,15 +29,20 @@ export class WaitlistController {
   @Post(":id/accept")
   accept(
     @Headers("x-telegram-id") telegramIdHeader: string | undefined,
-    @Param("id") id: string
+    @Param("id") id: string,
+    @Headers("x-client-telegram-id") clientTelegramIdHeader?: string
   ): Promise<Booking> {
-    const actorTelegramId = parseTelegramId(telegramIdHeader);
+    const actorTelegramId = parseTelegramId(clientTelegramIdHeader ?? telegramIdHeader);
     const entryId = validate(uuid, id);
     return this.waitlist.accept(actorTelegramId, entryId);
   }
 }
 
-/** Resolve the caller's numeric Telegram id from the x-telegram-id header. */
+/**
+ * Resolve the caller's numeric Telegram id. Client/self endpoints pass
+ * `x-client-telegram-id ?? x-telegram-id` so a Mini App client session (bridged
+ * to x-client-telegram-id only) and the bot's raw header both resolve their actor.
+ */
 function parseTelegramId(header: string | undefined): number {
   const value = Number(header);
   if (!header || !Number.isInteger(value)) {

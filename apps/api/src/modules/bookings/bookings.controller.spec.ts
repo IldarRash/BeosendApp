@@ -80,6 +80,14 @@ describe("BookingsController.listMine (GET /bookings/mine)", () => {
     expect(service.listMine).toHaveBeenCalledWith(OWNER_ID, CLIENT_ID, "past");
   });
 
+  // A Mini App client session is bridged to x-client-telegram-id only (the
+  // bridge deletes x-telegram-id for a client token), so the actor must resolve
+  // from the client header — the path the prior escalation finding centered on.
+  it("resolves the actor from x-client-telegram-id when x-telegram-id is absent", async () => {
+    await controller.listMine(undefined, { clientId: CLIENT_ID, scope: "upcoming" }, HEADER);
+    expect(service.listMine).toHaveBeenCalledWith(OWNER_ID, CLIENT_ID, "upcoming");
+  });
+
   // Unsafe/forbidden path: a non-admin caller asking for another client's uuid.
   // The service rejects with a ForbiddenException (403); the controller must
   // surface it and leak no item data.
