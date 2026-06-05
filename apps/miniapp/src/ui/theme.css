@@ -139,6 +139,106 @@ body {
   position: relative;
 }
 
+/* =========================================================
+ * Telegram chrome (header / scroll body / MainButton)
+ * The real app uses NATIVE Telegram buttons; these classes
+ * are kept as fallbacks and to match the handoff prototype.
+ * ========================================================= */
+.tg-head {
+  flex: none;
+  padding: 54px 12px 9px;
+  background: var(--tg-bg);
+  border-bottom: 0.5px solid var(--tg-sep);
+  display: grid;
+  grid-template-columns: 64px 1fr 64px;
+  align-items: center;
+  position: relative;
+  z-index: 12;
+}
+
+.tg-head__title { text-align: center; font-size: 17px; font-weight: 600; letter-spacing: -0.4px; }
+.tg-head__sub { text-align: center; font-size: 12px; color: var(--tg-hint); margin-top: 1px; }
+
+.tg-back,
+.tg-close {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  border: none;
+  background: none;
+  font-family: var(--ff);
+  font-size: 17px;
+  color: var(--co);
+  cursor: pointer;
+  padding: 4px 2px;
+}
+
+.tg-back svg { width: 12px; height: 20px; }
+
+.tg-close {
+  justify-self: end;
+  color: var(--tg-hint);
+  width: 30px;
+  height: 30px;
+  border-radius: 50%;
+  justify-content: center;
+  background: rgba(120, 120, 128, 0.12);
+}
+
+/* scroll body */
+.tg-body { flex: 1; overflow-y: auto; -webkit-overflow-scrolling: touch; }
+.tg-body::-webkit-scrollbar { display: none; }
+.tg-pad { padding: 16px; }
+.tg-pad--mb { padding-bottom: 96px; }
+
+/* MainButton (Telegram) */
+.tg-mainbtn-wrap {
+  flex: none;
+  padding: 8px 12px 30px;
+  background: var(--tg-bg);
+  border-top: 0.5px solid var(--tg-sep);
+  position: relative;
+  z-index: 12;
+}
+
+.tg-mainbtn {
+  width: 100%;
+  height: 50px;
+  border: none;
+  border-radius: 12px;
+  cursor: pointer;
+  background: var(--co);
+  color: #fff;
+  font-family: var(--ff);
+  font-size: 17px;
+  font-weight: 600;
+  letter-spacing: -0.2px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  transition: background .12s, opacity .12s;
+  box-shadow: 0 4px 14px rgba(225, 91, 67, 0.3);
+}
+
+.tg-mainbtn:active { background: var(--co-ink); }
+.tg-mainbtn:disabled { background: #c8c8cd; color: #fff; box-shadow: none; cursor: not-allowed; }
+.tg-mainbtn--ghost { background: transparent; color: var(--co); box-shadow: none; }
+
+/* secondary / fallback buttons */
+.tg-sbtn {
+  width: 100%;
+  height: 46px;
+  border-radius: 12px;
+  border: none;
+  cursor: pointer;
+  background: var(--co-soft);
+  color: var(--co-ink);
+  font-family: var(--ff);
+  font-size: 16px;
+  font-weight: 600;
+}
+
 .screen {
   padding: var(--beosand-screen-pad);
   display: flex;
@@ -213,6 +313,37 @@ body {
 .lrow__sub { font-size: 13px; color: var(--tg-hint); margin-top: 1px; }
 .lrow__chev { color: var(--tg-sep); }
 .lrow__chev svg { width: 8px; height: 14px; display: block; }
+
+/* Card rows rendered as <button> need their native chrome reset so they read
+ * as full-width tappable cards (not inline-block bordered buttons). .lrow keeps
+ * its own display:flex; .slot is block. */
+button.slot,
+button.lrow {
+  width: 100%;
+  margin: 0;
+  text-align: left;
+  border: none;
+  font-family: var(--ff);
+  color: inherit;
+  background: var(--tg-bg);
+  appearance: none;
+  -webkit-appearance: none;
+}
+button.slot { display: block; }
+
+/* Onboarding name field — native text input inside a .card */
+.tg-input {
+  width: 100%;
+  border: none;
+  background: transparent;
+  font-family: var(--ff);
+  font-size: 16px;
+  color: var(--tg-text);
+  padding: 14px 16px;
+  outline: none;
+}
+.tg-input::placeholder { color: var(--tg-hint); }
+.tg-input:focus-visible { outline: 2px solid var(--co); outline-offset: -2px; border-radius: var(--r-lg); }
 
 /* =========================================================
  * Slot card — .slot structure
@@ -647,15 +778,6 @@ body {
 .note svg { width: 15px; height: 15px; flex: none; margin-top: 1px; color: var(--co); }
 
 /* =========================================================
- * Onboarding wizard progress
- * ========================================================= */
-.wizard-progress {
-  display: flex;
-  flex-direction: column;
-  gap: var(--beosand-gap-xs);
-}
-
-/* =========================================================
  * Pick-row (language / level pickers in onboarding)
  * Kept for backward compat — OptionList now uses .optrow
  * ========================================================= */
@@ -805,15 +927,6 @@ body {
   background: rgba(127, 127, 127, 0.1);
 }
 
-.slot-card__waitlist-pill {
-  display: inline-flex;
-  align-items: center;
-  gap: 5px;
-  font-size: 13px;
-  font-weight: 600;
-  color: var(--co-ink);
-}
-
 /* =========================================================
  * Filter sheet
  * ========================================================= */
@@ -942,25 +1055,6 @@ body {
   color: var(--tg-hint);
 }
 
-.booking-cancel {
-  appearance: none;
-  border: 0;
-  background: transparent;
-  padding: 6px 8px;
-  margin: -6px -2px -6px 0;
-  border-radius: 8px;
-  font: inherit;
-  font-size: 14px;
-  font-weight: 600;
-  line-height: 1;
-  cursor: pointer;
-  color: var(--tgui--destructive_text_color, #e53935);
-}
-
-.booking-cancel:focus-visible {
-  outline: 2px solid var(--tgui--destructive_text_color, #e53935);
-  outline-offset: 1px;
-}
 
 .cancel-sheet { padding-bottom: var(--beosand-gap-sm); }
 

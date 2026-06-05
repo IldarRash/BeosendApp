@@ -43,14 +43,15 @@ interface BookingItemCardProps {
 }
 
 /**
- * One booking row in the My-bookings list. Uses the handoff `.lrow` / `.card` +
- * `.schip--*` classes. Displays ONLY values the API decided — weekday + date,
- * time range, trainer, level, and the booking status/outcome — with no date or
- * status math here.
+ * One booking row in the My-bookings list. Uses the handoff `.lrow` /
+ * `.lrow__main` / `.lrow__title` / `.lrow__sub` + `.schip--*` structure.
+ * Displays ONLY values the API decided — weekday + date, time range, trainer,
+ * level, and the booking status/outcome — with no date or status math here.
  *
  * The status chip pairs a glyph with text and a calm tone so the state is never
- * color-only. The destructive Cancel control appears only when the server's
- * `canCancel` flag is set; tapping it opens the confirm sheet.
+ * color-only. When the server's `canCancel` flag is set the whole row becomes a
+ * button that opens the cancel-confirm sheet, with a trailing `.lrow__chev`
+ * affordance; otherwise it is a plain, non-interactive row (no chevron).
  */
 export function BookingItemCard({ item, onCancel }: BookingItemCardProps): JSX.Element {
   const t = useT();
@@ -61,35 +62,58 @@ export function BookingItemCard({ item, onCancel }: BookingItemCardProps): JSX.E
   const timeRange = formatTimeRange(item.startTime, item.endTime);
   const statusLabel = t(style.labelKey);
 
-  return (
-    <div
-      className="lrow"
-      aria-label={`${weekday}, ${dayMonth} · ${timeRange}. ${item.trainerName} · ${item.levelName}. ${statusLabel}`}
-    >
-      <div className="lrow__main">
-        <div className="lrow__title">
-          {weekday}, {dayMonth} · {timeRange}
-        </div>
-        <div className="lrow__sub">{item.trainerName} · {item.levelName}</div>
-        <div style={{ marginTop: 6 }}>
-          <span className={`schip schip--${style.variant}`}>
-            <span className="dot" aria-hidden="true" />
-            <Glyph name={style.glyph} />
-            {statusLabel}
-          </span>
-        </div>
-      </div>
+  const rowLabel = `${weekday}, ${dayMonth} · ${timeRange}. ${item.trainerName} · ${item.levelName}. ${statusLabel}`;
 
-      {item.canCancel && (
-        <button
-          type="button"
-          className="booking-cancel"
-          aria-label={t("miniapp.myBookings.cancelAria")}
-          onClick={() => onCancel(item)}
-        >
-          {t("miniapp.myBookings.cancel")}
-        </button>
-      )}
+  const main = (
+    <div className="lrow__main">
+      <div className="lrow__title">
+        {weekday}, {dayMonth} · {timeRange}
+      </div>
+      <div className="lrow__sub">{item.trainerName} · {item.levelName}</div>
+      <div style={{ marginTop: 6 }}>
+        <span className={`schip schip--${style.variant}`}>
+          <span className="dot" aria-hidden="true" />
+          <Glyph name={style.glyph} />
+          {statusLabel}
+        </span>
+      </div>
     </div>
+  );
+
+  if (item.canCancel) {
+    return (
+      <button
+        type="button"
+        className="lrow"
+        aria-label={`${rowLabel}. ${t("miniapp.myBookings.cancelAria")}`}
+        onClick={() => onCancel(item)}
+      >
+        {main}
+        <span className="lrow__chev" aria-hidden="true">
+          <Chevron />
+        </span>
+      </button>
+    );
+  }
+
+  return (
+    <div className="lrow" aria-label={rowLabel}>
+      {main}
+    </div>
+  );
+}
+
+/** Trailing disclosure chevron for the `.lrow__chev` slot. */
+function Chevron(): JSX.Element {
+  return (
+    <svg viewBox="0 0 8 14" fill="none" aria-hidden="true" focusable="false">
+      <path
+        d="M1 1l6 6-6 6"
+        stroke="currentColor"
+        strokeWidth={1.8}
+        strokeLinecap="round"
+        strokeLinejoin="round"
+      />
+    </svg>
   );
 }

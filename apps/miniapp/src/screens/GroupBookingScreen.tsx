@@ -1,5 +1,5 @@
 import { useMemo, useState } from "react";
-import { Cell, List, Placeholder, Section } from "@telegram-apps/telegram-ui";
+import { Placeholder } from "@telegram-apps/telegram-ui";
 import type { Group, GroupBookingResult } from "@beosand/types";
 import { resolveErrorMessage } from "../api/errors";
 import { useCreateGroupBooking, useGroups, useLevels } from "../api/hooks";
@@ -105,23 +105,22 @@ function GroupList({
 
   return (
     <div className="screen">
-      <List>
-        <Section header={t("miniapp.group.listTitle")}>
-          {active.map((group) => (
-            <GroupCard
-              key={group.id}
-              group={group}
-              levelName={levelName(group.levelId)}
-              onPick={() => onPick(group)}
-            />
-          ))}
-        </Section>
-      </List>
+      <div className="tg-sech">{t("miniapp.group.listTitle")}</div>
+      <div className="card">
+        {active.map((group) => (
+          <GroupCard
+            key={group.id}
+            group={group}
+            levelName={levelName(group.levelId)}
+            onPick={() => onPick(group)}
+          />
+        ))}
+      </div>
     </div>
   );
 }
 
-/** One group as a native multiline Cell: name, trainer · level, weekdays · time, month price. */
+/** One group as a `.lrow`: name, trainer · level, weekdays · time + month price, chevron. */
 function GroupCard({
   group,
   levelName,
@@ -141,30 +140,26 @@ function GroupCard({
   });
 
   return (
-    <Cell
-      Component="button"
+    <button
       type="button"
-      className="group-card"
-      multiline
+      className="lrow"
       onClick={onPick}
       aria-label={`${group.name}. ${subtitle}. ${weekdays} · ${time}. ${priceLabel}. ${t(
         "miniapp.group.openAria"
       )}`}
-      subtitle={subtitle}
-      after={
-        <span className="chevron" aria-hidden="true">
-          ›
-        </span>
-      }
-      description={
+    >
+      <span className="lrow__main">
+        <span className="lrow__title">{group.name}</span>
+        <span className="lrow__sub">{subtitle}</span>
         <span className="group-card__meta">
-          <span>{`${weekdays} · ${time}`}</span>
+          <span className="lrow__sub">{`${weekdays} · ${time}`}</span>
           <span className="group-price-chip">{priceLabel}</span>
         </span>
-      }
-    >
-      {group.name}
-    </Cell>
+      </span>
+      <span className="lrow__chev" aria-hidden="true">
+        <Chevron />
+      </span>
+    </button>
   );
 }
 
@@ -280,24 +275,39 @@ function GroupDetail({
 
   return (
     <div className="screen">
-      <List>
-        <Section header={group.name}>
-          <Cell subhead={t("miniapp.group.daysLabel")}>{weekdays}</Cell>
-          <Cell subhead={t("miniapp.booking.timeLabel")}>{time}</Cell>
-          <Cell subhead={t("miniapp.booking.trainerLabel")}>{group.trainerName}</Cell>
-          {levelName && <Cell subhead={t("miniapp.booking.levelLabel")}>{levelName}</Cell>}
-          <Cell subhead={t("miniapp.group.priceLabel")} className="confirm-price">
-            {priceLabel}
-          </Cell>
-        </Section>
-        <OptionList
-          name="group-month"
-          header={t("miniapp.group.pickMonth")}
-          options={options}
-          selected={selectedKey}
-          onSelect={onSelectMonth}
-        />
-      </List>
+      <div className="tg-sech">{group.name}</div>
+      <div className="card">
+        <div className="sumrow">
+          <span className="sumrow__k">{t("miniapp.group.daysLabel")}</span>
+          <span className="sumrow__v">{weekdays}</span>
+        </div>
+        <div className="sumrow">
+          <span className="sumrow__k">{t("miniapp.booking.timeLabel")}</span>
+          <span className="sumrow__v">{time}</span>
+        </div>
+        <div className="sumrow">
+          <span className="sumrow__k">{t("miniapp.booking.trainerLabel")}</span>
+          <span className="sumrow__v">{group.trainerName}</span>
+        </div>
+        {levelName && (
+          <div className="sumrow">
+            <span className="sumrow__k">{t("miniapp.booking.levelLabel")}</span>
+            <span className="sumrow__v">{levelName}</span>
+          </div>
+        )}
+        <div className="sumrow">
+          <span className="sumrow__k">{t("miniapp.group.priceLabel")}</span>
+          <span className="sumrow__v sumrow__v--big">{priceLabel}</span>
+        </div>
+      </div>
+
+      <OptionList
+        name="group-month"
+        header={t("miniapp.group.pickMonth")}
+        options={options}
+        selected={selectedKey}
+        onSelect={onSelectMonth}
+      />
 
       {selectedKey !== undefined && (
         <FallbackButton text={t("miniapp.group.confirm")} onClick={onContinue} />
@@ -336,22 +346,28 @@ function GroupConfirm({
 
   return (
     <div className="screen" aria-busy={submitting || undefined}>
-      <List>
-        <Section
-          header={t("miniapp.group.confirm")}
-          footer={t("miniapp.group.confirmBody", {
-            name: group.name,
-            month: monthLabel,
-            price: formatRsd(group.priceMonthRsd)
-          })}
-        >
-          <Cell subhead={t("miniapp.group.groupLabel")}>{group.name}</Cell>
-          <Cell subhead={t("miniapp.group.monthLabel")}>{monthLabel}</Cell>
-          <Cell subhead={t("miniapp.group.priceLabel")} className="confirm-price">
-            {priceLabel}
-          </Cell>
-        </Section>
-      </List>
+      <div className="tg-sech">{t("miniapp.group.confirm")}</div>
+      <div className="card">
+        <div className="sumrow">
+          <span className="sumrow__k">{t("miniapp.group.groupLabel")}</span>
+          <span className="sumrow__v">{group.name}</span>
+        </div>
+        <div className="sumrow">
+          <span className="sumrow__k">{t("miniapp.group.monthLabel")}</span>
+          <span className="sumrow__v">{monthLabel}</span>
+        </div>
+        <div className="sumrow">
+          <span className="sumrow__k">{t("miniapp.group.priceLabel")}</span>
+          <span className="sumrow__v sumrow__v--big">{priceLabel}</span>
+        </div>
+      </div>
+      <div className="note">
+        {t("miniapp.group.confirmBody", {
+          name: group.name,
+          month: monthLabel,
+          price: formatRsd(group.priceMonthRsd)
+        })}
+      </div>
 
       {errorMessage && (
         <div className="confirm-error" role="alert">
@@ -419,4 +435,19 @@ function GroupResult({
 /** A stable string key for a month option (year+month), used as the radio value. */
 function monthValue(m: OfferedMonth): string {
   return `${m.year}-${m.month}`;
+}
+
+/** Trailing disclosure chevron for the `.lrow__chev` slot. */
+function Chevron(): JSX.Element {
+  return (
+    <svg viewBox="0 0 8 14" fill="none" aria-hidden="true" focusable="false">
+      <path
+        d="M1 1l6 6-6 6"
+        stroke="currentColor"
+        strokeWidth={1.8}
+        strokeLinecap="round"
+        strokeLinejoin="round"
+      />
+    </svg>
+  );
 }

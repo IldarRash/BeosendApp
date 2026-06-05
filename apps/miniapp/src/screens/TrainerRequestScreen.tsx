@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { Cell, List, Placeholder, Section } from "@telegram-apps/telegram-ui";
+import { Placeholder } from "@telegram-apps/telegram-ui";
 import type { IndividualRequestResult, Trainer } from "@beosand/types";
 import { useRequestIndividual, useTrainers } from "../api/hooks";
 import { resolveErrorMessage } from "../api/errors";
@@ -94,40 +94,37 @@ function TrainerList({
 
   return (
     <div className="screen">
-      <List>
-        <Section header={t("miniapp.individual.listTitle")}>
-          {active.map((trainer) => (
-            <TrainerCard key={trainer.id} trainer={trainer} onPick={() => onPick(trainer)} />
-          ))}
-        </Section>
-      </List>
+      <div className="tg-sech">{t("miniapp.individual.listTitle")}</div>
+      <div className="card">
+        {active.map((trainer) => (
+          <TrainerCard key={trainer.id} trainer={trainer} onPick={() => onPick(trainer)} />
+        ))}
+      </div>
     </div>
   );
 }
 
-/** One trainer as a native multiline Cell: coral chip, name, neutral type pill, chevron. */
+/** One trainer as a `.lrow`: coral chip, name, neutral type pill, chevron. */
 function TrainerCard({ trainer, onPick }: { trainer: Trainer; onPick: () => void }): JSX.Element {
   const t = useT();
   const typeLabel = trainerTypeLabel(trainer.type, t);
 
   return (
-    <Cell
-      Component="button"
+    <button
       type="button"
-      className="trainer-card"
-      multiline
+      className="lrow"
       onClick={onPick}
       aria-label={`${trainer.name}. ${typeLabel}. ${t("miniapp.individual.openAria")}`}
-      before={<MenuIcon name="individual" />}
-      subtitle={<span className="trainer-type">{typeLabel}</span>}
-      after={
-        <span className="chevron" aria-hidden="true">
-          ›
-        </span>
-      }
     >
-      {trainer.name}
-    </Cell>
+      <MenuIcon name="individual" />
+      <span className="lrow__main">
+        <span className="lrow__title">{trainer.name}</span>
+        <span className="trainer-type">{typeLabel}</span>
+      </span>
+      <span className="lrow__chev" aria-hidden="true">
+        <Chevron />
+      </span>
+    </button>
   );
 }
 
@@ -203,17 +200,20 @@ function TrainerConfirm({
 
   return (
     <div className="screen" aria-busy={submitting || undefined}>
-      <List>
-        <Section
-          header={t("miniapp.individual.confirmTitle")}
-          footer={t("miniapp.individual.confirmBody", { name: trainer.name })}
-        >
-          <Cell subhead={t("miniapp.booking.trainerLabel")}>{trainer.name}</Cell>
-          <Cell subhead={t("miniapp.individual.typeLabel")}>
+      <div className="tg-sech">{t("miniapp.individual.confirmTitle")}</div>
+      <div className="card">
+        <div className="sumrow">
+          <span className="sumrow__k">{t("miniapp.booking.trainerLabel")}</span>
+          <span className="sumrow__v">{trainer.name}</span>
+        </div>
+        <div className="sumrow">
+          <span className="sumrow__k">{t("miniapp.individual.typeLabel")}</span>
+          <span className="sumrow__v">
             <span className="trainer-type">{typeLabel}</span>
-          </Cell>
-        </Section>
-      </List>
+          </span>
+        </div>
+      </div>
+      <div className="note">{t("miniapp.individual.confirmBody", { name: trainer.name })}</div>
 
       {errorMessage && (
         <div className="confirm-error" role="alert">
@@ -313,4 +313,19 @@ function TrainerUnavailable({
 /** The neutral main/guest type label for a trainer; never the telegramId. */
 function trainerTypeLabel(type: Trainer["type"], t: TranslateFn): string {
   return t(type === "main" ? "miniapp.individual.typeMain" : "miniapp.individual.typeGuest");
+}
+
+/** Trailing disclosure chevron for the `.lrow__chev` slot. */
+function Chevron(): JSX.Element {
+  return (
+    <svg viewBox="0 0 8 14" fill="none" aria-hidden="true" focusable="false">
+      <path
+        d="M1 1l6 6-6 6"
+        stroke="currentColor"
+        strokeWidth={1.8}
+        strokeLinecap="round"
+        strokeLinejoin="round"
+      />
+    </svg>
+  );
 }

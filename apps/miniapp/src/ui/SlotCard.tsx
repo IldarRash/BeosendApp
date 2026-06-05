@@ -1,6 +1,5 @@
 import type { SlotCard as SlotCardData } from "@beosand/types";
 import { useT } from "../i18n/LanguageProvider";
-import { Glyph } from "./icons";
 import {
   formatDayMonth,
   formatRsd,
@@ -88,8 +87,8 @@ export function SlotCard({ slot, onBook, onWaitlist }: SlotCardProps): JSX.Eleme
         {bookable ? (
           <span className="chevron" aria-hidden="true">›</span>
         ) : (
-          <span className="slot-card__waitlist-pill">
-            <Glyph name="waitlist" />
+          <span className="schip schip--co">
+            <span className="dot" aria-hidden="true" />
             {t("miniapp.browse.waitlist")}
           </span>
         )}
