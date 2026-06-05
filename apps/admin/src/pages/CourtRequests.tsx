@@ -188,21 +188,26 @@ export function CourtRequests(): JSX.Element {
       </header>
 
       <div className="stack">
-        <div role="tablist" aria-label={t("admin.courtRequests.tabsLabel")} className="cluster">
+        <div role="tablist" aria-label={t("admin.courtRequests.tabsLabel")} className="tabs">
           {STATUS_TABS.map((tab) => {
             const selected = tab === status;
+            // The queue count is only fetched for the active status, so the badge
+            // is shown there; other tabs label without a (potentially stale) count.
+            const count = selected && requests.isSuccess ? requests.data.length : null;
             return (
-              <Button
+              <button
                 key={tab}
+                type="button"
                 role="tab"
                 id={`court-tab-${tab}`}
                 aria-selected={selected}
                 aria-controls="court-requests-panel"
-                variant={selected ? "primary" : "ghost"}
+                className={selected ? "tab tab--active" : "tab"}
                 onClick={() => setStatus(tab)}
               >
                 {statusLabel(tab, t)}
-              </Button>
+                {count !== null ? <span className="count">{count}</span> : null}
+              </button>
             );
           })}
         </div>

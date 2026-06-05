@@ -17,6 +17,32 @@ const ToastContext = createContext<ToastApi | null>(null);
 
 let nextId = 0;
 
+/** A small tone glyph (check / alert / info) shown left of the toast message. */
+function ToastIcon({ tone }: { tone: ToastTone }): JSX.Element {
+  const path =
+    tone === "success"
+      ? "M5 12l4 4 10-10"
+      : tone === "error"
+        ? "M12 7v6M12 17h.01"
+        : "M12 11v6M12 7h.01";
+  return (
+    <svg
+      className="toast__icon"
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="2"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      aria-hidden="true"
+      focusable="false"
+    >
+      {tone === "success" ? null : <circle cx="12" cy="12" r="9" />}
+      <path d={path} />
+    </svg>
+  );
+}
+
 /** App-wide notice stack. Toasts auto-dismiss; the region is a polite live area. */
 export function ToastProvider({ children }: { children: ReactNode }): JSX.Element {
   const t = useT();
@@ -38,7 +64,8 @@ export function ToastProvider({ children }: { children: ReactNode }): JSX.Elemen
       <div className="toasts" role="region" aria-live="polite" aria-label={t("admin.notify.label")}>
         {toasts.map((toast) => (
           <div key={toast.id} className={`toast toast--${toast.tone}`}>
-            {toast.message}
+            <ToastIcon tone={toast.tone} />
+            <span className="toast__body">{toast.message}</span>
           </div>
         ))}
       </div>

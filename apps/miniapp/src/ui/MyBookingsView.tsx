@@ -1,4 +1,3 @@
-import { List, SegmentedControl, Title } from "@telegram-apps/telegram-ui";
 import type { MyBookingItem, MyBookingScope } from "@beosand/types";
 import { useT } from "../i18n/LanguageProvider";
 import { BookingItemCard } from "./BookingItemCard";
@@ -26,13 +25,11 @@ const SCOPES: ReadonlyArray<{ scope: MyBookingScope; labelKey: string }> = [
 
 /**
  * The My-bookings screen body: a segmented Upcoming|Past control over the booking
- * list, with distinct loading / per-scope empty / error states. Purely
- * presentational — it renders API-decided values (the booking status/outcome and the
- * `canCancel` flag) and reports taps; the screen owns the queries and the cancel
- * write. No date or status math here.
+ * list, with distinct loading / per-scope empty / error states. Uses the handoff
+ * `.seg` / `.seg button.is-on` structure instead of telegram-ui SegmentedControl.
  *
- * Coral is reserved for the active segment (theme.css). The control is a real
- * tablist (role/aria-selected) so the active scope is announced, never color-only.
+ * Accessibility: the control uses `role="tablist"` with `aria-selected` on each
+ * tab so the active scope is announced to AT — never color-only.
  */
 export function MyBookingsView({
   scope,
@@ -48,24 +45,28 @@ export function MyBookingsView({
 
   return (
     <div className="screen screen--no-mainbutton">
-      <Title level="1" weight="2">
+      <h1 style={{ fontSize: 24, fontWeight: 700, margin: 0, letterSpacing: -0.4 }}>
         {t("miniapp.myBookings.title")}
-      </Title>
+      </h1>
 
-      <div className="segmented" role="tablist" aria-label={t("miniapp.myBookings.tabsAria")}>
-        <SegmentedControl>
-          {SCOPES.map(({ scope: value, labelKey }) => (
-            <SegmentedControl.Item
-              key={value}
-              role="tab"
-              aria-selected={scope === value}
-              selected={scope === value}
-              onClick={() => onScopeChange(value)}
-            >
-              {t(labelKey)}
-            </SegmentedControl.Item>
-          ))}
-        </SegmentedControl>
+      {/* Segmented tab control */}
+      <div
+        className="seg"
+        role="tablist"
+        aria-label={t("miniapp.myBookings.tabsAria")}
+      >
+        {SCOPES.map(({ scope: value, labelKey }) => (
+          <button
+            key={value}
+            type="button"
+            role="tab"
+            aria-selected={scope === value}
+            className={scope === value ? "is-on" : undefined}
+            onClick={() => onScopeChange(value)}
+          >
+            {t(labelKey)}
+          </button>
+        ))}
       </div>
 
       {isLoading ? (
@@ -87,11 +88,17 @@ export function MyBookingsView({
           />
         )
       ) : (
-        <List aria-label={t("miniapp.myBookings.title")}>
+        <div
+          className="card"
+          aria-label={t("miniapp.myBookings.title")}
+          role="list"
+        >
           {items!.map((item) => (
-            <BookingItemCard key={item.bookingId} item={item} onCancel={onCancel} />
+            <div key={item.bookingId} role="listitem">
+              <BookingItemCard item={item} onCancel={onCancel} />
+            </div>
           ))}
-        </List>
+        </div>
       )}
     </div>
   );

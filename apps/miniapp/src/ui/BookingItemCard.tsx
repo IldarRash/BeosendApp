@@ -1,4 +1,3 @@
-import { Cell } from "@telegram-apps/telegram-ui";
 import type { BookingStatus, MyBookingItem } from "@beosand/types";
 import { useT } from "../i18n/LanguageProvider";
 import { Glyph, type GlyphName } from "./icons";
@@ -6,35 +5,30 @@ import { formatDayMonth, formatTimeRange, weekdayFullKey } from "./format";
 
 /**
  * The visual treatment of one booking-status chip: which glyph, which i18n label
- * key, and the CSS variant (the tone defined in theme.css). The status is conveyed
- * by glyph + text + tone together, never color alone. `booked` is the one branded
- * chip (upcoming); the past outcomes are deliberately calm — a finished session is
- * a neutral fact, not an alert.
+ * key, and the `.schip--*` CSS variant defined in theme.css.
+ * booked → coral (.schip--co), attended → teal/ok (.schip--ok),
+ * no_show → amber/warn (.schip--warn), cancelled → muted (.schip--muted).
+ * Status is conveyed by glyph + text + tone, never color alone.
  */
 interface ChipStyle {
   glyph: GlyphName;
   labelKey: string;
-  variant: string;
+  /** CSS modifier for .schip (co / ok / warn / muted) */
+  variant: "co" | "ok" | "warn" | "muted";
 }
 
-/**
- * Map the server's {@link BookingStatus} to its chip style. `waitlist` is not a
- * `/bookings/mine` outcome but is handled defensively (falls back to the booked
- * treatment) so an unexpected value never renders an untyped chip. The Mini App
- * makes no decision here — it only renders the status the server already decided.
- */
 function chipStyle(status: BookingStatus): ChipStyle {
   switch (status) {
     case "attended":
-      return { glyph: "attended", labelKey: "miniapp.myBookings.status.attended", variant: "attended" };
+      return { glyph: "attended", labelKey: "miniapp.myBookings.status.attended", variant: "ok" };
     case "no_show":
-      return { glyph: "noShow", labelKey: "miniapp.myBookings.status.noShow", variant: "noShow" };
+      return { glyph: "noShow", labelKey: "miniapp.myBookings.status.noShow", variant: "warn" };
     case "cancelled":
-      return { glyph: "cancelled", labelKey: "miniapp.myBookings.status.cancelled", variant: "cancelled" };
+      return { glyph: "cancelled", labelKey: "miniapp.myBookings.status.cancelled", variant: "muted" };
     case "booked":
     case "waitlist":
     default:
-      return { glyph: "booked", labelKey: "miniapp.myBookings.status.booked", variant: "booked" };
+      return { glyph: "booked", labelKey: "miniapp.myBookings.status.booked", variant: "co" };
   }
 }
 
@@ -49,55 +43,53 @@ interface BookingItemCardProps {
 }
 
 /**
- * One booking row in the My-bookings list, rendered as a native telegram-ui Cell so
- * it reads as a list item in either theme. It displays ONLY values the API decided —
- * weekday + date, time range, trainer, level, and the booking status/outcome — with
- * no date or status math here.
+ * One booking row in the My-bookings list. Uses the handoff `.lrow` / `.card` +
+ * `.schip--*` classes. Displays ONLY values the API decided — weekday + date,
+ * time range, trainer, level, and the booking status/outcome — with no date or
+ * status math here.
  *
- * The status chip pairs a glyph with text and a calm tone (theme.css) so the state
- * is never color-only. The destructive Cancel control appears only when the server's
- * `canCancel` flag is set; tapping it opens the confirm sheet (the write is gated
- * there), so the row itself is not a tap target.
+ * The status chip pairs a glyph with text and a calm tone so the state is never
+ * color-only. The destructive Cancel control appears only when the server's
+ * `canCancel` flag is set; tapping it opens the confirm sheet.
  */
 export function BookingItemCard({ item, onCancel }: BookingItemCardProps): JSX.Element {
   const t = useT();
   const style = chipStyle(item.bookingStatus);
 
-  const title = `${t(weekdayFullKey(item.dayOfWeek))}, ${formatDayMonth(item.date)} · ${formatTimeRange(
-    item.startTime,
-    item.endTime
-  )}`;
-  const subtitle = `${item.trainerName} · ${item.levelName}`;
+  const weekday = t(weekdayFullKey(item.dayOfWeek));
+  const dayMonth = formatDayMonth(item.date);
+  const timeRange = formatTimeRange(item.startTime, item.endTime);
   const statusLabel = t(style.labelKey);
 
   return (
-    <Cell
-      className="booking-card"
-      multiline
-      aria-label={`${title}. ${subtitle}. ${statusLabel}`}
-      subtitle={subtitle}
-      after={
-        item.canCancel ? (
-          <button
-            type="button"
-            className="booking-cancel"
-            aria-label={t("miniapp.myBookings.cancelAria")}
-            onClick={() => onCancel(item)}
-          >
-            {t("miniapp.myBookings.cancel")}
-          </button>
-        ) : undefined
-      }
-      description={
-        <span className="booking-card__meta">
-          <span className={`booking-chip booking-chip--${style.variant}`}>
+    <div
+      className="lrow"
+      aria-label={`${weekday}, ${dayMonth} · ${timeRange}. ${item.trainerName} · ${item.levelName}. ${statusLabel}`}
+    >
+      <div className="lrow__main">
+        <div className="lrow__title">
+          {weekday}, {dayMonth} · {timeRange}
+        </div>
+        <div className="lrow__sub">{item.trainerName} · {item.levelName}</div>
+        <div style={{ marginTop: 6 }}>
+          <span className={`schip schip--${style.variant}`}>
+            <span className="dot" aria-hidden="true" />
             <Glyph name={style.glyph} />
             {statusLabel}
           </span>
-        </span>
-      }
-    >
-      {title}
-    </Cell>
+        </div>
+      </div>
+
+      {item.canCancel && (
+        <button
+          type="button"
+          className="booking-cancel"
+          aria-label={t("miniapp.myBookings.cancelAria")}
+          onClick={() => onCancel(item)}
+        >
+          {t("miniapp.myBookings.cancel")}
+        </button>
+      )}
+    </div>
   );
 }

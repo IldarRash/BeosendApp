@@ -1,32 +1,73 @@
 /*
  * BeoSand admin design system.
  * Direction: warm editorial-utilitarian. A sand/bone canvas, deep ink text, and a
- * single sunset-coral accent. Characterful serif display paired with a tight mono
- * for figures — a data-dense console that still reads as a designed product, not a
- * generic dashboard template. No Inter/Roboto, no purple-on-white.
+ * single sunset-coral accent, with teal for success and amber for warnings.
+ * Characterful serif display paired with a tight mono for figures — a data-dense
+ * console that reads as a designed product, not a generic dashboard template.
+ *
+ * This is the applied form of the design handoff: the prototype's visual language
+ * (tokens, type, spacing, states) realised on the console's own component classes.
  */
 
+@import url("https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;600;700&display=swap");
+
 :root {
-  --sand-50: #f7f3ec;
-  --sand-100: #efe7d8;
-  --sand-200: #e3d6bf;
-  --ink-900: #1c1a17;
-  --ink-700: #3a352e;
-  --ink-500: #6b6358;
-  --line: #d8cbb4;
-  --coral: #e1543f;
-  --coral-ink: #b23a2a;
-  --teal: #1f7a6d;
-  --indigo: #4b4fb0;
-  --paper: #fffdf8;
-  --shadow: 0 1px 0 rgba(28, 26, 23, 0.04), 0 12px 32px -18px rgba(28, 26, 23, 0.35);
+  /* Sand backgrounds */
+  --sand-50: #faf6ef;
+  --sand-100: #f2eadd;
+  --sand-200: #e7dbc7;
+  --sand-300: #d8c9af;
 
-  --font-display: "Iowan Old Style", "Palatino Linotype", "Book Antiqua", Palatino, Georgia, serif;
-  --font-body: ui-sans-serif, "Segoe UI", "Helvetica Neue", Arial, sans-serif;
-  --font-mono: "JetBrains Mono", "SFMono-Regular", "Cascadia Code", Consolas, monospace;
+  /* Ink (text) */
+  --ink-900: #211c15;
+  --ink-700: #4b4339;
+  --ink-500: #8a8073;
+  --ink-400: #b0a695;
 
+  /* Coral (accent) */
+  --coral: #e15b43;
+  --coral-ink: #b23e2b;
+  --coral-soft: #fbe5df;
+
+  /* Teal (success) */
+  --teal: #1c9488;
+  --teal-ink: #126b62;
+  --teal-soft: #dbf0ed;
+
+  /* Amber (warn / blocks) */
+  --amber: #c98a12;
+  --amber-ink: #93630a;
+  --amber-soft: #f7ebcf;
+
+  /* Indigo — extra hue for the court-load "training" state (not in the base
+   * palette but needed to tell trainings apart from requests and blocks). */
+  --indigo: #4b6bbd;
+
+  /* Surfaces */
+  --paper: #ffffff;
+  --border: #e3d9c8;
+  --border-strong: #cfc1a8;
+
+  /* Focus ring (accessibility) */
+  --focus: #2c6fb0;
+  --focus-ring: 0 0 0 3px rgba(44, 111, 176, 0.35);
+
+  /* Shadows */
+  --shadow-sm: 0 1px 2px rgba(33, 28, 21, 0.06);
+  --shadow-md: 0 6px 22px rgba(33, 28, 21, 0.1);
+  --shadow-lg: 0 18px 48px rgba(33, 28, 21, 0.18);
+
+  /* Type */
+  --font-serif: "Iowan Old Style", "Palatino Linotype", "Book Antiqua", Palatino, Georgia, serif;
+  --font-sans: ui-sans-serif, -apple-system, BlinkMacSystemFont, "Segoe UI", "Helvetica Neue", Arial, sans-serif;
+  --font-mono: "JetBrains Mono", ui-monospace, "SFMono-Regular", "Cascadia Code", Consolas, monospace;
+
+  /* Geometry */
   --radius: 10px;
+  --radius-sm: 7px;
+  --radius-lg: 14px;
   --gap: 20px;
+  --sidebar-w: 248px;
 }
 
 * {
@@ -41,47 +82,105 @@ body,
 
 body {
   margin: 0;
-  background: radial-gradient(120% 120% at 100% 0%, var(--sand-50) 0%, var(--sand-100) 60%, var(--sand-200) 100%);
+  background: radial-gradient(120% 120% at 100% 0%, var(--sand-50) 0%, var(--sand-100) 62%, var(--sand-200) 100%);
   color: var(--ink-900);
-  font-family: var(--font-body);
-  font-size: 15px;
+  font-family: var(--font-sans);
+  font-size: 14px;
   line-height: 1.5;
   -webkit-font-smoothing: antialiased;
+  text-rendering: optimizeLegibility;
 }
 
 h1,
 h2,
-h3 {
-  font-family: var(--font-display);
+h3,
+h4 {
+  font-family: var(--font-serif);
   font-weight: 600;
   letter-spacing: -0.01em;
+  color: var(--ink-900);
   margin: 0;
 }
 
+/* Numeric / code tone */
+.mono {
+  font-family: var(--font-mono);
+  font-feature-settings: "tnum" 1;
+}
+
+.num {
+  font-family: var(--font-mono);
+  font-variant-numeric: tabular-nums;
+  text-align: right;
+}
+
+/* Overline label (mono caps) — metric captions, column headers, group labels. */
+.overline {
+  font-family: var(--font-mono);
+  font-size: 11px;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--ink-500);
+  font-weight: 500;
+}
+
+/* Visible focus everywhere a token ring isn't applied explicitly. */
+:focus-visible {
+  outline: 2px solid var(--focus);
+  outline-offset: 2px;
+}
+
+::selection {
+  background: var(--coral-soft);
+}
+
+/* Subtle, warm scrollbar. */
+::-webkit-scrollbar {
+  width: 11px;
+  height: 11px;
+}
+
+::-webkit-scrollbar-thumb {
+  background: var(--sand-300);
+  border-radius: 8px;
+  border: 3px solid var(--sand-50);
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: var(--border-strong);
+}
+
+/* ── App shell ─────────────────────────────────────────────────────────── */
+
 .app {
   display: grid;
-  grid-template-columns: 248px 1fr;
+  grid-template-columns: var(--sidebar-w) 1fr;
   min-height: 100%;
 }
 
 .sidebar {
-  border-right: 1px solid var(--line);
-  padding: 28px 20px;
+  background: var(--sand-100);
+  border-right: 1px solid var(--border);
   display: flex;
   flex-direction: column;
-  gap: 28px;
+  position: sticky;
+  top: 0;
+  height: 100vh;
 }
 
 .brand {
-  display: flex;
-  align-items: baseline;
-  gap: 8px;
+  padding: 22px 20px 8px;
 }
 
 .brand__mark {
-  font-family: var(--font-display);
-  font-size: 26px;
+  font-family: var(--font-serif);
+  font-size: 24px;
   font-weight: 700;
+  letter-spacing: -0.02em;
+  color: var(--ink-900);
+  display: flex;
+  align-items: baseline;
+  gap: 2px;
 }
 
 .brand__mark em {
@@ -90,64 +189,191 @@ h3 {
 }
 
 .brand__sub {
+  display: block;
+  padding: 0 20px 16px;
   font-family: var(--font-mono);
-  font-size: 11px;
+  font-size: 10px;
   text-transform: uppercase;
-  letter-spacing: 0.18em;
+  letter-spacing: 0.16em;
   color: var(--ink-500);
+  border-bottom: 1px solid var(--border);
 }
 
 .nav {
+  flex: 1;
+  overflow-y: auto;
+  padding: 12px 12px 18px;
   display: flex;
   flex-direction: column;
-  gap: 2px;
+  gap: 1px;
+}
+
+/* Grouped section heading inside the nav (Расписание / Корты / Коммуникации). */
+.nav__group-label {
+  font-family: var(--font-mono);
+  font-size: 10px;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--ink-400);
+  padding: 14px 10px 6px;
 }
 
 .nav__item {
   display: flex;
   align-items: center;
-  justify-content: space-between;
-  padding: 9px 12px;
-  border-radius: 8px;
+  gap: 10px;
+  padding: 8px 10px;
+  border-radius: var(--radius-sm);
   color: var(--ink-700);
+  font-size: 13.5px;
   font-weight: 500;
   cursor: pointer;
   user-select: none;
+  border: none;
+  background: none;
+  width: 100%;
+  text-align: left;
+  position: relative;
+  text-decoration: none;
+  transition: background 0.12s ease, color 0.12s ease;
+}
+
+.nav__item .ico {
+  width: 17px;
+  height: 17px;
+  flex: none;
+  color: var(--ink-500);
+  transition: color 0.12s ease;
+}
+
+.nav__item .count {
+  margin-left: auto;
+  font-family: var(--font-mono);
+  font-size: 11px;
+  background: var(--sand-200);
+  color: var(--ink-700);
+  padding: 1px 7px;
+  border-radius: 20px;
+}
+
+.nav__item:hover {
+  background: var(--sand-200);
+  color: var(--ink-900);
+}
+
+.nav__item:hover .ico {
+  color: var(--ink-700);
+}
+
+.nav a.nav__item:focus-visible {
+  outline: 2px solid var(--focus);
+  outline-offset: 2px;
 }
 
 .nav__item[aria-current="page"],
 .nav__item--active {
-  background: var(--ink-900);
-  color: var(--sand-50);
+  background: var(--paper);
+  color: var(--coral-ink);
+  box-shadow: var(--shadow-sm);
 }
 
-.nav a.nav__item {
-  text-decoration: none;
+.nav__item[aria-current="page"] .ico,
+.nav__item--active .ico {
+  color: var(--coral);
 }
 
-.nav a.nav__item:focus-visible {
-  outline: 2px solid var(--coral);
-  outline-offset: 2px;
+.nav__item[aria-current="page"]::before,
+.nav__item--active::before {
+  content: "";
+  position: absolute;
+  left: -12px;
+  top: 6px;
+  bottom: 6px;
+  width: 3px;
+  border-radius: 0 3px 3px 0;
+  background: var(--coral);
+}
+
+.nav__item[aria-current="page"] .count,
+.nav__item--active .count {
+  background: var(--coral-soft);
+  color: var(--coral-ink);
 }
 
 .nav__item[aria-disabled="true"] {
-  color: var(--ink-500);
+  color: var(--ink-400);
   cursor: not-allowed;
 }
 
 .nav__soon {
+  margin-left: auto;
   font-family: var(--font-mono);
   font-size: 10px;
   text-transform: uppercase;
   letter-spacing: 0.12em;
+  color: var(--ink-400);
+}
+
+/* Sidebar footer: language switch + logged-in admin + logout. */
+.sidebar__foot {
+  margin-top: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  border-top: 1px solid var(--border);
+  padding: 14px 16px;
+}
+
+.lang-select {
+  display: block;
+}
+
+.lang-select .input {
+  width: 100%;
+  height: 34px;
+}
+
+.who {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.who__av {
+  width: 30px;
+  height: 30px;
+  border-radius: 50%;
+  flex: none;
+  background: var(--coral);
+  color: #fff;
+  display: grid;
+  place-items: center;
+  font-family: var(--font-serif);
+  font-size: 14px;
+  font-weight: 600;
+}
+
+.who__name {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--ink-900);
+  line-height: 1.2;
+}
+
+.who__handle {
+  font-family: var(--font-mono);
+  font-size: 11px;
   color: var(--ink-500);
 }
 
+/* ── Main / page header ────────────────────────────────────────────────── */
+
 .main {
-  padding: 40px 48px;
+  min-width: 0;
+  padding: 28px 36px 56px;
   display: flex;
   flex-direction: column;
-  gap: 32px;
+  gap: 24px;
 }
 
 .page-head {
@@ -155,29 +381,35 @@ h3 {
   align-items: flex-end;
   justify-content: space-between;
   gap: 24px;
-  border-bottom: 1px solid var(--line);
+  flex-wrap: wrap;
+  border-bottom: 1px solid var(--border);
   padding-bottom: 20px;
 }
 
 .page-head h1 {
-  font-size: 34px;
+  font-size: 28px;
+  line-height: 1.1;
 }
 
 .page-head p {
-  margin: 6px 0 0;
+  margin: 7px 0 0;
   color: var(--ink-500);
-  max-width: 52ch;
+  font-size: 14.5px;
+  max-width: 70ch;
 }
+
+/* ── API status indicator (LED + mono caption) ─────────────────────────── */
 
 .health {
   display: inline-flex;
   align-items: center;
   gap: 8px;
   font-family: var(--font-mono);
-  font-size: 12px;
+  font-size: 11.5px;
+  color: var(--ink-500);
   padding: 7px 12px;
   border-radius: 999px;
-  border: 1px solid var(--line);
+  border: 1px solid var(--border);
   background: var(--paper);
   white-space: nowrap;
 }
@@ -187,40 +419,43 @@ h3 {
   height: 8px;
   border-radius: 50%;
   background: var(--ink-500);
+  flex: none;
 }
 
 .dot--ok {
   background: var(--teal);
-  box-shadow: 0 0 0 3px rgba(31, 122, 109, 0.18);
+  box-shadow: 0 0 0 3px var(--teal-soft);
 }
 
 .dot--down {
   background: var(--coral);
-  box-shadow: 0 0 0 3px rgba(225, 84, 63, 0.18);
+  box-shadow: 0 0 0 3px var(--coral-soft);
 }
+
+/* ── Stat grid + cards ─────────────────────────────────────────────────── */
 
 .grid {
   display: grid;
   grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
-  gap: var(--gap);
+  gap: 16px;
 }
 
 .card {
   background: var(--paper);
-  border: 1px solid var(--line);
+  border: 1px solid var(--border);
   border-radius: var(--radius);
-  padding: 20px;
-  box-shadow: var(--shadow);
+  padding: 16px 18px 17px;
+  box-shadow: var(--shadow-sm);
   display: flex;
   flex-direction: column;
-  gap: 10px;
+  gap: 9px;
 }
 
 .card__label {
   font-family: var(--font-mono);
-  font-size: 11px;
+  font-size: 10.5px;
   text-transform: uppercase;
-  letter-spacing: 0.14em;
+  letter-spacing: 0.1em;
   color: var(--ink-500);
 }
 
@@ -229,16 +464,48 @@ h3 {
   font-size: 30px;
   font-weight: 600;
   letter-spacing: -0.02em;
+  line-height: 1;
+  color: var(--ink-900);
+}
+
+.card__value small {
+  font-size: 15px;
+  color: var(--ink-500);
+  font-weight: 500;
 }
 
 .card__hint {
-  font-size: 13px;
+  font-size: 12.5px;
   color: var(--ink-500);
 }
 
+/* Trend chip for a stat figure (up = teal, down = coral, flat = muted). */
+.trend {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  font-family: var(--font-mono);
+  font-size: 11.5px;
+  font-weight: 600;
+}
+
+.trend--up {
+  color: var(--teal-ink);
+}
+
+.trend--down {
+  color: var(--coral-ink);
+}
+
+.trend--flat {
+  color: var(--ink-500);
+}
+
+/* ── Note panel (Labels / informational blocks) ────────────────────────── */
+
 .note {
   background: var(--paper);
-  border: 1px solid var(--line);
+  border: 1px solid var(--border);
   border-left: 3px solid var(--coral);
   border-radius: var(--radius);
   padding: 18px 20px;
@@ -258,127 +525,149 @@ h3 {
   border-radius: 4px;
 }
 
-/* ── Sidebar footer: logged-in admin + logout ─────────────────────────── */
-
-.sidebar__foot {
-  margin-top: auto;
-  display: flex;
-  flex-direction: column;
-  gap: 12px;
-  border-top: 1px solid var(--line);
-  padding-top: 16px;
-}
-
-.lang-select {
-  display: block;
-}
-
-.lang-select .input {
-  width: 100%;
-}
-
-.who {
-  display: flex;
-  flex-direction: column;
-  gap: 2px;
-}
-
-.who__name {
-  font-weight: 600;
-}
-
-.who__handle {
-  font-family: var(--font-mono);
-  font-size: 12px;
-  color: var(--ink-500);
-}
-
-/* ── Button ───────────────────────────────────────────────────────────── */
+/* ── Button ────────────────────────────────────────────────────────────── */
 
 .btn {
-  font-family: var(--font-body);
-  font-size: 14px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 7px;
+  font-family: var(--font-sans);
+  font-size: 13.5px;
   font-weight: 600;
-  padding: 9px 16px;
-  border-radius: 8px;
+  padding: 0 15px;
+  height: 38px;
+  border-radius: var(--radius-sm);
   border: 1px solid transparent;
   cursor: pointer;
-  transition: background 0.12s ease, border-color 0.12s ease, color 0.12s ease;
+  white-space: nowrap;
+  transition: background 0.12s ease, border-color 0.12s ease, color 0.12s ease, box-shadow 0.12s ease;
 }
 
-.btn:focus-visible {
-  outline: 2px solid var(--coral);
-  outline-offset: 2px;
+.btn .ico {
+  width: 16px;
+  height: 16px;
 }
 
-.btn:disabled {
-  opacity: 0.5;
-  cursor: not-allowed;
+.btn--sm {
+  height: 32px;
+  padding: 0 11px;
+  font-size: 12.5px;
+}
+
+.btn--lg {
+  height: 44px;
+  padding: 0 22px;
+  font-size: 15px;
+}
+
+.btn--block {
+  width: 100%;
 }
 
 .btn--primary {
   background: var(--coral);
-  color: var(--paper);
+  color: #fff;
 }
 
 .btn--primary:hover:not(:disabled) {
+  background: #cf4f39;
+}
+
+.btn--primary:active:not(:disabled) {
   background: var(--coral-ink);
 }
 
 .btn--ghost {
   background: var(--paper);
-  border-color: var(--line);
-  color: var(--ink-700);
+  color: var(--ink-900);
+  border-color: var(--border-strong);
 }
 
 .btn--ghost:hover:not(:disabled) {
-  border-color: var(--ink-500);
+  background: var(--sand-100);
+  border-color: var(--ink-400);
+}
+
+.btn--ghost:active:not(:disabled) {
+  background: var(--sand-200);
 }
 
 .btn--danger {
   background: var(--paper);
-  border-color: var(--coral);
   color: var(--coral-ink);
+  border-color: #e7b3a6;
 }
 
 .btn--danger:hover:not(:disabled) {
-  background: var(--coral);
-  color: var(--paper);
+  background: #fceeea;
+  border-color: var(--coral);
 }
 
-/* ── DataTable ────────────────────────────────────────────────────────── */
+.btn--danger:active:not(:disabled) {
+  background: var(--coral-soft);
+}
+
+.btn:focus-visible {
+  box-shadow: var(--focus-ring);
+  outline: none;
+}
+
+.btn:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+
+/* ── DataTable ─────────────────────────────────────────────────────────── */
 
 .datatable__scroll {
   overflow-x: auto;
-  border: 1px solid var(--line);
+  border: 1px solid var(--border);
   border-radius: var(--radius);
   background: var(--paper);
+  box-shadow: var(--shadow-sm);
 }
 
 .datatable {
   width: 100%;
   border-collapse: collapse;
-  font-size: 14px;
-}
-
-.datatable th,
-.datatable td {
-  text-align: left;
-  padding: 11px 14px;
-  border-bottom: 1px solid var(--line);
+  font-size: 13px;
 }
 
 .datatable thead th {
+  text-align: left;
   font-family: var(--font-mono);
-  font-size: 11px;
+  font-size: 10.5px;
   text-transform: uppercase;
-  letter-spacing: 0.1em;
+  letter-spacing: 0.07em;
   color: var(--ink-500);
-  background: var(--sand-50);
+  font-weight: 600;
+  padding: 11px 14px;
+  background: var(--sand-100);
+  border-bottom: 1px solid var(--border);
+  white-space: nowrap;
+  position: sticky;
+  top: 0;
+  z-index: 1;
+}
+
+.datatable tbody td {
+  padding: 11px 14px;
+  border-bottom: 1px solid var(--sand-200);
+  color: var(--ink-700);
+  vertical-align: middle;
 }
 
 .datatable tbody tr:last-child td {
   border-bottom: none;
+}
+
+.datatable tbody tr {
+  transition: background 0.1s ease;
+}
+
+.datatable tbody tr:hover {
+  background: var(--sand-50);
 }
 
 .datatable__num {
@@ -387,71 +676,134 @@ h3 {
   font-variant-numeric: tabular-nums;
 }
 
-.datatable__empty {
-  color: var(--ink-500);
-  padding: 16px;
-  border: 1px dashed var(--line);
-  border-radius: var(--radius);
+.datatable thead th.datatable__num {
+  text-align: right;
 }
 
-/* ── Modal ────────────────────────────────────────────────────────────── */
+.datatable__empty {
+  color: var(--ink-500);
+  padding: 40px 20px;
+  text-align: center;
+  border: 1px dashed var(--border);
+  border-radius: var(--radius);
+  background: var(--paper);
+}
+
+/* Compact icon action button used inside table rows. */
+.iconbtn {
+  width: 30px;
+  height: 30px;
+  border-radius: 7px;
+  border: 1px solid transparent;
+  cursor: pointer;
+  background: none;
+  color: var(--ink-500);
+  display: grid;
+  place-items: center;
+  transition: background 0.12s ease, color 0.12s ease;
+}
+
+.iconbtn:hover {
+  background: var(--sand-200);
+  color: var(--ink-900);
+}
+
+.iconbtn--danger:hover {
+  background: var(--coral-soft);
+  color: var(--coral-ink);
+}
+
+.iconbtn .ico {
+  width: 16px;
+  height: 16px;
+}
+
+/* ── Modal ─────────────────────────────────────────────────────────────── */
 
 .modal__backdrop {
   position: fixed;
   inset: 0;
-  background: rgba(28, 26, 23, 0.45);
+  background: rgba(33, 28, 21, 0.42);
+  backdrop-filter: blur(2px);
   display: flex;
   align-items: center;
   justify-content: center;
-  padding: 24px;
+  padding: 28px;
   z-index: 50;
+  animation: scrim-in 0.14s ease;
+}
+
+@keyframes scrim-in {
+  from {
+    opacity: 0;
+  }
 }
 
 .modal {
   background: var(--paper);
-  border: 1px solid var(--line);
-  border-radius: var(--radius);
-  box-shadow: var(--shadow);
-  width: min(520px, 100%);
-  max-height: 90vh;
-  overflow: auto;
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-lg);
+  width: min(560px, 100%);
+  max-height: calc(100vh - 56px);
+  display: flex;
+  flex-direction: column;
+  animation: modal-pop 0.16s cubic-bezier(0.2, 0.9, 0.3, 1.2);
+}
+
+@keyframes modal-pop {
+  from {
+    opacity: 0;
+    transform: translateY(10px) scale(0.98);
+  }
 }
 
 .modal:focus-visible {
-  outline: 2px solid var(--coral);
-  outline-offset: 2px;
+  outline: none;
 }
 
 .modal__head {
   display: flex;
-  align-items: center;
+  align-items: flex-start;
   justify-content: space-between;
+  gap: 16px;
   padding: 18px 22px;
-  border-bottom: 1px solid var(--line);
+  border-bottom: 1px solid var(--border);
 }
 
 .modal__title {
+  font-family: var(--font-serif);
   font-size: 20px;
+  font-weight: 600;
 }
 
 .modal__close {
-  background: none;
   border: none;
-  font-size: 24px;
-  line-height: 1;
-  color: var(--ink-500);
+  background: none;
   cursor: pointer;
-  padding: 2px 6px;
-  border-radius: 6px;
+  color: var(--ink-500);
+  width: 32px;
+  height: 32px;
+  border-radius: 7px;
+  display: grid;
+  place-items: center;
+  flex: none;
+  font-size: 22px;
+  line-height: 1;
+}
+
+.modal__close:hover {
+  background: var(--sand-200);
+  color: var(--ink-900);
 }
 
 .modal__close:focus-visible {
-  outline: 2px solid var(--coral);
-  outline-offset: 2px;
+  box-shadow: var(--focus-ring);
+  outline: none;
 }
 
 .modal__body {
   padding: 22px;
+  overflow-y: auto;
   display: flex;
   flex-direction: column;
   gap: 16px;
@@ -459,13 +811,15 @@ h3 {
 
 .modal__foot {
   padding: 16px 22px;
-  border-top: 1px solid var(--line);
+  border-top: 1px solid var(--border);
   display: flex;
   justify-content: flex-end;
-  gap: 12px;
+  gap: 10px;
+  background: var(--sand-50);
+  border-radius: 0 0 var(--radius-lg) var(--radius-lg);
 }
 
-/* ── Form fields ──────────────────────────────────────────────────────── */
+/* ── Form fields ───────────────────────────────────────────────────────── */
 
 .field {
   display: flex;
@@ -474,45 +828,98 @@ h3 {
 }
 
 .field__label {
-  font-family: var(--font-mono);
-  font-size: 11px;
-  text-transform: uppercase;
-  letter-spacing: 0.12em;
-  color: var(--ink-500);
+  font-size: 12.5px;
+  font-weight: 600;
+  color: var(--ink-700);
+}
+
+.field__label .req {
+  color: var(--coral);
+  margin-left: 2px;
 }
 
 .input {
-  font-family: var(--font-body);
-  font-size: 14px;
-  padding: 9px 12px;
-  border: 1px solid var(--line);
-  border-radius: 8px;
+  font-family: var(--font-sans);
+  font-size: 13.5px;
+  height: 38px;
+  padding: 0 12px;
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-sm);
   background: var(--paper);
   color: var(--ink-900);
+  width: 100%;
+  transition: border-color 0.12s ease, box-shadow 0.12s ease;
 }
 
-.input:focus-visible {
-  outline: 2px solid var(--coral);
-  outline-offset: 1px;
-  border-color: var(--coral);
+.input::placeholder {
+  color: var(--ink-400);
+}
+
+.input:hover {
+  border-color: var(--ink-400);
+}
+
+.input:focus {
+  border-color: var(--focus);
+  box-shadow: var(--focus-ring);
+  outline: none;
+}
+
+.input:disabled {
+  background: var(--sand-100);
+  color: var(--ink-500);
+  cursor: not-allowed;
 }
 
 .input[aria-invalid="true"] {
   border-color: var(--coral);
 }
 
+.input[aria-invalid="true"]:focus {
+  box-shadow: 0 0 0 3px rgba(225, 91, 67, 0.25);
+}
+
+.input--num {
+  font-family: var(--font-mono);
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+}
+
+.input--mono {
+  font-family: var(--font-mono);
+}
+
+textarea.input {
+  height: auto;
+  padding: 10px 12px;
+  line-height: 1.5;
+  resize: vertical;
+}
+
+select.input {
+  appearance: none;
+  cursor: pointer;
+  padding-right: 32px;
+  background-image: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='14' height='14' viewBox='0 0 24 24' fill='none' stroke='%238A8073' stroke-width='2.5'><path d='M6 9l6 6 6-6'/></svg>");
+  background-repeat: no-repeat;
+  background-position: right 11px center;
+}
+
 .field__hint {
-  font-size: 12px;
+  font-size: 11.5px;
   color: var(--ink-500);
 }
 
 .field__error {
-  font-size: 12px;
+  font-size: 11.5px;
   color: var(--coral-ink);
   font-weight: 600;
+  display: flex;
+  align-items: center;
+  gap: 5px;
 }
 
-/* ── Day-of-week picker ───────────────────────────────────────────────── */
+/* ── Day-of-week picker ────────────────────────────────────────────────── */
 
 .day-picker {
   display: flex;
@@ -521,64 +928,160 @@ h3 {
 }
 
 .day-picker__day {
-  min-width: 44px;
-  padding: 8px 10px;
-  font-family: var(--font-mono);
-  font-size: 13px;
-  border: 1px solid var(--line);
-  border-radius: 8px;
-  background: var(--paper);
-  color: var(--ink-700);
+  width: 40px;
+  height: 38px;
+  border-radius: var(--radius-sm);
   cursor: pointer;
+  border: 1px solid var(--border-strong);
+  background: var(--paper);
+  font-family: var(--font-mono);
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--ink-700);
+  transition: background 0.12s ease, border-color 0.12s ease, color 0.12s ease;
 }
 
 .day-picker__day:hover {
-  border-color: var(--ink-500);
+  border-color: var(--ink-400);
+  background: var(--sand-100);
 }
 
 .day-picker__day:focus-visible {
-  outline: 2px solid var(--coral);
-  outline-offset: 1px;
+  box-shadow: var(--focus-ring);
+  outline: none;
 }
 
 .day-picker__day--on {
   background: var(--coral);
   border-color: var(--coral);
-  color: var(--paper);
-  font-weight: 600;
+  color: #fff;
 }
 
-/* ── Toast ────────────────────────────────────────────────────────────── */
+/* ── Toast ─────────────────────────────────────────────────────────────── */
 
 .toasts {
   position: fixed;
-  bottom: 24px;
-  right: 24px;
+  bottom: 22px;
+  right: 22px;
   display: flex;
   flex-direction: column;
   gap: 10px;
-  z-index: 60;
+  z-index: 80;
+  width: 340px;
 }
 
 .toast {
   background: var(--ink-900);
-  color: var(--sand-50);
-  padding: 12px 16px;
-  border-radius: 8px;
-  box-shadow: var(--shadow);
-  font-size: 14px;
-  max-width: 360px;
+  color: #f5efe5;
+  padding: 13px 15px;
+  border-radius: var(--radius);
+  box-shadow: var(--shadow-lg);
+  display: flex;
+  align-items: flex-start;
+  gap: 11px;
+  font-size: 13px;
+  line-height: 1.4;
+  border-left: 3px solid var(--ink-500);
+  animation: toast-in 0.22s cubic-bezier(0.2, 0.9, 0.3, 1.1);
+}
+
+@keyframes toast-in {
+  from {
+    opacity: 0;
+    transform: translateX(20px);
+  }
 }
 
 .toast--success {
-  background: var(--teal);
+  border-left-color: var(--teal);
 }
 
 .toast--error {
-  background: var(--coral-ink);
+  border-left-color: var(--coral);
 }
 
-/* ── Page states ──────────────────────────────────────────────────────── */
+.toast--info {
+  border-left-color: #6fa8d6;
+}
+
+.toast__icon {
+  width: 18px;
+  height: 18px;
+  flex: none;
+  margin-top: 1px;
+}
+
+.toast--success .toast__icon {
+  color: #54c9bc;
+}
+
+.toast--error .toast__icon {
+  color: #f08c77;
+}
+
+.toast--info .toast__icon {
+  color: #9cc6e8;
+}
+
+.toast__body {
+  flex: 1;
+}
+
+/* ── Tabs (e.g. court-request moderation queue) ────────────────────────── */
+
+.tabs {
+  display: flex;
+  gap: 2px;
+  border-bottom: 1px solid var(--border);
+  margin-bottom: 18px;
+}
+
+.tab {
+  border: none;
+  background: none;
+  cursor: pointer;
+  padding: 9px 14px;
+  font-size: 13.5px;
+  font-weight: 600;
+  color: var(--ink-500);
+  border-bottom: 2px solid transparent;
+  margin-bottom: -1px;
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.tab:hover {
+  color: var(--ink-900);
+}
+
+.tab--active,
+.tab[aria-selected="true"] {
+  color: var(--coral-ink);
+  border-bottom-color: var(--coral);
+}
+
+.tab:focus-visible {
+  outline: 2px solid var(--focus);
+  outline-offset: -2px;
+}
+
+.tab .count {
+  font-family: var(--font-mono);
+  font-size: 11px;
+  background: var(--sand-200);
+  color: var(--ink-700);
+  padding: 0 7px;
+  border-radius: 20px;
+}
+
+.tab--active .count,
+.tab[aria-selected="true"] .count {
+  background: var(--coral-soft);
+  color: var(--coral-ink);
+}
+
+/* ── Page states ───────────────────────────────────────────────────────── */
 
 .state {
   color: var(--ink-500);
@@ -589,7 +1092,7 @@ h3 {
   font-weight: 600;
 }
 
-/* ── Login screen ─────────────────────────────────────────────────────── */
+/* ── Login screen ──────────────────────────────────────────────────────── */
 
 .login {
   min-height: 100%;
@@ -601,9 +1104,9 @@ h3 {
 
 .login__card {
   background: var(--paper);
-  border: 1px solid var(--line);
-  border-radius: var(--radius);
-  box-shadow: var(--shadow);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-md);
   padding: 36px 40px;
   width: min(420px, 100%);
   display: flex;
@@ -632,7 +1135,7 @@ h3 {
   color: var(--ink-500);
 }
 
-/* ── Accessibility utility ────────────────────────────────────────────── */
+/* ── Accessibility utility ─────────────────────────────────────────────── */
 
 .visually-hidden {
   position: absolute;
@@ -646,10 +1149,7 @@ h3 {
   border: 0;
 }
 
-/* ── Layout utilities (M2) ────────────────────────────────────────────────
- * Minimal flex helpers M1 found missing; added centrally so screen agents
- * compose layout without editing shared CSS. `.stack` = vertical rhythm,
- * `.cluster` = inline wrap, `.form` = a labelled-field column. */
+/* ── Layout utilities ──────────────────────────────────────────────────── */
 
 .stack {
   display: flex;
@@ -670,13 +1170,8 @@ h3 {
   gap: 16px;
 }
 
-/* ── Fieldset / radio picker (M3 court confirm) ────────────────────────────
- * A bare <fieldset>/<legend> carries UA defaults — a groove border, padding,
- * and a `min-inline-size: min-content` that collapses the element inside the
- * flex confirm modal, piling the radio inputs ("все квадратики в одно место").
- * Reset the box and label the legend like a field, so the free-court picker
- * reads as a clean vertical list of full-width options. */
-
+/* Reset UA <fieldset>/<legend> so the court-confirm radio list reads as a clean
+ * vertical list of full-width options inside the flex modal. */
 fieldset {
   margin: 0;
   padding: 0;
@@ -686,54 +1181,80 @@ fieldset {
 
 legend {
   padding: 0;
-  font-family: var(--font-mono);
-  font-size: 11px;
-  text-transform: uppercase;
-  letter-spacing: 0.12em;
-  color: var(--ink-500);
+  font-size: 12.5px;
+  font-weight: 600;
+  color: var(--ink-700);
 }
 
-/* ── Status tag (M2) ──────────────────────────────────────────────────────
- * Inline pill for an API-decided status (e.g. booking attended/no_show). The
- * value shown is always the server's; the modifier only tints it. */
+/* ── Status tag ────────────────────────────────────────────────────────── */
 
 .tag {
   display: inline-flex;
   align-items: center;
-  gap: 6px;
-  padding: 2px 10px;
-  border-radius: 999px;
-  border: 1px solid var(--line);
-  background: var(--sand-50);
-  color: var(--ink-700);
+  gap: 5px;
+  padding: 2px 9px;
+  border-radius: 20px;
+  border: 1px solid transparent;
   font-family: var(--font-mono);
-  font-size: 12px;
-  line-height: 1.6;
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+  line-height: 1.5;
   white-space: nowrap;
 }
 
+.tag .dot {
+  width: 6px;
+  height: 6px;
+}
+
 .tag--ok {
-  border-color: color-mix(in srgb, var(--teal) 45%, var(--line));
-  background: color-mix(in srgb, var(--teal) 12%, var(--paper));
-  color: var(--teal);
+  background: var(--teal-soft);
+  color: var(--teal-ink);
+  border-color: #bce3dd;
+}
+
+.tag--ok .dot {
+  background: var(--teal);
 }
 
 .tag--warn {
-  border-color: color-mix(in srgb, var(--coral) 45%, var(--line));
-  background: color-mix(in srgb, var(--coral) 12%, var(--paper));
-  color: var(--coral-ink);
+  background: var(--amber-soft);
+  color: var(--amber-ink);
+  border-color: #ecd9a8;
 }
 
-/* Informational tone — marks a group auto-block apart from a manual block. */
+.tag--warn .dot {
+  background: var(--amber);
+}
+
 .tag--info {
-  border-color: color-mix(in srgb, var(--teal) 40%, var(--line));
-  background: color-mix(in srgb, var(--teal) 9%, var(--paper));
-  color: var(--teal);
+  background: var(--sand-200);
+  color: var(--ink-700);
+  border-color: var(--border-strong);
 }
 
-/* ── Court load: control toolbar (M3) ──────────────────────────────────────
- * The date + legend form one control block above the grid, so the manager has
- * a single "what am I looking at / for when" panel rather than loose elements. */
+.tag--info .dot {
+  background: var(--ink-500);
+}
+
+.tag--coral {
+  background: var(--coral-soft);
+  color: var(--coral-ink);
+  border-color: #f1c9bf;
+}
+
+.tag--coral .dot {
+  background: var(--coral);
+}
+
+.tag--muted {
+  background: transparent;
+  color: var(--ink-500);
+  border-color: var(--border);
+}
+
+/* ── Court load: control toolbar ───────────────────────────────────────── */
 
 .toolbar {
   display: flex;
@@ -742,10 +1263,10 @@ legend {
   justify-content: space-between;
   gap: 16px 24px;
   padding: 16px;
-  border: 1px solid var(--line);
+  border: 1px solid var(--border);
   border-radius: var(--radius);
   background: var(--paper);
-  box-shadow: var(--shadow);
+  box-shadow: var(--shadow-sm);
 }
 
 .toolbar__date {
@@ -770,20 +1291,14 @@ legend {
   color: var(--ink-700);
 }
 
-/* A small colour chip explaining a state — reuses the cell state modifiers. */
 .legend__swatch {
   width: 18px;
   height: 18px;
   border-radius: 5px;
-  border: 1px solid var(--line);
+  border: 1px solid var(--border);
 }
 
-/* ── Court load grid (M3) ──────────────────────────────────────────────────
- * Dense courts × working-hours grid. State (free | request | block) is the
- * API's decision — the modifier only tints it; the screen never computes it.
- * Fixed layout makes the hour columns share the full width (no empty gutter),
- * and the court column stays pinned while the hours scroll. Reuse rather than
- * re-styling per screen. */
+/* ── Court load grid ───────────────────────────────────────────────────── */
 
 .load-grid {
   table-layout: fixed;
@@ -800,7 +1315,6 @@ legend {
   text-align: center;
 }
 
-/* Pinned court column (header corner + each row's court number). */
 .load-grid__corner,
 .load-grid__court {
   position: sticky;
@@ -811,16 +1325,13 @@ legend {
 }
 
 .load-grid__corner {
-  background: var(--sand-50);
+  background: var(--sand-100);
 }
 
 .load-grid__court {
   background: var(--paper);
 }
 
-/* A 2-hour column reads as one bar of 30-min sub-segments — its partial fill
- * shows how much of the two hours is held. The grouping is purely visual; the
- * API contract stays 30-min granular. */
 .load-grid__col {
   display: flex;
   gap: 2px;
@@ -830,15 +1341,13 @@ legend {
   overflow: hidden;
 }
 
-/* One 30-min sub-segment. A free/block segment is an inert <span>; a
- * request/training segment is an actionable <button> that opens its detail. */
 .load-seg {
   display: flex;
   align-items: center;
   justify-content: center;
   flex: 1 1 0;
   min-width: 0;
-  border: 1px solid var(--line);
+  border: 1px solid var(--border);
   border-radius: 4px;
   background: var(--sand-50);
   color: var(--ink-500);
@@ -851,7 +1360,7 @@ button.load-seg {
   padding: 0;
   font: inherit;
   cursor: pointer;
-  transition: filter 120ms ease;
+  transition: filter 0.12s ease;
 }
 
 button.load-seg:hover {
@@ -859,7 +1368,7 @@ button.load-seg:hover {
 }
 
 button.load-seg:focus-visible {
-  outline: 2px solid var(--coral);
+  outline: 2px solid var(--focus);
   outline-offset: 2px;
   z-index: 1;
 }
@@ -871,26 +1380,25 @@ button.load-seg:focus-visible {
 
 .load-seg--request {
   border-color: var(--teal);
-  background: color-mix(in srgb, var(--teal) 24%, var(--paper));
-  color: var(--teal);
+  background: var(--teal-soft);
+  color: var(--teal-ink);
   font-weight: 600;
 }
 
 .load-seg--block {
-  border-color: var(--coral);
-  background: color-mix(in srgb, var(--coral) 24%, var(--paper));
-  color: var(--coral-ink);
+  border-color: var(--amber);
+  background: var(--amber-soft);
+  color: var(--amber-ink);
   font-weight: 600;
 }
 
 .load-seg--training {
   border-color: var(--indigo);
-  background: color-mix(in srgb, var(--indigo) 24%, var(--paper));
+  background: color-mix(in srgb, var(--indigo) 18%, var(--paper));
   color: var(--indigo);
   font-weight: 600;
 }
 
-/* Legend swatches reuse the segment tints at a compact fixed size. */
 .legend__swatch.load-seg--free,
 .legend__swatch.load-seg--request,
 .legend__swatch.load-seg--block,
@@ -898,8 +1406,7 @@ button.load-seg:focus-visible {
   flex: none;
 }
 
-/* ── Detail definition list (booking popup) ────────────────────────────────
- * Label/value rows for the court-load "who booked this?" popup. */
+/* ── Detail definition list (booking popup) ────────────────────────────── */
 
 .detail-list {
   display: flex;
@@ -913,7 +1420,7 @@ button.load-seg:focus-visible {
   justify-content: space-between;
   gap: 24px;
   padding: 10px 0;
-  border-bottom: 1px solid var(--line);
+  border-bottom: 1px solid var(--border);
 }
 
 .detail-list__row:last-child {
@@ -931,48 +1438,47 @@ button.load-seg:focus-visible {
   text-align: right;
 }
 
-/* ── View toggle (table | calendar) ────────────────────────────────────────
- * A segmented control in the page header. The pressed segment reads inked, like
- * the active nav item; conveyed via aria-pressed, not colour alone. */
+/* ── View toggle (table | calendar) ────────────────────────────────────── */
 
 .view-toggle {
   display: inline-flex;
-  border: 1px solid var(--line);
-  border-radius: 8px;
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-sm);
   overflow: hidden;
   background: var(--paper);
 }
 
 .view-toggle__btn {
-  font-family: var(--font-body);
-  font-size: 14px;
+  font-family: var(--font-sans);
+  font-size: 13.5px;
   font-weight: 600;
-  padding: 9px 16px;
+  padding: 8px 16px;
   border: none;
   background: transparent;
   color: var(--ink-700);
   cursor: pointer;
+  transition: background 0.12s ease, color 0.12s ease;
 }
 
 .view-toggle__btn + .view-toggle__btn {
-  border-left: 1px solid var(--line);
+  border-left: 1px solid var(--border-strong);
+}
+
+.view-toggle__btn:hover {
+  background: var(--sand-100);
 }
 
 .view-toggle__btn[aria-pressed="true"] {
-  background: var(--ink-900);
-  color: var(--sand-50);
+  background: var(--coral);
+  color: #fff;
 }
 
 .view-toggle__btn:focus-visible {
-  outline: 2px solid var(--coral);
+  outline: 2px solid var(--focus);
   outline-offset: -2px;
 }
 
-/* ── Trainings calendar (Slice B) ──────────────────────────────────────────
- * A Monday-first month grid of generated trainings. Each day cell stacks its
- * date and event chips; chips are colour-coded by group for scanability but
- * always carry their time + name text (colour is never the only signal). All
- * values are the API's — the grid does no occupancy/status/court math. */
+/* ── Trainings calendar ────────────────────────────────────────────────── */
 
 .cal-nav {
   display: flex;
@@ -981,11 +1487,11 @@ button.load-seg:focus-visible {
 }
 
 .calendar {
-  border: 1px solid var(--line);
+  border: 1px solid var(--border);
   border-radius: var(--radius);
   overflow: hidden;
   background: var(--paper);
-  box-shadow: var(--shadow);
+  box-shadow: var(--shadow-sm);
 }
 
 .calendar__head,
@@ -996,31 +1502,31 @@ button.load-seg:focus-visible {
 
 .calendar__weekday {
   font-family: var(--font-mono);
-  font-size: 11px;
+  font-size: 10.5px;
   text-transform: uppercase;
   letter-spacing: 0.1em;
   color: var(--ink-500);
-  background: var(--sand-50);
+  background: var(--sand-100);
   padding: 9px 10px;
   text-align: center;
-  border-bottom: 1px solid var(--line);
+  border-bottom: 1px solid var(--border);
 }
 
 .calendar__weekday + .calendar__weekday {
-  border-left: 1px solid var(--line);
+  border-left: 1px solid var(--border);
 }
 
 .calendar__cell {
   min-height: 104px;
   padding: 6px;
-  border-bottom: 1px solid var(--line);
+  border-bottom: 1px solid var(--border);
   display: flex;
   flex-direction: column;
   gap: 5px;
 }
 
 .calendar__cell + .calendar__cell {
-  border-left: 1px solid var(--line);
+  border-left: 1px solid var(--border);
 }
 
 .calendar__week:last-child .calendar__cell {
@@ -1028,7 +1534,7 @@ button.load-seg:focus-visible {
 }
 
 .calendar__cell--pad {
-  background: color-mix(in srgb, var(--sand-100) 50%, var(--paper));
+  background: color-mix(in srgb, var(--sand-100) 55%, var(--paper));
 }
 
 .calendar__date {
@@ -1048,7 +1554,9 @@ button.load-seg:focus-visible {
   gap: 4px;
 }
 
-/* An event is an actionable chip opening the "whose training?" detail popup. */
+/* An event is an actionable chip opening the "whose training?" detail popup.
+ * Colour-coded by group for scanability, but the time + name text is always
+ * present, so colour is never the sole carrier of meaning. */
 .cal-event {
   display: block;
   width: 100%;
@@ -1065,7 +1573,7 @@ button.load-seg:focus-visible {
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
-  transition: filter 120ms ease;
+  transition: filter 0.12s ease;
 }
 
 .cal-event:hover {
@@ -1073,56 +1581,56 @@ button.load-seg:focus-visible {
 }
 
 .cal-event:focus-visible {
-  outline: 2px solid var(--coral);
+  outline: 2px solid var(--focus);
   outline-offset: 1px;
 }
 
-/* Stable per-group palette: a tint background + a saturated left edge. Text is
- * always present, so these are an aid, never the sole carrier of meaning. */
+/* Stable per-group palette, harmonised with the sand canvas: a soft tint fill
+ * plus a saturated left edge. Eight hues spaced around the wheel. */
 .cal-event--c0 {
-  background: color-mix(in srgb, var(--teal) 14%, var(--paper));
-  border-color: color-mix(in srgb, var(--teal) 40%, var(--line));
+  background: var(--teal-soft);
+  border-color: color-mix(in srgb, var(--teal) 38%, var(--border));
   border-left-color: var(--teal);
 }
 
 .cal-event--c1 {
-  background: color-mix(in srgb, var(--coral) 13%, var(--paper));
-  border-color: color-mix(in srgb, var(--coral) 40%, var(--line));
+  background: var(--coral-soft);
+  border-color: color-mix(in srgb, var(--coral) 38%, var(--border));
   border-left-color: var(--coral);
 }
 
 .cal-event--c2 {
-  background: color-mix(in srgb, #4b6bbd 14%, var(--paper));
-  border-color: color-mix(in srgb, #4b6bbd 40%, var(--line));
-  border-left-color: #4b6bbd;
+  background: color-mix(in srgb, var(--indigo) 14%, var(--paper));
+  border-color: color-mix(in srgb, var(--indigo) 38%, var(--border));
+  border-left-color: var(--indigo);
 }
 
 .cal-event--c3 {
-  background: color-mix(in srgb, #b07d2a 16%, var(--paper));
-  border-color: color-mix(in srgb, #b07d2a 42%, var(--line));
-  border-left-color: #b07d2a;
+  background: var(--amber-soft);
+  border-color: color-mix(in srgb, var(--amber) 40%, var(--border));
+  border-left-color: var(--amber);
 }
 
 .cal-event--c4 {
-  background: color-mix(in srgb, #7a4ea0 14%, var(--paper));
-  border-color: color-mix(in srgb, #7a4ea0 40%, var(--line));
+  background: color-mix(in srgb, #7a4ea0 13%, var(--paper));
+  border-color: color-mix(in srgb, #7a4ea0 38%, var(--border));
   border-left-color: #7a4ea0;
 }
 
 .cal-event--c5 {
-  background: color-mix(in srgb, #2f8f5b 14%, var(--paper));
-  border-color: color-mix(in srgb, #2f8f5b 40%, var(--line));
+  background: color-mix(in srgb, #2f8f5b 13%, var(--paper));
+  border-color: color-mix(in srgb, #2f8f5b 38%, var(--border));
   border-left-color: #2f8f5b;
 }
 
 .cal-event--c6 {
-  background: color-mix(in srgb, #c0566f 14%, var(--paper));
-  border-color: color-mix(in srgb, #c0566f 40%, var(--line));
+  background: color-mix(in srgb, #c0566f 13%, var(--paper));
+  border-color: color-mix(in srgb, #c0566f 38%, var(--border));
   border-left-color: #c0566f;
 }
 
 .cal-event--c7 {
-  background: color-mix(in srgb, #4a8aa0 14%, var(--paper));
-  border-color: color-mix(in srgb, #4a8aa0 40%, var(--line));
+  background: color-mix(in srgb, #4a8aa0 13%, var(--paper));
+  border-color: color-mix(in srgb, #4a8aa0 38%, var(--border));
   border-left-color: #4a8aa0;
 }

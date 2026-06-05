@@ -27,6 +27,9 @@ export const adminRu: Record<string, string> = {
   "admin.nav.labels": "Тексты",
   "admin.nav.sectionsLabel": "Разделы",
   "admin.nav.soon": "скоро",
+  "admin.nav.groupSchedule": "Расписание",
+  "admin.nav.groupCourts": "Корты",
+  "admin.nav.groupComms": "Коммуникации",
 
   // ── Brand / shell ───────────────────────────────────────────────────────
   "admin.brand.sub": "Admin console",
