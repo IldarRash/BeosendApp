@@ -18,6 +18,7 @@ import {
   generationStatusQuerySchema,
   listTrainingsQuerySchema,
   trainerTodayQuerySchema,
+  trainerUpcomingQuerySchema,
   uuid,
   type GenerateAllResult,
   type GenerationStatusItem,
@@ -168,6 +169,21 @@ export class TrainerTodayController {
     const actorTelegramId = parseTelegramId(telegramIdHeader);
     const { telegramId } = validate(trainerTodayQuerySchema, query ?? {});
     return this.trainings.listTrainerToday(actorTelegramId, telegramId);
+  }
+
+  /**
+   * Trainer: their own upcoming trainings over a horizon (default ~14 days), the
+   * confirmation-queue feed. Same trainer-self-or-admin scoping as /me/today; the
+   * response reuses TrainerTodayItem[]. Scoping/horizon in the service.
+   */
+  @Get("me/upcoming")
+  upcoming(
+    @Headers("x-telegram-id") telegramIdHeader: string | undefined,
+    @Query() query: unknown
+  ): Promise<TrainerTodayItem[]> {
+    const actorTelegramId = parseTelegramId(telegramIdHeader);
+    const parsed = validate(trainerUpcomingQuerySchema, query ?? {});
+    return this.trainings.listTrainerUpcoming(actorTelegramId, parsed);
   }
 }
 

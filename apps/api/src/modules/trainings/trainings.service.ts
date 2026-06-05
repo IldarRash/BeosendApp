@@ -27,6 +27,7 @@ import type {
   SlotCard,
   Training,
   TrainerTodayItem,
+  TrainerUpcomingQuery,
   TrainingCalendarItem,
   TrainingRoster
 } from "@beosand/types";
@@ -462,6 +463,47 @@ export class TrainingsService {
 
     const today = new Date().toISOString().slice(0, 10);
     const rows = await this.trainings.listForTrainerOnDate(trainer.id, today);
+
+    return rows.map((row) =>
+      trainerTodayItemSchema.parse({
+        trainingId: row.trainingId,
+        date: row.date,
+        dayOfWeek: isoWeekdayOf(row.date),
+        startTime: row.startTime,
+        endTime: row.endTime,
+        levelName: row.levelName,
+        status: row.status,
+        bookedCount: row.bookedCount,
+        capacity: row.capacity
+      })
+    );
+  }
+
+  /**
+   * A trainer's own upcoming trainings over a horizon (the confirmation queue feed).
+   * Same trainer-scoping invariant as listTrainerToday: the actor is resolved to a
+   * trainer by telegram_id (403 if none), and `query.telegramId` must equal the actor
+   * unless the actor is admin. The window is [today, today + days] with `days`
+   * defaulting to 14 (bounded 1..31 by the contract). Results are filtered to the
+   * resolved trainer's trainings and validated against the contract.
+   */
+  async listTrainerUpcoming(
+    actorTelegramId: number,
+    query: TrainerUpcomingQuery
+  ): Promise<TrainerTodayItem[]> {
+    const actorIsAdmin = isAdmin(this.env, actorTelegramId);
+    if (!actorIsAdmin && query.telegramId !== actorTelegramId) {
+      throw new ForbiddenException("Cannot read another trainer's schedule");
+    }
+
+    const trainer = await this.trainers.findByTelegramId(query.telegramId);
+    if (!trainer) {
+      throw new ForbiddenException("Caller is not a trainer");
+    }
+
+    const today = new Date().toISOString().slice(0, 10);
+    const to = addDays(today, query.days ?? 14);
+    const rows = await this.trainings.listForTrainerInRange(trainer.id, today, to);
 
     return rows.map((row) =>
       trainerTodayItemSchema.parse({

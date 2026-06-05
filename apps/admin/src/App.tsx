@@ -14,6 +14,7 @@ import { Groups } from "./pages/Groups";
 import { Labels } from "./pages/Labels";
 import { Levels } from "./pages/Levels";
 import { Login } from "./pages/Login";
+import { Subscriptions } from "./pages/Subscriptions";
 import { Trainers } from "./pages/Trainers";
 import { Trainings } from "./pages/Trainings";
 import { LanguageProvider } from "./i18n/LanguageProvider";
@@ -92,6 +93,14 @@ export function App(): JSX.Element {
                   element={
                     <RequireAuth>
                       <Clients />
+                    </RequireAuth>
+                  }
+                />
+                <Route
+                  path="/subscriptions"
+                  element={
+                    <RequireAuth>
+                      <Subscriptions />
                     </RequireAuth>
                   }
                 />

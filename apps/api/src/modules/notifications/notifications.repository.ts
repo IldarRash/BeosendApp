@@ -222,6 +222,42 @@ export class NotificationsRepository {
   }
 
   /**
+   * Render fields + Telegram id for one client across many trainings, regardless
+   * of booking status — the pending/declined DMs (trainer confirmation) fire while
+   * the booking is `pending` or already `cancelled`, so the booked-only lookups
+   * don't fit. No log anti-join: these are notification-only sends the service
+   * fires once per decision. Ordered by date for a readable batch summary.
+   */
+  async findClientTrainingRenderFields(
+    clientId: string,
+    trainingIds: string[]
+  ): Promise<NotificationRecipient[]> {
+    if (trainingIds.length === 0) {
+      return [];
+    }
+    const rows = await this.database.db
+      .select({
+        clientId: tables.clients.id,
+        trainingId: tables.trainings.id,
+        telegramId: tables.clients.telegramId,
+        date: tables.trainings.date,
+        startTime: tables.trainings.startTime,
+        endTime: tables.trainings.endTime,
+        trainerName: tables.trainers.name,
+        levelName: tables.levels.name
+      })
+      .from(tables.trainings)
+      .innerJoin(tables.trainers, eq(tables.trainings.trainerId, tables.trainers.id))
+      .innerJoin(tables.clients, eq(tables.clients.id, clientId))
+      .leftJoin(tables.groups, eq(tables.trainings.groupId, tables.groups.id))
+      .leftJoin(tables.levels, eq(tables.groups.levelId, tables.levels.id))
+      .where(inArray(tables.trainings.id, trainingIds))
+      .orderBy(asc(tables.trainings.date), asc(tables.trainings.startTime));
+
+    return rows.map((row) => normalizeRecipient(row));
+  }
+
+  /**
    * Render fields + Telegram id for one (client, training) pair regardless of any
    * booking — the waitlist-slot send (T2.1) targets a client who is waiting, not
    * booked, so the booked-only lookups don't fit. No log anti-join: the waitlist

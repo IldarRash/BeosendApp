@@ -93,6 +93,67 @@ export function individualSessionRequestMessage(client: Client): string {
 }
 
 /**
+ * Client acknowledgement that a booking request was placed and is awaiting the
+ * trainer's confirmation (the seat is held meanwhile). UX §14 style.
+ */
+export function bookingPendingMessage(recipient: NotificationRecipient): string {
+  return `Заявка отправлена ⏳\n${trainingLine(recipient)}\nОжидаем подтверждения тренера.`;
+}
+
+/**
+ * Client notice that the trainer declined the booking request and the held seat
+ * was released. UX §14 style.
+ */
+export function bookingDeclinedMessage(recipient: NotificationRecipient): string {
+  return `Заявка отклонена ❌\n${trainingLine(recipient)}\nК сожалению, тренер не подтвердил запись.`;
+}
+
+/**
+ * Client notice that the trainer declined a monthly-subscription batch: one
+ * summary listing the declined dates so the client is not flooded. UX §14 style.
+ */
+export function groupBookingDeclinedMessage(recipients: NotificationRecipient[]): string {
+  const lines = recipients
+    .map((recipient) => `• ${recipient.date} ${recipient.startTime}–${recipient.endTime}`)
+    .join("\n");
+  return `Заявка на абонемент отклонена ❌ (${recipients.length} тренировок)\n${lines}`;
+}
+
+/**
+ * Trainer DM for a single pending booking request (notification-only, no log
+ * row — modeled on individualSessionRequestMessage). Names the client and the
+ * session; the inline confirm/decline keyboard is attached by the service. RU
+ * string, HTML-safe client name.
+ */
+export function bookingPendingTrainerMessage(
+  recipient: NotificationRecipient,
+  clientName: string
+): string {
+  return (
+    `Новая заявка на запись ⏳\n${escapeHtml(clientName)}\n${trainingLine(recipient)}\n` +
+    `Подтвердите или отклоните запись.`
+  );
+}
+
+/**
+ * Trainer DM for a monthly-subscription batch of pending requests: one DM
+ * listing the requested dates with a single confirm/decline keyboard (attached
+ * by the service). Notification-only, no log row. RU string, HTML-safe name.
+ */
+export function groupPendingTrainerMessage(
+  recipients: NotificationRecipient[],
+  clientName: string
+): string {
+  const lines = recipients
+    .map((recipient) => `• ${recipient.date} ${recipient.startTime}–${recipient.endTime}`)
+    .join("\n");
+  return (
+    `Новая заявка на абонемент ⏳\n${escapeHtml(clientName)} (${recipients.length} тренировок)\n` +
+    `${lines}\nПодтвердите или отклоните заявку.`
+  );
+}
+
+/**
  * Waitlist-slot message (T2.1): a seat freed up on a training the client is
  * waiting for. Carries an inline "Подтвердить" button (added by the service) and
  * states the confirmation window so the client knows it is time-limited.

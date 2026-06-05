@@ -403,6 +403,11 @@ function GroupResult({
 }): JSX.Element {
   const t = useT();
 
+  // The server decides each created booking's status: `pending` when the group's
+  // trainer must confirm, `booked` when auto-confirmed (trainer has no Telegram).
+  // The Mini App only reflects it in the result copy; it never decides confirmation.
+  const isPending = result.created.some((booking) => booking.status === "pending");
+
   // One primary affordance on the result: "to my bookings".
   useMainButton({
     text: t("miniapp.group.toMyBookings"),
@@ -411,14 +416,16 @@ function GroupResult({
 
   return (
     <div className="screen" role="status" aria-live="polite">
-      <Placeholder header={t("miniapp.group.resultTitle")}>
+      <Placeholder header={t(isPending ? "miniapp.group.pendingTitle" : "miniapp.group.resultTitle")}>
         <span className="success-badge" aria-hidden="true">
           ✓
         </span>
       </Placeholder>
 
       <span className="created-count">
-        {t("miniapp.group.createdCount", { count: result.created.length })}
+        {t(isPending ? "miniapp.group.pendingCount" : "miniapp.group.createdCount", {
+          count: result.created.length
+        })}
       </span>
 
       {result.skipped.length > 0 && (

@@ -185,7 +185,10 @@ export class WaitlistService {
       groupSubscriptionId: booking.groupSubscriptionId,
       createdAt: booking.createdAt.toISOString(),
       status: booking.status,
-      source: "telegram"
+      source: "telegram",
+      paymentStatus: booking.paymentStatus,
+      paidAt: booking.paidAt?.toISOString() ?? null,
+      paidBy: booking.paidBy ?? null
     });
   }
 

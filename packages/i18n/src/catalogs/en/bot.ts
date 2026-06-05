@@ -195,6 +195,14 @@ export const botEn: Record<string, string> = {
   "bot.trainer.attendance.no_show": "❌ no-show",
   "bot.trainer.rosterButton": "📋 Roster · {day} {time}",
   "bot.trainer.backToTrainings": "⬅️ To trainings",
+  "bot.trainer.upcomingHeader": "Your upcoming trainings:",
+  "bot.trainer.noUpcoming": "You have no upcoming trainings 🙌",
+
+  // --- Trainer confirmation (trainer-confirm.ts) ---
+  "bot.trainerConfirm.confirmed": "✅ Booking confirmed.",
+  "bot.trainerConfirm.declined": "❌ Booking declined.",
+  "bot.trainerConfirm.alreadyDecided": "This request has already been handled.",
+  "bot.trainerConfirm.notAuthorized": "You don't have permission for this action.",
 
   // --- Broadcasts (broadcast.ts) ---
   "bot.broadcast.notAdmin":

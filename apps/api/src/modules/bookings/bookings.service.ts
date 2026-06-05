@@ -35,6 +35,7 @@ import { ENV } from "../../config/config.module";
 import { ClientsRepository } from "../clients/clients.repository";
 import { GroupsRepository } from "../groups/groups.repository";
 import { NotificationsService } from "../notifications/notifications.service";
+import type { InlineKeyboardMarkup } from "../notifications/telegram-sender";
 import { TrainersRepository } from "../trainers/trainers.repository";
 import { WaitlistService } from "../waitlist/waitlist.service";
 import { BookingsRepository, type TrainingLockRow } from "./bookings.repository";
@@ -82,26 +83,41 @@ export class BookingsService {
   async createSingle(actorTelegramId: number, input: CreateSingleInput): Promise<Booking> {
     await this.assertOwnsClient(actorTelegramId, input.clientId);
 
+    // The training's trainer (resolved inside the tx) decides confirmation flow:
+    // a trainer with a Telegram id gets a confirm/decline DM (booking starts
+    // 'pending'); a trainer with NO telegram id can never confirm, so we
+    // auto-confirm ('booked') to avoid a request that hangs forever.
+    let trainerTelegramId: number | null = null;
+
     const booking = await this.bookings.transaction(async (tx) => {
       const training = await this.bookings.findTrainingForUpdate(tx, input.trainingId);
       if (!training) {
         throw new NotFoundException(`Training ${input.trainingId} not found`);
       }
+      const trainer = await this.trainers.findById(training.trainerId);
+      trainerTelegramId = trainer?.telegramId ?? null;
+      // Auto-confirm when the trainer has no Telegram channel; else hold as pending.
+      const status: "booked" | "pending" = trainerTelegramId === null ? "booked" : "pending";
       return this.bookSeat(tx, {
         clientId: input.clientId,
         training,
         type: "single",
-        source: "telegram"
+        source: "telegram",
+        status
       });
     });
 
-    // After the commit, fire-and-forget: a confirmation failure must never undo
-    // the booking or surface as an error to the caller. The notifications service
-    // is idempotent and swallows send errors; we still guard here so a failure in
-    // the pre-send dedupe/lookup (e.g. a DB hiccup) cannot 500 a committed booking.
-    await this.sendConfirmationSafely(() =>
-      this.notifications.sendBookingConfirmation(input.clientId, input.trainingId)
-    );
+    // After the commit, fire-and-forget: a notification failure must never undo
+    // the booking or surface as an error to the caller. All sends are idempotent and
+    // swallow errors; we still guard so a pre-send DB hiccup cannot 500 the booking.
+    if (booking.status === "booked") {
+      // Auto-confirmed (no-trainer-telegram): the seat is final, send the confirmation.
+      await this.sendConfirmationSafely(() =>
+        this.notifications.sendBookingConfirmation(input.clientId, input.trainingId)
+      );
+    } else {
+      await this.notifyPendingSafely(booking, trainerTelegramId);
+    }
 
     return bookingSchema.parse(booking);
   }
@@ -144,11 +160,14 @@ export class BookingsService {
       // source = "walk_in" when the booked client has no telegram_id, else "admin".
       source = client.telegramId === null ? "walk_in" : "admin";
 
+      // Auto-confirm ('booked'): an admin/trainer booking from the console is the
+      // decision itself — there is no separate confirmation step to wait on.
       return this.bookSeat(tx, {
         clientId: input.clientId,
         training,
         type: "single",
-        source
+        source,
+        status: "booked"
       });
     });
 
@@ -172,6 +191,11 @@ export class BookingsService {
    * with a typed 409, inserts the booking, then increments bookedCount and
    * recomputes open⇔full so concurrent bookings can never oversell. The only
    * booking math in the module lives here.
+   *
+   * `status` is 'pending' for a client request that must wait for trainer
+   * confirmation, 'booked' for an auto-confirmed path (manual/walk-in/no-trainer-
+   * telegram). EITHER status holds a seat: bookedCount is incremented identically,
+   * so recompute / free-seats / open⇔full are unchanged by the pending hold.
    */
   private async bookSeat(
     tx: Database,
@@ -180,9 +204,10 @@ export class BookingsService {
       training: TrainingLockRow;
       type: "single" | "group";
       source: BookingSource;
+      status: "booked" | "pending";
     }
   ): Promise<Booking> {
-    const { clientId, training, type, source } = params;
+    const { clientId, training, type, source, status } = params;
 
     if (
       !isBookable({
@@ -205,7 +230,7 @@ export class BookingsService {
       trainingId: training.id,
       type,
       groupSubscriptionId: null,
-      status: "booked",
+      status,
       source
     });
 
@@ -261,6 +286,14 @@ export class BookingsService {
 
     const groupSubscriptionId = randomUUID();
 
+    // The group's trainer decides the batch confirmation flow (all instances share
+    // it): a trainer with a Telegram id gets ONE confirm/decline DM (rows start
+    // 'pending'); a trainer with NO telegram id can never confirm, so the batch
+    // auto-confirms ('booked') to avoid a request that hangs forever.
+    const trainer = await this.trainers.findById(group.trainerId);
+    const trainerTelegramId = trainer?.telegramId ?? null;
+    const batchStatus: "booked" | "pending" = trainerTelegramId === null ? "booked" : "pending";
+
     const result = await this.bookings.transaction(async (tx) => {
       const { created, skipped, trainingCount } = await this.bookGroupMonth(tx, {
         clientId: input.clientId,
@@ -268,6 +301,7 @@ export class BookingsService {
         fromClamped,
         to,
         groupSubscriptionId,
+        status: batchStatus,
         source: "telegram"
       });
 
@@ -286,15 +320,25 @@ export class BookingsService {
         `${input.year}-${input.month}: ${result.created.length} created, ${result.skipped.length} skipped`
     );
 
-    // After the commit, one batch-summary confirmation for the dates created.
+    const createdTrainingIds = result.created.map((booking) => booking.trainingId);
+    // After the commit, one batch-summary notification for the dates created.
     // Fire-and-forget and idempotent; a failure never undoes the batch nor 500s
-    // the committed booking — see sendConfirmationSafely.
-    await this.sendConfirmationSafely(() =>
-      this.notifications.sendGroupBookingConfirmation(
-        input.clientId,
-        result.created.map((booking) => booking.trainingId)
-      )
-    );
+    // the committed booking — see sendConfirmationSafely / notifyGroupPendingSafely.
+    if (createdTrainingIds.length > 0) {
+      if (batchStatus === "booked") {
+        // Auto-confirmed batch (no-trainer-telegram): seats are final, confirm them.
+        await this.sendConfirmationSafely(() =>
+          this.notifications.sendGroupBookingConfirmation(input.clientId, createdTrainingIds)
+        );
+      } else {
+        await this.notifyGroupPendingSafely(
+          input.clientId,
+          createdTrainingIds,
+          groupSubscriptionId,
+          trainerTelegramId
+        );
+      }
+    }
 
     return groupBookingResultSchema.parse(result);
   }
@@ -317,6 +361,10 @@ export class BookingsService {
       fromClamped: string;
       to: string;
       groupSubscriptionId: string;
+      /** Seat-holding status of each inserted booking: 'pending' awaits trainer
+       *  confirmation (client monthly booking with a reachable trainer), 'booked'
+       *  is final (auto-confirm or the admin transfer). The seat is held either way. */
+      status: "booked" | "pending";
       source: BookingSource;
     }
   ): Promise<{
@@ -324,7 +372,7 @@ export class BookingsService {
     skipped: string[];
     trainingCount: number;
   }> {
-    const { clientId, groupId, fromClamped, to, groupSubscriptionId, source } = params;
+    const { clientId, groupId, fromClamped, to, groupSubscriptionId, status, source } = params;
 
     const trainings = await this.bookings.findGroupTrainingsForMonthForUpdate(
       tx,
@@ -359,7 +407,7 @@ export class BookingsService {
         trainingId: training.id,
         type: "group",
         groupSubscriptionId,
-        status: "booked",
+        status,
         source
       });
 
@@ -450,6 +498,8 @@ export class BookingsService {
         fromClamped,
         to: monthLast,
         groupSubscriptionId,
+        // Admin-initiated move: seats are final, no trainer confirmation step.
+        status: "booked",
         source: "admin"
       });
 
@@ -501,8 +551,10 @@ export class BookingsService {
     const rows = await this.bookings.listForClient(clientId, scope, today);
 
     return rows.map((row) => {
+      // A `pending` request also holds a seat and is withdrawable by the client,
+      // so it is cancel-eligible exactly like a `booked` one.
       const canCancel =
-        row.bookingStatus === "booked" &&
+        (row.bookingStatus === "booked" || row.bookingStatus === "pending") &&
         row.date >= today &&
         (row.trainingStatus === "open" || row.trainingStatus === "full");
       return myBookingItemSchema.parse({
@@ -549,8 +601,9 @@ export class BookingsService {
 
       await this.assertOwnsClient(actorTelegramId, booking.clientId);
 
-      if (booking.status !== "booked") {
+      if (booking.status !== "booked" && booking.status !== "pending") {
         // Already cancelled/attended/no_show/waitlist — nothing to free; typed 409.
+        // A `pending` request holds a seat, so it IS cancellable (a client withdraw).
         throw new ConflictException(`Booking is not cancellable (status ${booking.status})`);
       }
 
@@ -639,6 +692,289 @@ export class BookingsService {
   }
 
   /**
+   * Trainer/admin confirms a single `pending` booking → `booked` (trainer
+   * confirmation). In one transaction the booking and its training are locked FOR
+   * UPDATE; the caller is authorized against the training's trainerId
+   * (assertTrainerOrAdmin); the status must be `pending` (a double-confirm, or a
+   * confirm after the client withdrew, is a typed 409). NO counter change: the
+   * `pending` seat was already counted at create time, so booked⇔pending is purely
+   * a status flip. Post-commit the client gets the booking-confirmed DM.
+   */
+  async confirmBooking(actorTelegramId: number, bookingId: string): Promise<Booking> {
+    const result = await this.bookings.transaction(async (tx) => {
+      const booking = await this.bookings.findBookingForUpdate(tx, bookingId);
+      if (!booking) {
+        throw new NotFoundException(`Booking ${bookingId} not found`);
+      }
+      const training = await this.bookings.findTrainingForUpdate(tx, booking.trainingId);
+      if (!training) {
+        throw new NotFoundException(`Training ${booking.trainingId} not found`);
+      }
+      await this.assertTrainerOrAdmin(actorTelegramId, training.trainerId);
+
+      if (booking.status !== "pending") {
+        throw new ConflictException(`Booking is not pending (status ${booking.status})`);
+      }
+
+      const updated = await this.bookings.updateBookingStatus(tx, bookingId, "booked");
+      this.logger.log(`Confirmed booking ${bookingId} on training ${booking.trainingId}`);
+      return { updated, clientId: booking.clientId, trainingId: booking.trainingId };
+    });
+
+    // Post-commit: the seat is now final, send the standard confirmation DM.
+    await this.sendConfirmationSafely(() =>
+      this.notifications.sendBookingConfirmation(result.clientId, result.trainingId)
+    );
+
+    return bookingSchema.parse(result.updated);
+  }
+
+  /**
+   * Trainer/admin declines a single `pending` booking → `cancelled`, freeing its
+   * held seat (trainer confirmation). Same lock/authorize/guard as confirmBooking,
+   * but mirrors cancelBooking's seat-free body: bookedCount-1 (floored at 0) +
+   * recompute (full→open), then — post-commit, SAME ordering as cancelBooking — the
+   * client booking-declined DM and waitlist promotion against the freed seat.
+   */
+  async declineBooking(actorTelegramId: number, bookingId: string): Promise<Booking> {
+    const result = await this.bookings.transaction(async (tx) => {
+      const booking = await this.bookings.findBookingForUpdate(tx, bookingId);
+      if (!booking) {
+        throw new NotFoundException(`Booking ${bookingId} not found`);
+      }
+      const training = await this.bookings.findTrainingForUpdate(tx, booking.trainingId);
+      if (!training) {
+        throw new NotFoundException(`Training ${booking.trainingId} not found`);
+      }
+      await this.assertTrainerOrAdmin(actorTelegramId, training.trainerId);
+
+      if (booking.status !== "pending") {
+        throw new ConflictException(`Booking is not pending (status ${booking.status})`);
+      }
+
+      const updated = await this.bookings.markCancelled(tx, bookingId);
+      const newCount = Math.max(0, training.bookedCount - 1);
+      const newStatus = recomputeTrainingStatus({
+        capacity: training.capacity,
+        bookedCount: newCount,
+        status: training.status
+      });
+      await this.bookings.updateTrainingCount(tx, booking.trainingId, newCount, newStatus);
+      this.logger.log(
+        `Declined booking ${bookingId} on training ${booking.trainingId} ` +
+          `(${newCount}/${training.capacity}, ${newStatus})`
+      );
+      return { updated, clientId: booking.clientId, trainingId: booking.trainingId };
+    });
+
+    // Post-commit, SAME ordering as cancelBooking: tell the client, then promote
+    // the waitlist head against the now-free seat. Both are self-tolerant.
+    await this.sendConfirmationSafely(() =>
+      this.notifications.sendBookingDeclined(result.clientId, result.trainingId)
+    );
+    await this.promoteWaitlistSafely(result.trainingId);
+
+    return bookingSchema.parse(result.updated);
+  }
+
+  /**
+   * Trainer/admin confirms a monthly-subscription batch: every `pending` row of the
+   * subscription → `booked` (no counter change — each seat was held at create time).
+   * Mutates ONLY the batch's `pending` rows, so siblings on other subscriptions and
+   * already-decided rows are untouched — this protects the monthly-batch invariant.
+   *
+   * The whole batch (any status) is loaded FOR UPDATE first so authorization and the
+   * existence/already-decided guards run BEFORE any short-circuit, matching the
+   * single-booking confirmBooking path: an unknown subscription is a 404, an
+   * unauthorized caller is a 403 (even with no pending rows), and an already-decided
+   * batch (none pending) is a 409 — never a silent no-op. Post-commit: ONE client
+   * group confirmation DM summarizing the dates.
+   */
+  async confirmSubscription(
+    actorTelegramId: number,
+    groupSubscriptionId: string
+  ): Promise<GroupBookingResult> {
+    const result = await this.bookings.transaction(async (tx) => {
+      const pending = await this.loadDecidableBatch(tx, actorTelegramId, groupSubscriptionId);
+
+      for (const row of pending) {
+        await this.bookings.updateBookingStatus(tx, row.id, "booked");
+      }
+      this.logger.log(
+        `Confirmed subscription ${groupSubscriptionId}: ${pending.length} bookings → booked`
+      );
+      return {
+        clientId: pending[0].clientId,
+        trainingIds: pending.map((row) => row.trainingId)
+      };
+    });
+
+    await this.sendConfirmationSafely(() =>
+      this.notifications.sendGroupBookingConfirmation(result.clientId, result.trainingIds)
+    );
+
+    return groupBookingResultSchema.parse({
+      groupSubscriptionId,
+      created: [],
+      skipped: []
+    });
+  }
+
+  /**
+   * Trainer/admin declines a monthly-subscription batch: every `pending` row of the
+   * subscription → `cancelled`, freeing each held seat. Same subscription-only
+   * scoping and single authorization as confirmSubscription. Per training:
+   * bookedCount-1 (floored) + recompute (full→open). Same existence/already-decided/
+   * authorization guards as confirmSubscription (404 / 409 / 403 — never a silent
+   * no-op). Post-commit: ONE client decline DM, then per-training waitlist promotion
+   * against the freed seats.
+   */
+  async declineSubscription(
+    actorTelegramId: number,
+    groupSubscriptionId: string
+  ): Promise<GroupBookingResult> {
+    const result = await this.bookings.transaction(async (tx) => {
+      const pending = await this.loadDecidableBatch(tx, actorTelegramId, groupSubscriptionId);
+
+      for (const row of pending) {
+        const training = await this.bookings.findTrainingForUpdate(tx, row.trainingId);
+        if (!training) {
+          throw new NotFoundException(`Training ${row.trainingId} not found`);
+        }
+        await this.bookings.markCancelled(tx, row.id);
+        const newCount = Math.max(0, training.bookedCount - 1);
+        const newStatus = recomputeTrainingStatus({
+          capacity: training.capacity,
+          bookedCount: newCount,
+          status: training.status
+        });
+        await this.bookings.updateTrainingCount(tx, row.trainingId, newCount, newStatus);
+      }
+      this.logger.log(
+        `Declined subscription ${groupSubscriptionId}: ${pending.length} bookings → cancelled`
+      );
+      return {
+        clientId: pending[0].clientId,
+        trainingIds: pending.map((row) => row.trainingId)
+      };
+    });
+
+    // One summary decline DM, then promote each freed training (self-tolerant).
+    const clientId = result.clientId;
+    await this.sendConfirmationSafely(() =>
+      this.notifications.sendGroupBookingDeclined(clientId, result.trainingIds)
+    );
+    for (const trainingId of result.trainingIds) {
+      await this.promoteWaitlistSafely(trainingId);
+    }
+
+    return groupBookingResultSchema.parse({
+      groupSubscriptionId,
+      created: [],
+      skipped: []
+    });
+  }
+
+  /**
+   * Load a subscription batch for a confirm/decline decision and enforce, IN THIS
+   * ORDER, the same guards as the single-booking path — before any mutation or
+   * short-circuit so an unauthorized caller can never use the endpoint as an oracle:
+   * 1. existence — the whole batch (any status) is read FOR UPDATE; an unknown
+   *    subscription with no rows is a 404.
+   * 2. authorization — the caller must be the batch's trainer (or admin); a
+   *    non-owning trainer is a 403 even when nothing is pending (authz-before-no-op).
+   * 3. decidability — at least one row must be `pending`; an already-decided batch is
+   *    a 409, matching confirmBooking/declineBooking rather than a silent no-op.
+   * Returns the `pending` rows (guaranteed non-empty) for the caller to mutate. The
+   * batch shares one trainer, so authorizing against the first row's trainerId
+   * authorizes the whole batch.
+   */
+  private async loadDecidableBatch(
+    tx: Database,
+    actorTelegramId: number,
+    groupSubscriptionId: string
+  ): Promise<{ id: string; clientId: string; trainingId: string }[]> {
+    const batch = await this.bookings.findBySubscriptionForUpdate(tx, groupSubscriptionId);
+    if (batch.length === 0) {
+      throw new NotFoundException(`Subscription ${groupSubscriptionId} not found`);
+    }
+    await this.assertTrainerOrAdmin(actorTelegramId, batch[0].trainerId);
+
+    const pending = batch.filter((row) => row.status === "pending");
+    if (pending.length === 0) {
+      throw new ConflictException("Subscription is not pending (already decided)");
+    }
+    return pending.map((row) => ({
+      id: row.id,
+      clientId: row.clientId,
+      trainingId: row.trainingId
+    }));
+  }
+
+  /**
+   * Post-commit pending notifications for a single client request: an
+   * acknowledgement to the client, and (only when the trainer has a Telegram id) a
+   * confirm/decline DM to the trainer. Self-tolerant: a send failure never 500s the
+   * committed booking.
+   */
+  private async notifyPendingSafely(
+    booking: Booking,
+    trainerTelegramId: number | null
+  ): Promise<void> {
+    try {
+      await this.notifications.sendBookingPending(booking.clientId, booking.trainingId);
+      if (trainerTelegramId !== null) {
+        const client = await this.clients.findById(booking.clientId);
+        await this.notifications.sendBookingPendingToTrainer(
+          trainerTelegramId,
+          booking.clientId,
+          booking.trainingId,
+          client?.name ?? "",
+          singleConfirmKeyboard(booking.id)
+        );
+      }
+    } catch (error) {
+      this.logger.error(
+        "Pending notification failed (booking stands): " +
+          (error instanceof Error ? error.message : String(error))
+      );
+    }
+  }
+
+  /**
+   * Post-commit pending notifications for a monthly-subscription batch: an
+   * acknowledgement is implicit in the ONE trainer DM (keyed on the subscription)
+   * plus a client batch acknowledgement; the trainer DM is sent only when the
+   * trainer has a Telegram id. Self-tolerant: failures never 500 the committed batch.
+   */
+  private async notifyGroupPendingSafely(
+    clientId: string,
+    trainingIds: string[],
+    groupSubscriptionId: string,
+    trainerTelegramId: number | null
+  ): Promise<void> {
+    try {
+      // Client acknowledgement keyed on the earliest created training (idempotent).
+      await this.notifications.sendBookingPending(clientId, trainingIds[0]);
+      if (trainerTelegramId !== null) {
+        const client = await this.clients.findById(clientId);
+        await this.notifications.sendGroupPendingToTrainer(
+          trainerTelegramId,
+          clientId,
+          trainingIds,
+          client?.name ?? "",
+          subscriptionConfirmKeyboard(groupSubscriptionId)
+        );
+      }
+    } catch (error) {
+      this.logger.error(
+        "Group-pending notification failed (batch stands): " +
+          (error instanceof Error ? error.message : String(error))
+      );
+    }
+  }
+
+  /**
    * Authorize a trainer-scoped write: admins always pass; otherwise the caller's
    * resolved trainer id must equal the training's trainerId. Enforced here, never
    * in the bot.
@@ -703,4 +1039,36 @@ export class BookingsService {
       throw new ForbiddenException("Cannot book on behalf of another client");
     }
   }
+}
+
+/**
+ * Trainer DM confirm/decline keyboard for a single pending booking. Callback data
+ * `confirm:bk:<bookingId>` / `decline:bk:<bookingId>` — a UUID id, so ≤ 47 bytes,
+ * well under Telegram's 64-byte callback_data cap. The bot routes on these exactly.
+ */
+function singleConfirmKeyboard(bookingId: string): InlineKeyboardMarkup {
+  return {
+    inline_keyboard: [
+      [
+        { text: "✅ Подтвердить", callback_data: `confirm:bk:${bookingId}` },
+        { text: "❌ Отклонить", callback_data: `decline:bk:${bookingId}` }
+      ]
+    ]
+  };
+}
+
+/**
+ * Trainer DM confirm/decline keyboard for a monthly-subscription batch. Callback
+ * data `confirm:sub:<groupSubscriptionId>` / `decline:sub:<groupSubscriptionId>` —
+ * ≤ 48 bytes, under the 64-byte cap. The bot routes on these exactly.
+ */
+function subscriptionConfirmKeyboard(groupSubscriptionId: string): InlineKeyboardMarkup {
+  return {
+    inline_keyboard: [
+      [
+        { text: "✅ Подтвердить", callback_data: `confirm:sub:${groupSubscriptionId}` },
+        { text: "❌ Отклонить", callback_data: `decline:sub:${groupSubscriptionId}` }
+      ]
+    ]
+  };
 }

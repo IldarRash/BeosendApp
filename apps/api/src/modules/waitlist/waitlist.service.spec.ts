@@ -184,6 +184,9 @@ class FakeWaitlistRepository {
     createdAt: Date;
     status: "booked";
     source: string;
+    paymentStatus: "unpaid";
+    paidAt: null;
+    paidBy: null;
   }> {
     const booking = {
       id: `cccccccc-cccc-cccc-cccc-0000000000${String(++this.seq).padStart(2, "0")}`,
@@ -193,7 +196,10 @@ class FakeWaitlistRepository {
       groupSubscriptionId: null,
       createdAt: new Date(),
       status: "booked" as const,
-      source: "telegram"
+      source: "telegram",
+      paymentStatus: "unpaid" as const,
+      paidAt: null,
+      paidBy: null
     };
     this.bookings.push({
       id: booking.id,

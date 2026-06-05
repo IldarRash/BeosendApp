@@ -112,6 +112,16 @@ function todayIso(): string {
   return new Date().toISOString().slice(0, 10);
 }
 
+/**
+ * True when the grid has court rows but every already-decided cell is `free`. A
+ * pure check over the API's cell states — no occupancy, limit, or availability
+ * math — so we can show an explicit "all free" hint instead of a grid that reads
+ * as "nothing happened".
+ */
+function allCellsFree(rows: readonly CourtLoadRow[]): boolean {
+  return rows.length > 0 && rows.every((row) => row.cells.every((cell) => cell.state === "free"));
+}
+
 /** Human-readable error from a failed query (the API decides the text). */
 function errorText(error: unknown, t: Translate): string {
   return error instanceof Error ? error.message : t("admin.courtLoad.loadError");
@@ -189,47 +199,48 @@ export function CourtLoad(): JSX.Element {
             {errorText(load.error, t)}
           </p>
         ) : grid && grid.rows.length > 0 ? (
-          <div className="datatable__scroll">
-            <table className="datatable load-grid">
-              <caption className="visually-hidden">
-                {t("admin.courtLoad.caption", { date: grid.date })}
-              </caption>
-              <thead>
-                <tr>
-                  <th scope="col" className="load-grid__corner">
-                    {t("admin.courtLoad.colCourt")}
-                  </th>
-                  {headerColumns.map((column) => (
-                    <th key={column.startHour} scope="col" className="datatable__num">
-                      {columnLabel(column)}
+          <>
+            {allCellsFree(grid.rows) ? (
+              <p className="state">{t("admin.courtLoad.allFreeHint")}</p>
+            ) : null}
+            <div className="datatable__scroll">
+              <table className="datatable load-grid">
+                <caption className="visually-hidden">
+                  {t("admin.courtLoad.caption", { date: grid.date })}
+                </caption>
+                <thead>
+                  <tr>
+                    <th scope="col" className="load-grid__corner">
+                      {t("admin.courtLoad.colCourt")}
                     </th>
+                    {headerColumns.map((column) => (
+                      <th key={column.startHour} scope="col" className="datatable__num">
+                        {columnLabel(column)}
+                      </th>
+                    ))}
+                  </tr>
+                </thead>
+                <tbody>
+                  {grid.rows.map((row) => (
+                    <CourtRow
+                      key={row.courtId}
+                      row={row}
+                      columns={groupColumns(row.cells)}
+                      onOpenRequest={setOpenRequestId}
+                      onOpenTraining={setOpenTrainingId}
+                      t={t}
+                    />
                   ))}
-                </tr>
-              </thead>
-              <tbody>
-                {grid.rows.map((row) => (
-                  <CourtRow
-                    key={row.courtId}
-                    row={row}
-                    columns={groupColumns(row.cells)}
-                    onOpenRequest={setOpenRequestId}
-                    onOpenTraining={setOpenTrainingId}
-                    t={t}
-                  />
-                ))}
-              </tbody>
-            </table>
-          </div>
+                </tbody>
+              </table>
+            </div>
+          </>
         ) : (
           <p className="state">{t("admin.courtLoad.noCourts")}</p>
         )}
       </div>
 
-      <RequestDetailModal
-        requestId={openRequestId}
-        onClose={() => setOpenRequestId(null)}
-        t={t}
-      />
+      <RequestDetailModal requestId={openRequestId} onClose={() => setOpenRequestId(null)} t={t} />
 
       <TrainingDetailModal
         trainingId={openTrainingId}
@@ -366,9 +377,7 @@ function TrainingDetailModal({
         <p className="state">{t("admin.calendar.detailLoading")}</p>
       ) : detail.isError ? (
         <p className="state state--error" role="alert">
-          {detail.error instanceof Error
-            ? detail.error.message
-            : t("admin.trainings.opFailed")}
+          {detail.error instanceof Error ? detail.error.message : t("admin.trainings.opFailed")}
         </p>
       ) : detail.data ? (
         <TrainingDetailBody item={detail.data} t={t} />
@@ -399,9 +408,7 @@ function RequestDetailModal({
         <p className="state">{t("admin.courtLoad.detailLoading")}</p>
       ) : detail.isError ? (
         <p className="state state--error" role="alert">
-          {detail.error instanceof Error
-            ? detail.error.message
-            : t("admin.courtLoad.detailError")}
+          {detail.error instanceof Error ? detail.error.message : t("admin.courtLoad.detailError")}
         </p>
       ) : detail.data ? (
         <RequestDetailBody view={detail.data} t={t} />

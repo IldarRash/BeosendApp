@@ -114,6 +114,9 @@ export const miniappRu: Record<string, string> = {
   "miniapp.booking.seatsLabel": "Свободно мест",
   "miniapp.booking.priceLabel": "Стоимость",
   "miniapp.booking.successTitle": "Вы записаны!",
+  // Shown when the booking comes back `pending`: the trainer must confirm the request.
+  "miniapp.booking.pendingTitle": "Заявка отправлена",
+  "miniapp.booking.pendingBody": "Ожидает подтверждения тренера.",
   "miniapp.booking.backToList": "К расписанию",
   "miniapp.booking.conflict": "Это место только что заняли. Выберите другую тренировку.",
 
@@ -168,6 +171,9 @@ export const miniappRu: Record<string, string> = {
     "Подписка на группу «{name}» на {month}. С вас спишут {price} RSD за месяц.",
   "miniapp.group.resultTitle": "Готово!",
   "miniapp.group.createdCount": "Вы записаны на {count} тренировок",
+  // Shown when the month's bookings come back `pending`: the trainer must confirm them.
+  "miniapp.group.pendingTitle": "Заявка отправлена",
+  "miniapp.group.pendingCount": "Ожидает подтверждения по {count} тренировкам",
   "miniapp.group.skippedHeader": "Пропущенные даты (нет мест)",
   "miniapp.group.toMyBookings": "К моим записям",
   "miniapp.group.toHome": "На главную",
@@ -262,11 +268,11 @@ export const miniappRu: Record<string, string> = {
   "miniapp.myBookings.toBrowse": "К расписанию",
   // Status / outcome chips. Upcoming items show "booked"; past items show the outcome.
   "miniapp.myBookings.status.booked": "Запись",
+  "miniapp.myBookings.status.pending": "Ожидает подтверждения",
   "miniapp.myBookings.status.attended": "Посещено",
   "miniapp.myBookings.status.noShow": "Пропуск",
   "miniapp.myBookings.status.cancelled": "Отменено",
   // The Cancel affordance (shown only when the server says canCancel).
-  "miniapp.myBookings.cancel": "Отменить",
   "miniapp.myBookings.cancelAria": "Отменить запись",
   // Cancel confirm step (bottom-sheet) + warning haptic.
   "miniapp.myBookings.cancelConfirmTitle": "Отменить запись?",

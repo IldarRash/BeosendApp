@@ -135,7 +135,56 @@ function setRange(): void {
   fireEvent.change(screen.getByLabelText("По дату"), { target: { value: "2026-07-31" } });
 }
 
+/** ISO `yyyy-mm-dd` first/last day of the current calendar month (mirrors the page). */
+function currentMonthRange(): { from: string; to: string } {
+  const now = new Date();
+  const y = now.getFullYear();
+  const m = now.getMonth() + 1;
+  const last = new Date(y, m, 0).getDate();
+  const iso = (d: number) =>
+    `${y}-${String(m).padStart(2, "0")}-${String(d).padStart(2, "0")}`;
+  return { from: iso(1), to: iso(last) };
+}
+
+/** The last query object passed to the (mocked) useTrainings hook. */
+function lastTrainingsQuery(): { from?: string; to?: string } | null {
+  const calls = useTrainings.mock.calls;
+  return (calls.at(-1)?.[0] ?? null) as { from?: string; to?: string } | null;
+}
+
 describe("Trainings page", () => {
+  it("queries the current month on first render and shows rows (not the pick-range placeholder)", () => {
+    render(<Trainings />);
+
+    // The range defaults to the current calendar month, so the query is live…
+    const range = currentMonthRange();
+    expect(lastTrainingsQuery()).toMatchObject({ from: range.from, to: range.to });
+    // …and the table renders straight away without the user picking a range.
+    expect(screen.getByRole("table")).toBeTruthy();
+    expect(screen.getByText("2026-07-06")).toBeTruthy();
+    expect(
+      screen.queryByText("Укажите период (с даты и по дату), чтобы увидеть тренировки.")
+    ).toBeNull();
+  });
+
+  it("moves the range to the generated month after a successful generate", () => {
+    const mutate = vi.fn((_input, opts: { onSuccess: (r: unknown[]) => void }) =>
+      opts.onSuccess([])
+    );
+    useGenerateMonth.mockReturnValue({ ...idleMutation(), mutate });
+    render(<Trainings />);
+
+    fireEvent.click(screen.getByRole("button", { name: "Сгенерировать месяц" }));
+    const dialog = screen.getByRole("dialog", { name: "Сгенерировать месяц" });
+    fireEvent.change(within(dialog).getByLabelText("Группа"), { target: { value: GROUP.id } });
+    fireEvent.change(within(dialog).getByLabelText("Год"), { target: { value: "2026" } });
+    fireEvent.change(within(dialog).getByLabelText("Месяц"), { target: { value: "7" } });
+    fireEvent.click(within(dialog).getByRole("button", { name: "Сгенерировать" }));
+
+    // The table range now points at the generated month so new rows are visible.
+    expect(lastTrainingsQuery()).toMatchObject({ from: "2026-07-01", to: "2026-07-31" });
+  });
+
   it("renders the API's rows with booked/capacity and status as returned (no recompute)", () => {
     render(<Trainings />);
     setRange();

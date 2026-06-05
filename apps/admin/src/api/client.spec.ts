@@ -513,7 +513,10 @@ describe("ApiClient walk-in & manual booking (Feature 5)", () => {
       groupSubscriptionId: null,
       createdAt: "2026-06-01T00:00:00.000Z",
       status: "booked",
-      source: "walk_in"
+      source: "walk_in",
+      paymentStatus: "unpaid",
+      paidAt: null,
+      paidBy: null
     };
     const calls = mockFetchOnce(booking);
     const result = await new ApiClient("http://api.test").bookManual({
@@ -610,5 +613,72 @@ describe("ApiClient group members & transfer", () => {
         month: 6
       })
     ).rejects.toThrow();
+  });
+});
+
+describe("ApiClient subscription payments", () => {
+  afterEach(() => {
+    vi.unstubAllGlobals();
+  });
+
+  const SUB_ID = "11111111-1111-1111-1111-111111111111";
+  const CLIENT_ID = "22222222-2222-2222-2222-222222222222";
+  const GROUP_ID = "33333333-3333-3333-3333-333333333333";
+
+  const summary = {
+    groupSubscriptionId: SUB_ID,
+    clientId: CLIENT_ID,
+    clientName: "Аня",
+    groupId: GROUP_ID,
+    groupName: "Утренняя группа",
+    year: 2026,
+    month: 6,
+    dateCount: 8,
+    paidCount: 3,
+    totalRsd: 12000,
+    paymentState: "partial"
+  };
+
+  it("encodes the paymentState and clientId filters into the query", async () => {
+    const calls = mockFetchOnce([summary]);
+    const result = await new ApiClient("http://api.test").listSubscriptions({
+      paymentState: "partial",
+      clientId: CLIENT_ID
+    });
+    expect(calls[0]?.url).toBe(
+      `http://api.test/subscriptions?paymentState=partial&clientId=${CLIENT_ID}`
+    );
+    expect(result[0].paymentState).toBe("partial");
+    expect(result[0].totalRsd).toBe(12000);
+  });
+
+  it("requests the bare /subscriptions path when no filters are given", async () => {
+    const calls = mockFetchOnce([]);
+    await new ApiClient("http://api.test").listSubscriptions({});
+    expect(calls[0]?.url).toBe("http://api.test/subscriptions");
+  });
+
+  it("rejects a malformed subscriptions response (contract enforced)", async () => {
+    // `paidCount` must be a non-negative integer; a string fails the contract.
+    mockFetchOnce([{ ...summary, paidCount: "three" }]);
+    await expect(
+      new ApiClient("http://api.test").listSubscriptions({})
+    ).rejects.toThrow();
+  });
+
+  it("rejects a subscription with an unknown paymentState (unsafe path)", async () => {
+    mockFetchOnce([{ ...summary, paymentState: "overdue" }]);
+    await expect(
+      new ApiClient("http://api.test").listSubscriptions({})
+    ).rejects.toThrow();
+  });
+
+  it("PATCHes the paid flag and validates the re-aggregated summary", async () => {
+    const calls = mockFetchOnce({ ...summary, paidCount: 8, paymentState: "paid" });
+    const result = await new ApiClient("http://api.test").markSubscriptionPaid(SUB_ID, true);
+    expect(calls[0]?.url).toBe(`http://api.test/subscriptions/${SUB_ID}/paid`);
+    expect(calls[0]?.init?.method).toBe("PATCH");
+    expect(JSON.parse(calls[0]?.init?.body as string)).toEqual({ paid: true });
+    expect(result.paymentState).toBe("paid");
   });
 });

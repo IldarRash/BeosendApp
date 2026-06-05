@@ -173,7 +173,12 @@ export class WaitlistRepository {
       .where(eq(tables.trainings.id, trainingId));
   }
 
-  /** An existing active (`booked`) booking for this client + training (avoid double-booking on accept). */
+  /**
+   * An existing seat-occupying booking ('booked' or 'pending') for this client +
+   * training (avoid double-booking on waitlist accept). A `pending` booking already
+   * holds a seat, so a client awaiting confirmation must not also be promoted into a
+   * second booking on the same training.
+   */
   async hasActiveBooking(
     tx: Database,
     clientId: string,
@@ -186,7 +191,7 @@ export class WaitlistRepository {
         and(
           eq(tables.bookings.clientId, clientId),
           eq(tables.bookings.trainingId, trainingId),
-          eq(tables.bookings.status, "booked")
+          inArray(tables.bookings.status, ["booked", "pending"])
         )
       )
       .limit(1);
