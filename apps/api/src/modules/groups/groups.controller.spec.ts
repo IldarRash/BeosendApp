@@ -5,6 +5,12 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import { GroupsController } from "./groups.controller";
 import { GroupsService } from "./groups.service";
 import type { GroupsRepository } from "./groups.repository";
+import type { ClientsRepository } from "../clients/clients.repository";
+
+/** Roster reads are not exercised here; a no-op clients repo satisfies the ctor. */
+const fakeClientsRepo = {
+  findByTelegramId: async () => undefined
+} as unknown as ClientsRepository;
 
 const ADMIN_ID = 111;
 const NON_ADMIN_ID = 999;
@@ -68,7 +74,7 @@ describe("GroupsController", () => {
 
   beforeEach(() => {
     repo = makeRepo();
-    controller = new GroupsController(new GroupsService(repo, env));
+    controller = new GroupsController(new GroupsService(repo, fakeClientsRepo, env));
   });
 
   it("GET /groups returns active groups without requiring a header", async () => {

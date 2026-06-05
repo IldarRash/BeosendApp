@@ -101,11 +101,20 @@ class FakeBookingsRepository {
     _tx: Database,
     trainingId: string
   ): Promise<TrainingLockRow | undefined> {
-    if (!this.training || this.training.id !== trainingId) {
-      return undefined;
+    if (this.training && this.training.id === trainingId) {
+      return { ...this.training, trainerId: this.training.trainerId ?? TRAINER_ID };
     }
-    return { ...this.training, trainerId: this.training.trainerId ?? TRAINER_ID };
+    // The transfer cancels source-group bookings whose training is among the
+    // configured source instances; resolve those too.
+    const source = this.sourceTrainings.find((t) => t.id === trainingId);
+    if (source) {
+      return { ...source, trainerId: source.trainerId ?? TRAINER_ID };
+    }
+    return undefined;
   }
+
+  /** Source-group training instances the transfer cancels (locked then recomputed). */
+  sourceTrainings: FakeMonthTraining[] = [];
 
   async findGroupTrainingsForMonthForUpdate(
     _tx: Database,
@@ -135,6 +144,36 @@ class FakeBookingsRepository {
     return this.bookings.find(
       (b) => b.clientId === clientId && b.trainingId === trainingId && b.status === "booked"
     );
+  }
+
+  /** Maps a trainingId to its date for the transfer's source-booking read. */
+  bookingTrainingDates: Record<string, string> = {};
+
+  /** Maps a trainingId to its source group id for the transfer's group filter. */
+  bookingGroupIds: Record<string, string> = {};
+
+  async findClientGroupBookingsForUpdate(
+    _tx: Database,
+    clientId: string,
+    groupId: string,
+    from: string,
+    to: string
+  ): Promise<Array<{ bookingId: string; trainingId: string; date: string }>> {
+    // Mirror the real query: only this client's booked rows on `groupId` whose
+    // training date falls within the [from, to] window (so the today-clamp and
+    // the group filter are actually exercised by the tests).
+    return this.bookings
+      .filter((b) => b.clientId === clientId && b.status === "booked")
+      .map((b) => ({
+        bookingId: b.id,
+        trainingId: b.trainingId,
+        date: this.bookingTrainingDates[b.trainingId] ?? "2099-06-01"
+      }))
+      .filter((row) => {
+        const rowGroupId = this.bookingGroupIds[row.trainingId];
+        if (rowGroupId !== undefined && rowGroupId !== groupId) return false;
+        return row.date >= from && row.date <= to;
+      });
   }
 
   async insertBooking(
@@ -254,6 +293,11 @@ class FakeBookingsRepository {
     if (monthRow) {
       monthRow.bookedCount = bookedCount;
       monthRow.status = status;
+    }
+    const sourceRow = this.sourceTrainings.find((t) => t.id === trainingId);
+    if (sourceRow) {
+      sourceRow.bookedCount = bookedCount;
+      sourceRow.status = status;
     }
   }
 }
@@ -1204,5 +1248,198 @@ describe("BookingsService.createManual (Feature 5 — admin/trainer manual booki
     await expect(
       service.createManual(ADMIN_ID, { clientId: WALKIN_CLIENT_ID, trainingId: TRAINING_ID })
     ).rejects.toBeInstanceOf(NotFoundException);
+  });
+});
+
+describe("BookingsService.transferGroup (Item C — admin group transfer)", () => {
+  let bookingsRepo: FakeBookingsRepository;
+  let service: BookingsService;
+
+  const FROM_GROUP_ID = "44444444-4444-4444-4444-444444444444";
+  const TO_GROUP_ID = "55555555-5555-4555-8555-555555555555";
+  const SRC_TRAINING_A = "a0000000-0000-4000-8000-000000000001";
+  const SRC_TRAINING_B = "a0000000-0000-4000-8000-000000000002";
+
+  beforeEach(() => {
+    bookingsRepo = new FakeBookingsRepository();
+    // The transfer validates both source and target groups; resolve both ids as active.
+    const groupsRepo = {
+      findById: async (id: string): Promise<Group | undefined> => {
+        if (id === FROM_GROUP_ID) return { ...activeGroup, id: FROM_GROUP_ID };
+        if (id === TO_GROUP_ID) return { ...activeGroup, id: TO_GROUP_ID };
+        return undefined;
+      }
+    };
+    service = new BookingsService(
+      bookingsRepo as unknown as BookingsRepository,
+      new FakeClientsRepository() as unknown as ClientsRepository,
+      groupsRepo as unknown as GroupsRepository,
+      fakeNotifications,
+      fakeWaitlist,
+      new FakeTrainersRepository() as unknown as TrainersRepository,
+      env
+    );
+  });
+
+  const input = {
+    clientId: CLIENT_ID,
+    fromGroupId: FROM_GROUP_ID,
+    toGroupId: TO_GROUP_ID,
+    year: FUTURE_YEAR,
+    month: FUTURE_MONTH
+  };
+
+  const monthTraining = (id: string, date: string, over: Partial<GroupTrainingLockRow> = {}) => ({
+    id,
+    date,
+    capacity: 6,
+    bookedCount: 0,
+    status: "open" as const,
+    ...over
+  });
+
+  /** Seed two future source-group bookings for the client + their training rows. */
+  const seedSource = () => {
+    bookingsRepo.bookings = [
+      {
+        id: "b0000000-0000-4000-8000-000000000001",
+        clientId: CLIENT_ID,
+        trainingId: SRC_TRAINING_A,
+        type: "group",
+        groupSubscriptionId: "c0000000-0000-4000-8000-000000000001",
+        createdAt: new Date().toISOString(),
+        status: "booked",
+        source: "telegram"
+      },
+      {
+        id: "b0000000-0000-4000-8000-000000000002",
+        clientId: CLIENT_ID,
+        trainingId: SRC_TRAINING_B,
+        type: "group",
+        groupSubscriptionId: "c0000000-0000-4000-8000-000000000001",
+        createdAt: new Date().toISOString(),
+        status: "booked",
+        source: "telegram"
+      }
+    ];
+    bookingsRepo.bookingTrainingDates = {
+      [SRC_TRAINING_A]: "2099-06-01",
+      [SRC_TRAINING_B]: "2099-06-03"
+    };
+    bookingsRepo.bookingGroupIds = {
+      [SRC_TRAINING_A]: FROM_GROUP_ID,
+      [SRC_TRAINING_B]: FROM_GROUP_ID
+    };
+    bookingsRepo.sourceTrainings = [
+      monthTraining(SRC_TRAINING_A, "2099-06-01", { bookedCount: 4, status: "open" }),
+      monthTraining(SRC_TRAINING_B, "2099-06-03", { bookedCount: 6, status: "full" })
+    ];
+  };
+
+  it("moves a client's future bookings from A to B: cancels source, re-books target, one subscription", async () => {
+    seedSource();
+    bookingsRepo.monthTrainings = [
+      monthTraining("d0000000-0000-4000-8000-000000000001", "2099-06-02"),
+      monthTraining("d0000000-0000-4000-8000-000000000002", "2099-06-04")
+    ];
+
+    const result = await service.transferGroup(ADMIN_ID, input);
+
+    expect(result.cancelledDates).toEqual(["2099-06-01", "2099-06-03"]);
+    expect(result.movedDates).toEqual(["2099-06-02", "2099-06-04"]);
+    expect(result.skippedDates).toEqual([]);
+
+    // Source bookings are cancelled and the freed seats recomputed (full → open).
+    const cancelled = bookingsRepo.bookings.filter((b) => b.status === "cancelled");
+    expect(cancelled).toHaveLength(2);
+    expect(bookingsRepo.sourceTrainings[0].bookedCount).toBe(3);
+    expect(bookingsRepo.sourceTrainings[1].bookedCount).toBe(5);
+    expect(bookingsRepo.sourceTrainings[1].status).toBe("open");
+
+    // Target instances each gained a seat under one fresh subscription.
+    const created = bookingsRepo.bookings.filter(
+      (b) => b.status === "booked" && b.groupSubscriptionId === result.groupSubscriptionId
+    );
+    expect(created).toHaveLength(2);
+    expect(bookingsRepo.monthTrainings[0].bookedCount).toBe(1);
+  });
+
+  // All-or-nothing: a target with no bookable trainings throws a 409 inside the tx
+  // so the real transaction wrapper rolls back the source cancellations too. The
+  // in-memory fake does not roll back, so we assert the throw surfaces (the
+  // createGroupBooking atomicity test documents the same fake limitation).
+  it("rejects with a 409 when the target group has no bookable trainings (rolls back)", async () => {
+    seedSource();
+    bookingsRepo.monthTrainings = []; // target month not generated / all full
+
+    await expect(service.transferGroup(ADMIN_ID, input)).rejects.toBeInstanceOf(ConflictException);
+  });
+
+  it("forbids a non-admin caller (403) and touches nothing", async () => {
+    seedSource();
+    bookingsRepo.monthTrainings = [
+      monthTraining("d0000000-0000-4000-8000-000000000001", "2099-06-02")
+    ];
+
+    await expect(service.transferGroup(OWNER_ID, input)).rejects.toBeInstanceOf(ForbiddenException);
+
+    const cancelled = bookingsRepo.bookings.filter((b) => b.status === "cancelled");
+    expect(cancelled).toHaveLength(0);
+  });
+
+  // The today-clamp must exclude a past-dated source booking from cancellation:
+  // it falls outside the [today, monthLast] window the source read honors, so it
+  // stays booked while a future-dated sibling is moved.
+  it("does not cancel a past-dated source booking (today-clamp) while moving a future one", async () => {
+    const PAST_TRAINING = "a0000000-0000-4000-8000-0000000000ff";
+    const FUTURE_TRAINING = SRC_TRAINING_A;
+    bookingsRepo.bookings = [
+      {
+        id: "b0000000-0000-4000-8000-0000000000ff",
+        clientId: CLIENT_ID,
+        trainingId: PAST_TRAINING,
+        type: "group",
+        groupSubscriptionId: "c0000000-0000-4000-8000-000000000001",
+        createdAt: new Date().toISOString(),
+        status: "booked",
+        source: "telegram"
+      },
+      {
+        id: "b0000000-0000-4000-8000-000000000001",
+        clientId: CLIENT_ID,
+        trainingId: FUTURE_TRAINING,
+        type: "group",
+        groupSubscriptionId: "c0000000-0000-4000-8000-000000000001",
+        createdAt: new Date().toISOString(),
+        status: "booked",
+        source: "telegram"
+      }
+    ];
+    // Past date precedes the clamped lower bound (the future month's first day).
+    bookingsRepo.bookingTrainingDates = {
+      [PAST_TRAINING]: "2000-01-03",
+      [FUTURE_TRAINING]: "2099-06-01"
+    };
+    bookingsRepo.bookingGroupIds = {
+      [PAST_TRAINING]: FROM_GROUP_ID,
+      [FUTURE_TRAINING]: FROM_GROUP_ID
+    };
+    bookingsRepo.sourceTrainings = [
+      monthTraining(FUTURE_TRAINING, "2099-06-01", { bookedCount: 4, status: "open" })
+    ];
+    bookingsRepo.monthTrainings = [
+      monthTraining("d0000000-0000-4000-8000-000000000001", "2099-06-02")
+    ];
+
+    const result = await service.transferGroup(ADMIN_ID, input);
+
+    expect(result.cancelledDates).toEqual(["2099-06-01"]);
+    expect(result.movedDates).toEqual(["2099-06-02"]);
+
+    // The past-dated booking is untouched (still booked); only the future one cancelled.
+    const pastBooking = bookingsRepo.bookings.find((b) => b.trainingId === PAST_TRAINING);
+    expect(pastBooking?.status).toBe("booked");
+    const futureBooking = bookingsRepo.bookings.find((b) => b.id === "b0000000-0000-4000-8000-000000000001");
+    expect(futureBooking?.status).toBe("cancelled");
   });
 });

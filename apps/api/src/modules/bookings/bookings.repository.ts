@@ -32,6 +32,16 @@ export interface GroupTrainingLockRow extends TrainingLockRow {
 }
 
 /**
+ * One of a client's `booked` bookings on a group's trainings within a date range,
+ * locked FOR UPDATE — the transfer cancels each and re-books onto the target.
+ */
+export interface ClientGroupBookingRow {
+  bookingId: string;
+  trainingId: string;
+  date: string;
+}
+
+/**
  * A booking locked FOR UPDATE joined to its training's trainerId/date — the
  * attendance write needs both for the ownership and today/past checks (T2.3).
  */
@@ -121,6 +131,40 @@ export class BookingsRepository {
       )
       .orderBy(asc(tables.trainings.date))
       .for("update");
+  }
+
+  /**
+   * The client's `booked` bookings on the group's trainings whose date is within
+   * [from, to], locked FOR UPDATE so the transfer's cancel + per-training recompute
+   * happen against rows no concurrent write is mutating. The service passes `from`
+   * already clamped to today, so only future dates are returned. Caller holds a tx.
+   */
+  async findClientGroupBookingsForUpdate(
+    tx: Database,
+    clientId: string,
+    groupId: string,
+    from: string,
+    to: string
+  ): Promise<ClientGroupBookingRow[]> {
+    return tx
+      .select({
+        bookingId: tables.bookings.id,
+        trainingId: tables.trainings.id,
+        date: tables.trainings.date
+      })
+      .from(tables.bookings)
+      .innerJoin(tables.trainings, eq(tables.bookings.trainingId, tables.trainings.id))
+      .where(
+        and(
+          eq(tables.bookings.clientId, clientId),
+          eq(tables.bookings.status, "booked"),
+          eq(tables.trainings.groupId, groupId),
+          gte(tables.trainings.date, from),
+          lte(tables.trainings.date, to)
+        )
+      )
+      .orderBy(asc(tables.trainings.date))
+      .for("update", { of: tables.bookings });
   }
 
   /**

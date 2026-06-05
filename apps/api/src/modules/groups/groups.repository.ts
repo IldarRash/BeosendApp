@@ -1,12 +1,18 @@
 import { Injectable } from "@nestjs/common";
 import type { CreateGroupInput, Group, UpdateGroupInput } from "@beosand/types";
 import { tables } from "@beosand/db";
-import { asc, eq } from "drizzle-orm";
+import { and, asc, eq, gte, lte } from "drizzle-orm";
 import { DatabaseService } from "../../db/database.service";
 
 type GroupRow = typeof tables.groups.$inferSelect;
 /** A group row plus its trainer's name (joined for the bot-facing display field). */
 type GroupRowWithTrainer = GroupRow & { trainerName: string };
+
+/** A distinct client booked into the group that month — the roster row (no rules). */
+export interface GroupMemberRow {
+  clientId: string;
+  name: string;
+}
 
 /** Only place groups DB access lives. Returns typed rows; no business rules. */
 @Injectable()
@@ -31,6 +37,28 @@ export class GroupsRepository {
       .where(eq(tables.groups.id, id))
       .limit(1);
     return row ? toGroup({ ...row.group, trainerName: row.trainerName }) : undefined;
+  }
+
+  /**
+   * Distinct clients with a `booked` booking on one of the group's trainings whose
+   * date falls within [from, to]. Ordered by name; no business rules — the service
+   * owns the month range and the role-based field projection.
+   */
+  async listMonthMembers(groupId: string, from: string, to: string): Promise<GroupMemberRow[]> {
+    return this.database.db
+      .selectDistinct({ clientId: tables.clients.id, name: tables.clients.name })
+      .from(tables.bookings)
+      .innerJoin(tables.trainings, eq(tables.bookings.trainingId, tables.trainings.id))
+      .innerJoin(tables.clients, eq(tables.bookings.clientId, tables.clients.id))
+      .where(
+        and(
+          eq(tables.trainings.groupId, groupId),
+          eq(tables.bookings.status, "booked"),
+          gte(tables.trainings.date, from),
+          lte(tables.trainings.date, to)
+        )
+      )
+      .orderBy(asc(tables.clients.name));
   }
 
   async create(input: CreateGroupInput): Promise<Group> {

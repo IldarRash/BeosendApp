@@ -1,9 +1,10 @@
 import { ForbiddenException, NotFoundException } from "@nestjs/common";
 import type { Env } from "@beosand/config";
-import type { CreateGroupInput, Group, UpdateGroupInput } from "@beosand/types";
+import type { Client, CreateGroupInput, Group, UpdateGroupInput } from "@beosand/types";
 import { beforeEach, describe, expect, it } from "vitest";
 import { GroupsService } from "./groups.service";
-import type { GroupsRepository } from "./groups.repository";
+import type { GroupMemberRow, GroupsRepository } from "./groups.repository";
+import type { ClientsRepository } from "../clients/clients.repository";
 
 const ADMIN_ID = 111;
 const NON_ADMIN_ID = 999;
@@ -51,17 +52,36 @@ class FakeGroupsRepository {
     this.rows.set(id, row);
     return row;
   }
+
+  /** The month roster (distinct clients) the listMembers test supplies. */
+  members: GroupMemberRow[] = [];
+  async listMonthMembers(_groupId: string, _from: string, _to: string): Promise<GroupMemberRow[]> {
+    return this.members;
+  }
+}
+
+class FakeClientsRepository {
+  client: Client | undefined;
+  async findByTelegramId(telegramId: number): Promise<Client | undefined> {
+    return this.client && this.client.telegramId === telegramId ? this.client : undefined;
+  }
 }
 
 const env = { ADMIN_TELEGRAM_IDS: [String(ADMIN_ID)] } as unknown as Env;
 
 describe("GroupsService", () => {
   let repo: FakeGroupsRepository;
+  let clientsRepo: FakeClientsRepository;
   let service: GroupsService;
 
   beforeEach(() => {
     repo = new FakeGroupsRepository();
-    service = new GroupsService(repo as unknown as GroupsRepository, env);
+    clientsRepo = new FakeClientsRepository();
+    service = new GroupsService(
+      repo as unknown as GroupsRepository,
+      clientsRepo as unknown as ClientsRepository,
+      env
+    );
   });
 
   it("admin create stores the group and it appears in listActive", async () => {
@@ -142,6 +162,82 @@ describe("GroupsService", () => {
   it("update of a missing id throws NotFoundException", async () => {
     await expect(
       service.update(ADMIN_ID, "33333333-3333-3333-3333-333333333333", { capacity: 4 })
+    ).rejects.toBeInstanceOf(NotFoundException);
+  });
+});
+
+describe("GroupsService.listMembers (group monthly roster)", () => {
+  const CLIENT_TG = 222;
+  const GROUP_ID = "00000000-0000-0000-0000-000000000001";
+  const CLIENT_A = "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa";
+  const CLIENT_B = "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb";
+
+  const clientRow = (telegramId: number): Client => ({
+    id: "cccccccc-cccc-4ccc-8ccc-cccccccccccc",
+    name: "Onboarded",
+    telegramId,
+    telegramUsername: null,
+    levelId: null,
+    source: "telegram",
+    phone: null,
+    note: null,
+    language: "ru",
+    registeredAt: new Date().toISOString(),
+    status: "active"
+  });
+
+  let repo: FakeGroupsRepository;
+  let clientsRepo: FakeClientsRepository;
+  let service: GroupsService;
+
+  beforeEach(async () => {
+    repo = new FakeGroupsRepository();
+    clientsRepo = new FakeClientsRepository();
+    service = new GroupsService(
+      repo as unknown as GroupsRepository,
+      clientsRepo as unknown as ClientsRepository,
+      env
+    );
+    // Seed a group at GROUP_ID so listMembers does not 404.
+    await repo.create(baseInput);
+    repo.members = [
+      { clientId: CLIENT_A, name: "Ана Петровић" },
+      { clientId: CLIENT_B, name: "Marko Novak" }
+    ];
+  });
+
+  it("admin gets full members including clientId and fullName", async () => {
+    const result = await service.listMembers(ADMIN_ID, GROUP_ID, 2099, 6);
+    expect(result.memberCount).toBe(2);
+    const [first] = result.members;
+    expect(first.clientId).toBe(CLIENT_A);
+    expect(first.fullName).toBe("Ана Петровић");
+    expect(first.firstName).toBe("Ана");
+    expect(first.avatarInitial).toBe("А");
+  });
+
+  it("a client caller gets only firstName + avatarInitial — never clientId/fullName", async () => {
+    clientsRepo.client = clientRow(CLIENT_TG);
+    const result = await service.listMembers(CLIENT_TG, GROUP_ID, 2099, 6);
+    expect(result.memberCount).toBe(2);
+    for (const member of result.members) {
+      expect(member.clientId).toBeUndefined();
+      expect(member.fullName).toBeUndefined();
+      expect(member.firstName).toBeTruthy();
+      expect(member.avatarInitial).toBeTruthy();
+    }
+  });
+
+  it("forbids a non-admin caller with no client record (403)", async () => {
+    clientsRepo.client = undefined;
+    await expect(service.listMembers(999, GROUP_ID, 2099, 6)).rejects.toBeInstanceOf(
+      ForbiddenException
+    );
+  });
+
+  it("404s a missing group", async () => {
+    await expect(
+      service.listMembers(ADMIN_ID, "99999999-9999-4999-8999-999999999999", 2099, 6)
     ).rejects.toBeInstanceOf(NotFoundException);
   });
 });

@@ -196,6 +196,23 @@ export const adminRu: Record<string, string> = {
   "admin.groups.pickTrainer": "Выберите тренера",
   "admin.groups.created": "Группа создана",
   "admin.groups.updated": "Группа обновлена",
+  // Members drawer (this month's roster) + transfer modal.
+  "admin.groups.membersAction": "Состав",
+  "admin.groups.membersAria": "Состав группы {name}",
+  "admin.groups.membersTitle": "Состав: {name}",
+  "admin.groups.membersCaption": "Участники группы {name} за текущий месяц",
+  "admin.groups.membersLoading": "Загрузка состава…",
+  "admin.groups.membersError": "Не удалось загрузить состав группы",
+  "admin.groups.membersEmpty": "В этом месяце участников нет.",
+  "admin.groups.colMember": "Участник",
+  "admin.groups.transfer": "Перенести",
+  "admin.groups.transferAria": "Перенести участника {name}",
+  "admin.groups.transferTitle": "Перенести: {name}",
+  "admin.groups.transferring": "Перенос…",
+  "admin.groups.transferFrom": "Из группы:",
+  "admin.groups.transferTarget": "Целевая группа",
+  "admin.groups.transferPickGroup": "Выберите группу",
+  "admin.groups.transferred": "Перенесено дат: {moved}, отменено: {cancelled}, пропущено: {skipped}",
 
   // ── Trainings page ────────────────────────────────────────────────────────
   "admin.trainings.title": "Тренировки",

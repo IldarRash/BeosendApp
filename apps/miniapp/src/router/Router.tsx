@@ -15,6 +15,7 @@ import { OnboardingWizard } from "../screens/OnboardingWizard";
 import { ProfileScreen } from "../screens/ProfileScreen";
 import { TrainerRequestScreen } from "../screens/TrainerRequestScreen";
 import { WaitlistAcceptScreen } from "../screens/WaitlistAcceptScreen";
+import { AppHeader } from "../ui/AppHeader";
 import { NavProvider, useNav } from "./NavProvider";
 import { HOME_SECTIONS, resolveStartTarget, toRouteId } from "./routes";
 
@@ -109,8 +110,9 @@ function NavShell({ client }: { client: Client }): JSX.Element {
 }
 
 /**
- * Renders the screen for the current route and wires the native BackButton once:
- * shown on any sub-screen (pops to Home), hidden on Home (the stack root).
+ * Renders the screen for the current route under a persistent top app bar, and wires
+ * the native BackButton once: shown on any sub-screen (pops to Home), hidden on Home
+ * (the stack root). The header's avatar chip pushes the Profile route.
  */
 function RouteView({
   client,
@@ -129,7 +131,15 @@ function RouteView({
     }
   };
 
-  switch (current) {
+  return (
+    <>
+      <AppHeader onProfile={() => push("profile")} />
+      {renderRoute()}
+    </>
+  );
+
+  function renderRoute(): JSX.Element {
+    switch (current) {
     case "home":
       return <HomeScreen sections={HOME_SECTIONS} onSelect={onSelect} />;
     case "browse":
@@ -158,6 +168,7 @@ function RouteView({
       // placeholder). This arm is unreachable; it keeps the switch total and falls
       // back to Home defensively rather than rendering nothing.
       return <HomeScreen sections={HOME_SECTIONS} onSelect={onSelect} />;
+    }
   }
 }
 

@@ -2,7 +2,7 @@ import { Injectable } from "@nestjs/common";
 import type { Client, ClientSource, Locale } from "@beosand/types";
 import { clientSource } from "@beosand/types";
 import { type Database, tables } from "@beosand/db";
-import { and, desc, eq, ilike, or, type SQL } from "drizzle-orm";
+import { and, desc, eq, ilike, or, sql, type SQL } from "drizzle-orm";
 import { DatabaseService } from "../../db/database.service";
 
 /** Filters for the admin clients list (already normalized by the service). */
@@ -103,7 +103,15 @@ export class ClientsRepository {
     const [row] = await tx
       .insert(tables.clients)
       .values(values)
-      .onConflictDoNothing({ target: tables.clients.telegramId })
+      // telegram_id's unique index is PARTIAL (WHERE telegram_id IS NOT NULL, so
+      // walk-ins with NULL ids don't collide). Postgres only accepts a partial
+      // index as an ON CONFLICT arbiter when the statement repeats its predicate —
+      // omitting it raises "no unique or exclusion constraint matching the ON
+      // CONFLICT specification" and 500s every onboard.
+      .onConflictDoNothing({
+        target: tables.clients.telegramId,
+        where: sql`${tables.clients.telegramId} IS NOT NULL`
+      })
       .returning();
     return row ? toClient(row) : undefined;
   }

@@ -14,6 +14,7 @@ import type {
   CourtRequestPreview,
   Group,
   GroupBookingResult,
+  GroupMembers,
   IndividualRequestResult,
   Level,
   MyBookingItem,
@@ -306,6 +307,34 @@ export function useGroups(): UseQueryResult<Group[]> {
   return useQuery<Group[]>({
     queryKey: groupsQueryKey(),
     queryFn: () => client.listGroups()
+  });
+}
+
+/** A stable query key for a group's monthly roster, keyed by group + year + month. */
+export function groupMembersQueryKey(
+  groupId: string,
+  year: number,
+  month: number
+): readonly [string, string, number, number] {
+  return ["group-members", groupId, year, month] as const;
+}
+
+/**
+ * The roster of a group for one month (GET /groups/:id/members) — "who signed up".
+ * For the Mini App caller the server returns the CLIENT-NARROWED shape (first name +
+ * avatar initial + count only, never other clients' ids/full names). Keyed by group +
+ * month so each previewed month caches independently; disabled until both are set.
+ */
+export function useGroupMembers(
+  groupId: string,
+  year: number | undefined,
+  month: number | undefined
+): UseQueryResult<GroupMembers> {
+  const client = useApiClient();
+  return useQuery<GroupMembers>({
+    queryKey: groupMembersQueryKey(groupId, year ?? 0, month ?? 0),
+    enabled: year != null && month != null,
+    queryFn: () => client.getGroupMembers(groupId, year!, month!)
   });
 }
 

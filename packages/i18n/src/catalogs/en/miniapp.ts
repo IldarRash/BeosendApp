@@ -181,6 +181,8 @@ export const miniappEn: Record<string, string> = {
   "miniapp.group.skippedHeader": "Skipped dates (no seats)",
   "miniapp.group.toMyBookings": "My bookings",
   "miniapp.group.toHome": "Home",
+  "miniapp.group.roster.title": "Who's signed up",
+  "miniapp.group.roster.empty": "No one signed up yet",
   "miniapp.group.conflict":
     "Couldn't create the subscription. The group may be unavailable or the month closed.",
 

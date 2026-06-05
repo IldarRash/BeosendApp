@@ -1,8 +1,8 @@
 import { useMemo, useState } from "react";
 import { Placeholder } from "@telegram-apps/telegram-ui";
-import type { Group, GroupBookingResult } from "@beosand/types";
+import type { Group, GroupBookingResult, GroupMember } from "@beosand/types";
 import { resolveErrorMessage } from "../api/errors";
-import { useCreateGroupBooking, useGroups, useLevels } from "../api/hooks";
+import { useCreateGroupBooking, useGroupMembers, useGroups, useLevels } from "../api/hooks";
 import { useT } from "../i18n/LanguageProvider";
 import { useNav } from "../router/NavProvider";
 import { hapticSelection, hapticSuccess, useMainButton } from "../tg/buttons";
@@ -265,6 +265,10 @@ function GroupDetail({
     label: `${t(monthKey(m.month))} ${m.year}`
   }));
 
+  // The roster is shown for the month currently previewed: the selected one, or —
+  // before any pick — the first offered month, so "who signed up" is visible up front.
+  const previewMonth = (selectedKey && months.find((m) => monthValue(m) === selectedKey)) || months[0];
+
   // The MainButton only appears once a month is chosen — until then there is no
   // primary action to take (selection is the next step).
   useMainButton({
@@ -308,6 +312,8 @@ function GroupDetail({
         selected={selectedKey}
         onSelect={onSelectMonth}
       />
+
+      <GroupMembersBlock group={group} year={previewMonth.year} month={previewMonth.month} />
 
       {selectedKey !== undefined && (
         <FallbackButton text={t("miniapp.group.confirm")} onClick={onContinue} />
@@ -429,6 +435,61 @@ function GroupResult({
       <FallbackButton text={t("miniapp.group.toMyBookings")} onClick={onMyBookings} />
       <SecondaryButton text={t("miniapp.group.toHome")} onClick={onHome} />
     </div>
+  );
+}
+
+/**
+ * "Кто записан" — the group's roster for the previewed month. Renders the
+ * server-computed `memberCount` and a horizontal row of avatar chips (a coral-tint
+ * circle with the member's `avatarInitial` + their `firstName`). Client-narrowed by
+ * the API: a Mini App caller only ever receives first name + initial, never another
+ * client's id or full name. Empty roster → a calm "Пока никто не записан". Loading
+ * and error states stay quiet (the block is supplementary, not the primary action).
+ */
+function GroupMembersBlock({
+  group,
+  year,
+  month
+}: {
+  group: Group;
+  year: number;
+  month: number;
+}): JSX.Element | null {
+  const t = useT();
+  const members = useGroupMembers(group.id, year, month);
+
+  if (members.isLoading || members.isError || !members.data) {
+    return null;
+  }
+
+  const { memberCount, members: roster } = members.data;
+  const rosterTitle = t("miniapp.group.roster.title");
+
+  return (
+    <section className="roster" aria-label={rosterTitle}>
+      <div className="tg-sech">{`${rosterTitle} · ${memberCount}`}</div>
+      {roster.length === 0 ? (
+        <div className="roster__empty">{t("miniapp.group.roster.empty")}</div>
+      ) : (
+        <ul className="roster__row">
+          {roster.map((member, index) => (
+            <MemberChip key={`${member.firstName}-${index}`} member={member} />
+          ))}
+        </ul>
+      )}
+    </section>
+  );
+}
+
+/** One roster member: a coral-tint avatar circle with the initial + the first name. */
+function MemberChip({ member }: { member: GroupMember }): JSX.Element {
+  return (
+    <li className="roster__chip">
+      <span className="roster__avatar" aria-hidden="true">
+        {member.avatarInitial}
+      </span>
+      <span className="roster__name">{member.firstName}</span>
+    </li>
   );
 }
 

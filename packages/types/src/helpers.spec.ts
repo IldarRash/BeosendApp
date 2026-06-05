@@ -2,15 +2,18 @@ import { describe, expect, it } from "vitest";
 import { isSlotAligned, minutesOfDay, timeOfMinutes } from "./common";
 import {
   averageFillRate,
+  avatarInitialOf,
   courtFreeForSlots,
   courtLoadGrid,
   courtPriceRsd,
   courtSlotsCovered,
+  firstNameOf,
   freeCourtsBySlot,
   freeSeats,
   isBookable,
   isoWeekdayOf,
   matchesSlotFilters,
+  monthBounds,
   monthTrainingDates,
   recomputeTrainingStatus,
   safeRatio,
@@ -18,6 +21,27 @@ import {
   timeRangesOverlap,
   type FilterableSlot
 } from "./helpers";
+
+describe("firstNameOf / avatarInitialOf", () => {
+  it("takes the first whitespace-delimited token", () => {
+    expect(firstNameOf("Ана Петровић")).toBe("Ана");
+    expect(firstNameOf("  Marko  ")).toBe("Marko");
+    expect(firstNameOf("Jelena Novak Petrović")).toBe("Jelena");
+  });
+
+  it("falls back to the trimmed name when there is no space", () => {
+    expect(firstNameOf("Sofija")).toBe("Sofija");
+  });
+
+  it("derives an uppercased single initial", () => {
+    expect(avatarInitialOf("ana petrović")).toBe("A");
+    expect(avatarInitialOf("Ана")).toBe("А");
+  });
+
+  it("returns '?' when the name has no usable letter", () => {
+    expect(avatarInitialOf("   ")).toBe("?");
+  });
+});
 
 describe("recomputeTrainingStatus", () => {
   it("flips open ↔ full by capacity", () => {
@@ -53,6 +77,14 @@ describe("monthTrainingDates", () => {
     expect(dates).not.toContain("2026-06-02"); // Tuesday
     // 5 Mondays + 4 Wednesdays in June 2026
     expect(dates).toHaveLength(9);
+  });
+});
+
+describe("monthBounds", () => {
+  it("returns inclusive [first, last] dates of the month", () => {
+    expect(monthBounds(2026, 2)).toEqual(["2026-02-01", "2026-02-28"]);
+    expect(monthBounds(2025, 12)).toEqual(["2025-12-01", "2025-12-31"]);
+    expect(monthBounds(2024, 2)).toEqual(["2024-02-01", "2024-02-29"]); // leap year
   });
 });
 

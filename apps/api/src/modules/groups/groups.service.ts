@@ -7,9 +7,22 @@ import {
 } from "@nestjs/common";
 import type { Env } from "@beosand/config";
 import { isAdmin } from "@beosand/config";
-import { isSlotAligned } from "@beosand/types";
-import type { CreateGroupInput, Group, UpdateGroupInput } from "@beosand/types";
+import {
+  avatarInitialOf,
+  firstNameOf,
+  groupMembersSchema,
+  isSlotAligned,
+  monthBounds
+} from "@beosand/types";
+import type {
+  CreateGroupInput,
+  Group,
+  GroupMember,
+  GroupMembers,
+  UpdateGroupInput
+} from "@beosand/types";
 import { ENV } from "../../config/config.module";
+import { ClientsRepository } from "../clients/clients.repository";
 import { GroupsRepository } from "./groups.repository";
 
 /**
@@ -23,12 +36,69 @@ import { GroupsRepository } from "./groups.repository";
 export class GroupsService {
   constructor(
     private readonly groups: GroupsRepository,
+    private readonly clients: ClientsRepository,
     @Inject(ENV) private readonly env: Env
   ) {}
 
   /** Reference-facing list: active groups only. */
   async listActive(): Promise<Group[]> {
     return this.groups.listActive();
+  }
+
+  /**
+   * The group's distinct members for a calendar month (a client booked into at
+   * least one of the group's trainings that month). The projection is role-based,
+   * enforced here so the client-facing roster can never leak other clients' ids or
+   * full names:
+   * - Admin (ADMIN_TELEGRAM_IDS) gets the full member row (clientId + fullName).
+   * - Any other caller must be an onboarded client (resolved from telegram_id);
+   *   they get only firstName + avatarInitial. A non-admin non-client is rejected
+   *   with a 403.
+   */
+  async listMembers(
+    actorTelegramId: number,
+    groupId: string,
+    year: number,
+    month: number
+  ): Promise<GroupMembers> {
+    const group = await this.groups.findById(groupId);
+    if (!group) {
+      throw new NotFoundException(`Group ${groupId} not found`);
+    }
+
+    const admin = isAdmin(this.env, actorTelegramId);
+    if (!admin) {
+      // A non-admin must be an onboarded client to read a roster at all.
+      const client = await this.clients.findByTelegramId(actorTelegramId);
+      if (!client) {
+        throw new ForbiddenException("Caller has no client record");
+      }
+    }
+
+    const [from, to] = monthBounds(year, month);
+    const rows = await this.groups.listMonthMembers(groupId, from, to);
+
+    const members: GroupMember[] = rows.map((row) =>
+      admin
+        ? {
+            clientId: row.clientId,
+            fullName: row.name,
+            firstName: firstNameOf(row.name),
+            avatarInitial: avatarInitialOf(row.name)
+          }
+        : {
+            firstName: firstNameOf(row.name),
+            avatarInitial: avatarInitialOf(row.name)
+          }
+    );
+
+    return groupMembersSchema.parse({
+      groupId,
+      year,
+      month,
+      memberCount: members.length,
+      members
+    });
   }
 
   async create(actorTelegramId: number, input: CreateGroupInput): Promise<Group> {

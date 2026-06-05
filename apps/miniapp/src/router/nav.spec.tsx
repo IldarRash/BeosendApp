@@ -86,7 +86,7 @@ vi.mock("../api/ApiProvider", () => ({
 }));
 
 vi.mock("../tg/TgSdkProvider", () => ({
-  useTg: () => ({ isTelegram: false, initDataRaw: null, startParam })
+  useTg: () => ({ isTelegram: false, initDataRaw: null, startParam, user: null })
 }));
 
 vi.mock("../tg/buttons", () => ({
@@ -204,9 +204,13 @@ describe("navigation shell", () => {
     expect(screen.queryByText("Управление")).toBeNull();
     expect(screen.queryByText(/admin/i)).toBeNull();
 
-    // Exactly six tappable cells — Home has no MainButton and no BackButton at the
-    // root, so every button is a journey row (no more, no less).
-    expect(screen.getAllByRole("button")).toHaveLength(6);
+    // Exactly six journey rows — Home has no MainButton and no BackButton at the root.
+    // The persistent top app bar adds one always-present avatar button ("Профиль"),
+    // which is not a journey row, so it is excluded from the count.
+    const journeyRows = screen
+      .getAllByRole("button")
+      .filter((el) => el.getAttribute("aria-label") !== "Профиль");
+    expect(journeyRows).toHaveLength(6);
   });
 
   it("pushes a journey on tap and shows the BackButton, which pops to Home", async () => {

@@ -385,6 +385,77 @@ export const markAttendanceSchema = z
   .strict();
 export type MarkAttendanceInput = z.infer<typeof markAttendanceSchema>;
 
+// --- Group members (who signed up for a group's month) ---
+
+/**
+ * One member of a group for a month: a distinct client booked into at least one
+ * of the group's trainings that month. `clientId`/`fullName` are admin-only and
+ * omitted from the client-facing (Mini App) response — a client receives only the
+ * first name + avatar initial, never other clients' ids or full names.
+ */
+export const groupMemberSchema = z.object({
+  firstName: z.string(),
+  avatarInitial: z.string().min(1),
+  clientId: uuid.optional(),
+  fullName: z.string().optional()
+});
+export type GroupMember = z.infer<typeof groupMemberSchema>;
+
+/** A group's distinct members for a given month, with their count. */
+export const groupMembersSchema = z.object({
+  groupId: uuid,
+  year: z.number().int().min(2024),
+  month: z.number().int().min(1).max(12),
+  memberCount: z.number().int().nonnegative(),
+  members: z.array(groupMemberSchema)
+});
+export type GroupMembers = z.infer<typeof groupMembersSchema>;
+
+/** Query for GET /groups/:id/members — which month's roster to return. */
+export const groupMembersQuerySchema = z
+  .object({
+    year: z.coerce.number().int().min(2024),
+    month: z.coerce.number().int().min(1).max(12)
+  })
+  .strict();
+export type GroupMembersQuery = z.infer<typeof groupMembersQuerySchema>;
+
+// --- Group transfer (admin: move a client between groups) ---
+
+/**
+ * Admin request to move a client from one group to another for a month (Item C).
+ * Future dates only: the service cancels the client's not-yet-passed bookings on
+ * `fromGroupId` and re-books them onto `toGroupId`'s bookable future trainings. No
+ * money math. The two groups must differ.
+ */
+export const transferGroupSchema = z
+  .object({
+    clientId: uuid,
+    fromGroupId: uuid,
+    toGroupId: uuid,
+    year: z.number().int().min(2024),
+    month: z.number().int().min(1).max(12)
+  })
+  .strict()
+  .refine((value) => value.fromGroupId !== value.toGroupId, {
+    message: "fromGroupId and toGroupId must differ",
+    path: ["toGroupId"]
+  });
+export type TransferGroupInput = z.infer<typeof transferGroupSchema>;
+
+/**
+ * Result of a transfer: the new subscription id linking the re-booked dates, the
+ * dates moved into the target, the dates cancelled from the source, and target
+ * dates skipped (full or none generated).
+ */
+export const transferGroupResultSchema = z.object({
+  groupSubscriptionId: uuid,
+  movedDates: z.array(dateString),
+  cancelledDates: z.array(dateString),
+  skippedDates: z.array(dateString)
+});
+export type TransferGroupResult = z.infer<typeof transferGroupResultSchema>;
+
 // --- Waitlist (section 9) ---
 export const waitlistStatus = z.enum(["waiting", "notified", "promoted", "expired", "cancelled"]);
 export type WaitlistStatus = z.infer<typeof waitlistStatus>;

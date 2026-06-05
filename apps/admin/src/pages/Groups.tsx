@@ -3,8 +3,10 @@ import type {
   CreateGroupInput,
   DayOfWeek,
   Group,
+  GroupMember,
   Level,
   Trainer,
+  TransferGroupResult,
   UpdateGroupInput
 } from "@beosand/types";
 import { AppShell } from "../ui/AppShell";
@@ -16,9 +18,21 @@ import { NumberField, SelectField, TextField, TimeField, type SelectOption } fro
 import { useToast } from "../ui/Toast";
 import { useT } from "../i18n/LanguageProvider";
 import { useGroups, useCreateGroup, useUpdateGroup } from "../hooks/useGroups";
+import { useGroupMembers, useTransferGroupMember } from "../hooks/useGroupMembers";
 import { useLevels } from "../hooks/useLevels";
 import { useTrainers } from "../hooks/useTrainers";
 import { formatRsd } from "../lib/format";
+
+/** The current calendar year/month — which month's roster to view/transfer. */
+function currentYearMonth(): { year: number; month: number } {
+  const now = new Date();
+  return { year: now.getFullYear(), month: now.getMonth() + 1 };
+}
+
+/** A member with a known clientId — the only ones the admin can transfer. */
+function transferableName(member: GroupMember): string {
+  return member.fullName ?? member.firstName;
+}
 
 type Translate = (key: string, params?: Record<string, string | number>) => string;
 
@@ -178,6 +192,186 @@ function GroupForm({ form, onChange, levels, trainers, error }: GroupFormProps):
   );
 }
 
+/** A pending transfer: which member, out of which group, to which (chosen) group. */
+interface TransferTarget {
+  member: GroupMember;
+  fromGroup: Group;
+}
+
+interface TransferMemberModalProps {
+  target: TransferTarget;
+  groups: Group[];
+  year: number;
+  month: number;
+  onClose: () => void;
+}
+
+/**
+ * Move one member from `fromGroup` to a chosen other group for the current month.
+ * The target select excludes the source group; the API owns all booking/capacity
+ * math — this modal only collects the target and renders the server's result.
+ */
+function TransferMemberModal({
+  target,
+  groups,
+  year,
+  month,
+  onClose
+}: TransferMemberModalProps): JSX.Element {
+  const t = useT();
+  const { notify } = useToast();
+  const transfer = useTransferGroupMember();
+  const [toGroupId, setToGroupId] = useState("");
+
+  const targetOptions: SelectOption[] = [
+    { value: "", label: t("admin.groups.transferPickGroup") },
+    ...groups
+      .filter((group) => group.id !== target.fromGroup.id)
+      .map((group) => ({ value: group.id, label: group.name }))
+  ];
+
+  const clientId = target.member.clientId;
+  const memberName = transferableName(target.member);
+
+  const handleConfirm = (event: FormEvent<HTMLFormElement>): void => {
+    event.preventDefault();
+    if (!clientId || toGroupId === "") return;
+    transfer.mutate(
+      { clientId, fromGroupId: target.fromGroup.id, toGroupId, year, month },
+      {
+        onSuccess: (result: TransferGroupResult) => {
+          notify(
+            t("admin.groups.transferred", {
+              moved: result.movedDates.length,
+              cancelled: result.cancelledDates.length,
+              skipped: result.skippedDates.length
+            }),
+            "success"
+          );
+          onClose();
+        },
+        onError: (mutationError) => notify(mutationError.message, "error")
+      }
+    );
+  };
+
+  const submitError = transfer.isError ? transfer.error.message : undefined;
+  const canConfirm = Boolean(clientId) && toGroupId !== "" && !transfer.isPending;
+
+  return (
+    <Modal
+      open
+      onClose={onClose}
+      title={t("admin.groups.transferTitle", { name: memberName })}
+      footer={
+        <>
+          <Button variant="ghost" onClick={onClose} disabled={transfer.isPending}>
+            {t("admin.action.cancel")}
+          </Button>
+          <Button type="submit" form="transfer-form" disabled={!canConfirm}>
+            {transfer.isPending ? t("admin.groups.transferring") : t("admin.groups.transfer")}
+          </Button>
+        </>
+      }
+    >
+      <form
+        id="transfer-form"
+        onSubmit={handleConfirm}
+        noValidate
+        style={{ display: "flex", flexDirection: "column", gap: "16px" }}
+      >
+        <p>
+          {t("admin.groups.transferFrom")} <strong>{target.fromGroup.name}</strong>
+        </p>
+        <SelectField
+          label={t("admin.groups.transferTarget")}
+          options={targetOptions}
+          value={toGroupId}
+          onChange={(event) => setToGroupId(event.target.value)}
+        />
+        {submitError ? (
+          <p className="field__error" role="alert">
+            {submitError}
+          </p>
+        ) : null}
+      </form>
+    </Modal>
+  );
+}
+
+interface MembersDrawerProps {
+  group: Group;
+  groups: Group[];
+  year: number;
+  month: number;
+  onClose: () => void;
+}
+
+/**
+ * Per-group panel listing this month's members by full name, each with a Transfer
+ * action. The API decides membership and returns full names only to admins; the
+ * panel renders the validated result and never filters domain data itself.
+ */
+function MembersDrawer({ group, groups, year, month, onClose }: MembersDrawerProps): JSX.Element {
+  const t = useT();
+  const members = useGroupMembers(group.id, year, month);
+  const [transferTarget, setTransferTarget] = useState<TransferTarget | null>(null);
+
+  const columns: Column<GroupMember>[] = [
+    {
+      key: "name",
+      header: t("admin.groups.colMember"),
+      render: (member) => transferableName(member)
+    },
+    {
+      key: "actions",
+      header: "",
+      render: (member) =>
+        member.clientId ? (
+          <Button
+            variant="ghost"
+            onClick={() => setTransferTarget({ member, fromGroup: group })}
+            aria-label={t("admin.groups.transferAria", { name: transferableName(member) })}
+          >
+            {t("admin.groups.transfer")}
+          </Button>
+        ) : (
+          "—"
+        )
+    }
+  ];
+
+  return (
+    <Modal open onClose={onClose} title={t("admin.groups.membersTitle", { name: group.name })}>
+      {members.isLoading ? (
+        <p className="state state--loading">{t("admin.groups.membersLoading")}</p>
+      ) : members.isError ? (
+        <p className="state state--error" role="alert">
+          {t("admin.groups.membersError")}
+        </p>
+      ) : (
+        <DataTable
+          caption={t("admin.groups.membersCaption", { name: group.name })}
+          columns={columns}
+          rows={members.data?.members ?? []}
+          rowKey={(member) => member.clientId ?? `${member.firstName}-${member.avatarInitial}`}
+          emptyLabel={t("admin.groups.membersEmpty")}
+        />
+      )}
+
+      {transferTarget ? (
+        <TransferMemberModal
+          target={transferTarget}
+          groups={groups}
+          year={year}
+          month={month}
+          onClose={() => setTransferTarget(null)}
+        />
+      ) : null}
+    </Modal>
+  );
+}
+
 type EditTarget = { mode: "create" } | { mode: "edit"; group: Group };
 
 /** M1 — Groups: data-dense table + create/edit modal form. The API owns all domain rules. */
@@ -192,6 +386,8 @@ export function Groups(): JSX.Element {
 
   const [target, setTarget] = useState<EditTarget | null>(null);
   const [form, setForm] = useState<GroupFormState>(emptyForm);
+  const [membersGroup, setMembersGroup] = useState<Group | null>(null);
+  const { year, month } = useMemo(() => currentYearMonth(), []);
 
   const levelOptions: SelectOption[] = useMemo(
     () => (levels.data ?? []).map((level) => ({ value: level.id, label: level.name })),
@@ -291,13 +487,22 @@ export function Groups(): JSX.Element {
       key: "actions",
       header: "",
       render: (group) => (
-        <Button
-          variant="ghost"
-          onClick={() => openEdit(group)}
-          aria-label={t("admin.groups.editAria", { name: group.name })}
-        >
-          {t("admin.action.edit")}
-        </Button>
+        <div style={{ display: "flex", gap: "8px", justifyContent: "flex-end" }}>
+          <Button
+            variant="ghost"
+            onClick={() => setMembersGroup(group)}
+            aria-label={t("admin.groups.membersAria", { name: group.name })}
+          >
+            {t("admin.groups.membersAction")}
+          </Button>
+          <Button
+            variant="ghost"
+            onClick={() => openEdit(group)}
+            aria-label={t("admin.groups.editAria", { name: group.name })}
+          >
+            {t("admin.action.edit")}
+          </Button>
+        </div>
       )
     }
   ];
@@ -357,6 +562,16 @@ export function Groups(): JSX.Element {
           />
         </form>
       </Modal>
+
+      {membersGroup ? (
+        <MembersDrawer
+          group={membersGroup}
+          groups={groups.data ?? []}
+          year={year}
+          month={month}
+          onClose={() => setMembersGroup(null)}
+        />
+      ) : null}
     </AppShell>
   );
 }

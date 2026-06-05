@@ -1,7 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { cleanup, fireEvent, render, screen, within } from "@testing-library/react";
 import type { ReactNode } from "react";
-import type { Group, Level, Trainer } from "@beosand/types";
+import type { Group, GroupMembers, Level, Trainer } from "@beosand/types";
 import { ToastProvider } from "../ui/Toast";
 
 // AppShell pulls in the router + session hooks; stub it to a passthrough so the
@@ -17,11 +17,17 @@ const useCreateGroup = vi.fn();
 const useUpdateGroup = vi.fn();
 const useLevels = vi.fn();
 const useTrainers = vi.fn();
+const useGroupMembers = vi.fn();
+const useTransferGroupMember = vi.fn();
 
 vi.mock("../hooks/useGroups", () => ({
   useGroups: () => useGroups(),
   useCreateGroup: () => useCreateGroup(),
   useUpdateGroup: () => useUpdateGroup()
+}));
+vi.mock("../hooks/useGroupMembers", () => ({
+  useGroupMembers: () => useGroupMembers(),
+  useTransferGroupMember: () => useTransferGroupMember()
 }));
 vi.mock("../hooks/useLevels", () => ({ useLevels: () => useLevels() }));
 vi.mock("../hooks/useTrainers", () => ({ useTrainers: () => useTrainers() }));
@@ -50,6 +56,19 @@ const GROUP: Group = {
   priceMonthRsd: 12000,
   status: "active"
 };
+const GROUP_B: Group = {
+  ...GROUP,
+  id: "44444444-4444-4444-4444-444444444444",
+  name: "Вечерняя группа"
+};
+const CLIENT_ID = "55555555-5555-5555-5555-555555555555";
+const MEMBERS: GroupMembers = {
+  groupId: GROUP.id,
+  year: 2026,
+  month: 6,
+  memberCount: 1,
+  members: [{ firstName: "Ана", avatarInitial: "А", clientId: CLIENT_ID, fullName: "Ана Петровић" }]
+};
 
 function query<T>(over: Partial<{ data: T; isLoading: boolean; isError: boolean }>) {
   return { data: undefined, isLoading: false, isError: false, ...over };
@@ -68,11 +87,13 @@ function renderPage(): void {
 }
 
 beforeEach(() => {
-  useGroups.mockReturnValue(query<Group[]>({ data: [GROUP] }));
+  useGroups.mockReturnValue(query<Group[]>({ data: [GROUP, GROUP_B] }));
   useCreateGroup.mockReturnValue(mutation());
   useUpdateGroup.mockReturnValue(mutation());
   useLevels.mockReturnValue(query<Level[]>({ data: [LEVEL] }));
   useTrainers.mockReturnValue(query<Trainer[]>({ data: [TRAINER] }));
+  useGroupMembers.mockReturnValue(query<GroupMembers>({ data: MEMBERS }));
+  useTransferGroupMember.mockReturnValue(mutation());
 });
 
 afterEach(() => {
@@ -160,5 +181,41 @@ describe("Groups", () => {
     expect(within(dialog).getByRole("alert").textContent).toContain(
       "Время окончания раньше начала"
     );
+  });
+
+  it("opens the members drawer and lists this month's members by full name", () => {
+    renderPage();
+    fireEvent.click(screen.getByRole("button", { name: "Состав группы Утренняя группа" }));
+    const drawer = screen.getByRole("dialog", { name: "Состав: Утренняя группа" });
+    expect(within(drawer).getByText("Ана Петровић")).toBeTruthy();
+  });
+
+  it("transfers a member to a chosen target group (source group excluded)", () => {
+    const mutate = vi.fn();
+    useTransferGroupMember.mockReturnValue(mutation({ mutate }));
+    renderPage();
+
+    fireEvent.click(screen.getByRole("button", { name: "Состав группы Утренняя группа" }));
+    fireEvent.click(screen.getByRole("button", { name: "Перенести участника Ана Петровић" }));
+
+    const dialog = screen.getByRole("dialog", { name: "Перенести: Ана Петровић" });
+    const inDialog = within(dialog);
+    const select = inDialog.getByLabelText("Целевая группа") as HTMLSelectElement;
+    // The source group is not an option; only the other group is offered.
+    expect(within(select).queryByText("Утренняя группа")).toBeNull();
+    expect(within(select).getByText("Вечерняя группа")).toBeTruthy();
+
+    fireEvent.change(select, { target: { value: GROUP_B.id } });
+    fireEvent.click(inDialog.getByRole("button", { name: "Перенести" }));
+
+    expect(mutate).toHaveBeenCalledTimes(1);
+    const [input] = mutate.mock.calls[0];
+    expect(input).toMatchObject({
+      clientId: CLIENT_ID,
+      fromGroupId: GROUP.id,
+      toGroupId: GROUP_B.id
+    });
+    expect(typeof input.year).toBe("number");
+    expect(typeof input.month).toBe("number");
   });
 });
