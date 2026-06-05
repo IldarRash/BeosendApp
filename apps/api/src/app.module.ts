@@ -10,7 +10,6 @@ import { BroadcastsModule } from "./modules/broadcasts/broadcasts.module";
 import { ClientsModule } from "./modules/clients/clients.module";
 import { CourtsModule } from "./modules/courts/courts.module";
 import { CourtRequestsModule } from "./modules/court-requests/court-requests.module";
-import { DiagnosticsModule } from "./modules/diagnostics/diagnostics.module";
 import { GroupsModule } from "./modules/groups/groups.module";
 import { I18nModule } from "./modules/i18n/i18n.module";
 import { LevelsModule } from "./modules/levels/levels.module";
@@ -43,7 +42,6 @@ import { WaitlistModule } from "./modules/waitlist/waitlist.module";
     AnalyticsModule,
     CourtsModule,
     CourtRequestsModule,
-    DiagnosticsModule,
     I18nModule
   ]
 })
