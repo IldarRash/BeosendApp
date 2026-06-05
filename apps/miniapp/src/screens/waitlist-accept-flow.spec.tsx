@@ -42,7 +42,10 @@ const BOOKING: Booking = {
   groupSubscriptionId: null,
   createdAt: "2026-06-05T10:00:00.000Z",
   status: "booked",
-  source: "telegram"
+  source: "telegram",
+  paymentStatus: "unpaid",
+  paidAt: null,
+  paidBy: null
 };
 
 interface FakeApi {
