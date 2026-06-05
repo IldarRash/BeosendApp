@@ -102,6 +102,10 @@ const BOOKING: Booking = {
   paidBy: null
 };
 
+// The same booking, but returned `pending` — the training's trainer must confirm the
+// request (the server decides this; the Mini App only reflects it in the success copy).
+const PENDING_BOOKING: Booking = { ...BOOKING, status: "pending" };
+
 const WAITLIST_ENTRY: WaitlistEntry = {
   id: "77777777-7777-7777-7777-777777777777",
   clientId: ONBOARDED.id,
@@ -344,6 +348,22 @@ describe("BrowseScreen booking flow", () => {
     await waitFor(() =>
       expect(api.listAvailableSlots.mock.calls.length).toBeGreaterThan(slotCallsBefore)
     );
+  });
+
+  it("shows the pending success copy when the booking comes back awaiting trainer confirmation", async () => {
+    api = makeApi({ createSingleBooking: vi.fn().mockResolvedValue(PENDING_BOOKING) });
+    renderWithProviders(<BrowseScreen />);
+
+    fireEvent.click(await screen.findByRole("button", { name: /Записаться$/ }));
+    await screen.findByText("Подтверждение записи");
+    fireEvent.click(screen.getByRole("button", { name: "Записаться" }));
+
+    await waitFor(() => expect(api.createSingleBooking).toHaveBeenCalledTimes(1));
+    // A pending booking branches the success copy to the "request sent" wording — it
+    // never shows the immediate "Вы записаны!" confirmation.
+    await screen.findByText("Заявка отправлена");
+    expect(screen.getByText("Ожидает подтверждения тренера.")).toBeTruthy();
+    expect(screen.queryByText("Вы записаны!")).toBeNull();
   });
 
   it("surfaces a 409 ConflictError message verbatim and refetches the slots", async () => {
