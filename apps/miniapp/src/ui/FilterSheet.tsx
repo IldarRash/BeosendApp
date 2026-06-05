@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { Button, Modal, Section } from "@telegram-apps/telegram-ui";
+import { Button, Modal } from "@telegram-apps/telegram-ui";
 import type { DayOfWeek, Level, TimeOfDay, Trainer } from "@beosand/types";
 import { useT } from "../i18n/LanguageProvider";
 import { hapticSelection } from "../tg/buttons";
@@ -137,14 +137,14 @@ export function FilterSheet({
           onSelect={(v) => pick("levelId", v)}
         />
 
-        <Section className="filter-sheet__actions">
+        <div className="filter-sheet__actions">
           <Button size="l" mode="plain" stretched onClick={onReset}>
             {t("miniapp.browse.filter.reset")}
           </Button>
           <Button size="l" stretched onClick={() => onApply(draft)}>
             {t("miniapp.browse.filter.apply")}
           </Button>
-        </Section>
+        </div>
       </div>
     </Modal>
   );

@@ -10,6 +10,15 @@ import { useAvailableSlots } from "../api/hooks";
 import { MyBookingsScreen } from "./MyBookingsScreen";
 
 /**
+ * The cancellable booking row is the whole `.lrow` button; its accessible name is the
+ * full row label (weekday/date/time · trainer·level · status) followed by the cancel
+ * hint ("Отменить запись"). We match the ROW by that trailing hint preceded by the
+ * row's "·" separators, so it never collides with the sheet's primary commit button
+ * whose accessible name is exactly "Отменить запись" (no preceding row content).
+ */
+const ROW_CANCEL = /· .*Отменить запись$/;
+
+/**
  * S5 My-bookings + cancel flow tests. The screen is an interaction layer: the
  * upcoming/past split, the per-item `canCancel` flag, and the capacity/batch
  * recompute are all the server's — the screen only fetches, renders, and calls
@@ -182,8 +191,9 @@ describe("MyBookingsScreen render", () => {
 
     // Both rows render (same trainer/level subtitle), so wait for the pair.
     await waitFor(() => expect(screen.getAllByText("Иван · Начинающий")).toHaveLength(2));
-    // Exactly one Cancel control — the cancellable row; the locked one has none.
-    const cancels = screen.getAllByRole("button", { name: "Отменить запись" });
+    // Exactly one Cancel control — the cancellable row (its whole `.lrow` is a button
+    // whose name ends with the cancel hint); the locked row is a plain non-button row.
+    const cancels = screen.getAllByRole("button", { name: ROW_CANCEL });
     expect(cancels).toHaveLength(1);
   });
 
@@ -200,9 +210,10 @@ describe("MyBookingsScreen render", () => {
 });
 
 describe("MyBookingsScreen cancel", () => {
-  /** The trailing row Cancel control (aria-label), distinct from the sheet primary. */
+  /** The cancellable row button (its name ends with the cancel hint), distinct from
+   * the sheet primary whose accessible name is exactly "Отменить запись". */
   function rowCancel(): HTMLElement {
-    return screen.getByRole("button", { name: "Отменить запись" });
+    return screen.getByRole("button", { name: ROW_CANCEL });
   }
 
   /** The sheet's primary commit (visible text "Отменить запись" inside the dialog). */
@@ -247,7 +258,7 @@ describe("MyBookingsScreen cancel", () => {
 
 describe("MyBookingsScreen cancel — refetch + monthly-batch invariant", () => {
   function rowCancel(): HTMLElement {
-    return screen.getByRole("button", { name: "Отменить запись" });
+    return screen.getByRole("button", { name: ROW_CANCEL });
   }
 
   async function sheetConfirm(): Promise<HTMLElement> {
@@ -317,12 +328,14 @@ describe("MyBookingsScreen cancel — refetch + monthly-batch invariant", () => 
 
     // Both dated rows render before the cancel (10.06 cancelled-to-be, 17.06 sibling),
     // and both are cancellable, so there are two row Cancel controls at this point.
-    const cancelledRow = (await screen.findByText(/10\.06/)).closest("[aria-label]") as HTMLElement;
+    // The whole `.lrow` is the cancel button, so the 10.06 text's nearest button IS
+    // that row's Cancel control.
+    const cancelledRow = (await screen.findByText(/10\.06/)).closest("button") as HTMLElement;
     expect(screen.getByText(/17\.06/)).toBeTruthy();
-    expect(screen.getAllByRole("button", { name: "Отменить запись" })).toHaveLength(2);
+    expect(screen.getAllByRole("button", { name: ROW_CANCEL })).toHaveLength(2);
 
-    // Cancel ONLY the 10.06 row (scope the control to that row's cell).
-    fireEvent.click(within(cancelledRow).getByRole("button", { name: "Отменить запись" }));
+    // Cancel ONLY the 10.06 row by tapping that row's button.
+    fireEvent.click(cancelledRow);
     fireEvent.click(await sheetConfirm());
 
     await waitFor(() => expect(api.cancelBooking).toHaveBeenCalledWith(UPCOMING.bookingId));

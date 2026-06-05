@@ -1,5 +1,4 @@
 import { useMemo, useState } from "react";
-import { List, Section, Title } from "@telegram-apps/telegram-ui";
 import type { Level, SlotCard as SlotCardData, Trainer } from "@beosand/types";
 import { useT } from "../i18n/LanguageProvider";
 import { formatDayMonth, weekdayShortKey } from "./format";
@@ -36,9 +35,9 @@ interface BrowseViewProps {
  * taps; the screen owns the queries, the clientId, and the booking write. No money
  * or availability math here (the card shows the server's free seats and RSD price).
  *
- * Cards are grouped by date so a long schedule scans fast: one Section per day,
- * its header the weekday + date. Coral is reserved for active filter chips and the
- * engaged Today toggle; everything else is the native surface.
+ * Cards are grouped by date so a long schedule scans fast: a flat `.tg-sech` header
+ * per day (the weekday + date) followed by its cards. Coral is reserved for active
+ * filter chips and the engaged Today toggle; everything else is the native surface.
  */
 export function BrowseView({
   slots,
@@ -78,9 +77,7 @@ export function BrowseView({
 
   return (
     <div className="screen screen--no-mainbutton">
-      <Title level="1" weight="2">
-        {t("miniapp.browse.title")}
-      </Title>
+      <h1 className="screen__title">{t("miniapp.browse.title")}</h1>
 
       <ChipBar label={t("miniapp.browse.filtersAria")}>
         <Chip
@@ -105,12 +102,12 @@ export function BrowseView({
       ) : groups.length === 0 ? (
         <EmptyState titleKey="miniapp.browse.emptyTitle" bodyKey="miniapp.browse.emptyBody" />
       ) : (
-        <List aria-label={t("miniapp.browse.title")}>
+        <div role="list" aria-label={t("miniapp.browse.title")}>
           {groups.map((group) => (
-            <Section
-              key={group.date}
-              header={`${t(weekdayShortKey(group.dayOfWeek))} · ${formatDayMonth(group.date)}`}
-            >
+            <div key={group.date} role="group">
+              <div className="tg-sech">
+                {`${t(weekdayShortKey(group.dayOfWeek))} · ${formatDayMonth(group.date)}`}
+              </div>
               {group.slots.map((slot) => (
                 <SlotCard
                   key={slot.trainingId}
@@ -119,9 +116,9 @@ export function BrowseView({
                   onWaitlist={() => onWaitlist(slot)}
                 />
               ))}
-            </Section>
+            </div>
           ))}
-        </List>
+        </div>
       )}
 
       <FilterSheet

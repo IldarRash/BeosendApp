@@ -255,6 +255,16 @@ body {
   color: var(--tg-hint);
 }
 
+/* In-content page title (flat, theme-flipping — not a native Section/Title). */
+.screen__title {
+  font-size: 22px;
+  font-weight: 700;
+  letter-spacing: -0.4px;
+  color: var(--tg-text);
+  padding: 4px 0 14px;
+  margin: 0;
+}
+
 /* =========================================================
  * Telegram-style section header
  * ========================================================= */
