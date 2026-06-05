@@ -5,7 +5,9 @@ import type { Client } from "@beosand/types";
 import { useLevels, useSetLanguage } from "../api/hooks";
 import { useLanguage, useT } from "../i18n/LanguageProvider";
 import { hapticSelection } from "../tg/buttons";
+import { useTg } from "../tg/TgSdkProvider";
 import { OptionList, type Option } from "../ui/OptionList";
+import { TgAvatar } from "../ui/TgAvatar";
 
 interface ProfileScreenProps {
   client: Client;
@@ -34,6 +36,7 @@ function Chevron(): JSX.Element {
  */
 export function ProfileScreen({ client }: ProfileScreenProps): JSX.Element {
   const t = useT();
+  const { user } = useTg();
   const { locale, setLocale } = useLanguage();
   const levels = useLevels();
   const setServerLanguage = useSetLanguage();
@@ -76,6 +79,11 @@ export function ProfileScreen({ client }: ProfileScreenProps): JSX.Element {
 
   return (
     <div className="screen screen--no-mainbutton">
+      {/* The current user's own Telegram avatar, shown large above the controls. */}
+      <div className="profile-avatar">
+        <TgAvatar user={user} size="large" />
+      </div>
+
       {/* Identity — read-only facts, no edit affordance */}
       <section aria-label={t("miniapp.profile.title")}>
         <div className="tg-sech">{t("miniapp.profile.title")}</div>

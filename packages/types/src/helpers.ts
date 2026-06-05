@@ -72,6 +72,13 @@ export function monthTrainingDates(
   return result;
 }
 
+/** Inclusive [first, last] "YYYY-MM-DD" date strings of a calendar month. */
+export function monthBounds(year: number, month: number): [string, string] {
+  const first = new Date(Date.UTC(year, month - 1, 1));
+  const last = new Date(Date.UTC(year, month, 0));
+  return [first.toISOString().slice(0, 10), last.toISOString().slice(0, 10)];
+}
+
 /**
  * Court rental price in RSD (section "Стоимость аренды"). Fractional hours are
  * allowed (1 | 1.5 | 2); 1.5h × 2000 = 3000 stays whole RSD for these durations.
@@ -359,4 +366,23 @@ export function freeCourtsBySlot(input: {
     result.set(slot, Math.max(0, free));
   }
   return result;
+}
+
+// --- Member display names (group roster chips) ---
+
+/**
+ * The first whitespace-delimited token of a display name (e.g. "Ана Петровић"
+ * → "Ана"); falls back to the trimmed name. Pure so the client-facing roster can
+ * be derived server-side without leaking the full name.
+ */
+export function firstNameOf(name: string): string {
+  const trimmed = name.trim();
+  const [first] = trimmed.split(/\s+/);
+  return first || trimmed;
+}
+
+/** A single uppercased initial for an avatar chip; "?" when the name has no letters. */
+export function avatarInitialOf(name: string): string {
+  const first = firstNameOf(name).charAt(0);
+  return first ? first.toUpperCase() : "?";
 }

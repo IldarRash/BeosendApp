@@ -10,6 +10,7 @@ import {
   createSingleBookingSchema,
   createWaitlistEntrySchema,
   groupBookingResultSchema,
+  groupMembersSchema,
   groupSchema,
   individualRequestResultSchema,
   individualRequestSchema,
@@ -32,6 +33,7 @@ import {
   type CreateWaitlistInput,
   type Group,
   type GroupBookingResult,
+  type GroupMembers,
   type IndividualRequestResult,
   type Level,
   type MiniappMe,
@@ -368,6 +370,20 @@ export class MiniappApiClient {
    */
   listGroups(): Promise<Group[]> {
     return this.request("/groups", groupsSchema);
+  }
+
+  /**
+   * The roster of a group for one month (GET /groups/:id/members?year&month) —
+   * "who signed up". Sent with the client Bearer token like every authed call; the
+   * API bridges the session to `x-client-telegram-id`, so a Mini App caller receives
+   * the CLIENT-NARROWED shape: only `firstName` + `avatarInitial` per member plus the
+   * `memberCount` — never another client's `clientId` or `fullName`. The response is
+   * validated against the shared {@link GroupMembers} contract before render; the
+   * Mini App does no counting or identity math, it just shows what the server returned.
+   */
+  getGroupMembers(groupId: string, year: number, month: number): Promise<GroupMembers> {
+    const qs = new URLSearchParams({ year: String(year), month: String(month) }).toString();
+    return this.request(`/groups/${groupId}/members?${qs}`, groupMembersSchema);
   }
 
   /**

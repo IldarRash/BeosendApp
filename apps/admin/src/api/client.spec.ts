@@ -529,6 +529,93 @@ describe("ApiClient walk-in & manual booking (Feature 5)", () => {
   });
 });
 
+describe("ApiClient group members & transfer", () => {
+  afterEach(() => {
+    vi.unstubAllGlobals();
+  });
+
+  const GROUP_ID = "11111111-1111-1111-1111-111111111111";
+  const TO_GROUP_ID = "22222222-2222-2222-2222-222222222222";
+  const CLIENT_ID = "33333333-3333-3333-3333-333333333333";
+  const SUBSCRIPTION_ID = "44444444-4444-4444-4444-444444444444";
+
+  it("requests group members with the year/month query and validates the admin shape", async () => {
+    const calls = mockFetchOnce({
+      groupId: GROUP_ID,
+      year: 2026,
+      month: 6,
+      memberCount: 1,
+      members: [
+        { firstName: "Ана", avatarInitial: "А", clientId: CLIENT_ID, fullName: "Ана Петровић" }
+      ]
+    });
+    const result = await new ApiClient("http://api.test").getGroupMembers(GROUP_ID, 2026, 6);
+    expect(calls[0]?.url).toBe(`http://api.test/groups/${GROUP_ID}/members?year=2026&month=6`);
+    expect(result.members[0].fullName).toBe("Ана Петровић");
+    expect(result.members[0].clientId).toBe(CLIENT_ID);
+  });
+
+  it("rejects a malformed group-members response (contract enforced)", async () => {
+    // avatarInitial must be a non-empty string; an empty value fails the contract.
+    mockFetchOnce({
+      groupId: GROUP_ID,
+      year: 2026,
+      month: 6,
+      memberCount: 1,
+      members: [{ firstName: "Ана", avatarInitial: "" }]
+    });
+    await expect(
+      new ApiClient("http://api.test").getGroupMembers(GROUP_ID, 2026, 6)
+    ).rejects.toThrow();
+  });
+
+  it("POSTs a group transfer and validates the result", async () => {
+    const calls = mockFetchOnce({
+      groupSubscriptionId: SUBSCRIPTION_ID,
+      movedDates: ["2026-06-10", "2026-06-12"],
+      cancelledDates: ["2026-06-10", "2026-06-12"],
+      skippedDates: []
+    });
+    const result = await new ApiClient("http://api.test").transferGroupMember({
+      clientId: CLIENT_ID,
+      fromGroupId: GROUP_ID,
+      toGroupId: TO_GROUP_ID,
+      year: 2026,
+      month: 6
+    });
+    expect(calls[0]?.url).toBe("http://api.test/bookings/transfer-group");
+    expect(calls[0]?.init?.method).toBe("POST");
+    expect(JSON.parse(calls[0]?.init?.body as string)).toEqual({
+      clientId: CLIENT_ID,
+      fromGroupId: GROUP_ID,
+      toGroupId: TO_GROUP_ID,
+      year: 2026,
+      month: 6
+    });
+    expect(result.movedDates).toHaveLength(2);
+    expect(result.skippedDates).toHaveLength(0);
+  });
+
+  it("rejects a malformed transfer result (contract enforced)", async () => {
+    // movedDates must be ISO date strings; a bad value fails the contract.
+    mockFetchOnce({
+      groupSubscriptionId: SUBSCRIPTION_ID,
+      movedDates: ["not-a-date"],
+      cancelledDates: [],
+      skippedDates: []
+    });
+    await expect(
+      new ApiClient("http://api.test").transferGroupMember({
+        clientId: CLIENT_ID,
+        fromGroupId: GROUP_ID,
+        toGroupId: TO_GROUP_ID,
+        year: 2026,
+        month: 6
+      })
+    ).rejects.toThrow();
+  });
+});
+
 describe("ApiClient subscription payments", () => {
   afterEach(() => {
     vi.unstubAllGlobals();

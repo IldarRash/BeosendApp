@@ -185,6 +185,8 @@ export const miniappSr: Record<string, string> = {
   "miniapp.group.skippedHeader": "Preskočeni datumi (nema mesta)",
   "miniapp.group.toMyBookings": "Na moje prijave",
   "miniapp.group.toHome": "Na početnu",
+  "miniapp.group.roster.title": "Ko je prijavljen",
+  "miniapp.group.roster.empty": "Još niko nije prijavljen",
   "miniapp.group.conflict":
     "Pretplata nije uspela. Možda grupa nije dostupna ili je mesec zatvoren.",
 

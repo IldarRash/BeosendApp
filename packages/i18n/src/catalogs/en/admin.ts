@@ -191,6 +191,23 @@ export const adminEn: Record<string, string> = {
   "admin.groups.pickTrainer": "Select a trainer",
   "admin.groups.created": "Group created",
   "admin.groups.updated": "Group updated",
+  // Members drawer (this month's roster) + transfer modal.
+  "admin.groups.membersAction": "Members",
+  "admin.groups.membersAria": "Members of group {name}",
+  "admin.groups.membersTitle": "Members: {name}",
+  "admin.groups.membersCaption": "Members of group {name} for the current month",
+  "admin.groups.membersLoading": "Loading members…",
+  "admin.groups.membersError": "Couldn't load the group's members",
+  "admin.groups.membersEmpty": "No members this month.",
+  "admin.groups.colMember": "Member",
+  "admin.groups.transfer": "Transfer",
+  "admin.groups.transferAria": "Transfer member {name}",
+  "admin.groups.transferTitle": "Transfer: {name}",
+  "admin.groups.transferring": "Transferring…",
+  "admin.groups.transferFrom": "From group:",
+  "admin.groups.transferTarget": "Target group",
+  "admin.groups.transferPickGroup": "Select a group",
+  "admin.groups.transferred": "Dates moved: {moved}, cancelled: {cancelled}, skipped: {skipped}",
 
   // ── Trainings page ────────────────────────────────────────────────────────
   "admin.trainings.title": "Trainings",

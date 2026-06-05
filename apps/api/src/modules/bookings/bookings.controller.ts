@@ -12,12 +12,14 @@ import {
   type Booking,
   type GroupBookingResult,
   type MyBookingItem,
+  type TransferGroupResult,
   confirmBookingSchema,
   createGroupBookingSchema,
   createSingleBookingSchema,
   declineBookingSchema,
   markAttendanceSchema,
   myBookingsQuerySchema,
+  transferGroupSchema,
   uuid
 } from "@beosand/types";
 import type { ZodSchema } from "zod";
@@ -65,6 +67,21 @@ export class BookingsController {
     const actorTelegramId = parseTelegramId(clientTelegramIdHeader ?? telegramIdHeader);
     const input = validate(createGroupBookingSchema, body ?? {});
     return this.bookings.createGroupBooking(actorTelegramId, input);
+  }
+
+  /**
+   * Admin: move a client between groups for a month (Item C) — cancel their future
+   * bookings on the source group and re-book onto the target as one atomic batch.
+   * Admin-only (x-telegram-id); the service enforces it.
+   */
+  @Post("transfer-group")
+  transferGroup(
+    @Headers("x-telegram-id") telegramIdHeader: string | undefined,
+    @Body() body: unknown
+  ): Promise<TransferGroupResult> {
+    const actorTelegramId = parseTelegramId(telegramIdHeader);
+    const input = validate(transferGroupSchema, body ?? {});
+    return this.bookings.transferGroup(actorTelegramId, input);
   }
 
   /** Client: list their own upcoming or past bookings (T1.10). Ownership in the service. */

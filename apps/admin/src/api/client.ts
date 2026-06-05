@@ -16,6 +16,8 @@ import {
   courtLoadGridSchema,
   generateAllResultSchema,
   generationStatusItemSchema,
+  groupMembersSchema,
+  transferGroupResultSchema,
   courtRequestAdminViewSchema,
   courtRequestSchema,
   courtSchema,
@@ -62,6 +64,7 @@ import {
   type GenerationStatusItem,
   type GenerationStatusQuery,
   type Group,
+  type GroupMembers,
   type LabelCatalog,
   type LabelEntry,
   type Level,
@@ -82,6 +85,8 @@ import {
   type Training,
   type TrainingCalendarItem,
   type TrainingRoster,
+  type TransferGroupInput,
+  type TransferGroupResult,
   type UpdateGroupInput,
   type UpdateLevelInput,
   type UpdateTrainerInput
@@ -415,6 +420,18 @@ export class ApiClient {
     });
   }
 
+  /**
+   * A group's distinct members for a month (GET /groups/:id/members?year&month).
+   * The admin session (Bearer) gets the full shape — each member's `clientId` and
+   * `fullName` — which the transfer flow needs; a client caller would receive only
+   * first name + avatar initial. The server owns who is a member; the console only
+   * renders the validated result.
+   */
+  getGroupMembers(groupId: string, year: number, month: number): Promise<GroupMembers> {
+    const query = new URLSearchParams({ year: String(year), month: String(month) }).toString();
+    return this.request(`/groups/${groupId}/members?${query}`, groupMembersSchema);
+  }
+
   // ── Trainings (M1) ─────────────────────────────────────────────────────
 
   /**
@@ -578,6 +595,20 @@ export class ApiClient {
    */
   bookManual(input: CreateSingleBookingInput): Promise<Booking> {
     return this.request("/bookings/manual", bookingSchema, {
+      method: "POST",
+      body: JSON.stringify(input)
+    });
+  }
+
+  /**
+   * Move a client between groups for a month (POST /bookings/transfer-group). The
+   * server cancels the client's future bookings on `fromGroupId` and re-books them
+   * onto `toGroupId`'s bookable future trainings — all capacity/status math is the
+   * API's. Admin-only server-side; returns the moved/cancelled/skipped dates the
+   * console renders. The two groups must differ (enforced by the contract + API).
+   */
+  transferGroupMember(input: TransferGroupInput): Promise<TransferGroupResult> {
+    return this.request("/bookings/transfer-group", transferGroupResultSchema, {
       method: "POST",
       body: JSON.stringify(input)
     });

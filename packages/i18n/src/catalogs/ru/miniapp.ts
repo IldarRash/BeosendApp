@@ -177,6 +177,9 @@ export const miniappRu: Record<string, string> = {
   "miniapp.group.skippedHeader": "Пропущенные даты (нет мест)",
   "miniapp.group.toMyBookings": "К моим записям",
   "miniapp.group.toHome": "На главную",
+  // Roster block ("who signed up") on the group detail / month preview.
+  "miniapp.group.roster.title": "Кто записан",
+  "miniapp.group.roster.empty": "Пока никто не записан",
   // Conflict fallback (used only when a ConflictError carries no message).
   "miniapp.group.conflict":
     "Не удалось оформить подписку. Возможно, группа недоступна или месяц закрыт.",

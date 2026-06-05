@@ -27,6 +27,20 @@ import {
  * intent (e.g. `waitlist_<id>`). `isTelegram` is false when opened outside Telegram
  * (a plain browser tab in dev), so screens can degrade instead of crashing.
  */
+/**
+ * The current user's own Telegram profile, read from the verified `initData` (the
+ * `user` object). Client-side only and display-only: it is the caller's OWN verified
+ * identity, never another user's, and never the source of domain truth (the API
+ * re-verifies the raw initData). Used to render the profile avatar chip. Snake_case
+ * Telegram fields are exposed here already camelCased by the SDK.
+ */
+export interface TgUser {
+  firstName: string;
+  lastName: string | null;
+  username: string | null;
+  photoUrl: string | null;
+}
+
 export interface TgContextValue {
   /** True when running inside a genuine Telegram WebApp environment. */
   isTelegram: boolean;
@@ -34,6 +48,8 @@ export interface TgContextValue {
   initDataRaw: string | null;
   /** Deep-link `startapp` payload, if the app was opened via a deep link. */
   startParam: string | null;
+  /** The current user's own verified Telegram profile; null outside Telegram. */
+  user: TgUser | null;
 }
 
 const TgContext = createContext<TgContextValue | null>(null);
@@ -54,7 +70,8 @@ export function TgSdkProvider({ children }: { children: ReactNode }): JSX.Elemen
   const [value, setValue] = useState<TgContextValue>({
     isTelegram: false,
     initDataRaw: null,
-    startParam: null
+    startParam: null,
+    user: null
   });
 
   useEffect(() => {
@@ -75,7 +92,8 @@ export function TgSdkProvider({ children }: { children: ReactNode }): JSX.Elemen
           setValue({
             isTelegram: true,
             initDataRaw: retrieveRawInitData() ?? null,
-            startParam: retrieveLaunchParams().tgWebAppStartParam ?? null
+            startParam: retrieveLaunchParams().tgWebAppStartParam ?? null,
+            user: retrieveTgUser()
           });
         }
       });
@@ -106,8 +124,40 @@ async function bootTelegramSdkOnce(): Promise<TgContextValue> {
   return {
     isTelegram: true,
     initDataRaw: retrieveRawInitData() ?? null,
-    startParam: retrieveLaunchParams().tgWebAppStartParam ?? null
+    startParam: retrieveLaunchParams().tgWebAppStartParam ?? null,
+    user: retrieveTgUser()
   };
+}
+
+/**
+ * The current user's own verified Telegram profile from the launch params'
+ * `tgWebAppData.user`, or null when absent (outside Telegram, or no user in initData).
+ * The SDK camel-cases the snake_case Telegram fields; we map only the four we render
+ * and normalise absent optionals to null. Display-only — the API re-verifies the raw
+ * initData; this is never trusted as authorization.
+ */
+function retrieveTgUser(): TgUser | null {
+  const user = retrieveLaunchParams().tgWebAppData?.user;
+  if (!user) {
+    return null;
+  }
+  // The SDK types the camel-cased init-data fields loosely (unknown/{}); coerce each
+  // to a plain string we render, defaulting an absent optional to null.
+  const firstName = asString(user.firstName);
+  if (firstName == null) {
+    return null;
+  }
+  return {
+    firstName,
+    lastName: asString(user.lastName),
+    username: asString(user.username),
+    photoUrl: asString(user.photoUrl)
+  };
+}
+
+/** A non-empty string value, or null for anything else (absent/loosely-typed field). */
+function asString(value: unknown): string | null {
+  return typeof value === "string" && value.length > 0 ? value : null;
 }
 
 async function ensureThemeParamsMounted(): Promise<void> {

@@ -191,6 +191,23 @@ export const adminSr: Record<string, string> = {
   "admin.groups.pickTrainer": "Izaberite trenera",
   "admin.groups.created": "Grupa je kreirana",
   "admin.groups.updated": "Grupa je ažurirana",
+  // Members drawer (this month's roster) + transfer modal.
+  "admin.groups.membersAction": "Sastav",
+  "admin.groups.membersAria": "Sastav grupe {name}",
+  "admin.groups.membersTitle": "Sastav: {name}",
+  "admin.groups.membersCaption": "Članovi grupe {name} za tekući mesec",
+  "admin.groups.membersLoading": "Učitavanje sastava…",
+  "admin.groups.membersError": "Nije moguće učitati sastav grupe",
+  "admin.groups.membersEmpty": "Ovog meseca nema članova.",
+  "admin.groups.colMember": "Član",
+  "admin.groups.transfer": "Premesti",
+  "admin.groups.transferAria": "Premesti člana {name}",
+  "admin.groups.transferTitle": "Premesti: {name}",
+  "admin.groups.transferring": "Premeštanje…",
+  "admin.groups.transferFrom": "Iz grupe:",
+  "admin.groups.transferTarget": "Ciljna grupa",
+  "admin.groups.transferPickGroup": "Izaberite grupu",
+  "admin.groups.transferred": "Premešteno datuma: {moved}, otkazano: {cancelled}, preskočeno: {skipped}",
 
   // ── Trainings page ────────────────────────────────────────────────────────
   "admin.trainings.title": "Treninzi",

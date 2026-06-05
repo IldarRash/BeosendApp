@@ -6,9 +6,17 @@ import {
   Headers,
   Param,
   Patch,
-  Post
+  Post,
+  Query
 } from "@nestjs/common";
-import { createGroupSchema, type Group, updateGroupSchema, uuid } from "@beosand/types";
+import {
+  createGroupSchema,
+  type Group,
+  type GroupMembers,
+  groupMembersQuerySchema,
+  updateGroupSchema,
+  uuid
+} from "@beosand/types";
 import type { ZodSchema } from "zod";
 import { GroupsService } from "./groups.service";
 
@@ -21,6 +29,25 @@ export class GroupsController {
   @Get()
   list(): Promise<Group[]> {
     return this.groups.listActive();
+  }
+
+  /**
+   * Group monthly roster. Admin (x-telegram-id ∈ ADMIN_TELEGRAM_IDS) gets full
+   * members (clientId + fullName); a Mini App client (bridged to
+   * x-client-telegram-id) gets only firstName + avatarInitial. The actor resolves
+   * from `x-client-telegram-id ?? x-telegram-id`; the role split lives in the service.
+   */
+  @Get(":id/members")
+  members(
+    @Headers("x-telegram-id") telegramIdHeader: string | undefined,
+    @Param("id") id: string,
+    @Query() query: unknown,
+    @Headers("x-client-telegram-id") clientTelegramIdHeader?: string
+  ): Promise<GroupMembers> {
+    const actorTelegramId = parseTelegramId(clientTelegramIdHeader ?? telegramIdHeader);
+    const groupId = validate(uuid, id);
+    const { year, month } = validate(groupMembersQuerySchema, query ?? {});
+    return this.groups.listMembers(actorTelegramId, groupId, year, month);
   }
 
   @Post()

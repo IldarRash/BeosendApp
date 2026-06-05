@@ -103,11 +103,14 @@ export class ClientsRepository {
     const [row] = await tx
       .insert(tables.clients)
       .values(values)
-      // The unique index on telegram_id is PARTIAL (WHERE telegram_id IS NOT NULL), so the
-      // conflict target must repeat that predicate or Postgres rejects the ON CONFLICT.
+      // telegram_id's unique index is PARTIAL (WHERE telegram_id IS NOT NULL, so
+      // walk-ins with NULL ids don't collide). Postgres only accepts a partial
+      // index as an ON CONFLICT arbiter when the statement repeats its predicate —
+      // omitting it raises "no unique or exclusion constraint matching the ON
+      // CONFLICT specification" and 500s every onboard.
       .onConflictDoNothing({
         target: tables.clients.telegramId,
-        where: sql`${tables.clients.telegramId} is not null`
+        where: sql`${tables.clients.telegramId} IS NOT NULL`
       })
       .returning();
     return row ? toClient(row) : undefined;

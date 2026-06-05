@@ -15,7 +15,9 @@ import type {
   GroupBookingResult,
   MarkAttendanceInput,
   MyBookingItem,
-  MyBookingScope
+  MyBookingScope,
+  TransferGroupInput,
+  TransferGroupResult
 } from "@beosand/types";
 import {
   type BookingSource,
@@ -23,8 +25,10 @@ import {
   groupBookingResultSchema,
   isBookable,
   isoWeekdayOf,
+  monthBounds,
   myBookingItemSchema,
-  recomputeTrainingStatus
+  recomputeTrainingStatus,
+  transferGroupResultSchema
 } from "@beosand/types";
 import type { Database } from "@beosand/db";
 import { ENV } from "../../config/config.module";
@@ -291,66 +295,24 @@ export class BookingsService {
     const batchStatus: "booked" | "pending" = trainerTelegramId === null ? "booked" : "pending";
 
     const result = await this.bookings.transaction(async (tx) => {
-      const trainings = await this.bookings.findGroupTrainingsForMonthForUpdate(
-        tx,
-        input.groupId,
+      const { created, skipped, trainingCount } = await this.bookGroupMonth(tx, {
+        clientId: input.clientId,
+        groupId: input.groupId,
         fromClamped,
-        to
-      );
+        to,
+        groupSubscriptionId,
+        status: batchStatus,
+        source: "telegram"
+      });
 
-      if (trainings.length === 0) {
+      if (trainingCount === 0) {
         // The month was not pre-generated (or fully past). Generation is admin-only.
         throw new BadRequestException(
           "No trainings generated for this group in the selected month"
         );
       }
 
-      const created: Booking[] = [];
-      const skipped: string[] = [];
-
-      for (const training of trainings) {
-        const bookable = isBookable({
-          capacity: training.capacity,
-          bookedCount: training.bookedCount,
-          status: training.status
-        });
-        if (!bookable) {
-          skipped.push(training.date);
-          continue;
-        }
-
-        const existing = await this.bookings.findActiveBookingForClient(
-          tx,
-          input.clientId,
-          training.id
-        );
-        if (existing) {
-          // Already booked (e.g. a prior single booking or a re-run) — skip, don't fail.
-          skipped.push(training.date);
-          continue;
-        }
-
-        const booking = await this.bookings.insertBooking(tx, {
-          clientId: input.clientId,
-          trainingId: training.id,
-          type: "group",
-          groupSubscriptionId,
-          status: batchStatus,
-          source: "telegram"
-        });
-
-        const newCount = training.bookedCount + 1;
-        const newStatus = recomputeTrainingStatus({
-          capacity: training.capacity,
-          bookedCount: newCount,
-          status: training.status
-        });
-        await this.bookings.updateTrainingCount(tx, training.id, newCount, newStatus);
-
-        created.push(booking);
-      }
-
-      return { groupSubscriptionId, created, skipped };
+      return { groupSubscriptionId, created: created.map((c) => c.booking), skipped };
     });
 
     this.logger.log(
@@ -379,6 +341,195 @@ export class BookingsService {
     }
 
     return groupBookingResultSchema.parse(result);
+  }
+
+  /**
+   * Book a client onto every bookable instance of a group's month inside the
+   * caller's transaction, linking each to `groupSubscriptionId`. Shared by the
+   * client monthly booking (createGroupBooking) and the admin transfer
+   * (transferGroup). Re-locks the month's trainings FOR UPDATE; a non-bookable
+   * instance and a per-client duplicate active booking are SKIPPED (recorded by
+   * date), not fatal, and bookedCount/status are recomputed per instance so the
+   * batch can never oversell. No money math. `created` carries each booking with
+   * the date of its instance for date-keyed reporting.
+   */
+  private async bookGroupMonth(
+    tx: Database,
+    params: {
+      clientId: string;
+      groupId: string;
+      fromClamped: string;
+      to: string;
+      groupSubscriptionId: string;
+      /** Seat-holding status of each inserted booking: 'pending' awaits trainer
+       *  confirmation (client monthly booking with a reachable trainer), 'booked'
+       *  is final (auto-confirm or the admin transfer). The seat is held either way. */
+      status: "booked" | "pending";
+      source: BookingSource;
+    }
+  ): Promise<{
+    created: Array<{ booking: Booking; date: string }>;
+    skipped: string[];
+    trainingCount: number;
+  }> {
+    const { clientId, groupId, fromClamped, to, groupSubscriptionId, status, source } = params;
+
+    const trainings = await this.bookings.findGroupTrainingsForMonthForUpdate(
+      tx,
+      groupId,
+      fromClamped,
+      to
+    );
+
+    const created: Array<{ booking: Booking; date: string }> = [];
+    const skipped: string[] = [];
+
+    for (const training of trainings) {
+      const bookable = isBookable({
+        capacity: training.capacity,
+        bookedCount: training.bookedCount,
+        status: training.status
+      });
+      if (!bookable) {
+        skipped.push(training.date);
+        continue;
+      }
+
+      const existing = await this.bookings.findActiveBookingForClient(tx, clientId, training.id);
+      if (existing) {
+        // Already booked (e.g. a prior single booking or a re-run) — skip, don't fail.
+        skipped.push(training.date);
+        continue;
+      }
+
+      const booking = await this.bookings.insertBooking(tx, {
+        clientId,
+        trainingId: training.id,
+        type: "group",
+        groupSubscriptionId,
+        status,
+        source
+      });
+
+      const newCount = training.bookedCount + 1;
+      const newStatus = recomputeTrainingStatus({
+        capacity: training.capacity,
+        bookedCount: newCount,
+        status: training.status
+      });
+      await this.bookings.updateTrainingCount(tx, training.id, newCount, newStatus);
+
+      created.push({ booking, date: training.date });
+    }
+
+    return { created, skipped, trainingCount: trainings.length };
+  }
+
+  /**
+   * Admin: move a client from one group to another for a month (Item C). In ONE
+   * transaction (all-or-nothing):
+   * 1) Cancel the client's future (date >= today) `booked` bookings on fromGroupId
+   *    for the month — each booking + its training locked FOR UPDATE, the seat
+   *    freed (bookedCount floored at 0) and the training status recomputed.
+   * 2) Re-book onto toGroupId via bookGroupMonth with a fresh subscription id.
+   * If the target yields zero bookable future trainings, throw a 409 so the whole
+   * tx (including the source cancellations) rolls back — a transfer never strands
+   * a client with no booking. Admin-only; never money math.
+   */
+  async transferGroup(
+    actorTelegramId: number,
+    input: TransferGroupInput
+  ): Promise<TransferGroupResult> {
+    this.assertAdmin(actorTelegramId);
+
+    const client = await this.clients.findById(input.clientId);
+    if (!client) {
+      throw new NotFoundException(`Client ${input.clientId} not found`);
+    }
+    const fromGroup = await this.groups.findById(input.fromGroupId);
+    if (!fromGroup) {
+      throw new NotFoundException(`Group ${input.fromGroupId} not found`);
+    }
+    const toGroup = await this.groups.findById(input.toGroupId);
+    if (!toGroup) {
+      throw new NotFoundException(`Group ${input.toGroupId} not found`);
+    }
+    if (toGroup.status !== "active") {
+      throw new BadRequestException("Cannot transfer into an inactive group");
+    }
+
+    const today = new Date().toISOString().slice(0, 10);
+    const [monthFirst, monthLast] = monthBounds(input.year, input.month);
+    // Past dates within the month are never transferable; clamp the lower bound.
+    const fromClamped = monthFirst > today ? monthFirst : today;
+    const groupSubscriptionId = randomUUID();
+
+    const result = await this.bookings.transaction(async (tx) => {
+      // 1) Cancel the client's future booked bookings on the source group.
+      const sourceBookings = await this.bookings.findClientGroupBookingsForUpdate(
+        tx,
+        input.clientId,
+        input.fromGroupId,
+        fromClamped,
+        monthLast
+      );
+
+      const cancelledDates: string[] = [];
+      for (const row of sourceBookings) {
+        const training = await this.bookings.findTrainingForUpdate(tx, row.trainingId);
+        if (!training) {
+          throw new NotFoundException(`Training ${row.trainingId} not found`);
+        }
+        await this.bookings.markCancelled(tx, row.bookingId);
+        const newCount = Math.max(0, training.bookedCount - 1);
+        const newStatus = recomputeTrainingStatus({
+          capacity: training.capacity,
+          bookedCount: newCount,
+          status: training.status
+        });
+        await this.bookings.updateTrainingCount(tx, row.trainingId, newCount, newStatus);
+        cancelledDates.push(row.date);
+      }
+
+      // 2) Re-book onto the target group.
+      const { created, skipped } = await this.bookGroupMonth(tx, {
+        clientId: input.clientId,
+        groupId: input.toGroupId,
+        fromClamped,
+        to: monthLast,
+        groupSubscriptionId,
+        // Admin-initiated move: seats are final, no trainer confirmation step.
+        status: "booked",
+        source: "admin"
+      });
+
+      // 3) All-or-nothing: a target with no bookable future training rolls back
+      //    the source cancellations too, so the client is never left unbooked.
+      if (created.length === 0) {
+        throw new ConflictException(
+          "Target group has no bookable future trainings in the selected month"
+        );
+      }
+
+      return {
+        movedDates: created.map((c) => c.date),
+        cancelledDates,
+        skippedDates: skipped
+      };
+    });
+
+    this.logger.log(
+      `Transferred client ${input.clientId} ${input.fromGroupId}→${input.toGroupId} ` +
+        `${input.year}-${input.month}: ${result.movedDates.length} moved, ` +
+        `${result.cancelledDates.length} cancelled, ${result.skippedDates.length} skipped`
+    );
+
+    return transferGroupResultSchema.parse({
+      groupSubscriptionId,
+      movedDates: result.movedDates,
+      cancelledDates: result.cancelledDates,
+      skippedDates: result.skippedDates
+    });
   }
 
   /**
@@ -531,6 +682,13 @@ export class BookingsService {
     });
 
     return bookingSchema.parse(updated);
+  }
+
+  /** Authorize an admin-only write (the group transfer). Enforced here, never in the bot. */
+  private assertAdmin(actorTelegramId: number): void {
+    if (!isAdmin(this.env, actorTelegramId)) {
+      throw new ForbiddenException("Admin privileges required");
+    }
   }
 
   /**
@@ -913,11 +1071,4 @@ function subscriptionConfirmKeyboard(groupSubscriptionId: string): InlineKeyboar
       ]
     ]
   };
-}
-
-/** Inclusive [first, last] "YYYY-MM-DD" date strings of a calendar month. */
-function monthBounds(year: number, month: number): [string, string] {
-  const first = new Date(Date.UTC(year, month - 1, 1));
-  const last = new Date(Date.UTC(year, month, 0));
-  return [first.toISOString().slice(0, 10), last.toISOString().slice(0, 10)];
 }
