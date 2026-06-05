@@ -2,6 +2,7 @@ import {
   BadRequestException,
   Body,
   Controller,
+  ForbiddenException,
   Get,
   Headers,
   Param,
@@ -10,6 +11,8 @@ import {
 } from "@nestjs/common";
 import {
   createTrainerSchema,
+  individualRequestSchema,
+  type IndividualRequestResult,
   type Trainer,
   updateTrainerSchema,
   uuid
@@ -48,6 +51,28 @@ export class TrainersController {
     const trainerId = validate(uuid, id);
     const patch = validate(updateTrainerSchema, body ?? {});
     return this.trainers.update(actorTelegramId, trainerId, patch);
+  }
+
+  /**
+   * Client-facing, self-only (Feature 8): the caller requests an individual
+   * session with this trainer. The body `telegramId` must equal the header id
+   * (the requester acts only as themselves) — not admin-gated. The service DMs
+   * the trainer and returns a typed result (soft `trainer-unavailable` rather
+   * than a 500 when the trainer has no Telegram channel).
+   */
+  @Post(":id/individual-request")
+  requestIndividual(
+    @Headers("x-telegram-id") telegramIdHeader: string | undefined,
+    @Param("id") id: string,
+    @Body() body: unknown
+  ): Promise<IndividualRequestResult> {
+    const actorTelegramId = parseTelegramId(telegramIdHeader);
+    const trainerId = validate(uuid, id);
+    const input = validate(individualRequestSchema, body ?? {});
+    if (input.telegramId !== actorTelegramId) {
+      throw new ForbiddenException("Individual requests may only be made for yourself");
+    }
+    return this.trainers.requestIndividual(trainerId, actorTelegramId);
   }
 }
 

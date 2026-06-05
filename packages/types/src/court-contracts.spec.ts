@@ -6,12 +6,14 @@ import {
   courtAvailabilitySchema,
   courtRequestAdminViewSchema,
   courtRequestQueueQuerySchema,
+  courtBlockSchema,
   courtSchema,
   createCourtRequestSchema,
   createCourtBlockSchema,
-  hourAvailabilitySchema,
   previewCourtRequestSchema,
-  rejectCourtRequestSchema
+  reassignCourtBlockSchema,
+  rejectCourtRequestSchema,
+  slotAvailabilitySchema
 } from "./court-contracts";
 
 const validBlock = {
@@ -44,6 +46,53 @@ describe("createCourtBlockSchema", () => {
   it("rejects a missing startTime", () => {
     const { startTime: _startTime, ...withoutTime } = validBlock;
     expect(createCourtBlockSchema.safeParse(withoutTime).success).toBe(false);
+  });
+
+  it("T10 — strips groupTrainingId (manual create never sets the link)", () => {
+    const parsed = createCourtBlockSchema.safeParse({
+      ...validBlock,
+      groupTrainingId: "22222222-2222-4222-8222-222222222222"
+    });
+    expect(parsed.success).toBe(true);
+    if (parsed.success) {
+      expect("groupTrainingId" in parsed.data).toBe(false);
+    }
+  });
+});
+
+describe("courtBlockSchema (entity — carries the group link)", () => {
+  const id = "33333333-3333-4333-8333-333333333333";
+  it("T10 — accepts a null groupTrainingId (manual block)", () => {
+    expect(
+      courtBlockSchema.safeParse({ ...validBlock, id, groupTrainingId: null }).success
+    ).toBe(true);
+  });
+
+  it("T10 — accepts a uuid groupTrainingId (auto-block)", () => {
+    expect(
+      courtBlockSchema.safeParse({
+        ...validBlock,
+        id,
+        groupTrainingId: "44444444-4444-4444-4444-444444444444"
+      }).success
+    ).toBe(true);
+  });
+
+  it("T10 — rejects a missing groupTrainingId (it is required, even if nullable)", () => {
+    expect(courtBlockSchema.safeParse({ ...validBlock, id }).success).toBe(false);
+  });
+});
+
+describe("reassignCourtBlockSchema (T10)", () => {
+  it("accepts a uuid courtId", () => {
+    expect(
+      reassignCourtBlockSchema.safeParse({ courtId: "55555555-5555-4555-8555-555555555555" })
+        .success
+    ).toBe(true);
+  });
+
+  it("rejects a non-uuid courtId", () => {
+    expect(reassignCourtBlockSchema.safeParse({ courtId: "nope" }).success).toBe(false);
   });
 });
 
@@ -97,11 +146,29 @@ describe("previewCourtRequestSchema (C2 request input — keyed off telegram id)
     );
   });
 
-  it("rejects a duration outside {1, 2}", () => {
+  it("accepts the 1.5h duration on the 30-min grid", () => {
+    expect(previewCourtRequestSchema.safeParse({ ...validBody, durationHours: 1.5 }).success).toBe(
+      true
+    );
+  });
+
+  it("rejects a duration outside {1, 1.5, 2}", () => {
     expect(previewCourtRequestSchema.safeParse({ ...validBody, durationHours: 3 }).success).toBe(
       false
     );
     expect(previewCourtRequestSchema.safeParse({ ...validBody, durationHours: 0 }).success).toBe(
+      false
+    );
+    expect(previewCourtRequestSchema.safeParse({ ...validBody, durationHours: 2.5 }).success).toBe(
+      false
+    );
+  });
+
+  it("accepts a :30-aligned start and rejects an off-grid one", () => {
+    expect(previewCourtRequestSchema.safeParse({ ...validBody, startTime: "14:30" }).success).toBe(
+      true
+    );
+    expect(previewCourtRequestSchema.safeParse({ ...validBody, startTime: "14:15" }).success).toBe(
       false
     );
   });
@@ -182,30 +249,29 @@ describe("courtAvailabilityQuerySchema (C3 read input)", () => {
   });
 });
 
-describe("hourAvailabilitySchema (C3 read output — never carries a court id)", () => {
-  it("accepts a free-court offer with non-negative count", () => {
-    expect(
-      hourAvailabilitySchema.safeParse({ hour: 8, startTime: "08:00", freeCourts: 6 }).success
-    ).toBe(true);
-    expect(
-      hourAvailabilitySchema.safeParse({ hour: 20, startTime: "20:00", freeCourts: 0 }).success
-    ).toBe(true);
+describe("slotAvailabilitySchema (C3 read output — never carries a court id)", () => {
+  it("accepts a free-court offer with non-negative count on a :30 slot", () => {
+    expect(slotAvailabilitySchema.safeParse({ startTime: "08:30", freeCourts: 6 }).success).toBe(
+      true
+    );
+    expect(slotAvailabilitySchema.safeParse({ startTime: "20:30", freeCourts: 0 }).success).toBe(
+      true
+    );
   });
 
-  it("rejects a negative freeCourts (an over-confirmed hour can never be offered)", () => {
-    expect(
-      hourAvailabilitySchema.safeParse({ hour: 14, startTime: "14:00", freeCourts: -1 }).success
-    ).toBe(false);
+  it("rejects a negative freeCourts (an over-confirmed slot can never be offered)", () => {
+    expect(slotAvailabilitySchema.safeParse({ startTime: "14:00", freeCourts: -1 }).success).toBe(
+      false
+    );
   });
 
   it("strips any leaked court id — the parsed shape exposes no court number", () => {
-    const parsed = hourAvailabilitySchema.parse({
-      hour: 10,
+    const parsed = slotAvailabilitySchema.parse({
       startTime: "10:00",
       freeCourts: 5,
       courtId: "11111111-1111-1111-1111-111111111111"
     });
-    expect(Object.keys(parsed).sort()).toEqual(["freeCourts", "hour", "startTime"]);
+    expect(Object.keys(parsed).sort()).toEqual(["freeCourts", "startTime"]);
     expect("courtId" in parsed).toBe(false);
   });
 });
@@ -332,26 +398,26 @@ describe("courtRequestAdminViewSchema (C4 admin-only queue row)", () => {
 });
 
 describe("courtAvailabilitySchema (C3 full response)", () => {
-  it("accepts a date with a list of offerable hours", () => {
+  it("accepts a date with a list of offerable 30-min slots", () => {
     const parsed = courtAvailabilitySchema.safeParse({
       date: "2026-06-10",
-      hours: [
-        { hour: 8, startTime: "08:00", freeCourts: 6 },
-        { hour: 9, startTime: "09:00", freeCourts: 3 }
+      slots: [
+        { startTime: "08:00", freeCourts: 6 },
+        { startTime: "08:30", freeCourts: 3 }
       ]
     });
     expect(parsed.success).toBe(true);
   });
 
-  it("accepts an empty hours list (a fully booked date offers nothing)", () => {
-    expect(courtAvailabilitySchema.safeParse({ date: "2026-06-10", hours: [] }).success).toBe(true);
+  it("accepts an empty slots list (a fully booked date offers nothing)", () => {
+    expect(courtAvailabilitySchema.safeParse({ date: "2026-06-10", slots: [] }).success).toBe(true);
   });
 
-  it("rejects an hour entry with a negative free count", () => {
+  it("rejects a slot entry with a negative free count", () => {
     expect(
       courtAvailabilitySchema.safeParse({
         date: "2026-06-10",
-        hours: [{ hour: 8, startTime: "08:00", freeCourts: -2 }]
+        slots: [{ startTime: "08:00", freeCourts: -2 }]
       }).success
     ).toBe(false);
   });

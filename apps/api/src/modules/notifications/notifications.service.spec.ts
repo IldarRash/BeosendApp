@@ -1,4 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
+import type { Client } from "@beosand/types";
 import type { NotificationRecipient } from "./notifications.repository";
 import { NotificationsService } from "./notifications.service";
 
@@ -190,6 +191,54 @@ describe("NotificationsService", () => {
 
       expect(sent).toBe(0);
       expect(sender.sendMessage).not.toHaveBeenCalled();
+    });
+  });
+
+  describe("requestIndividualSession (Feature 8)", () => {
+    const trainer = {
+      id: "trainer-1",
+      name: "Jovana",
+      type: "main" as const,
+      status: "active" as const,
+      telegramId: 555 as number
+    };
+    const client: Client = {
+      id: "client-1",
+      name: "Ivan",
+      telegramId: 777,
+      telegramUsername: "ivan",
+      levelId: null,
+      source: "telegram",
+      phone: null,
+      note: null,
+      language: "ru",
+      registeredAt: "2026-06-03T10:00:00.000Z",
+      status: "active"
+    };
+
+    it("DMs the TRAINER's telegram id (not the client's) and writes no send-log row", async () => {
+      const ok = await service.requestIndividualSession(trainer, client);
+
+      expect(ok).toBe(true);
+      expect(sender.sendMessage).toHaveBeenCalledTimes(1);
+      // The recipient is the trainer; the client's id (777) is only inside the
+      // link text, never the destination.
+      expect(sender.sendMessage.mock.calls[0][0]).toBe(trainer.telegramId);
+      expect(sender.sendMessage.mock.calls[0][0]).not.toBe(client.telegramId);
+      // Notification-only: there is no training to key a log row on.
+      expect(repo.logSent).not.toHaveBeenCalled();
+    });
+
+    it("composes a clickable link to the client in the DM text", async () => {
+      await service.requestIndividualSession(trainer, client);
+      expect(sender.sendMessage.mock.calls[0][1]).toContain("https://t.me/ivan");
+    });
+
+    it("returns false (no throw, no log) when the send fails", async () => {
+      sender.sendMessage.mockRejectedValueOnce(new Error("Telegram unreachable"));
+
+      await expect(service.requestIndividualSession(trainer, client)).resolves.toBe(false);
+      expect(repo.logSent).not.toHaveBeenCalled();
     });
   });
 });

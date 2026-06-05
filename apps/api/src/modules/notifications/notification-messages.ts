@@ -1,3 +1,4 @@
+import type { Client } from "@beosand/types";
 import type { NotificationRecipient } from "./notifications.repository";
 
 /** Minutes either side of a reminder target a training start must fall in to fire. */
@@ -60,6 +61,35 @@ export function reminderMessage(
 /** Training-cancelled message (UX §14). */
 export function trainingCancelledMessage(recipient: NotificationRecipient): string {
   return `Тренировка отменена ❌\n${trainingLine(recipient)}`;
+}
+
+/** Escape the HTML-significant characters so a client name is safe inside an HTML mention. */
+function escapeHtml(value: string): string {
+  return value
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;");
+}
+
+/**
+ * Individual-training request DM (Feature 8), sent to the trainer. Carries a
+ * clickable link back to the client: a `t.me/<username>` link when the client
+ * has a username, else a `tg://user?id=<id>` HTML mention so the trainer can
+ * still reach a username-less client. Falls back to the plain (escaped) name for
+ * a client with neither (a walk-in, not reachable via the bot path). RU string,
+ * composed server-side; sent with parse_mode HTML.
+ */
+export function individualSessionRequestMessage(client: Client): string {
+  const safeName = escapeHtml(client.name);
+  let link: string;
+  if (client.telegramUsername) {
+    link = `https://t.me/${client.telegramUsername}`;
+  } else if (client.telegramId !== null) {
+    link = `<a href="tg://user?id=${client.telegramId}">${safeName}</a>`;
+  } else {
+    link = safeName;
+  }
+  return `К вам хотят записаться на индивидуальную тренировку. Пожалуйста, свяжитесь с клиентом: ${link}`;
 }
 
 /**

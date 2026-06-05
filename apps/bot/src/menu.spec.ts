@@ -25,16 +25,27 @@ function callbacksOf(keyboard: { inline_keyboard: unknown[][] }): (string | unde
 }
 
 describe("mainMenuKeyboard", () => {
-  it("renders the entry actions plus the language switch (no home/back on the home screen)", () => {
+  it("renders the entry actions in the Feature 7 order plus the language switch", () => {
     expect(callbacksOf(mainMenuKeyboard(ru))).toEqual([
-      MENU_ACTIONS.availableTrainings,
       MENU_ACTIONS.todayFreeSlots,
+      MENU_ACTIONS.availableTrainings,
       MENU_ACTIONS.joinGroup,
+      MENU_ACTIONS.individual,
       MENU_ACTIONS.myBookings,
       MENU_ACTIONS.rentCourt,
       MENU_ACTIONS.contactManager,
       MENU_ACTIONS.language
     ]);
+  });
+
+  it("renames the single-visit label without changing its callback", () => {
+    expect(ru["bot.menu.availableTrainings"]).toBe("🎫 Разовое посещение");
+    expect(MENU_ACTIONS.availableTrainings).toBe("menu:available");
+  });
+
+  it("exposes the new individual-training entry on its namespaced callback", () => {
+    expect(MENU_ACTIONS.individual).toBe("menu:individual");
+    expect(callbacksOf(mainMenuKeyboard(ru))).toContain(MENU_ACTIONS.individual);
   });
 });
 
@@ -45,7 +56,7 @@ describe("adminMenuKeyboard", () => {
     expect(callbacks).toContain(ADMIN_ACTIONS.courtLoad);
     // The standard client actions are still present; admin entries follow them,
     // with the read-only load grid last.
-    expect(callbacks[0]).toBe(MENU_ACTIONS.availableTrainings);
+    expect(callbacks[0]).toBe(MENU_ACTIONS.todayFreeSlots);
     expect(callbacks.at(-1)).toBe(ADMIN_ACTIONS.courtLoad);
   });
 });

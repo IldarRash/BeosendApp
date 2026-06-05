@@ -1,4 +1,9 @@
-import { ConflictException, ForbiddenException, NotFoundException } from "@nestjs/common";
+import {
+  BadRequestException,
+  ConflictException,
+  ForbiddenException,
+  NotFoundException
+} from "@nestjs/common";
 import type { Env } from "@beosand/config";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { CourtBlocksService } from "./court-blocks.service";
@@ -13,9 +18,26 @@ const BLOCK_ID = "22222222-2222-4222-8222-222222222222";
 function makeRepo(overrides: Partial<CourtBlocksRepository> = {}): CourtBlocksRepository {
   return {
     findByDate: vi.fn().mockResolvedValue([]),
+    findById: vi.fn().mockResolvedValue(null),
     confirmedSpansForCourtAndDate: vi.fn().mockResolvedValue([]),
     isActiveCourt: vi.fn().mockResolvedValue(true),
-    insert: vi.fn().mockImplementation(async (input) => ({ id: BLOCK_ID, ...input })),
+    countActiveCourts: vi.fn().mockResolvedValue(6),
+    confirmedOccupancyForDate: vi.fn().mockResolvedValue([]),
+    blocksOccupancyForDate: vi.fn().mockResolvedValue([]),
+    insert: vi
+      .fn()
+      .mockImplementation(async (input) => ({ id: BLOCK_ID, groupTrainingId: null, ...input })),
+    updateCourt: vi
+      .fn()
+      .mockImplementation(async (id, courtId) => ({
+        id,
+        courtId,
+        date: "2026-06-10",
+        startTime: "18:00",
+        endTime: "20:00",
+        reason: "Tournament",
+        groupTrainingId: null
+      })),
     deleteById: vi.fn().mockResolvedValue(true),
     ...overrides
   } as unknown as CourtBlocksRepository;
@@ -63,9 +85,18 @@ describe("CourtBlocksService", () => {
   });
 
   describe("range validation", () => {
-    it("rejects non-hour-aligned times", async () => {
+    it("accepts a :30-aligned range", async () => {
+      const block = await service.createBlock(ADMIN, {
+        ...baseInput,
+        startTime: "17:30",
+        endTime: "19:00"
+      });
+      expect(block.startTime).toBe("17:30");
+    });
+
+    it("rejects a start off the 30-minute grid (:15)", async () => {
       await expect(
-        service.createBlock(ADMIN, { ...baseInput, startTime: "18:30" })
+        service.createBlock(ADMIN, { ...baseInput, startTime: "18:15" })
       ).rejects.toThrow();
     });
 
@@ -87,7 +118,7 @@ describe("CourtBlocksService", () => {
       repo = makeRepo({
         confirmedSpansForCourtAndDate: vi
           .fn()
-          .mockResolvedValue([{ startTime: "19:00", durationHours: 1 }])
+          .mockResolvedValue([{ startTime: "19:00", endTime: "20:00" }])
       });
       service = new CourtBlocksService(env, repo);
       await expect(service.createBlock(ADMIN, baseInput)).rejects.toBeInstanceOf(ConflictException);
@@ -95,11 +126,11 @@ describe("CourtBlocksService", () => {
     });
 
     it("rejects when the block fully contains a confirmed request on the same court", async () => {
-      // baseInput is 18:00–20:00; a confirmed 18:00 (1h) request sits inside it.
+      // baseInput is 18:00–20:00; a confirmed 18:00–19:00 request sits inside it.
       repo = makeRepo({
         confirmedSpansForCourtAndDate: vi
           .fn()
-          .mockResolvedValue([{ startTime: "18:00", durationHours: 1 }])
+          .mockResolvedValue([{ startTime: "18:00", endTime: "19:00" }])
       });
       service = new CourtBlocksService(env, repo);
       await expect(service.createBlock(ADMIN, baseInput)).rejects.toBeInstanceOf(ConflictException);
@@ -117,11 +148,56 @@ describe("CourtBlocksService", () => {
       repo = makeRepo({
         confirmedSpansForCourtAndDate: vi
           .fn()
-          .mockResolvedValue([{ startTime: "20:00", durationHours: 1 }])
+          .mockResolvedValue([{ startTime: "20:00", endTime: "21:00" }])
       });
       service = new CourtBlocksService(env, repo);
       const block = await service.createBlock(ADMIN, baseInput);
       expect(block.courtId).toBe(COURT_ID);
+      expect(repo.insert).toHaveBeenCalledOnce();
+    });
+
+    it("allows a block abutting on its leading edge (request ends exactly at block start)", async () => {
+      // baseInput is 18:00–20:00; a confirmed 17:00–18:00 request touches but does
+      // not overlap under half-open [start,end).
+      repo = makeRepo({
+        confirmedSpansForCourtAndDate: vi
+          .fn()
+          .mockResolvedValue([{ startTime: "17:00", endTime: "18:00" }])
+      });
+      service = new CourtBlocksService(env, repo);
+      const block = await service.createBlock(ADMIN, baseInput);
+      expect(block.courtId).toBe(COURT_ID);
+      expect(repo.insert).toHaveBeenCalledOnce();
+    });
+
+    it("rejects a block straddling a :30 boundary of a confirmed request", async () => {
+      // baseInput is 18:00–20:00; a confirmed 18:30–19:30 request overlaps it.
+      repo = makeRepo({
+        confirmedSpansForCourtAndDate: vi
+          .fn()
+          .mockResolvedValue([{ startTime: "18:30", endTime: "19:30" }])
+      });
+      service = new CourtBlocksService(env, repo);
+      await expect(service.createBlock(ADMIN, baseInput)).rejects.toBeInstanceOf(ConflictException);
+      expect(repo.insert).not.toHaveBeenCalled();
+    });
+
+    it("creates a :30-aligned block touching a confirmed request (17:30–19:00 vs 19:00–20:00)", async () => {
+      // Half-open boundary across the C5 service: a 17:30–19:00 block does not clash
+      // with a confirmed 19:00–20:00 request even though they share the 19:00 edge.
+      repo = makeRepo({
+        confirmedSpansForCourtAndDate: vi
+          .fn()
+          .mockResolvedValue([{ startTime: "19:00", endTime: "20:00" }])
+      });
+      service = new CourtBlocksService(env, repo);
+      const block = await service.createBlock(ADMIN, {
+        ...baseInput,
+        startTime: "17:30",
+        endTime: "19:00"
+      });
+      expect(block.startTime).toBe("17:30");
+      expect(block.endTime).toBe("19:00");
       expect(repo.insert).toHaveBeenCalledOnce();
     });
   });
@@ -141,5 +217,87 @@ describe("CourtBlocksService", () => {
     repo = makeRepo({ deleteById: vi.fn().mockResolvedValue(false) });
     service = new CourtBlocksService(env, repo);
     await expect(service.deleteBlock(ADMIN, "missing")).rejects.toBeInstanceOf(NotFoundException);
+  });
+
+  describe("reassignCourt (T7 — group scheduling)", () => {
+    const TARGET_COURT = "33333333-3333-4333-8333-333333333333";
+    const existingBlock = {
+      id: BLOCK_ID,
+      courtId: COURT_ID,
+      date: "2026-06-10",
+      startTime: "18:00",
+      endTime: "20:00",
+      reason: "Group A",
+      groupTrainingId: "44444444-4444-4444-4444-444444444444"
+    };
+
+    it("rejects a non-admin before any DB read", async () => {
+      repo = makeRepo({ findById: vi.fn().mockResolvedValue(existingBlock) });
+      service = new CourtBlocksService(env, repo);
+      await expect(
+        service.reassignCourt(NON_ADMIN, BLOCK_ID, { courtId: TARGET_COURT })
+      ).rejects.toBeInstanceOf(ForbiddenException);
+      expect(repo.findById).not.toHaveBeenCalled();
+    });
+
+    it("404s a missing block", async () => {
+      repo = makeRepo({ findById: vi.fn().mockResolvedValue(null) });
+      service = new CourtBlocksService(env, repo);
+      await expect(
+        service.reassignCourt(ADMIN, BLOCK_ID, { courtId: TARGET_COURT })
+      ).rejects.toBeInstanceOf(NotFoundException);
+    });
+
+    it("400s an inactive target court", async () => {
+      repo = makeRepo({
+        findById: vi.fn().mockResolvedValue(existingBlock),
+        isActiveCourt: vi.fn().mockResolvedValue(false)
+      });
+      service = new CourtBlocksService(env, repo);
+      await expect(
+        service.reassignCourt(ADMIN, BLOCK_ID, { courtId: TARGET_COURT })
+      ).rejects.toBeInstanceOf(BadRequestException);
+    });
+
+    it("moves the block onto a free target court", async () => {
+      repo = makeRepo({ findById: vi.fn().mockResolvedValue(existingBlock) });
+      service = new CourtBlocksService(env, repo);
+      const moved = await service.reassignCourt(ADMIN, BLOCK_ID, { courtId: TARGET_COURT });
+      expect(moved.courtId).toBe(TARGET_COURT);
+      expect(repo.updateCourt).toHaveBeenCalledWith(BLOCK_ID, TARGET_COURT);
+    });
+
+    it("409s when a confirmed request overlaps the block's slots on the target court", async () => {
+      repo = makeRepo({
+        findById: vi.fn().mockResolvedValue(existingBlock),
+        confirmedOccupancyForDate: vi
+          .fn()
+          .mockResolvedValue([
+            { courtId: TARGET_COURT, startTime: "18:30", durationMinutes: 60 }
+          ])
+      });
+      service = new CourtBlocksService(env, repo);
+      await expect(
+        service.reassignCourt(ADMIN, BLOCK_ID, { courtId: TARGET_COURT })
+      ).rejects.toBeInstanceOf(ConflictException);
+      expect(repo.updateCourt).not.toHaveBeenCalled();
+    });
+
+    it("409s when the move would exceed the 6-per-slot limit", async () => {
+      // Only 1 active court; its single seat is already taken for the block's slots.
+      repo = makeRepo({
+        findById: vi.fn().mockResolvedValue(existingBlock),
+        countActiveCourts: vi.fn().mockResolvedValue(1),
+        confirmedOccupancyForDate: vi
+          .fn()
+          .mockResolvedValue([
+            { courtId: "99999999-9999-4999-8999-999999999999", startTime: "18:00", durationMinutes: 120 }
+          ])
+      });
+      service = new CourtBlocksService(env, repo);
+      await expect(
+        service.reassignCourt(ADMIN, BLOCK_ID, { courtId: TARGET_COURT })
+      ).rejects.toBeInstanceOf(ConflictException);
+    });
   });
 });

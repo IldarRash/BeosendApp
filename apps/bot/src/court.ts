@@ -19,9 +19,9 @@ export const COURT_ACTIONS = {
   datePrefix: "court:date:",
   /** Prefix for "court:time:<HH:MM>:<YYYY-MM-DD>". */
   timePrefix: "court:time:",
-  /** Prefix for "court:dur:<1|2>:<YYYY-MM-DD>:<HH:MM>". */
+  /** Prefix for "court:dur:<1|1.5|2>:<YYYY-MM-DD>:<HH:MM>". */
   durationPrefix: "court:dur:",
-  /** Prefix for "court:confirm:<YYYY-MM-DD>:<HH:MM>:<1|2>". */
+  /** Prefix for "court:confirm:<YYYY-MM-DD>:<HH:MM>:<1|1.5|2>". */
   confirmPrefix: "court:confirm:"
 } as const;
 
@@ -62,14 +62,14 @@ export function courtDateKeyboard(catalog: Catalog, dates: string[]): InlineKeyb
 }
 
 /**
- * Start-time keyboard from the API availability. Only offerable hours (a free
- * court exists) are rendered; the bot does no availability math.
+ * Start-time keyboard from the API availability. Only offerable 30-min slots (a
+ * free court exists) are rendered; the bot does no availability math.
  */
 export function courtTimeKeyboard(catalog: Catalog, availability: CourtAvailability): InlineKeyboard {
   const kb = new InlineKeyboard();
-  const bookable = availability.hours.filter((h) => h.freeCourts > 0);
-  bookable.forEach((h, idx) => {
-    kb.text(h.startTime, `${COURT_ACTIONS.timePrefix}${h.startTime}:${availability.date}`);
+  const bookable = availability.slots.filter((s) => s.freeCourts > 0);
+  bookable.forEach((slot, idx) => {
+    kb.text(slot.startTime, `${COURT_ACTIONS.timePrefix}${slot.startTime}:${availability.date}`);
     if ((idx + 1) % 3 === 0) {
       kb.row();
     }

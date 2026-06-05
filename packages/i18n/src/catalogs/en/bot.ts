@@ -12,9 +12,10 @@ export const botEn: Record<string, string> = {
   // --- Main menu (menu.ts) ---
   "bot.menu.welcomeFull":
     "Welcome to BeoSand 🏐\n\nHere you can:\n• book a training session\n• view free slots\n• see your bookings",
-  "bot.menu.availableTrainings": "🏐 Available trainings",
+  "bot.menu.availableTrainings": "🎫 Single visit",
   "bot.menu.todayFreeSlots": "📅 Free slots today",
   "bot.menu.joinGroup": "👥 Join a group",
+  "bot.menu.individual": "🧑‍🏫 Individual training",
   "bot.menu.myBookings": "📋 My bookings",
   "bot.menu.rentCourt": "🏖 Rent a court",
   "bot.menu.contactManager": "ℹ️ Contact the manager",
@@ -22,7 +23,18 @@ export const botEn: Record<string, string> = {
   "bot.menu.adminCourtModeration": "🛠 Court requests (admin)",
   "bot.menu.adminCourtLoad": "📊 Court load (admin)",
   "bot.menu.contactManagerLine": "Contact the manager: {contact}",
-  "bot.menu.todayStub": "Free slots for today will be here soon.",
+
+  // --- Free spots today (navigation.ts, Feature 6) ---
+  "bot.today.header": "Free spots today:",
+  "bot.today.none": "No free spots for today. Check back later 🙌",
+
+  // --- Individual training (individual.ts, Feature 8) ---
+  "bot.individual.pickTrainer": "Which trainer would you like?",
+  "bot.individual.noTrainers": "No trainers are available right now. Check back later 🙌",
+  "bot.individual.requested": "✅ Your request was sent to the trainer. They will contact you on Telegram.",
+  "bot.individual.trainerUnavailable":
+    "This trainer is not available on Telegram yet. Choose another or contact the manager.",
+  "bot.individual.pickButton": "🧑‍🏫 {name}",
 
   // --- Shared navigation (menu.ts) ---
   "bot.nav.back": "⬅️ Back",
@@ -110,6 +122,7 @@ export const botEn: Record<string, string> = {
   // --- Group booking (group-booking.ts) ---
   "bot.group.none": "There are no groups to join right now. Check back later 🙌",
   "bot.group.header": "Groups for monthly booking:",
+  "bot.group.trainer": "Trainer: {name}",
   "bot.group.monthSubscription": "Monthly subscription: {price} RSD",
   "bot.group.pickButton": "👥 {name}",
   "bot.group.monthPickTitle": "Group “{name}”",
@@ -144,6 +157,7 @@ export const botEn: Record<string, string> = {
     "Your request has been sent to the administrator for confirmation. Wait for a notification with the court number.",
   "bot.court.durationHours": "{hours} h",
   "bot.court.duration.1": "1 hour",
+  "bot.court.duration.1.5": "1.5 hours",
   "bot.court.duration.2": "2 hours",
   "bot.court.previewLine": "Date: {date}, Time: {start}–{end} ({duration}). Total: {price} RSD",
   "bot.court.previewUnavailable": "Unfortunately, this time is already taken. Choose another.",

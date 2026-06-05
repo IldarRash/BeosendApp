@@ -13,6 +13,23 @@ const client: Client = {
   telegramId: TELEGRAM_ID,
   telegramUsername: "ana",
   levelId: "11111111-1111-1111-1111-111111111111",
+  source: "telegram",
+  phone: null,
+  note: null,
+  language: "ru",
+  registeredAt: "2026-01-01T00:00:00.000Z",
+  status: "active"
+};
+
+const walkIn: Client = {
+  id: "33333333-3333-4333-8333-333333333333",
+  name: "Marko",
+  telegramId: null,
+  telegramUsername: null,
+  levelId: null,
+  source: "walk_in",
+  phone: "+381601234567",
+  note: null,
   language: "ru",
   registeredAt: "2026-01-01T00:00:00.000Z",
   status: "active"
@@ -24,6 +41,7 @@ function makeService(overrides: Partial<ClientsService> = {}): ClientsService {
     listClients: vi.fn(async () => [client]),
     onboard: vi.fn(async () => client),
     setLanguage: vi.fn(async () => ({ ...client, language: "sr" }) as Client),
+    createWalkIn: vi.fn(async () => walkIn),
     ...overrides
   } as unknown as ClientsService;
 }
@@ -146,4 +164,35 @@ describe("ClientsController", () => {
     ).rejects.toBeInstanceOf(BadRequestException);
     expect(service.setLanguage).not.toHaveBeenCalled();
   });
+
+  it("POST walk-in passes the validated body to the service and returns the validated client", async () => {
+    const result = await controller.createWalkIn(HEADER, { name: "Marko", phone: "+381601234567" });
+    expect(result).toEqual(walkIn);
+    expect(service.createWalkIn).toHaveBeenCalledWith(TELEGRAM_ID, {
+      name: "Marko",
+      phone: "+381601234567"
+    });
+  });
+
+  it("rejects a walk-in body with an empty name (BadRequestException, no service call)", async () => {
+    await expect(controller.createWalkIn(HEADER, { name: "" })).rejects.toBeInstanceOf(
+      BadRequestException
+    );
+    expect(service.createWalkIn).not.toHaveBeenCalled();
+  });
+
+  it("rejects unknown fields in the walk-in body (strict)", async () => {
+    await expect(
+      controller.createWalkIn(HEADER, { name: "Marko", telegramId: 1 })
+    ).rejects.toBeInstanceOf(BadRequestException);
+    expect(service.createWalkIn).not.toHaveBeenCalled();
+  });
+
+  it("rejects a walk-in with a missing x-telegram-id header before calling the service", async () => {
+    await expect(controller.createWalkIn(undefined, { name: "Marko" })).rejects.toBeInstanceOf(
+      BadRequestException
+    );
+    expect(service.createWalkIn).not.toHaveBeenCalled();
+  });
+
 });

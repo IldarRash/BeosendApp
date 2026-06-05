@@ -1,11 +1,22 @@
 import { backHomeKeyboard, MENU_ACTIONS, mainMenuKeyboard, welcomeText } from "./menu";
 import type { MenuAction } from "./menu";
 import { handleGroupList } from "./group-booking";
+import { handleIndividualEntry } from "./individual";
 import { handleMyBookings } from "./my-bookings";
 import { showFilteredSlots } from "./slot-filters";
 import type { SlotFilterState } from "./slot-filters";
+import { renderTodaySlotsText, slotsKeyboard } from "./slots";
 import type { ApiClient } from "./api-client";
 import { t, type Catalog } from "./i18n";
+
+/**
+ * Today as a `YYYY-MM-DD` string from the runtime clock. A pure clock-string
+ * formatting only — the bot does no domain/availability math; the API decides
+ * what is bookable for the date.
+ */
+export function todayDateString(now: Date = new Date()): string {
+  return now.toISOString().slice(0, 10);
+}
 
 /**
  * Minimal surface a menu/nav handler needs from a grammY callback context.
@@ -67,15 +78,28 @@ export const menuHandlers: Partial<Record<MenuAction, MenuHandler>> = {
   [MENU_ACTIONS.availableTrainings]: async (ctx, deps) => {
     await showFilteredSlots(ctx, deps.api, deps.catalog, deps.slotFilters ?? {});
   },
+  // Свободные места на сегодня (Feature 6): the real bookable list scoped to
+  // today via the existing available-slots path (from === to === today). The API
+  // returns only bookable cards with server-computed seats/price; the bot only
+  // renders them under the today header and keeps the standard "Записаться"
+  // buttons. Today's date is a runtime clock string — no availability math here.
   [MENU_ACTIONS.todayFreeSlots]: async (ctx, deps) => {
-    await ctx.reply(t(deps.catalog, "bot.menu.todayStub"), {
-      reply_markup: backHomeKeyboard(deps.catalog)
+    const today = todayDateString();
+    const cards = await deps.api.listAvailableSlots({ from: today, to: today });
+    await ctx.reply(renderTodaySlotsText(deps.catalog, cards), {
+      reply_markup: slotsKeyboard(deps.catalog, cards)
     });
   },
   // Monthly group booking (T1.9): render the group list; picking a group leads
   // to a month choice and a confirmation, all handled in group-booking.ts.
   [MENU_ACTIONS.joinGroup]: async (ctx, deps) => {
     await handleGroupList(ctx, deps.api, deps.catalog);
+  },
+  // Individual training (Feature 8): render the active-trainer picker. Picking a
+  // trainer (ind:pick:<id>) is routed in index.ts so the caller's telegram id can
+  // be forwarded to the API, which DMs the trainer. The bot only renders.
+  [MENU_ACTIONS.individual]: async (ctx, deps) => {
+    await handleIndividualEntry(ctx, deps.api, deps.catalog);
   },
   // My bookings (T1.10): resolve the caller's client from telegram_id, then list
   // upcoming + past. Ownership lives in the API; the bot only renders.

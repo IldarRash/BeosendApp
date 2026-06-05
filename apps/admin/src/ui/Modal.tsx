@@ -22,6 +22,14 @@ export function Modal({ open, onClose, title, children, footer }: ModalProps): J
   const titleId = useId();
   const panelRef = useRef<HTMLDivElement>(null);
   const restoreRef = useRef<HTMLElement | null>(null);
+  // Keep onClose behind a ref so the focus-trap effect below can depend on [open]
+  // alone. Callers pass a fresh onClose identity every render (e.g. on each
+  // keystroke in a form), and re-running the effect would re-focus the first
+  // element and eject the caret from the active input.
+  const onCloseRef = useRef(onClose);
+  useEffect(() => {
+    onCloseRef.current = onClose;
+  });
 
   useEffect(() => {
     if (!open) return;
@@ -33,7 +41,7 @@ export function Modal({ open, onClose, title, children, footer }: ModalProps): J
     function onKeyDown(event: KeyboardEvent): void {
       if (event.key === "Escape") {
         event.preventDefault();
-        onClose();
+        onCloseRef.current();
         return;
       }
       if (event.key !== "Tab" || !panel) return;
@@ -59,7 +67,7 @@ export function Modal({ open, onClose, title, children, footer }: ModalProps): J
       document.removeEventListener("keydown", onKeyDown);
       restoreRef.current?.focus();
     };
-  }, [open, onClose]);
+  }, [open]);
 
   if (!open) return null;
 

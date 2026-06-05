@@ -70,6 +70,7 @@ import {
   parseGroupMonth,
   parseGroupPick
 } from "./group-booking";
+import { handleIndividualPick, parseIndividualPick } from "./individual";
 import {
   handleCancelConfirm,
   handleCancelPrompt,
@@ -235,7 +236,7 @@ async function main(): Promise<void> {
     const catalog = await resolveCatalog(ctx.from.id);
     const date = parseDate(ctx.callbackQuery.data);
     const availability = await api.getCourtAvailability(date);
-    if (availability.hours.every((h) => h.freeCourts <= 0)) {
+    if (availability.slots.every((s) => s.freeCourts <= 0)) {
       await ctx.reply(courtNoSlotsText(catalog), {
         reply_markup: courtDateKeyboard(catalog, courtDateOptions(new Date()))
       });
@@ -246,7 +247,7 @@ async function main(): Promise<void> {
     });
   });
 
-  // Start time picked → offer the 1h / 2h durations.
+  // Start time picked → offer the 1h / 1.5h / 2h durations.
   bot.callbackQuery(new RegExp(`^${COURT_ACTIONS.timePrefix}`), async (ctx) => {
     await ctx.answerCallbackQuery();
     const catalog = await resolveCatalog(ctx.from.id);
@@ -278,7 +279,7 @@ async function main(): Promise<void> {
 
   // --- C4 court moderation (admin). The bot only renders the API-returned queue
   // and free courts and calls confirm/reject; the API enforces the admin gate,
-  // re-checks the per-hour limit and chosen-court freeness, assigns the court, and
+  // re-checks the per-slot limit and chosen-court freeness, assigns the court, and
   // notifies the client. The bot shows a court number only to the admin here. ---
 
   // Per-admin cache of the free-court list last fetched for a request, so the
@@ -302,7 +303,7 @@ async function main(): Promise<void> {
     });
   });
 
-  // Подтвердить → fetch the courts free for every covered hour and offer one button each.
+  // Подтвердить → fetch the courts free for every covered slot and offer one button each.
   bot.callbackQuery(new RegExp(`^${COURT_MOD_ACTIONS.pickPrefix}`), async (ctx) => {
     await ctx.answerCallbackQuery();
     const catalog = await resolveCatalog(ctx.from.id);
@@ -488,6 +489,15 @@ async function main(): Promise<void> {
         groupConfirm.year,
         groupConfirm.month
       );
+      return;
+    }
+    // Individual training (Feature 8): a trainer pick → request a session. The
+    // caller's telegram id is forwarded to the API (self-only, gated server-side),
+    // which DMs the chosen trainer with a clickable link to the client. The bot
+    // only forwards the trainerId + its own id and renders the typed result.
+    const individualTrainerId = parseIndividualPick(ctx.callbackQuery.data);
+    if (individualTrainerId !== undefined) {
+      await handleIndividualPick(ctx, api, catalog, ctx.from.id, individualTrainerId);
       return;
     }
     // My bookings cancel (T1.11): tapping a cancel button shows the "are you

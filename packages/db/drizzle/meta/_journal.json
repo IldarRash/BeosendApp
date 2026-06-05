@@ -29,6 +29,27 @@
       "when": 1780562127786,
       "tag": "0003_third_rocket_racer",
       "breakpoints": true
+    },
+    {
+      "idx": 4,
+      "version": "7",
+      "when": 1780594837354,
+      "tag": "0004_aspiring_the_initiative",
+      "breakpoints": true
+    },
+    {
+      "idx": 5,
+      "version": "7",
+      "when": 1780596155992,
+      "tag": "0005_odd_bruce_banner",
+      "breakpoints": true
+    },
+    {
+      "idx": 6,
+      "version": "7",
+      "when": 1780598142168,
+      "tag": "0006_oval_captain_marvel",
+      "breakpoints": true
     }
   ]
 }

@@ -8,6 +8,7 @@ import { CourtsService } from "./courts.service";
 
 @Module({
   controllers: [CourtsController, CourtBlocksController],
-  providers: [CourtsService, CourtsRepository, CourtBlocksService, CourtBlocksRepository]
+  providers: [CourtsService, CourtsRepository, CourtBlocksService, CourtBlocksRepository],
+  exports: [CourtBlocksRepository]
 })
 export class CourtsModule {}

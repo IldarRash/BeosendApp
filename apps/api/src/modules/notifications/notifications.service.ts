@@ -1,8 +1,9 @@
 import { Injectable, Logger } from "@nestjs/common";
-import type { NotificationType } from "@beosand/types";
+import type { Client, NotificationType, Trainer } from "@beosand/types";
 import {
   bookingConfirmedMessage,
   groupBookingConfirmedMessage,
+  individualSessionRequestMessage,
   reminderMessage,
   reminderWindow,
   trainingCancelledMessage,
@@ -48,6 +49,11 @@ export class NotificationsService {
       this.logger.warn(
         `No bookable training ${trainingId} for client ${clientId}; skipping confirmation`
       );
+      return;
+    }
+    if (recipient.telegramId === null) {
+      // Walk-in client: no Telegram channel. Skip the send (the booking stands).
+      this.logger.debug(`Client ${clientId} has no telegram_id; skipping confirmation DM`);
       return;
     }
     await this.sendAndLog(recipient, "booking-confirmed", bookingConfirmedMessage(recipient));
@@ -148,6 +154,11 @@ export class NotificationsService {
       );
       return false;
     }
+    if (recipient.telegramId === null) {
+      // Walk-in client: no Telegram channel. Skip the waitlist-slot send.
+      this.logger.debug(`Client ${clientId} has no telegram_id; skipping waitlist-slot`);
+      return false;
+    }
     try {
       await this.sender.sendMessage(
         recipient.telegramId,
@@ -170,6 +181,33 @@ export class NotificationsService {
   }
 
   /**
+   * Ad-hoc trainer DM (Feature 8): a client wants an individual session — DM the
+   * trainer a "please contact the client" message carrying a clickable link to
+   * the client (username link or an id-based mention for username-less clients).
+   * Notification-only: no send-log row (there is no training to key it on). The
+   * caller guarantees a non-null trainer telegram id. Returns whether the send
+   * succeeded; a failure is logged (never the token) and swallowed.
+   */
+  async requestIndividualSession(
+    trainer: Trainer & { telegramId: number },
+    client: Client
+  ): Promise<boolean> {
+    try {
+      await this.sender.sendMessage(trainer.telegramId, individualSessionRequestMessage(client));
+      this.logger.log(
+        `Individual-session request from client ${client.id} delivered to trainer ${trainer.id}`
+      );
+      return true;
+    } catch (error) {
+      this.logger.error(
+        `Individual-session request from client ${client.id} to trainer ${trainer.id} failed: ` +
+          (error instanceof Error ? error.message : String(error))
+      );
+      return false;
+    }
+  }
+
+  /**
    * Send one message and, only on success, write the send-log row. A failure is
    * logged and swallowed (no log row) so the operation is retried next time and
    * never propagates into the caller. Returns whether the message was sent.
@@ -179,6 +217,13 @@ export class NotificationsService {
     type: NotificationType,
     text: string
   ): Promise<boolean> {
+    if (recipient.telegramId === null) {
+      // Walk-in client: no Telegram channel. Never attempt a send or log a row.
+      this.logger.debug(
+        `Recipient client ${recipient.clientId} has no telegram_id; skipping ${type}`
+      );
+      return false;
+    }
     try {
       await this.sender.sendMessage(recipient.telegramId, text);
       await this.repo.logSent({

@@ -1,12 +1,16 @@
 import { Injectable } from "@nestjs/common";
-import { and, asc, eq, sql, tables, type Database } from "@beosand/db";
+import { and, asc, eq, isNotNull, sql, tables, type Database } from "@beosand/db";
 import { DatabaseService } from "../../db/database.service";
 
-/** A confirmed request occupying a court on a date: court id + span. */
+/**
+ * An occupant holding a specific court on a date: court id + minute span. Confirmed
+ * requests also carry their 1|1.5|2h `durationHours`; blocks carry only the minute span.
+ */
 export interface CourtOccupancyRow {
   courtId: string;
   startTime: string;
-  durationHours: number;
+  durationMinutes: number;
+  durationHours?: number;
 }
 
 /** An admin moderation-queue row: the request joined with its client. */
@@ -15,10 +19,14 @@ export interface CourtRequestAdminRow extends CourtRequestRow {
   clientTelegramId: number;
 }
 
-/** Raw court occupant for a date: start time + whole-hour duration. */
+/**
+ * Raw court occupant for a date: start time + minute span. Confirmed requests also
+ * carry their 1|1.5|2h `durationHours`; blocks carry only the derived minute span.
+ */
 export interface OccupantRow {
   startTime: string;
-  durationHours: number;
+  durationMinutes: number;
+  durationHours?: number;
 }
 
 /** Row inserted for a new pending court request (court_id is always null). */
@@ -30,13 +38,13 @@ export interface InsertCourtRequest {
   priceRsd: number;
 }
 
-/** Persisted court request row, as the entity contract expects it. */
+/** Persisted court request row. `durationHours` is the numeric(3,1) column (string from Drizzle). */
 export interface CourtRequestRow {
   id: string;
   clientId: string;
   date: string;
   startTime: string;
-  durationHours: number;
+  durationHours: string;
   priceRsd: number;
   status: "pending" | "confirmed" | "rejected" | "cancelled";
   courtId: string | null;
@@ -61,7 +69,7 @@ export class CourtRequestsRepository {
 
   /** Confirmed requests for a date (only confirmed reserves a court). */
   async confirmedRequestsForDate(date: string): Promise<OccupantRow[]> {
-    return this.database.db
+    const rows = await this.database.db
       .select({
         startTime: tables.courtRequests.startTime,
         durationHours: tables.courtRequests.durationHours
@@ -73,9 +81,14 @@ export class CourtRequestsRepository {
           eq(tables.courtRequests.status, "confirmed")
         )
       );
+    return rows.map((row) => ({
+      startTime: row.startTime,
+      durationHours: Number(row.durationHours),
+      durationMinutes: Number(row.durationHours) * 60
+    }));
   }
 
-  /** Admin blocks for a date; durationHours derived from the time span. */
+  /** Admin blocks for a date; durationMinutes derived from the time span. */
   async blocksForDate(date: string): Promise<OccupantRow[]> {
     const rows = await this.database.db
       .select({
@@ -87,7 +100,7 @@ export class CourtRequestsRepository {
 
     return rows.map((row) => ({
       startTime: row.startTime,
-      durationHours: hourSpan(row.startTime, row.endTime)
+      durationMinutes: minuteSpan(row.startTime, row.endTime)
     }));
   }
 
@@ -114,7 +127,7 @@ export class CourtRequestsRepository {
         clientId: input.clientId,
         date: input.date,
         startTime: input.startTime,
-        durationHours: input.durationHours,
+        durationHours: String(input.durationHours),
         priceRsd: input.priceRsd,
         status: "pending"
       })
@@ -160,9 +173,11 @@ export class CourtRequestsRepository {
       })
       .from(tables.courtRequests)
       .innerJoin(tables.clients, eq(tables.courtRequests.clientId, tables.clients.id))
-      .where(eq(tables.courtRequests.status, status))
+      // Court requests are always made by a bot (telegram) client; a walk-in (null
+      // telegram_id) can never have one, so the queue excludes them defensively.
+      .where(and(eq(tables.courtRequests.status, status), isNotNull(tables.clients.telegramId)))
       .orderBy(asc(tables.courtRequests.date), asc(tables.courtRequests.startTime));
-    return rows.map((row) => ({ ...row, startTime: row.startTime.slice(0, 5) }));
+    return rows.map((row) => toAdminRow(row));
   }
 
   /** A single request row by id, or null. */
@@ -196,10 +211,10 @@ export class CourtRequestsRepository {
       })
       .from(tables.courtRequests)
       .innerJoin(tables.clients, eq(tables.courtRequests.clientId, tables.clients.id))
-      .where(eq(tables.courtRequests.id, id))
+      .where(and(eq(tables.courtRequests.id, id), isNotNull(tables.clients.telegramId)))
       .limit(1);
     const row = rows[0];
-    return row ? { ...row, startTime: row.startTime.slice(0, 5) } : null;
+    return row ? toAdminRow(row) : null;
   }
 
   /** Active courts (id + number), ordered by number, for the free-court read. */
@@ -222,8 +237,13 @@ export class CourtRequestsRepository {
       .from(tables.courtRequests)
       .where(and(eq(tables.courtRequests.date, date), eq(tables.courtRequests.status, "confirmed")));
     return rows
-      .filter((row): row is CourtOccupancyRow => row.courtId !== null)
-      .map((row) => ({ ...row, startTime: row.startTime.slice(0, 5) }));
+      .filter((row): row is typeof row & { courtId: string } => row.courtId !== null)
+      .map((row) => ({
+        courtId: row.courtId,
+        startTime: row.startTime.slice(0, 5),
+        durationHours: Number(row.durationHours),
+        durationMinutes: Number(row.durationHours) * 60
+      }));
   }
 
   /** Admin blocks on a date keyed by the court they hold (for per-court occupancy). */
@@ -239,7 +259,7 @@ export class CourtRequestsRepository {
     return rows.map((row) => ({
       courtId: row.courtId,
       startTime: row.startTime.slice(0, 5),
-      durationHours: hourSpan(row.startTime, row.endTime)
+      durationMinutes: minuteSpan(row.startTime, row.endTime)
     }));
   }
 
@@ -261,6 +281,21 @@ export class CourtRequestsRepository {
   transaction<T>(work: (tx: CourtModerationTx) => Promise<T>): Promise<T> {
     return this.database.db.transaction((db) => work(new CourtModerationTx(db)));
   }
+}
+
+/**
+ * Map a joined queue row to the admin row. The query filters to
+ * `telegram_id IS NOT NULL` (court requests are bot-only), so the nullable DB
+ * column is narrowed to the non-null `clientTelegramId` the contract requires.
+ */
+function toAdminRow(
+  row: Omit<CourtRequestAdminRow, "clientTelegramId"> & { clientTelegramId: number | null }
+): CourtRequestAdminRow {
+  return {
+    ...row,
+    startTime: row.startTime.slice(0, 5),
+    clientTelegramId: row.clientTelegramId ?? 0
+  };
 }
 
 const courtRequestColumns = {
@@ -323,8 +358,13 @@ export class CourtModerationTx {
       .from(tables.courtRequests)
       .where(and(eq(tables.courtRequests.date, date), eq(tables.courtRequests.status, "confirmed")));
     return rows
-      .filter((row): row is CourtOccupancyRow => row.courtId !== null)
-      .map((row) => ({ ...row, startTime: row.startTime.slice(0, 5) }));
+      .filter((row): row is typeof row & { courtId: string } => row.courtId !== null)
+      .map((row) => ({
+        courtId: row.courtId,
+        startTime: row.startTime.slice(0, 5),
+        durationHours: Number(row.durationHours),
+        durationMinutes: Number(row.durationHours) * 60
+      }));
   }
 
   /** Admin blocks on a date keyed by the court they hold. */
@@ -340,7 +380,7 @@ export class CourtModerationTx {
     return rows.map((row) => ({
       courtId: row.courtId,
       startTime: row.startTime.slice(0, 5),
-      durationHours: hourSpan(row.startTime, row.endTime)
+      durationMinutes: minuteSpan(row.startTime, row.endTime)
     }));
   }
 
@@ -366,9 +406,9 @@ export class CourtModerationTx {
   }
 }
 
-/** Whole clock hours spanned by a block (e.g. 09:00→11:00 = 2). At least 1. */
-function hourSpan(startTime: string, endTime: string): number {
-  const startHour = Number(startTime.slice(0, 2));
-  const endHour = Number(endTime.slice(0, 2));
-  return Math.max(1, endHour - startHour);
+/** Minutes spanned by a block (e.g. 17:30→19:00 = 90). At least one slot. */
+function minuteSpan(startTime: string, endTime: string): number {
+  const start = Number(startTime.slice(0, 2)) * 60 + Number(startTime.slice(3, 5));
+  const end = Number(endTime.slice(0, 2)) * 60 + Number(endTime.slice(3, 5));
+  return Math.max(30, end - start);
 }

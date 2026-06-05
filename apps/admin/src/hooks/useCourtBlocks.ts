@@ -59,3 +59,22 @@ export function useDeleteCourtBlock(): UseMutationResult<void, Error, string> {
     onSuccess: () => invalidateBlocks(queryClient)
   });
 }
+
+/**
+ * Move a block to another court (PATCH /court-blocks/:id). Surfaced for group
+ * auto-blocks; refreshes the blocks list and the load grid on success. A 409
+ * (target court clash / over the limit) surfaces as a thrown Error the screen
+ * renders — the client computes no availability itself.
+ */
+export function useReassignCourtBlock(): UseMutationResult<
+  CourtBlock,
+  Error,
+  { id: string; courtId: string }
+> {
+  const api = useApiClient();
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: ({ id, courtId }) => api.reassignCourtBlock(id, courtId),
+    onSuccess: () => invalidateBlocks(queryClient)
+  });
+}

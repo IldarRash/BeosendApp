@@ -49,6 +49,9 @@ const anya: Client = {
   telegramId: 4242,
   telegramUsername: "anya",
   levelId: sampleLevels[0].id,
+  source: "telegram",
+  phone: null,
+  note: null,
   registeredAt: "2026-01-01T00:00:00.000Z",
   status: "active",
   language: "ru"

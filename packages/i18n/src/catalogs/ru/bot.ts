@@ -18,9 +18,10 @@ export const botRu: Record<string, string> = {
   // --- Main menu (menu.ts) ---
   "bot.menu.welcomeFull":
     "Добро пожаловать в BeoSand 🏐\n\nЗдесь вы можете:\n• записаться на тренировку\n• посмотреть свободные места\n• увидеть свои записи",
-  "bot.menu.availableTrainings": "🏐 Доступные тренировки",
+  "bot.menu.availableTrainings": "🎫 Разовое посещение",
   "bot.menu.todayFreeSlots": "📅 Свободные места сегодня",
   "bot.menu.joinGroup": "👥 Записаться в группу",
+  "bot.menu.individual": "🧑‍🏫 Индивидуальная тренировка",
   "bot.menu.myBookings": "📋 Мои записи",
   "bot.menu.rentCourt": "🏖 Арендовать корт",
   "bot.menu.contactManager": "ℹ️ Связаться с менеджером",
@@ -28,7 +29,18 @@ export const botRu: Record<string, string> = {
   "bot.menu.adminCourtModeration": "🛠 Заявки на корт (админ)",
   "bot.menu.adminCourtLoad": "📊 Загрузка кортов (админ)",
   "bot.menu.contactManagerLine": "Связаться с менеджером: {contact}",
-  "bot.menu.todayStub": "Свободные места на сегодня скоро будут здесь.",
+
+  // --- Free spots today (navigation.ts, Feature 6) ---
+  "bot.today.header": "Свободные места на сегодня:",
+  "bot.today.none": "На сегодня свободных мест нет. Загляните позже 🙌",
+
+  // --- Individual training (individual.ts, Feature 8) ---
+  "bot.individual.pickTrainer": "К какому тренеру записаться?",
+  "bot.individual.noTrainers": "Сейчас нет доступных тренеров. Загляните позже 🙌",
+  "bot.individual.requested": "✅ Заявка отправлена тренеру. Он свяжется с вами в Telegram.",
+  "bot.individual.trainerUnavailable":
+    "Этот тренер пока недоступен в Telegram. Выберите другого или свяжитесь с менеджером.",
+  "bot.individual.pickButton": "🧑‍🏫 {name}",
 
   // --- Shared navigation (menu.ts) ---
   "bot.nav.back": "⬅️ Назад",
@@ -116,6 +128,7 @@ export const botRu: Record<string, string> = {
   // --- Group booking (group-booking.ts) ---
   "bot.group.none": "Сейчас нет групп для записи. Загляните позже 🙌",
   "bot.group.header": "Группы для записи на месяц:",
+  "bot.group.trainer": "Тренер: {name}",
   "bot.group.monthSubscription": "Абонемент на месяц: {price} RSD",
   "bot.group.pickButton": "👥 {name}",
   "bot.group.monthPickTitle": "Группа «{name}»",
@@ -150,6 +163,7 @@ export const botRu: Record<string, string> = {
     "Заявка отправлена на подтверждение администратору. Ожидайте уведомления с номером корта.",
   "bot.court.durationHours": "{hours} ч",
   "bot.court.duration.1": "1 час",
+  "bot.court.duration.1.5": "1.5 часа",
   "bot.court.duration.2": "2 часа",
   "bot.court.previewLine": "Дата: {date}, Время: {start}–{end} ({duration}). Итого: {price} RSD",
   "bot.court.previewUnavailable": "К сожалению, это время уже занято. Выберите другое.",

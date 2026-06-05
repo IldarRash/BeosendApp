@@ -6,6 +6,8 @@ export const MENU_ACTIONS = {
   availableTrainings: "menu:available",
   todayFreeSlots: "menu:today",
   joinGroup: "menu:group",
+  /** Individual-training request flow (Feature 8). */
+  individual: "menu:individual",
   myBookings: "menu:bookings",
   /** Court rental request flow (Edition 2, C2). */
   rentCourt: "menu:court",
@@ -46,11 +48,13 @@ export function parseSetLanguage(data: string | undefined): Locale | undefined {
 
 export function mainMenuKeyboard(catalog: Catalog): InlineKeyboard {
   return new InlineKeyboard()
-    .text(t(catalog, "bot.menu.availableTrainings"), MENU_ACTIONS.availableTrainings)
-    .row()
     .text(t(catalog, "bot.menu.todayFreeSlots"), MENU_ACTIONS.todayFreeSlots)
     .row()
+    .text(t(catalog, "bot.menu.availableTrainings"), MENU_ACTIONS.availableTrainings)
+    .row()
     .text(t(catalog, "bot.menu.joinGroup"), MENU_ACTIONS.joinGroup)
+    .row()
+    .text(t(catalog, "bot.menu.individual"), MENU_ACTIONS.individual)
     .row()
     .text(t(catalog, "bot.menu.myBookings"), MENU_ACTIONS.myBookings)
     .row()

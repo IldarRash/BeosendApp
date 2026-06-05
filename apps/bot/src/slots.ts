@@ -117,6 +117,24 @@ export function renderSlotsText(catalog: Catalog, cards: SlotCard[]): string {
 }
 
 /**
+ * Body text for "Свободные места на сегодня" (Feature 6): same card blocks as
+ * {@link renderSlotsText}, but under the today-specific header/empty strings.
+ * The cards are server-provided bookable slots for today; no math here.
+ */
+export function renderTodaySlotsText(catalog: Catalog, cards: SlotCard[]): string {
+  if (cards.length === 0) {
+    return t(catalog, "bot.today.none");
+  }
+  return [
+    t(catalog, "bot.today.header"),
+    "",
+    ...cards.map((card) => formatSlotLine(catalog, card)).flatMap((line) => [line, ""])
+  ]
+    .join("\n")
+    .trimEnd();
+}
+
+/**
  * One "Записаться" button per card (carrying only the trainingId), then the
  * shared back/home footer so the journey never dead-ends.
  */

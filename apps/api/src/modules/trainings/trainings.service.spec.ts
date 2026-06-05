@@ -40,6 +40,7 @@ const baseGroup: Group = {
   startTime: "20:00",
   endTime: "21:30",
   trainerId: "33333333-3333-3333-3333-333333333333",
+  trainerName: "Jovana",
   capacity: 12,
   priceSingleRsd: 1500,
   priceMonthRsd: 10000,
@@ -190,8 +191,85 @@ class FakeTrainersRepository {
 
 class FakeGroupsRepository {
   group: Group | undefined = { ...baseGroup };
+  activeGroups: Group[] = [];
   async findById(id: string): Promise<Group | undefined> {
     return this.group && this.group.id === id ? this.group : undefined;
+  }
+  async listActive(): Promise<Group[]> {
+    return this.activeGroups;
+  }
+}
+
+interface FakeOccupancyRow {
+  courtId: string;
+  startTime: string;
+  durationMinutes: number;
+  requestId?: string;
+  /** Optional date filter; when set, the row only counts on that date. */
+  date?: string;
+}
+
+/** Minutes between two "HH:MM" times (for the fake's block-occupancy read). */
+function minutesBetween(start: string, end: string): number {
+  const m = (t: string) => Number(t.slice(0, 2)) * 60 + Number(t.slice(3, 5));
+  return m(end) - m(start);
+}
+
+/** In-memory stand-in for the court-blocks repo (the only court DB access in generation). */
+class FakeCourtBlocksRepository {
+  courts: { id: string; number: number }[] = [
+    { id: "c0000000-0000-4000-8000-000000000001", number: 1 },
+    { id: "c0000000-0000-4000-8000-000000000002", number: 2 }
+  ];
+  confirmed: FakeOccupancyRow[] = [];
+  existingBlocks: FakeOccupancyRow[] = [];
+  inserted: {
+    courtId: string;
+    date: string;
+    startTime: string;
+    endTime: string;
+    reason: string;
+    groupTrainingId?: string | null;
+  }[] = [];
+  deletedTrainingIds: string[] = [];
+
+  async activeCourts(): Promise<{ id: string; number: number }[]> {
+    return this.courts;
+  }
+  async countActiveCourts(): Promise<number> {
+    return this.courts.length;
+  }
+  async confirmedOccupancyForDate(date: string): Promise<FakeOccupancyRow[]> {
+    return this.confirmed.filter((r) => !r.date || r.date === date).map((r) => ({ ...r }));
+  }
+  async blocksOccupancyForDate(date: string): Promise<FakeOccupancyRow[]> {
+    // Mirror the real DB read: previously-committed auto-blocks on this date are
+    // visible to a later read (cross-group in-run accumulation in generate-all).
+    const persisted = this.inserted
+      .filter((b) => b.date === date)
+      .map((b) => ({
+        courtId: b.courtId,
+        startTime: b.startTime,
+        durationMinutes: minutesBetween(b.startTime, b.endTime)
+      }));
+    return [...this.existingBlocks.filter((r) => !r.date || r.date === date), ...persisted].map(
+      (r) => ({ ...r })
+    );
+  }
+  async insert(input: {
+    courtId: string;
+    date: string;
+    startTime: string;
+    endTime: string;
+    reason: string;
+    groupTrainingId?: string | null;
+  }): Promise<unknown> {
+    this.inserted.push(input);
+    return { id: "b0000000-0000-4000-8000-000000000001", ...input };
+  }
+  async deleteByGroupTrainingId(id: string): Promise<boolean> {
+    this.deletedTrainingIds.push(id);
+    return true;
   }
 }
 
@@ -202,6 +280,7 @@ describe("TrainingsService", () => {
   let groupsRepo: FakeGroupsRepository;
   let trainersRepo: FakeTrainersRepository;
   let notifications: { sendTrainingCancelled: ReturnType<typeof vi.fn> };
+  let courtBlocksRepo: FakeCourtBlocksRepository;
   let service: TrainingsService;
 
   beforeEach(() => {
@@ -209,11 +288,13 @@ describe("TrainingsService", () => {
     groupsRepo = new FakeGroupsRepository();
     trainersRepo = new FakeTrainersRepository();
     notifications = { sendTrainingCancelled: vi.fn().mockResolvedValue(0) };
+    courtBlocksRepo = new FakeCourtBlocksRepository();
     service = new TrainingsService(
       trainingsRepo as unknown as TrainingsRepository,
       groupsRepo as unknown as GroupsRepository,
       trainersRepo as unknown as TrainersRepository,
       notifications as unknown as NotificationsService,
+      courtBlocksRepo as unknown as import("../courts/court-blocks.repository").CourtBlocksRepository,
       env
     );
   });
@@ -622,6 +703,58 @@ describe("TrainingsService", () => {
 
       expect(result.status).toBe("cancelled");
     });
+
+    it("T8 — deletes the training's auto-block (frees the court) on cancel", async () => {
+      trainingsRepo.lock = {
+        id: TRAINING_ID,
+        capacity: 12,
+        bookedCount: 0,
+        status: "open",
+        trainerId: TRAINER_ID
+      };
+
+      await service.cancelTraining(ADMIN_ID, TRAINING_ID);
+
+      expect(courtBlocksRepo.deletedTrainingIds).toEqual([TRAINING_ID]);
+    });
+
+    it("T9 — cancel is scoped to the single training: only that training's auto-block and booked bookings are touched (monthly-batch siblings untouched)", async () => {
+      // Regression guard for the group_subscription_id invariant: cancelling one date
+      // must never cascade to sibling dates of the same monthly batch. At this layer
+      // that means cancel deletes the block keyed by THIS training id only and flips
+      // bookings for THIS training id only — never a group-wide delete/cancel.
+      trainingsRepo.lock = {
+        id: TRAINING_ID,
+        capacity: 12,
+        bookedCount: 2,
+        status: "open",
+        trainerId: TRAINER_ID
+      };
+      trainingsRepo.cancelledClientIds = ["client-a", "client-b"];
+
+      await service.cancelTraining(ADMIN_ID, TRAINING_ID);
+
+      // Exactly one block delete, keyed by the cancelled training's id (not the group).
+      expect(courtBlocksRepo.deletedTrainingIds).toEqual([TRAINING_ID]);
+      // Booked-bookings flip ran exactly once (for this training), never group-wide.
+      expect(trainingsRepo.cancelBookedCalls).toBe(1);
+    });
+
+    it("T8 — auto-block delete is keyed by the specific training id, not the group", async () => {
+      const OTHER_TRAINING = "ffffffff-ffff-4fff-8fff-ffffffffffff";
+      trainingsRepo.lock = {
+        id: TRAINING_ID,
+        capacity: 12,
+        bookedCount: 0,
+        status: "open",
+        trainerId: TRAINER_ID
+      };
+
+      await service.cancelTraining(ADMIN_ID, TRAINING_ID);
+
+      expect(courtBlocksRepo.deletedTrainingIds).toContain(TRAINING_ID);
+      expect(courtBlocksRepo.deletedTrainingIds).not.toContain(OTHER_TRAINING);
+    });
   });
 
   describe("changeCapacity (A1 manager console)", () => {
@@ -723,6 +856,151 @@ describe("TrainingsService", () => {
         service.changeCapacity(ADMIN_ID, TRAINING_ID, { capacity: 20 })
       ).rejects.toBeInstanceOf(ConflictException);
       expect(trainingsRepo.lock.capacity).toBe(12);
+    });
+  });
+
+  describe("auto court blocks (Feature 2 — generateMonth)", () => {
+    const COURT_1 = "c0000000-0000-4000-8000-000000000001";
+    const COURT_2 = "c0000000-0000-4000-8000-000000000002";
+
+    it("T2 — creates one auto-block per new training on its [start,end) window, reason = group name", async () => {
+      const created = await generate(); // 9 trainings (Mon+Wed July 2026)
+
+      expect(courtBlocksRepo.inserted).toHaveLength(created.length);
+      for (const block of courtBlocksRepo.inserted) {
+        expect(block.startTime).toBe(baseGroup.startTime);
+        expect(block.endTime).toBe(baseGroup.endTime);
+        expect(block.reason).toBe(baseGroup.name);
+        expect(block.groupTrainingId).toBeDefined();
+        // Each new training is reservable on a free court (2 courts, distinct dates).
+        expect([COURT_1, COURT_2]).toContain(block.courtId);
+      }
+    });
+
+    it("T3 — uses the preferred court when it is free for the covered slots", async () => {
+      await service.generateMonth(ADMIN_ID, {
+        groupId: GROUP_ID,
+        year: FUTURE_YEAR,
+        month: FUTURE_MONTH,
+        courtId: COURT_2
+      });
+
+      expect(courtBlocksRepo.inserted.every((b) => b.courtId === COURT_2)).toBe(true);
+    });
+
+    it("T3 — falls back to the lowest-numbered free court when the preferred is taken", async () => {
+      // Court 2 is occupied for the whole window on every date the read returns.
+      courtBlocksRepo.existingBlocks = [
+        { courtId: COURT_2, startTime: baseGroup.startTime, durationMinutes: 90 }
+      ];
+      await service.generateMonth(ADMIN_ID, {
+        groupId: GROUP_ID,
+        year: FUTURE_YEAR,
+        month: FUTURE_MONTH,
+        courtId: COURT_2
+      });
+
+      expect(courtBlocksRepo.inserted.every((b) => b.courtId === COURT_1)).toBe(true);
+    });
+
+    it("T4 — skips the block (no court) when every court is occupied for the slots; never inserts", async () => {
+      courtBlocksRepo.existingBlocks = [
+        { courtId: COURT_1, startTime: baseGroup.startTime, durationMinutes: 90 },
+        { courtId: COURT_2, startTime: baseGroup.startTime, durationMinutes: 90 }
+      ];
+      const created = await generate();
+
+      expect(created).toHaveLength(9);
+      expect(courtBlocksRepo.inserted).toHaveLength(0);
+    });
+
+    it("T1 — idempotent: a second run creates no trainings and no auto-blocks", async () => {
+      await generate();
+      const insertedAfterFirst = courtBlocksRepo.inserted.length;
+      const second = await generate();
+
+      expect(second).toEqual([]);
+      expect(courtBlocksRepo.inserted).toHaveLength(insertedAfterFirst);
+    });
+  });
+
+  describe("generateMonthForAll (Feature 3)", () => {
+    it("T6 — iterates active groups and returns per-group summary with blocked + skipped === created", async () => {
+      groupsRepo.activeGroups = [baseGroup];
+      const result = await service.generateMonthForAll(ADMIN_ID, {
+        year: FUTURE_YEAR,
+        month: FUTURE_MONTH
+      });
+
+      expect(result.perGroup).toHaveLength(1);
+      const summary = result.perGroup[0];
+      expect(summary.groupId).toBe(GROUP_ID);
+      expect(summary.created).toBe(9);
+      expect(summary.blocked + summary.skipped).toBe(summary.created);
+    });
+
+    it("is admin-only", async () => {
+      await expect(
+        service.generateMonthForAll(NON_ADMIN_ID, { year: FUTURE_YEAR, month: FUTURE_MONTH })
+      ).rejects.toBeInstanceOf(ForbiddenException);
+    });
+
+    it("T6 — iterates ACTIVE groups only (inactive groups are never listed/processed)", async () => {
+      // listActive() is the only source; an inactive group simply isn't returned,
+      // so generate-all never creates trainings or blocks for it.
+      groupsRepo.activeGroups = [baseGroup];
+      const result = await service.generateMonthForAll(ADMIN_ID, {
+        year: FUTURE_YEAR,
+        month: FUTURE_MONTH
+      });
+      expect(result.perGroup.map((p) => p.groupId)).toEqual([GROUP_ID]);
+    });
+
+    it("T6 — is idempotent across groups: a second generate-all creates no new blocks", async () => {
+      groupsRepo.activeGroups = [baseGroup];
+      await service.generateMonthForAll(ADMIN_ID, { year: FUTURE_YEAR, month: FUTURE_MONTH });
+      const insertedAfterFirst = courtBlocksRepo.inserted.length;
+
+      const again = await service.generateMonthForAll(ADMIN_ID, {
+        year: FUTURE_YEAR,
+        month: FUTURE_MONTH
+      });
+      expect(courtBlocksRepo.inserted).toHaveLength(insertedAfterFirst);
+      // Re-run reports zero new trainings for the already-generated month.
+      expect(again.perGroup[0].created).toBe(0);
+      expect(again.perGroup[0].blocked).toBe(0);
+    });
+
+    it("T5 — two groups sharing a date+window do not both grab the same court (in-run accumulation across the batch)", async () => {
+      // Only ONE active court, so the two groups' Monday/Wednesday trainings compete
+      // for it on every shared date. The first group to run takes the court for that
+      // date; the second sees it busy (the committed block reads back) and is skipped.
+      courtBlocksRepo.courts = [{ id: "c0000000-0000-4000-8000-000000000001", number: 1 }];
+      const groupA: Group = { ...baseGroup, id: "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa", name: "A" };
+      const groupB: Group = { ...baseGroup, id: "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb", name: "B" };
+      groupsRepo.activeGroups = [groupA, groupB];
+
+      const result = await service.generateMonthForAll(ADMIN_ID, {
+        year: FUTURE_YEAR,
+        month: FUTURE_MONTH
+      });
+
+      // For each shared date, at most one block lands on the single court — never two.
+      const byDate = new Map<string, number>();
+      for (const block of courtBlocksRepo.inserted) {
+        byDate.set(block.date, (byDate.get(block.date) ?? 0) + 1);
+      }
+      expect([...byDate.values()].every((count) => count <= 1)).toBe(true);
+
+      // Per-group invariant still holds: blocked + skipped === created for both groups.
+      for (const summary of result.perGroup) {
+        expect(summary.blocked + summary.skipped).toBe(summary.created);
+      }
+      // Group A claimed each date; group B was skipped on those same dates.
+      const a = result.perGroup.find((p) => p.groupId === groupA.id)!;
+      const b = result.perGroup.find((p) => p.groupId === groupB.id)!;
+      expect(a.blocked).toBe(a.created);
+      expect(b.skipped).toBe(b.created);
     });
   });
 });

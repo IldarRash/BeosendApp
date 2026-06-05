@@ -1,12 +1,13 @@
 import { describe, expect, it } from "vitest";
+import { isSlotAligned, minutesOfDay, timeOfMinutes } from "./common";
 import {
   averageFillRate,
-  courtHoursCovered,
+  courtFreeForSlots,
   courtLoadGrid,
   courtPriceRsd,
-  freeCourtsByHour,
+  courtSlotsCovered,
+  freeCourtsBySlot,
   freeSeats,
-  hourRangesOverlap,
   isBookable,
   isoWeekdayOf,
   matchesSlotFilters,
@@ -14,6 +15,7 @@ import {
   recomputeTrainingStatus,
   safeRatio,
   timeOfDayOf,
+  timeRangesOverlap,
   type FilterableSlot
 } from "./helpers";
 
@@ -63,15 +65,31 @@ describe("isoWeekdayOf", () => {
   });
 });
 
+describe("time primitives", () => {
+  it("round-trips minutes ⇄ HH:MM", () => {
+    expect(minutesOfDay("14:30")).toBe(870);
+    expect(timeOfMinutes(870)).toBe("14:30");
+    expect(timeOfMinutes(minutesOfDay("08:00"))).toBe("08:00");
+  });
+
+  it("detects 30-minute alignment", () => {
+    expect(isSlotAligned("08:30")).toBe(true);
+    expect(isSlotAligned("08:00")).toBe(true);
+    expect(isSlotAligned("08:15")).toBe(false);
+  });
+});
+
 describe("court pricing", () => {
-  it("charges 2000 RSD per hour", () => {
+  it("charges 2000 RSD per hour, fractional included", () => {
     expect(courtPriceRsd(1)).toBe(2000);
+    expect(courtPriceRsd(1.5)).toBe(3000);
     expect(courtPriceRsd(2)).toBe(4000);
   });
 
-  it("covers the right clock hours", () => {
-    expect(courtHoursCovered("14:00", 2)).toEqual([14, 15]);
-    expect(courtHoursCovered("19:00", 1)).toEqual([19]);
+  it("covers the right 30-min slots", () => {
+    expect(courtSlotsCovered("17:30", 90)).toEqual(["17:30", "18:00", "18:30"]);
+    expect(courtSlotsCovered("08:00", 60)).toEqual(["08:00", "08:30"]);
+    expect(courtSlotsCovered("19:00", 60)).toEqual(["19:00", "19:30"]);
   });
 });
 
@@ -139,84 +157,112 @@ describe("matchesSlotFilters", () => {
   });
 });
 
-describe("hourRangesOverlap", () => {
+describe("timeRangesOverlap", () => {
   it("detects overlapping ranges on the same court", () => {
-    expect(hourRangesOverlap("18:00", "20:00", "19:00", "21:00")).toBe(true);
-    expect(hourRangesOverlap("18:00", "20:00", "18:00", "19:00")).toBe(true);
-    expect(hourRangesOverlap("18:00", "20:00", "17:00", "21:00")).toBe(true);
+    expect(timeRangesOverlap("18:00", "20:00", "19:00", "21:00")).toBe(true);
+    expect(timeRangesOverlap("18:00", "20:00", "18:00", "19:00")).toBe(true);
+    expect(timeRangesOverlap("17:30", "19:00", "18:30", "19:30")).toBe(true);
   });
 
   it("treats abutting ranges as non-overlapping (half-open)", () => {
-    expect(hourRangesOverlap("18:00", "20:00", "20:00", "21:00")).toBe(false);
-    expect(hourRangesOverlap("18:00", "20:00", "16:00", "18:00")).toBe(false);
+    expect(timeRangesOverlap("17:30", "19:00", "19:00", "20:00")).toBe(false);
+    expect(timeRangesOverlap("18:00", "20:00", "16:00", "18:00")).toBe(false);
   });
 
   it("returns false for fully disjoint ranges", () => {
-    expect(hourRangesOverlap("08:00", "10:00", "14:00", "16:00")).toBe(false);
+    expect(timeRangesOverlap("08:00", "10:00", "14:00", "16:00")).toBe(false);
   });
 });
 
-describe("freeCourtsByHour", () => {
+describe("freeCourtsBySlot", () => {
   const base = { activeCourtCount: 6, openHour: 8, closeHour: 21 };
 
-  it("returns the full active count for every working hour with no occupants", () => {
-    const free = freeCourtsByHour({ ...base, confirmed: [], blocks: [] });
-    expect(free.get(8)).toBe(6);
-    expect(free.get(20)).toBe(6);
-    // close hour itself is not a working start hour
-    expect(free.has(21)).toBe(false);
-    expect(free.has(7)).toBe(false);
+  it("returns the full active count for every working slot with no occupants", () => {
+    const free = freeCourtsBySlot({ ...base, confirmed: [], blocks: [] });
+    expect(free.get("08:00")).toBe(6);
+    expect(free.get("08:30")).toBe(6);
+    expect(free.get("20:30")).toBe(6);
+    // 21:00 is the close boundary, not a working start slot
+    expect(free.has("21:00")).toBe(false);
+    expect(free.has("07:30")).toBe(false);
   });
 
-  it("a confirmed 1h request reduces only its single covered hour", () => {
-    const free = freeCourtsByHour({
+  it("a confirmed 1.5h request reduces exactly its three covered slots", () => {
+    const free = freeCourtsBySlot({
       ...base,
-      confirmed: [{ startTime: "10:00", durationHours: 1 }],
+      confirmed: [{ startTime: "10:00", durationHours: 1.5 }],
       blocks: []
     });
-    expect(free.get(10)).toBe(5);
-    expect(free.get(11)).toBe(6);
+    expect(free.get("10:00")).toBe(5);
+    expect(free.get("10:30")).toBe(5);
+    expect(free.get("11:00")).toBe(5);
+    expect(free.get("11:30")).toBe(6);
   });
 
-  it("a confirmed 2h request reduces both covered hours", () => {
-    const free = freeCourtsByHour({
+  it("a confirmed request starting on :30 reduces the right slots", () => {
+    const free = freeCourtsBySlot({
       ...base,
-      confirmed: [{ startTime: "10:00", durationHours: 2 }],
+      confirmed: [{ startTime: "17:30", durationHours: 1 }],
       blocks: []
     });
-    expect(free.get(10)).toBe(5);
-    expect(free.get(11)).toBe(5);
-    expect(free.get(12)).toBe(6);
+    expect(free.get("17:00")).toBe(6);
+    expect(free.get("17:30")).toBe(5);
+    expect(free.get("18:00")).toBe(5);
+    expect(free.get("18:30")).toBe(6);
   });
 
-  it("blocks reduce an hour the same way confirmed requests do", () => {
-    const free = freeCourtsByHour({
+  it("blocks (arbitrary minute span) reduce a slot the same way", () => {
+    const free = freeCourtsBySlot({
       ...base,
       confirmed: [],
-      blocks: [{ startTime: "09:00", durationHours: 1 }]
+      blocks: [{ startTime: "09:00", durationMinutes: 90 }]
     });
-    expect(free.get(9)).toBe(5);
+    expect(free.get("09:00")).toBe(5);
+    expect(free.get("09:30")).toBe(5);
+    expect(free.get("10:00")).toBe(5);
+    expect(free.get("10:30")).toBe(6);
   });
 
-  it("floors free courts at 0 (no negative) once an hour is overfull", () => {
+  it("floors free courts at 0 and never exceeds the active count", () => {
     const confirmed = Array.from({ length: 7 }, () => ({
       startTime: "10:00" as const,
       durationHours: 1 as const
     }));
-    const free = freeCourtsByHour({ ...base, confirmed, blocks: [] });
-    expect(free.get(10)).toBe(0);
+    const free = freeCourtsBySlot({ ...base, confirmed, blocks: [] });
+    expect(free.get("10:00")).toBe(0);
+    // a 1h request covers both 10:00 and 10:30, so 10:30 is also full
+    expect(free.get("10:30")).toBe(0);
+    expect(free.get("11:00")).toBe(6);
+  });
+});
+
+describe("courtFreeForSlots", () => {
+  const courtA = "aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa";
+  const courtB = "bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb";
+
+  it("true when no occupant on that court overlaps the slots", () => {
+    expect(
+      courtFreeForSlots(courtA, ["18:00", "18:30"], [
+        { courtId: courtB, startTime: "18:00", durationMinutes: 60 }
+      ])
+    ).toBe(true);
   });
 
-  it("the 6th confirmed leaves 0 free — the 7th is impossible (min over covered hours)", () => {
-    const confirmed = Array.from({ length: 6 }, () => ({
-      startTime: "10:00" as const,
-      durationHours: 1 as const
-    }));
-    const free = freeCourtsByHour({ ...base, confirmed, blocks: [] });
-    expect(free.get(10)).toBe(0);
-    // a 2h slot at 09:00 covers hour 10 too, so its min free is 0
-    const min2h = Math.min(free.get(9) ?? 0, free.get(10) ?? 0);
-    expect(min2h).toBe(0);
+  it("false when an occupant on the same court overlaps a covered slot", () => {
+    expect(
+      courtFreeForSlots(courtA, ["18:00", "18:30", "19:00"], [
+        { courtId: courtA, startTime: "18:30", durationMinutes: 60 }
+      ])
+    ).toBe(false);
+  });
+
+  it("ignores a touching (non-overlapping) occupant under half-open slots", () => {
+    // A 17:00–18:00 occupant covers 17:00,17:30 only; the 18:00 slot is free.
+    expect(
+      courtFreeForSlots(courtA, ["18:00", "18:30"], [
+        { courtId: courtA, startTime: "17:00", durationMinutes: 60 }
+      ])
+    ).toBe(true);
   });
 });
 
@@ -232,67 +278,65 @@ describe("courtLoadGrid", () => {
   const cellAt = (
     rows: ReturnType<typeof courtLoadGrid>,
     courtId: string,
-    hour: number
+    startTime: string
   ): string => {
     const row = rows.find((r) => r.courtId === courtId);
-    return row?.cells.find((c) => c.hour === hour)?.state ?? "missing";
+    return row?.cells.find((c) => c.startTime === startTime)?.state ?? "missing";
   };
 
   it("marks every cell free with no occupancy across the full working window", () => {
     const rows = courtLoadGrid({ courts, ...window, confirmed: [], blocks: [] });
     expect(rows).toHaveLength(2);
-    expect(rows[0].cells).toHaveLength(21 - 8);
-    expect(rows[0].cells[0].hour).toBe(8);
-    expect(rows[0].cells.at(-1)?.hour).toBe(20);
+    // 08:00..20:30 = 26 half-hour slots
+    expect(rows[0].cells).toHaveLength((21 - 8) * 2);
+    expect(rows[0].cells[0].startTime).toBe("08:00");
+    expect(rows[0].cells.at(-1)?.startTime).toBe("20:30");
     expect(rows.every((r) => r.cells.every((c) => c.state === "free"))).toBe(true);
   });
 
-  it("renders a confirmed request and a block on the right court/hours; spans fill every hour", () => {
+  it("marks exactly the 3 slots of a 1.5h request; a block fills its span", () => {
     const rows = courtLoadGrid({
       courts,
       ...window,
-      confirmed: [{ courtId: courtA, startTime: "10:00", durationHours: 2 }],
-      blocks: [{ courtId: courtB, startTime: "09:00", durationHours: 3 }]
+      confirmed: [{ courtId: courtA, startTime: "17:30", durationMinutes: 90 }],
+      blocks: [{ courtId: courtB, startTime: "09:00", durationMinutes: 150 }]
     });
 
-    expect(cellAt(rows, courtA, 10)).toBe("request");
-    expect(cellAt(rows, courtA, 11)).toBe("request");
-    expect(cellAt(rows, courtA, 12)).toBe("free");
-    expect(cellAt(rows, courtA, 9)).toBe("free");
+    expect(cellAt(rows, courtA, "17:30")).toBe("request");
+    expect(cellAt(rows, courtA, "18:00")).toBe("request");
+    expect(cellAt(rows, courtA, "18:30")).toBe("request");
+    expect(cellAt(rows, courtA, "19:00")).toBe("free");
+    expect(cellAt(rows, courtA, "17:00")).toBe("free");
 
-    expect(cellAt(rows, courtB, 9)).toBe("block");
-    expect(cellAt(rows, courtB, 10)).toBe("block");
-    expect(cellAt(rows, courtB, 11)).toBe("block");
-    expect(cellAt(rows, courtB, 12)).toBe("free");
+    expect(cellAt(rows, courtB, "09:00")).toBe("block");
+    expect(cellAt(rows, courtB, "11:00")).toBe("block");
+    expect(cellAt(rows, courtB, "11:30")).toBe("free");
   });
 
   it("leaves a court fully free when it has no confirmed request or block", () => {
-    // Only occupants passed in confirmed/blocks reserve a cell. The helper has no
-    // notion of pending/rejected/cancelled, so the caller (repo) filtering to
-    // status='confirmed' is the single gate — a court absent from both is all free.
     const rows = courtLoadGrid({
       courts,
       ...window,
-      confirmed: [{ courtId: courtA, startTime: "10:00", durationHours: 1 }],
+      confirmed: [{ courtId: courtA, startTime: "10:00", durationMinutes: 60 }],
       blocks: []
     });
     const rowB = rows.find((r) => r.courtId === courtB);
     expect(rowB?.cells.every((c) => c.state === "free")).toBe(true);
-    // and courtA is only held at the single confirmed hour, free everywhere else
-    expect(cellAt(rows, courtA, 10)).toBe("request");
-    expect(rows.find((r) => r.courtId === courtA)?.cells.filter((c) => c.state !== "free")).toHaveLength(
-      1
-    );
+    expect(cellAt(rows, courtA, "10:00")).toBe("request");
+    expect(cellAt(rows, courtA, "10:30")).toBe("request");
+    expect(
+      rows.find((r) => r.courtId === courtA)?.cells.filter((c) => c.state !== "free")
+    ).toHaveLength(2);
   });
 
-  it("lets a block win over a confirmed request on the same court/hour", () => {
+  it("lets a block win over a confirmed request on the same court/slot", () => {
     const rows = courtLoadGrid({
       courts,
       ...window,
-      confirmed: [{ courtId: courtA, startTime: "10:00", durationHours: 1 }],
-      blocks: [{ courtId: courtA, startTime: "10:00", durationHours: 1 }]
+      confirmed: [{ courtId: courtA, startTime: "10:00", durationMinutes: 60 }],
+      blocks: [{ courtId: courtA, startTime: "10:00", durationMinutes: 60 }]
     });
-    expect(cellAt(rows, courtA, 10)).toBe("block");
+    expect(cellAt(rows, courtA, "10:00")).toBe("block");
   });
 
   it("threads the covering request id onto every request cell; free/block carry null", () => {
@@ -300,46 +344,41 @@ describe("courtLoadGrid", () => {
     const requestIdAt = (
       rows: ReturnType<typeof courtLoadGrid>,
       courtId: string,
-      hour: number
+      startTime: string
     ): string | null | undefined =>
-      rows.find((r) => r.courtId === courtId)?.cells.find((c) => c.hour === hour)?.requestId;
+      rows.find((r) => r.courtId === courtId)?.cells.find((c) => c.startTime === startTime)
+        ?.requestId;
 
     const rows = courtLoadGrid({
       courts,
       ...window,
-      confirmed: [{ courtId: courtA, startTime: "10:00", durationHours: 2, requestId }],
-      blocks: [{ courtId: courtB, startTime: "09:00", durationHours: 1 }]
+      confirmed: [{ courtId: courtA, startTime: "10:00", durationMinutes: 120, requestId }],
+      blocks: [{ courtId: courtB, startTime: "09:00", durationMinutes: 60 }]
     });
 
-    // Both covered hours of the 2h request carry the request id.
-    expect(requestIdAt(rows, courtA, 10)).toBe(requestId);
-    expect(requestIdAt(rows, courtA, 11)).toBe(requestId);
-    // A free cell and a block cell never carry a request id.
-    expect(requestIdAt(rows, courtA, 12)).toBeNull();
-    expect(requestIdAt(rows, courtB, 9)).toBeNull();
+    expect(requestIdAt(rows, courtA, "10:00")).toBe(requestId);
+    expect(requestIdAt(rows, courtA, "11:30")).toBe(requestId);
+    expect(requestIdAt(rows, courtA, "12:00")).toBeNull();
+    expect(requestIdAt(rows, courtB, "09:00")).toBeNull();
   });
 
-  it("free-cell count per hour matches freeCourtsByHour for the same data (C3 consistency)", () => {
-    const confirmed = [
-      { courtId: courtA, startTime: "10:00", durationHours: 2 as const }
-    ];
-    const blocks = [{ courtId: courtB, startTime: "09:00", durationHours: 3 }];
+  it("free-cell count per slot matches freeCourtsBySlot for the same data (C3 consistency)", () => {
+    const confirmed = [{ courtId: courtA, startTime: "10:00", durationMinutes: 120 }];
+    const blocks = [{ courtId: courtB, startTime: "09:00", durationMinutes: 150 }];
 
     const rows = courtLoadGrid({ courts, ...window, confirmed, blocks });
-    const free = freeCourtsByHour({
+    const free = freeCourtsBySlot({
       activeCourtCount: courts.length,
       ...window,
-      confirmed: confirmed.map((c) => ({ startTime: c.startTime, durationHours: c.durationHours })),
-      // expand the 3h block into three 1h occupants (mirrors the service)
-      blocks: [9, 10, 11].map((h) => ({
-        startTime: `${String(h).padStart(2, "0")}:00`,
-        durationHours: 1 as const
-      }))
+      confirmed: [{ startTime: "10:00", durationHours: 2 }],
+      blocks: [{ startTime: "09:00", durationMinutes: 150 }]
     });
 
-    for (let hour = window.openHour; hour < window.closeHour; hour += 1) {
-      const freeCells = rows.filter((r) => cellAt(rows, r.courtId, hour) === "free").length;
-      expect(freeCells).toBe(free.get(hour));
+    const closeMinutes = window.closeHour * 60;
+    for (let m = window.openHour * 60; m < closeMinutes; m += 30) {
+      const startTime = timeOfMinutes(m);
+      const freeCells = rows.filter((r) => cellAt(rows, r.courtId, startTime) === "free").length;
+      expect(freeCells).toBe(free.get(startTime));
     }
   });
 });

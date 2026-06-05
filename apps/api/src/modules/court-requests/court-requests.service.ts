@@ -13,22 +13,29 @@ import {
   COURT_OPEN_HOUR,
   courtAvailabilitySchema,
   courtDurationHours,
-  courtHoursCovered,
   courtPriceRsd,
   courtRequestAdminViewSchema,
+  courtFreeForSlots,
   courtRequestPreviewSchema,
   courtRequestSchema,
   courtSchema,
-  freeCourtsByHour,
+  courtSlotsCovered,
+  durationMinutesOf,
+  freeCourtsBySlot,
+  isSlotAligned,
+  minutesOfDay,
+  timeOfMinutes,
   type ConfirmCourtRequest,
   type Court,
   type CourtAvailability,
+  type CourtCellOccupant,
   type CourtDurationHours,
   type CourtOccupant,
   type CourtRequest,
   type CourtRequestAdminView,
   type CourtRequestPreview,
   type CourtRequestStatus,
+  type CourtSlotOccupant,
   type CreateCourtRequest,
   type PreviewCourtRequest,
   type RejectCourtRequest
@@ -60,7 +67,7 @@ export class CourtRequestsService {
     private readonly notifier: CourtNotifier
   ) {}
 
-  /** Offerable 1h start times for a date, with free-court counts per hour. */
+  /** Offerable 30-min slot starts for a date, with free-court counts per slot. */
   async getAvailability(date: string): Promise<CourtAvailability> {
     const [activeCourtCount, confirmedRows, blockRows] = await Promise.all([
       this.repository.countActiveCourts(),
@@ -68,24 +75,25 @@ export class CourtRequestsService {
       this.repository.blocksForDate(date)
     ]);
 
-    const free = freeCourtsByHour({
+    const free = freeCourtsBySlot({
       activeCourtCount,
       openHour: COURT_OPEN_HOUR,
       closeHour: COURT_CLOSE_HOUR,
       confirmed: toOccupants(confirmedRows),
-      // A block of N hours is N consecutive 1h occupants so it reduces every hour it covers.
-      blocks: toHourlyOccupants(blockRows)
+      blocks: toSlotOccupants(blockRows)
     });
 
-    const hours: CourtAvailability["hours"] = [];
-    for (let hour = COURT_OPEN_HOUR; hour < COURT_CLOSE_HOUR; hour += 1) {
-      const freeCourts = free.get(hour) ?? 0;
+    const slots: CourtAvailability["slots"] = [];
+    const closeMinutes = COURT_CLOSE_HOUR * 60;
+    for (let m = COURT_OPEN_HOUR * 60; m < closeMinutes; m += 30) {
+      const startTime = timeOfMinutes(m);
+      const freeCourts = free.get(startTime) ?? 0;
       if (freeCourts > 0) {
-        hours.push({ hour, startTime: hourToTime(hour), freeCourts });
+        slots.push({ startTime, freeCourts });
       }
     }
 
-    return courtAvailabilitySchema.parse({ date, hours });
+    return courtAvailabilitySchema.parse({ date, slots });
   }
 
   /**
@@ -188,17 +196,16 @@ export class CourtRequestsService {
       throw new ConflictException("This request has already been decided.");
     }
 
-    const duration = courtDurationHours.parse(request.durationHours);
+    const duration = parseDuration(request.durationHours);
     const [courts, confirmed, blocks] = await Promise.all([
       this.repository.activeCourts(),
       this.repository.confirmedCourtOccupancyForDate(request.date),
       this.repository.blocksByCourtForDate(request.date)
     ]);
 
-    const hours = courtHoursCovered(request.startTime, duration);
-    const free = courts.filter((court) =>
-      courtIsFreeForHours(court.id, hours, confirmed, blocks)
-    );
+    const slots = courtSlotsCovered(request.startTime, durationMinutesOf(duration));
+    const occupants = toCellOccupants(confirmed, blocks);
+    const free = courts.filter((court) => courtFreeForSlots(court.id, slots, occupants));
     return free.map((court) => courtSchema.parse({ id: court.id, number: court.number, status: "active" }));
   }
 
@@ -227,28 +234,28 @@ export class CourtRequestsService {
         throw new BadRequestException("No active court with that id.");
       }
 
-      const duration = courtDurationHours.parse(request.durationHours);
-      const hours = courtHoursCovered(request.startTime, duration);
+      const duration = parseDuration(request.durationHours);
+      const slots = courtSlotsCovered(request.startTime, durationMinutesOf(duration));
       const [activeCourtCount, confirmed, blocks] = await Promise.all([
         tx.countActiveCourts(),
         tx.confirmedCourtOccupancyForDate(request.date),
         tx.blocksByCourtForDate(request.date)
       ]);
 
-      // Per-hour limit: never more confirmed than active courts for any covered hour.
-      const free = freeCourtsByHour({
+      // Per-slot limit: never more confirmed than active courts for any covered 30-min slot.
+      const free = freeCourtsBySlot({
         activeCourtCount,
         openHour: COURT_OPEN_HOUR,
         closeHour: COURT_CLOSE_HOUR,
         confirmed: confirmed.map(toOccupant),
-        blocks: toHourlyOccupantsFromCourtRows(blocks)
+        blocks: toSlotOccupantsFromCourtRows(blocks)
       });
       if (freeForDuration(free, request.startTime, duration) <= 0) {
         throw new ConflictException("That time is fully booked. No court can be assigned.");
       }
 
-      // Chosen-court freeness: the picked court must be free for every covered hour.
-      if (!courtIsFreeForHours(input.courtId, hours, confirmed, blocks)) {
+      // Chosen-court freeness: the picked court must be free for every covered slot.
+      if (!courtFreeForSlots(input.courtId, slots, toCellOccupants(confirmed, blocks))) {
         throw new ConflictException("That court is already taken for this time.");
       }
 
@@ -315,7 +322,7 @@ export class CourtRequestsService {
     }
 
     const courtNumber = courtId ? await this.repository.courtNumberById(courtId) : null;
-    const duration = courtDurationHours.parse(withClient.durationHours);
+    const duration = parseDuration(withClient.durationHours);
     const endTime = this.endTimeFor(withClient.startTime, duration);
     const courtLabel = courtNumber !== null ? `Корт №${courtNumber}` : "Корт";
     await this.notifier.notifyClient(
@@ -333,7 +340,7 @@ export class CourtRequestsService {
 
   /** Map a queue row to the admin-only view contract (with derived end time). */
   private toAdminView(row: CourtRequestAdminRow): CourtRequestAdminView {
-    const duration = courtDurationHours.parse(row.durationHours);
+    const duration = parseDuration(row.durationHours);
     return courtRequestAdminViewSchema.parse({
       ...this.toEntity(row),
       clientName: row.clientName,
@@ -349,7 +356,7 @@ export class CourtRequestsService {
       clientId: row.clientId,
       date: row.date,
       startTime: row.startTime.slice(0, 5),
-      durationHours: courtDurationHours.parse(row.durationHours),
+      durationHours: parseDuration(row.durationHours),
       priceRsd: row.priceRsd,
       status: row.status,
       courtId: row.courtId,
@@ -359,23 +366,23 @@ export class CourtRequestsService {
     });
   }
 
-  /** Reject a slot that starts before open or whose end runs past close. */
+  /** Reject a slot off the 30-min grid, before open, or whose end runs past close. */
   private assertWithinWorkingHours(startTime: string, durationHours: CourtDurationHours): void {
-    const startHour = Number(startTime.slice(0, 2));
-    if (Number(startTime.slice(3, 5)) !== 0) {
-      throw new BadRequestException("Court bookings start on the hour (HH:00).");
+    if (!isSlotAligned(startTime)) {
+      throw new BadRequestException("Court bookings start on a 30-minute boundary (HH:00 or HH:30).");
     }
-    if (startHour < COURT_OPEN_HOUR) {
+    const startMinutes = minutesOfDay(startTime);
+    if (startMinutes < COURT_OPEN_HOUR * 60) {
       throw new BadRequestException(`Courts open at ${pad(COURT_OPEN_HOUR)}:00.`);
     }
-    if (startHour + durationHours > COURT_CLOSE_HOUR) {
+    if (startMinutes + durationMinutesOf(durationHours) > COURT_CLOSE_HOUR * 60) {
       throw new BadRequestException(
         `That time runs past closing (${pad(COURT_CLOSE_HOUR)}:00). Pick an earlier start.`
       );
     }
   }
 
-  /** True when every hour the slot covers still has a free court (the C3 rule). */
+  /** True when every 30-min slot the booking covers still has a free court (the C3 rule). */
   private async isSlotAvailable(
     date: string,
     startTime: string,
@@ -387,19 +394,19 @@ export class CourtRequestsService {
       this.repository.blocksForDate(date)
     ]);
 
-    const free = freeCourtsByHour({
+    const free = freeCourtsBySlot({
       activeCourtCount,
       openHour: COURT_OPEN_HOUR,
       closeHour: COURT_CLOSE_HOUR,
       confirmed: toOccupants(confirmedRows),
-      blocks: toHourlyOccupants(blockRows)
+      blocks: toSlotOccupants(blockRows)
     });
 
     return freeForDuration(free, startTime, durationHours) > 0;
   }
 
   private endTimeFor(startTime: string, durationHours: CourtDurationHours): string {
-    return hourToTime(Number(startTime.slice(0, 2)) + durationHours);
+    return timeOfMinutes(minutesOfDay(startTime) + durationMinutesOf(durationHours));
   }
 }
 
@@ -407,81 +414,67 @@ function pad(hour: number): string {
   return String(hour).padStart(2, "0");
 }
 
-/** Map a per-court occupancy row to a typed occupant (duration validated to 1|2). */
+/** Parse a numeric(3,1) duration column (Drizzle returns a string) into 1|1.5|2. */
+function parseDuration(value: string | number): CourtDurationHours {
+  return courtDurationHours.parse(Number(value));
+}
+
+/** Map a per-court occupancy row to a typed confirmed occupant (duration 1|1.5|2). */
 function toOccupant(row: CourtOccupancyRow): CourtOccupant {
   return {
     startTime: row.startTime.slice(0, 5),
-    durationHours: courtDurationHours.parse(row.durationHours)
+    durationHours: parseDuration(row.durationHours ?? row.durationMinutes / 60)
   };
 }
 
-/** Expand per-court block rows into one 1h occupant per covered hour (blocks may span >2h). */
-function toHourlyOccupantsFromCourtRows(rows: CourtOccupancyRow[]): CourtOccupant[] {
-  const occupants: CourtOccupant[] = [];
-  for (const row of rows) {
-    const startHour = Number(row.startTime.slice(0, 2));
-    for (let i = 0; i < row.durationHours; i += 1) {
-      occupants.push({ startTime: hourToTime(startHour + i), durationHours: 1 });
-    }
-  }
-  return occupants;
-}
-
-/**
- * True when a specific court has no confirmed request and no block overlapping any
- * of `hours`. The single source of per-court freeness for both free-courts (read)
- * and confirm (write), so the offer and the assignment can't disagree.
- */
-function courtIsFreeForHours(
-  courtId: string,
-  hours: readonly number[],
-  confirmed: readonly CourtOccupancyRow[],
-  blocks: readonly CourtOccupancyRow[]
-): boolean {
-  const wanted = new Set(hours);
-  const occupies = (row: CourtOccupancyRow): boolean => {
-    if (row.courtId !== courtId) return false;
-    const startHour = Number(row.startTime.slice(0, 2));
-    for (let i = 0; i < row.durationHours; i += 1) {
-      if (wanted.has(startHour + i)) return true;
-    }
-    return false;
-  };
-  return !confirmed.some(occupies) && !blocks.some(occupies);
-}
-
-/** Map confirmed-request rows to typed occupants (duration validated to 1|2). */
-function toOccupants(rows: OccupantRow[]): CourtOccupant[] {
+/** Map per-court block rows to minute-span slot occupants (blocks may span any :30 range). */
+function toSlotOccupantsFromCourtRows(rows: CourtOccupancyRow[]): CourtSlotOccupant[] {
   return rows.map((row) => ({
     startTime: row.startTime.slice(0, 5),
-    durationHours: courtDurationHours.parse(row.durationHours)
+    durationMinutes: row.durationMinutes
   }));
 }
 
-/** Expand each block into one 1h occupant per covered hour (blocks may span >2h). */
-function toHourlyOccupants(rows: OccupantRow[]): CourtOccupant[] {
-  const occupants: CourtOccupant[] = [];
-  for (const row of rows) {
-    const startHour = Number(row.startTime.slice(0, 2));
-    for (let i = 0; i < row.durationHours; i += 1) {
-      occupants.push({ startTime: hourToTime(startHour + i), durationHours: 1 });
-    }
-  }
-  return occupants;
+/**
+ * Combine per-court confirmed-request and block rows into the pure helper's
+ * `CourtCellOccupant` shape (court id + minute span). The single adapter feeding
+ * `courtFreeForSlots`, so free-courts (read) and confirm (write) agree.
+ */
+function toCellOccupants(
+  confirmed: readonly CourtOccupancyRow[],
+  blocks: readonly CourtOccupancyRow[]
+): CourtCellOccupant[] {
+  return [...confirmed, ...blocks].map((row) => ({
+    courtId: row.courtId,
+    startTime: row.startTime.slice(0, 5),
+    durationMinutes: row.durationMinutes
+  }));
 }
 
-/** Min free over the hours a duration covers; a 2h slot needs both hours free. */
+/** Map confirmed-request rows to typed occupants (duration 1|1.5|2). */
+function toOccupants(rows: OccupantRow[]): CourtOccupant[] {
+  return rows.map((row) => ({
+    startTime: row.startTime.slice(0, 5),
+    durationHours: parseDuration(row.durationHours ?? row.durationMinutes / 60)
+  }));
+}
+
+/** Map each block to a minute-span slot occupant (blocks may span any :30 range). */
+function toSlotOccupants(rows: OccupantRow[]): CourtSlotOccupant[] {
+  return rows.map((row) => ({
+    startTime: row.startTime.slice(0, 5),
+    durationMinutes: row.durationMinutes
+  }));
+}
+
+/** Min free over the 30-min slots a duration covers; a 1.5h slot needs all 3 free. */
 export function freeForDuration(
-  freeByHour: Map<number, number>,
+  freeBySlot: Map<string, number>,
   startTime: string,
   durationHours: CourtDurationHours
 ): number {
-  return courtHoursCovered(startTime, durationHours).reduce(
-    (min, hour) => Math.min(min, freeByHour.get(hour) ?? 0),
+  return courtSlotsCovered(startTime, durationMinutesOf(durationHours)).reduce(
+    (min, slot) => Math.min(min, freeBySlot.get(slot) ?? 0),
     Number.POSITIVE_INFINITY
   );
-}
-
-function hourToTime(hour: number): string {
-  return `${String(hour).padStart(2, "0")}:00`;
 }

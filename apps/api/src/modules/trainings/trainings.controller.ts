@@ -13,10 +13,12 @@ import {
   availableSlotsQuerySchema,
   cancelTrainingSchema,
   changeCapacitySchema,
+  generateAllMonthSchema,
   generateMonthSchema,
   listTrainingsQuerySchema,
   trainerTodayQuerySchema,
   uuid,
+  type GenerateAllResult,
   type SlotCard,
   type Training,
   type TrainerTodayItem,
@@ -39,6 +41,17 @@ export class TrainingsController {
     const actorTelegramId = parseTelegramId(telegramIdHeader);
     const input = validate(generateMonthSchema, body ?? {});
     return this.trainings.generateMonth(actorTelegramId, input);
+  }
+
+  /** Admin: generate the month for all active groups at once (Feature 3). Gated in the service. */
+  @Post("generate-all")
+  generateAll(
+    @Headers("x-telegram-id") telegramIdHeader: string | undefined,
+    @Body() body: unknown
+  ): Promise<GenerateAllResult> {
+    const actorTelegramId = parseTelegramId(telegramIdHeader);
+    const input = validate(generateAllMonthSchema, body ?? {});
+    return this.trainings.generateMonthForAll(actorTelegramId, input);
   }
 
   /** Client: bookable slot cards (section 5). Public — same catalogue for every client. */

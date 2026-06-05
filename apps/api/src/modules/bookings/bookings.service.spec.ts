@@ -35,10 +35,15 @@ const fakeWaitlist = {
 const ADMIN_ID = 111;
 const OWNER_ID = 222;
 const STRANGER_ID = 333;
+const TRAINER_ID_TG = 444;
+const OTHER_TRAINER_ID_TG = 555;
 const CLIENT_ID = "11111111-1111-1111-1111-111111111111";
 const OTHER_CLIENT_ID = "22222222-2222-2222-2222-222222222222";
+const WALKIN_CLIENT_ID = "99999999-9999-4999-8999-999999999999";
 const TRAINING_ID = "33333333-3333-3333-3333-333333333333";
 const GROUP_ID = "44444444-4444-4444-4444-444444444444";
+const TRAINER_ID = "66666666-6666-6666-6666-666666666666";
+const OTHER_TRAINER_DB_ID = "77777777-7777-4777-8777-777777777777";
 
 // A month far in the future so the today-clamp never filters the fixtures.
 const FUTURE_YEAR = 2099;
@@ -50,15 +55,37 @@ const ownerClient: Client = {
   telegramId: OWNER_ID,
   telegramUsername: null,
   levelId: null,
+  source: "telegram",
+  phone: null,
+  note: null,
   language: "ru",
   registeredAt: new Date().toISOString(),
   status: "active"
 };
 
+/** A walk-in client (no Telegram id) for the manual-booking tests. */
+const walkInClient: Client = {
+  id: WALKIN_CLIENT_ID,
+  name: "Marko",
+  telegramId: null,
+  telegramUsername: null,
+  levelId: null,
+  source: "walk_in",
+  phone: "+381601234567",
+  note: null,
+  language: "ru",
+  registeredAt: new Date().toISOString(),
+  status: "active"
+};
+
+/** A training fixture without trainerId; the fake fills a default trainerId on read. */
+type FakeTraining = Omit<TrainingLockRow, "trainerId"> & { trainerId?: string };
+type FakeMonthTraining = Omit<GroupTrainingLockRow, "trainerId"> & { trainerId?: string };
+
 /** In-memory stand-in for the bookings repository (only DB-access layer). */
 class FakeBookingsRepository {
-  training: TrainingLockRow | undefined;
-  monthTrainings: GroupTrainingLockRow[] = [];
+  training: FakeTraining | undefined;
+  monthTrainings: FakeMonthTraining[] = [];
   bookings: Booking[] = [];
   /** When set, the next insertBooking throws to exercise transaction rollback. */
   failInsertOnTrainingId: string | undefined;
@@ -74,7 +101,10 @@ class FakeBookingsRepository {
     _tx: Database,
     trainingId: string
   ): Promise<TrainingLockRow | undefined> {
-    return this.training && this.training.id === trainingId ? this.training : undefined;
+    if (!this.training || this.training.id !== trainingId) {
+      return undefined;
+    }
+    return { ...this.training, trainerId: this.training.trainerId ?? TRAINER_ID };
   }
 
   async findGroupTrainingsForMonthForUpdate(
@@ -83,7 +113,7 @@ class FakeBookingsRepository {
     _from: string,
     _to: string
   ): Promise<GroupTrainingLockRow[]> {
-    return this.monthTrainings;
+    return this.monthTrainings.map((t) => ({ ...t, trainerId: t.trainerId ?? TRAINER_ID }));
   }
 
   /** Rows the listForClient read returns, keyed nowhere — the test supplies them. */
@@ -115,7 +145,7 @@ class FakeBookingsRepository {
       type: "single" | "group";
       groupSubscriptionId: string | null;
       status: "booked";
-      source: "telegram";
+      source: Booking["source"];
     }
   ): Promise<Booking> {
     if (this.failInsertOnTrainingId && values.trainingId === this.failInsertOnTrainingId) {
@@ -230,8 +260,13 @@ class FakeBookingsRepository {
 
 class FakeClientsRepository {
   client: Client | undefined = { ...ownerClient };
+  /** Clients resolvable by id (the manual-booking path reads the booked client). */
+  byId: Client[] = [{ ...ownerClient }, { ...walkInClient }];
   async findByTelegramId(telegramId: number): Promise<Client | undefined> {
     return this.client && this.client.telegramId === telegramId ? this.client : undefined;
+  }
+  async findById(id: string): Promise<Client | undefined> {
+    return this.byId.find((c) => c.id === id);
   }
 }
 
@@ -250,6 +285,7 @@ const activeGroup: Group = {
   startTime: "18:00",
   endTime: "19:30",
   trainerId: "66666666-6666-6666-6666-666666666666",
+  trainerName: "Jovana",
   capacity: 6,
   priceSingleRsd: 1200,
   priceMonthRsd: 8000,
@@ -986,6 +1022,187 @@ describe("BookingsService.markAttendance (T2.3)", () => {
     bookingsRepo.bookings = [];
     await expect(
       service.markAttendance(TRAINER_TG, BOOKING_ID, { status: "attended" })
+    ).rejects.toBeInstanceOf(NotFoundException);
+  });
+});
+
+describe("BookingsService.createManual (Feature 5 — admin/trainer manual booking)", () => {
+  let bookingsRepo: FakeBookingsRepository;
+  let clientsRepo: FakeClientsRepository;
+  let trainersRepo: FakeTrainersRepository;
+  let confirmationCalls: string[];
+  let notifications: NotificationsService;
+  let service: BookingsService;
+
+  beforeEach(() => {
+    bookingsRepo = new FakeBookingsRepository();
+    clientsRepo = new FakeClientsRepository();
+    trainersRepo = new FakeTrainersRepository();
+    // The training's trainer (TRAINER_ID) maps to TRAINER_ID_TG; a different trainer to OTHER_TRAINER_ID_TG.
+    trainersRepo.trainers = [
+      { id: TRAINER_ID, name: "Coach", type: "main", status: "active", telegramId: TRAINER_ID_TG },
+      {
+        id: OTHER_TRAINER_DB_ID,
+        name: "Other",
+        type: "main",
+        status: "active",
+        telegramId: OTHER_TRAINER_ID_TG
+      }
+    ];
+    confirmationCalls = [];
+    notifications = {
+      sendBookingConfirmation: async (clientId: string): Promise<void> => {
+        confirmationCalls.push(clientId);
+      },
+      sendGroupBookingConfirmation: async (): Promise<void> => undefined
+    } as unknown as NotificationsService;
+    service = new BookingsService(
+      bookingsRepo as unknown as BookingsRepository,
+      clientsRepo as unknown as ClientsRepository,
+      new FakeGroupsRepository() as unknown as GroupsRepository,
+      notifications,
+      fakeWaitlist,
+      trainersRepo as unknown as TrainersRepository,
+      env
+    );
+    bookingsRepo.training = {
+      id: TRAINING_ID,
+      capacity: 6,
+      bookedCount: 2,
+      status: "open",
+      trainerId: TRAINER_ID
+    };
+  });
+
+  it("lets an admin book an existing telegram client (source 'admin', count++, send invoked)", async () => {
+    const booking = await service.createManual(ADMIN_ID, {
+      clientId: CLIENT_ID,
+      trainingId: TRAINING_ID
+    });
+    expect(booking.source).toBe("admin");
+    expect(booking.status).toBe("booked");
+    expect(bookingsRepo.training?.bookedCount).toBe(3);
+    expect(confirmationCalls).toEqual([CLIENT_ID]);
+  });
+
+  it("lets an admin book a walk-in (source 'walk_in') without attempting a Telegram DM", async () => {
+    const booking = await service.createManual(ADMIN_ID, {
+      clientId: WALKIN_CLIENT_ID,
+      trainingId: TRAINING_ID
+    });
+    expect(booking.source).toBe("walk_in");
+    expect(bookingsRepo.training?.bookedCount).toBe(3);
+    // Walk-in has no telegram_id → the confirmation send is skipped entirely.
+    expect(confirmationCalls).toEqual([]);
+  });
+
+  it("commits a walk-in booking even when the notifications service would throw (send skipped, no throw)", async () => {
+    // A throwing send must never reach a walk-in: telegramId === null short-circuits
+    // the post-commit confirmation, so the booking resolves and the seat is counted.
+    service = new BookingsService(
+      bookingsRepo as unknown as BookingsRepository,
+      clientsRepo as unknown as ClientsRepository,
+      new FakeGroupsRepository() as unknown as GroupsRepository,
+      {
+        sendBookingConfirmation: async (): Promise<void> => {
+          throw new Error("telegram unreachable");
+        },
+        sendGroupBookingConfirmation: async (): Promise<void> => undefined
+      } as unknown as NotificationsService,
+      fakeWaitlist,
+      trainersRepo as unknown as TrainersRepository,
+      env
+    );
+
+    const booking = await service.createManual(ADMIN_ID, {
+      clientId: WALKIN_CLIENT_ID,
+      trainingId: TRAINING_ID
+    });
+
+    expect(booking.status).toBe("booked");
+    expect(booking.source).toBe("walk_in");
+    expect(bookingsRepo.bookings).toHaveLength(1);
+    expect(bookingsRepo.training?.bookedCount).toBe(3);
+  });
+
+  it("flips the slot to full on the capacity-th manual booking", async () => {
+    bookingsRepo.training = {
+      id: TRAINING_ID,
+      capacity: 6,
+      bookedCount: 5,
+      status: "open",
+      trainerId: TRAINER_ID
+    };
+    await service.createManual(ADMIN_ID, { clientId: WALKIN_CLIENT_ID, trainingId: TRAINING_ID });
+    expect(bookingsRepo.training?.bookedCount).toBe(6);
+    expect(bookingsRepo.training?.status).toBe("full");
+  });
+
+  it("lets the training's own trainer book onto their training", async () => {
+    const booking = await service.createManual(TRAINER_ID_TG, {
+      clientId: WALKIN_CLIENT_ID,
+      trainingId: TRAINING_ID
+    });
+    expect(booking.status).toBe("booked");
+    expect(bookingsRepo.training?.bookedCount).toBe(3);
+  });
+
+  it("forbids a trainer who does not own the training (403, no seat change)", async () => {
+    await expect(
+      service.createManual(OTHER_TRAINER_ID_TG, {
+        clientId: WALKIN_CLIENT_ID,
+        trainingId: TRAINING_ID
+      })
+    ).rejects.toBeInstanceOf(ForbiddenException);
+    expect(bookingsRepo.bookings).toHaveLength(0);
+    expect(bookingsRepo.training?.bookedCount).toBe(2);
+  });
+
+  it("forbids a non-trainer non-admin (403)", async () => {
+    await expect(
+      service.createManual(STRANGER_ID, { clientId: WALKIN_CLIENT_ID, trainingId: TRAINING_ID })
+    ).rejects.toBeInstanceOf(ForbiddenException);
+    expect(bookingsRepo.bookings).toHaveLength(0);
+  });
+
+  it("rejects booking onto a full training (409, no seat change)", async () => {
+    bookingsRepo.training = {
+      id: TRAINING_ID,
+      capacity: 6,
+      bookedCount: 6,
+      status: "full",
+      trainerId: TRAINER_ID
+    };
+    await expect(
+      service.createManual(ADMIN_ID, { clientId: WALKIN_CLIENT_ID, trainingId: TRAINING_ID })
+    ).rejects.toBeInstanceOf(ConflictException);
+    expect(bookingsRepo.bookings).toHaveLength(0);
+    expect(bookingsRepo.training?.bookedCount).toBe(6);
+  });
+
+  it("rejects a duplicate active booking for the same client + training (409)", async () => {
+    await service.createManual(ADMIN_ID, { clientId: CLIENT_ID, trainingId: TRAINING_ID });
+    await expect(
+      service.createManual(ADMIN_ID, { clientId: CLIENT_ID, trainingId: TRAINING_ID })
+    ).rejects.toBeInstanceOf(ConflictException);
+    expect(bookingsRepo.bookings).toHaveLength(1);
+    expect(bookingsRepo.training?.bookedCount).toBe(3);
+  });
+
+  it("404s an unknown client before touching the training", async () => {
+    await expect(
+      service.createManual(ADMIN_ID, {
+        clientId: "00000000-0000-4000-8000-000000000000",
+        trainingId: TRAINING_ID
+      })
+    ).rejects.toBeInstanceOf(NotFoundException);
+    expect(bookingsRepo.bookings).toHaveLength(0);
+  });
+
+  it("404s an unknown training", async () => {
+    bookingsRepo.training = undefined;
+    await expect(
+      service.createManual(ADMIN_ID, { clientId: WALKIN_CLIENT_ID, trainingId: TRAINING_ID })
     ).rejects.toBeInstanceOf(NotFoundException);
   });
 });

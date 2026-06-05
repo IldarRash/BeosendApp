@@ -19,6 +19,23 @@ const existingClient: Client = {
   telegramId: TELEGRAM_ID,
   telegramUsername: "ana",
   levelId: LEVEL_ID,
+  source: "telegram",
+  phone: null,
+  note: null,
+  language: "ru",
+  registeredAt: "2026-01-01T00:00:00.000Z",
+  status: "active"
+};
+
+const walkInClient: Client = {
+  id: "33333333-3333-4333-8333-333333333333",
+  name: "Marko",
+  telegramId: null,
+  telegramUsername: null,
+  levelId: null,
+  source: "walk_in",
+  phone: "+381601234567",
+  note: "via Instagram",
   language: "ru",
   registeredAt: "2026-01-01T00:00:00.000Z",
   status: "active"
@@ -52,6 +69,13 @@ function makeClientsRepo(overrides: Partial<ClientsRepository> = {}): ClientsRep
       telegramId,
       language
     })),
+    insertWalkIn: vi.fn(async (values: { name: string; phone?: string; note?: string }) => ({
+      ...walkInClient,
+      name: values.name,
+      phone: values.phone ?? null,
+      note: values.note ?? null
+    })),
+    findById: vi.fn(async () => existingClient),
     ...overrides
   } as unknown as ClientsRepository;
 }
@@ -233,5 +257,22 @@ describe("ClientsService", () => {
     await expect(service.setLanguage(TELEGRAM_ID, TELEGRAM_ID, "sr")).rejects.toBeInstanceOf(
       NotFoundException
     );
+  });
+
+  describe("createWalkIn (Feature 5)", () => {
+    it("lets an admin create a walk-in with telegram_id null and source walk_in", async () => {
+      const result = await service.createWalkIn(ADMIN_ID, { name: "Marko", phone: "+381" });
+      expect(result.telegramId).toBeNull();
+      expect(result.source).toBe("walk_in");
+      expect(result.name).toBe("Marko");
+      expect(clientsRepo.insertWalkIn).toHaveBeenCalledWith({ name: "Marko", phone: "+381" });
+    });
+
+    it("forbids a non-admin and inserts nothing (403)", async () => {
+      await expect(service.createWalkIn(TELEGRAM_ID, { name: "Marko" })).rejects.toBeInstanceOf(
+        ForbiddenException
+      );
+      expect(clientsRepo.insertWalkIn).not.toHaveBeenCalled();
+    });
   });
 });

@@ -1,15 +1,22 @@
 import { z } from "zod";
-import { dateString, entityStatus, rsd, timeString, uuid } from "./common";
+import { dateString, entityStatus, isSlotAligned, rsd, timeString, uuid } from "./common";
 
 /** Editions 2: court rental requests. Clients request time only; admin assigns the court. */
 
 export const COURT_COUNT = 6;
 export const COURT_RATE_RSD_PER_HOUR = 2000;
-/** Working hours of the courts (08:00–21:00); last start is 20:00 (1h) / 19:00 (2h). */
+/** Working hours of the courts (08:00–21:00); a start is valid only if start + duration ≤ 21:00. */
 export const COURT_OPEN_HOUR = 8;
 export const COURT_CLOSE_HOUR = 21;
-export const courtDurationHours = z.union([z.literal(1), z.literal(2)]);
+/** Court rental durations on the 30-minute grid: 1, 1.5 or 2 hours. */
+export const courtDurationHours = z.union([z.literal(1), z.literal(1.5), z.literal(2)]);
 export type CourtDurationHours = z.infer<typeof courtDurationHours>;
+
+/** A start time on the 30-minute grid (minute ∈ {0,30}). */
+export const slotAlignedTime = timeString.refine(
+  isSlotAligned,
+  "start must be on a 30-minute boundary"
+);
 
 export const courtSchema = z.object({
   id: uuid,
@@ -18,18 +25,25 @@ export const courtSchema = z.object({
 });
 export type Court = z.infer<typeof courtSchema>;
 
-/** Admin-only manual reservation of a court (training / tournament / repair). */
+/** Admin-only reservation of a court (manual block, or an auto-block under a group). */
 export const courtBlockSchema = z.object({
   id: uuid,
   courtId: uuid,
   date: dateString,
   startTime: timeString,
   endTime: timeString,
-  reason: z.string().min(1)
+  reason: z.string().min(1),
+  /** Non-null = auto-block created for this training instance; null = manual admin block. */
+  groupTrainingId: uuid.nullable()
 });
-export const createCourtBlockSchema = courtBlockSchema.omit({ id: true });
+/** Manual create (C5) never sets the link; the generator sets groupTrainingId, the create endpoint never does. */
+export const createCourtBlockSchema = courtBlockSchema.omit({ id: true, groupTrainingId: true });
 export type CourtBlock = z.infer<typeof courtBlockSchema>;
 export type CreateCourtBlock = z.infer<typeof createCourtBlockSchema>;
+
+/** PATCH /court-blocks/:id — admin moves a block to another court (re-checks limit + overlap). */
+export const reassignCourtBlockSchema = z.object({ courtId: uuid });
+export type ReassignCourtBlock = z.infer<typeof reassignCourtBlockSchema>;
 
 export const courtRequestStatus = z.enum(["pending", "confirmed", "rejected", "cancelled"]);
 export type CourtRequestStatus = z.infer<typeof courtRequestStatus>;
@@ -61,7 +75,7 @@ export const telegramId = z.number().int();
 export const previewCourtRequestSchema = z.object({
   telegramId,
   date: dateString,
-  startTime: timeString,
+  startTime: slotAlignedTime,
   durationHours: courtDurationHours
 });
 export type PreviewCourtRequest = z.infer<typeof previewCourtRequestSchema>;
@@ -77,7 +91,7 @@ export const courtRequestPreviewSchema = z.object({
   endTime: timeString,
   durationHours: courtDurationHours,
   priceRsd: rsd,
-  /** Whether the slot is still offerable (every covered hour has a free court). */
+  /** Whether the slot is still offerable (every covered 30-min slot has a free court). */
   available: z.boolean()
 });
 export type CourtRequestPreview = z.infer<typeof courtRequestPreviewSchema>;
@@ -120,17 +134,16 @@ export const courtAvailabilityQuerySchema = z.object({
 });
 export type CourtAvailabilityQuery = z.infer<typeof courtAvailabilityQuerySchema>;
 
-/** One offerable start hour and how many courts are still free for it. Never exposes a court id. */
-export const hourAvailabilitySchema = z.object({
-  hour: z.number().int(),
+/** One offerable 30-min slot start and how many courts are still free for it. Never exposes a court id. */
+export const slotAvailabilitySchema = z.object({
   startTime: timeString,
   freeCourts: z.number().int().nonnegative()
 });
-export type HourAvailability = z.infer<typeof hourAvailabilitySchema>;
+export type SlotAvailability = z.infer<typeof slotAvailabilitySchema>;
 
 export const courtAvailabilitySchema = z.object({
   date: dateString,
-  hours: z.array(hourAvailabilitySchema)
+  slots: z.array(slotAvailabilitySchema)
 });
 export type CourtAvailability = z.infer<typeof courtAvailabilitySchema>;
 
@@ -144,19 +157,19 @@ export const courtLoadCellState = z.enum(["free", "request", "block"]);
 export type CourtLoadCellState = z.infer<typeof courtLoadCellState>;
 
 /**
- * One court/hour cell: what (if anything) holds it. For a `request` cell this is
- * the confirmed court request covering that court/hour, so the admin grid can link
- * to its detail; `free`/`block` cells carry `null` (a block is not a request).
+ * One court/30-min-slot cell: what (if anything) holds it. For a `request` cell
+ * this is the confirmed court request covering that court/slot, so the admin grid
+ * can link to its detail; `free`/`block` cells carry `null` (a block is not a request).
+ * The cell is keyed by its slot-start time (`:00`/`:30`).
  */
 export const courtLoadCellSchema = z.object({
-  hour: z.number().int(),
   startTime: timeString,
   state: courtLoadCellState,
   requestId: uuid.nullable()
 });
 export type CourtLoadCell = z.infer<typeof courtLoadCellSchema>;
 
-/** One court's row across the working hours. */
+/** One court's row across the working window, one cell per 30-min slot. */
 export const courtLoadRowSchema = z.object({
   courtId: uuid,
   courtNumber: z.number().int().min(1),

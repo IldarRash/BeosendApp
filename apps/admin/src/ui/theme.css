@@ -723,6 +723,13 @@ legend {
   color: var(--coral-ink);
 }
 
+/* Informational tone — marks a group auto-block apart from a manual block. */
+.tag--info {
+  border-color: color-mix(in srgb, var(--teal) 40%, var(--line));
+  background: color-mix(in srgb, var(--teal) 9%, var(--paper));
+  color: var(--teal);
+}
+
 /* ── Court load: control toolbar (M3) ──────────────────────────────────────
  * The date + legend form one control block above the grid, so the manager has
  * a single "what am I looking at / for when" panel rather than loose elements. */

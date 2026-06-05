@@ -51,34 +51,47 @@ export function courtLoadGridKeyboard(catalog: Catalog): InlineKeyboard {
     .text(t(catalog, "bot.nav.toMenu"), MENU_ACTIONS.backToMenu);
 }
 
-/** Two-digit hour label, e.g. 8 -> "08". */
-function hourLabel(hour: number): string {
-  return String(hour).padStart(2, "0");
+/**
+ * The ordered slot column keys ("HH:MM") for the grid. The API emits one cell
+ * per 30-min slot across the working window, identical for every court row, so
+ * the first row's cell start-times define the columns. Falls back to the empty
+ * list when there are no rows.
+ */
+function slotColumns(grid: CourtLoadGrid): string[] {
+  return grid.rows[0]?.cells.map((c) => c.startTime) ?? [];
+}
+
+/** Two-digit hour of a "HH:MM" slot start, e.g. "08:30" -> "08". */
+function hourLabelOf(startTime: string): string {
+  return startTime.slice(0, 2);
 }
 
 /**
  * Compact monospace text grid: a header row of working hours and one row per
- * court (`К№N`) with a glyph per hour, plus a short legend. The whole block is
- * wrapped in <pre> so Telegram renders it in a fixed-width font; the caller sends
- * it with parse_mode "HTML".
+ * court (`К№N`) with a glyph per 30-min slot, plus a short legend. With the
+ * 30-min grid each whole hour spans two columns; the header repeats the hour
+ * label above each pair so the columns stay readable. The whole block is wrapped
+ * in <pre> so Telegram renders it in a fixed-width font; the caller sends it with
+ * parse_mode "HTML".
  */
 export function courtLoadGridText(catalog: Catalog, grid: CourtLoadGrid): string {
   const header = `${t(catalog, "bot.courtLoad.title")} · ${formatDayMonth(grid.date)}`;
   const legend = t(catalog, "bot.courtLoad.legend");
 
-  const hours: number[] = [];
-  for (let h = grid.openHour; h < grid.closeHour; h += 1) {
-    hours.push(h);
-  }
+  const slots = slotColumns(grid);
 
-  // Each hour column is 3 chars wide (space + two-digit hour / space + glyph),
-  // so the header and body align under a fixed-width font.
-  const headerRow = "   " + hours.map((h) => ` ${hourLabel(h)}`).join("");
+  // Each slot column is 3 chars wide (space + glyph, with the hour label centred
+  // over its two half-hour columns) so header and body align in a fixed-width font.
+  const headerRow =
+    "   " +
+    slots
+      .map((startTime) => (startTime.endsWith(":00") ? ` ${hourLabelOf(startTime)}` : "   "))
+      .join("");
   const bodyRows = grid.rows.map((row) => {
+    const bySlot = new Map(row.cells.map((c) => [c.startTime, c.state]));
     const label = `К${row.courtNumber}`.padEnd(3, " ");
-    const byHour = new Map(row.cells.map((c) => [c.hour, c.state]));
-    const cells = hours.map((h) => {
-      const state = byHour.get(h);
+    const cells = slots.map((startTime) => {
+      const state = bySlot.get(startTime);
       const glyph = state ? CELL_GLYPH[state] : CELL_GLYPH.free;
       return `  ${glyph}`;
     });

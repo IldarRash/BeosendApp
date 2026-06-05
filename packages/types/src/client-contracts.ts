@@ -1,14 +1,20 @@
 import { z } from "zod";
-import { entityStatus, uuid } from "./common";
+import { clientSource, entityStatus, uuid } from "./common";
 import { localeSchema } from "./i18n-contracts";
 
 // --- Clients (3.1) ---
 export const clientSchema = z.object({
   id: uuid,
   name: z.string().min(1),
-  telegramId: z.number().int(),
+  /** Null for walk-in clients (no Telegram account); set for bot-onboarded. */
+  telegramId: z.number().int().nullable(),
   telegramUsername: z.string().nullable(),
   levelId: uuid.nullable(),
+  /** "telegram" (bot-onboarded) or "walk_in" (created manually by an admin). */
+  source: clientSource,
+  /** Optional walk-in contact details. */
+  phone: z.string().nullable(),
+  note: z.string().nullable(),
   /** Per-user UI locale for the bot; defaults to "ru" server-side. */
   language: localeSchema,
   registeredAt: z.string().datetime(),
@@ -35,4 +41,17 @@ export const listClientsQuerySchema = z
 
 export type Client = z.infer<typeof clientSchema>;
 export type OnboardClientInput = z.infer<typeof onboardClientSchema>;
+
+/**
+ * Admin walk-in creation (Feature 5): a client by name with no Telegram id.
+ * Phone/note optional. Strict so stray fields are rejected.
+ */
+export const createWalkInSchema = z
+  .object({
+    name: z.string().min(1),
+    phone: z.string().min(1).optional(),
+    note: z.string().min(1).optional()
+  })
+  .strict();
+export type CreateWalkInInput = z.infer<typeof createWalkInSchema>;
 export type ListClientsQuery = z.infer<typeof listClientsQuerySchema>;

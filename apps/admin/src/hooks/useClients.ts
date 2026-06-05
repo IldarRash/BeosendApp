@@ -5,8 +5,16 @@ import {
   type UseMutationResult,
   type UseQueryResult
 } from "@tanstack/react-query";
-import type { Client, ListClientsQuery, OnboardClientInput } from "@beosand/types";
+import type {
+  Booking,
+  Client,
+  CreateSingleBookingInput,
+  CreateWalkInInput,
+  ListClientsQuery,
+  OnboardClientInput
+} from "@beosand/types";
 import { useApiClient } from "../api/ApiProvider";
+import { invalidateTrainings } from "./useTrainings";
 
 const CLIENTS_KEY = ["clients"] as const;
 const CLIENTS_LIST_KEY = [...CLIENTS_KEY, "list"] as const;
@@ -19,13 +27,18 @@ function listKey(filters: ListClientsQuery): readonly unknown[] {
 /**
  * Admin clients list (GET /clients), optionally filtered by name/@username
  * `search` and `status`. The server owns the gate and search; the screen passes
- * the filters straight through and renders the validated rows.
+ * the filters straight through and renders the validated rows. `options.enabled`
+ * lets a closed modal (the manual-booking picker) defer the call until opened.
  */
-export function useClientsList(filters: ListClientsQuery = {}): UseQueryResult<Client[], Error> {
+export function useClientsList(
+  filters: ListClientsQuery = {},
+  options?: { enabled?: boolean }
+): UseQueryResult<Client[], Error> {
   const api = useApiClient();
   return useQuery({
     queryKey: listKey(filters),
-    queryFn: () => api.listClients(filters)
+    queryFn: () => api.listClients(filters),
+    enabled: options?.enabled
   });
 }
 
@@ -41,5 +54,32 @@ export function useOnboardClient(): UseMutationResult<Client, Error, OnboardClie
     onSuccess: () => {
       void queryClient.invalidateQueries({ queryKey: CLIENTS_LIST_KEY });
     }
+  });
+}
+
+/** Feature 5 — create a walk-in client by name (admin-only server-side). */
+export function useCreateWalkIn(): UseMutationResult<Client, Error, CreateWalkInInput> {
+  const api = useApiClient();
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (input: CreateWalkInInput) => api.createWalkIn(input),
+    onSuccess: () => {
+      // A new walk-in widens the picker list; refresh any open search.
+      void queryClient.invalidateQueries({ queryKey: CLIENTS_LIST_KEY });
+    }
+  });
+}
+
+/**
+ * Feature 5 — admin/trainer manual booking onto a training. The server owns
+ * capacity/status/duplicate math and authorization; on success refresh the
+ * trainings lists so the row's bookedCount/status reflect the new seat.
+ */
+export function useBookManual(): UseMutationResult<Booking, Error, CreateSingleBookingInput> {
+  const api = useApiClient();
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (input: CreateSingleBookingInput) => api.bookManual(input),
+    onSuccess: () => invalidateTrainings(queryClient)
   });
 }

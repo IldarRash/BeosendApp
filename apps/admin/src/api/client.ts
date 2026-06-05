@@ -14,6 +14,7 @@ import {
   clientSchema,
   courtBlockSchema,
   courtLoadGridSchema,
+  generateAllResultSchema,
   courtRequestAdminViewSchema,
   courtRequestSchema,
   courtSchema,
@@ -49,7 +50,11 @@ import {
   type CreateGroupInput,
   type CreateTrainerInput,
   type ChangeCapacityInput,
+  type CreateSingleBookingInput,
+  type CreateWalkInInput,
   type FillRate,
+  type GenerateAllMonthInput,
+  type GenerateAllResult,
   type GenerateMonthInput,
   type Group,
   type LabelCatalog,
@@ -219,7 +224,7 @@ export class ApiClient {
     return this.request("/analytics/summary", analyticsSummarySchema);
   }
 
-  /** C5 — admin blocks a court for a whole-hour range. */
+  /** C5 — admin blocks a court for a 30-min-aligned time range. */
   createCourtBlock(input: CreateCourtBlock): Promise<CourtBlock> {
     return this.request("/court-blocks", courtBlockSchema, {
       method: "POST",
@@ -247,6 +252,19 @@ export class ApiClient {
     }
   }
 
+  /**
+   * Move a block to another court (PATCH /court-blocks/:id, body `{ courtId }`).
+   * Used primarily for group auto-blocks (non-null `groupTrainingId`). The server
+   * re-checks per-court overlap and the 6-per-30-min limit on the target court for
+   * the block's own slots and rejects (409) a clash — the client computes nothing.
+   */
+  reassignCourtBlock(id: string, courtId: string): Promise<CourtBlock> {
+    return this.request(`/court-blocks/${id}`, courtBlockSchema, {
+      method: "PATCH",
+      body: JSON.stringify({ courtId })
+    });
+  }
+
   // ── Court requests & courts (M3) ──────────────────────────────────────────
 
   /**
@@ -270,8 +288,8 @@ export class ApiClient {
   }
 
   /**
-   * C4 — the active courts free for *every* hour the request covers (GET
-   * /court-requests/:id/free-courts). The server owns the per-hour/6-per-court
+   * C4 — the active courts free for *every* 30-min slot the request covers (GET
+   * /court-requests/:id/free-courts). The server owns the per-slot/6-per-court
    * math; the picker only offers what this returns and never computes its own.
    */
   freeCourtsForRequest(id: string): Promise<Court[]> {
@@ -309,7 +327,7 @@ export class ApiClient {
 
   /**
    * C6 — per-day court load grid (GET /courts/load?date=YYYY-MM-DD): courts ×
-   * working-hours cells, each free | request | block. Admin-only; carries court
+   * 30-minute-slot cells, each free | request | block. Admin-only; carries court
    * numbers (never a client path).
    */
   courtLoad(date: string): Promise<CourtLoadGrid> {
@@ -388,9 +406,25 @@ export class ApiClient {
 
   // ── Trainings (M1) ─────────────────────────────────────────────────────
 
-  /** Generate one training per group weekday across a month (15.1). */
+  /**
+   * Generate one training per group weekday across a month (15.1). The optional
+   * `courtId` (sent only when chosen) is the preferred court for this group's auto
+   * court blocks; the server falls back per date if it is not free.
+   */
   generateMonth(input: GenerateMonthInput): Promise<Training[]> {
     return this.request("/trainings/generate", trainingsSchema, {
+      method: "POST",
+      body: JSON.stringify(input)
+    });
+  }
+
+  /**
+   * Feature 3 — generate the month for every active group at once (POST
+   * /trainings/generate-all). Returns a per-group summary (created / blocked /
+   * skipped); auto-blocks pick a court per date server-side. Admin-only.
+   */
+  generateAllGroups(input: GenerateAllMonthInput): Promise<GenerateAllResult> {
+    return this.request("/trainings/generate-all", generateAllResultSchema, {
       method: "POST",
       body: JSON.stringify(input)
     });
@@ -467,6 +501,32 @@ export class ApiClient {
   /** Register a client (POST /clients/onboard); idempotent on telegram_id. */
   onboardClient(input: OnboardClientInput): Promise<Client> {
     return this.request("/clients/onboard", clientSchema, {
+      method: "POST",
+      body: JSON.stringify(input)
+    });
+  }
+
+  /**
+   * Feature 5 — create a walk-in client by name (POST /clients/walk-in). The
+   * stored row has no Telegram id and `source: "walk_in"`; phone/note optional.
+   * Admin-only server-side.
+   */
+  createWalkIn(input: CreateWalkInInput): Promise<Client> {
+    return this.request("/clients/walk-in", clientSchema, {
+      method: "POST",
+      body: JSON.stringify(input)
+    });
+  }
+
+  /**
+   * Feature 5 — admin/trainer books a client onto a training (POST
+   * /bookings/manual). Same `{ clientId, trainingId }` body as the bot's self
+   * path, but the server authorizes admin-or-the-training's-trainer and owns all
+   * capacity/status/duplicate math — the console computes nothing. A full or
+   * duplicate booking surfaces as a thrown Error (409) the screen renders.
+   */
+  bookManual(input: CreateSingleBookingInput): Promise<Booking> {
+    return this.request("/bookings/manual", bookingSchema, {
       method: "POST",
       body: JSON.stringify(input)
     });

@@ -12,6 +12,7 @@ import {
 import {
   type Client,
   clientSchema,
+  createWalkInSchema,
   listClientsQuerySchema,
   localeSchema,
   onboardClientSchema
@@ -55,6 +56,18 @@ export class ClientsController {
     const actorTelegramId = parseTelegramId(telegramIdHeader);
     const target = parseParamTelegramId(telegramId);
     const client = await this.clients.getByTelegramId(actorTelegramId, target);
+    return validate(clientSchema, client);
+  }
+
+  /** Admin: create a walk-in client by name (no Telegram). Admin-gated in the service. */
+  @Post("walk-in")
+  async createWalkIn(
+    @Headers("x-telegram-id") telegramIdHeader: string | undefined,
+    @Body() body: unknown
+  ): Promise<Client> {
+    const actorTelegramId = parseTelegramId(telegramIdHeader);
+    const input = validate(createWalkInSchema, body ?? {});
+    const client = await this.clients.createWalkIn(actorTelegramId, input);
     return validate(clientSchema, client);
   }
 
