@@ -72,12 +72,14 @@ export type CourtRequest = z.infer<typeof courtRequestSchema>;
 export const telegramId = z.number().int();
 
 /** C2 — price + availability check for a desired slot. No write. */
-export const previewCourtRequestSchema = z.object({
-  telegramId,
-  date: dateString,
-  startTime: slotAlignedTime,
-  durationHours: courtDurationHours
-});
+export const previewCourtRequestSchema = z
+  .object({
+    telegramId,
+    date: dateString,
+    startTime: slotAlignedTime,
+    durationHours: courtDurationHours
+  })
+  .strict();
 export type PreviewCourtRequest = z.infer<typeof previewCourtRequestSchema>;
 
 /** C2 — submit a court request. Body carries telegram_id, never a clientId. */

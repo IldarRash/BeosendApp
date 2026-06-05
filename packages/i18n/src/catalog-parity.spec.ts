@@ -1,10 +1,13 @@
 import { describe, expect, it } from "vitest";
 import { adminRu } from "./catalogs/ru/admin";
 import { botRu } from "./catalogs/ru/bot";
+import { miniappRu } from "./catalogs/ru/miniapp";
 import { adminSr } from "./catalogs/sr/admin";
 import { botSr } from "./catalogs/sr/bot";
+import { miniappSr } from "./catalogs/sr/miniapp";
 import { adminEn } from "./catalogs/en/admin";
 import { botEn } from "./catalogs/en/bot";
+import { miniappEn } from "./catalogs/en/miniapp";
 
 /**
  * RU is authoritative. SR and EN must mirror RU's key set exactly in BOTH the
@@ -14,7 +17,8 @@ import { botEn } from "./catalogs/en/bot";
  */
 const namespaces = {
   admin: { ru: adminRu, sr: adminSr, en: adminEn },
-  bot: { ru: botRu, sr: botSr, en: botEn }
+  bot: { ru: botRu, sr: botSr, en: botEn },
+  miniapp: { ru: miniappRu, sr: miniappSr, en: miniappEn }
 } as const;
 
 describe("catalog key parity (sr/en mirror ru)", () => {

@@ -1,6 +1,6 @@
 # Railway Deployment
 
-Deploy BeoSand to [Railway](https://railway.com/) as four services from this monorepo. Each app
+Deploy BeoSand to [Railway](https://railway.com/) as five services from this monorepo. Each app
 service uses an explicit **Dockerfile** with the **repository root** as the Docker build context, so
 pnpm workspace resolution and `pnpm-lock.yaml` work. This mirrors the convention proven in the sibling
 `health_tracer` project, adapted to BeoSand's differences:
@@ -9,6 +9,8 @@ pnpm workspace resolution and `pnpm-lock.yaml` work. This mirrors the convention
 - `apps/bot` is a **long-polling worker** — no HTTP port, no `EXPOSE`, no healthcheck.
 - `apps/admin` is a **static Vite SPA** (not Next.js) — the build emits static `dist/` served with SPA
   history fallback.
+- `apps/miniapp` is a **static Vite Telegram Mini App** served the same way as admin, with only
+  `VITE_API_URL` baked into the browser bundle.
 
 Service config is committed as per-service `railway.json` files (`apps/<svc>/railway.json`). When a
 service's **Root Directory** is set to that app folder, Railway auto-discovers its `railway.json`.
@@ -22,11 +24,13 @@ Every value in those files is also listed below as a dashboard checklist in case
 | API         | `beosand-api`     | `apps/api/Dockerfile`    | NestJS, compiled → `node apps/api/dist/main.js`        | yes — binds `PORT` (default 3000); `GET /health` |
 | Bot         | `beosand-bot`     | `apps/bot/Dockerfile`    | grammY, compiled → `node apps/bot/dist/index.js`       | **no** — long polling, no `EXPOSE`, no healthcheck |
 | Admin       | `beosand-admin`   | `apps/admin/Dockerfile`  | Static Vite SPA, `serve -s apps/admin/dist`            | yes — static server binds `PORT`    |
+| Mini App    | `beosand-miniapp` | `apps/miniapp/Dockerfile`| Static Vite SPA, `serve -s apps/miniapp/dist`          | yes — static server binds `PORT`    |
 
 ```text
 Telegram ⇄ beosand-bot (long polling) ─┐
                                         ├─→ beosand-api (NestJS) ─→ Railway Postgres
 Browser  → beosand-admin (Vite SPA) ───┘
+Telegram Mini App → beosand-miniapp ────┘
 ```
 
 ## Prerequisites
@@ -42,31 +46,32 @@ Browser  → beosand-admin (Vite SPA) ───┘
 The fail-closed contract is `packages/config/src/env.ts`. Any process that imports `@beosand/config`
 validates the **whole** contract at boot, so missing/invalid vars crash the service immediately.
 
-| Variable                     | api | bot | admin (build arg) | Source on Railway                                          |
-|------------------------------|:---:|:---:|:-----------------:|------------------------------------------------------------|
-| `DATABASE_URL`               |  ✅ |  ✅³|        —          | `${{Postgres.DATABASE_URL}}` (reference the plugin)        |
-| `TELEGRAM_BOT_TOKEN`         |  ✅ |  ✅ |        —          | Railway secret (from BotFather)                            |
-| `ADMIN_SESSION_SECRET`       |  ✅ |  ✅¹|        —          | Railway secret, min 16 chars                               |
-| `API_URL`                    |  ⚪ |  ✅ |        —          | `https://<beosand-api public domain>` (no trailing slash)  |
-| `PORT`                       |  ✅ |  —  |        ✅²        | Railway-injected automatically                             |
-| `ADMIN_TELEGRAM_IDS`         |  ✅ |  ✅ |        —          | Comma-separated numeric Telegram IDs                       |
-| `MANAGER_CONTACT`            |  ⚪ |  ⚪ |        —          | e.g. `@beosand_manager`                                    |
-| `WAITLIST_WINDOW_MINUTES`    |  ⚪ |  ⚪ |        —          | Optional; defaults to 30                                   |
-| `NODE_ENV`                   |  ✅ |  ✅ |        —          | `production`                                               |
-| `VITE_API_URL`               |  —  |  —  |        ✅         | **Build arg**: `https://<beosand-api public domain>`       |
-| `VITE_TELEGRAM_BOT_USERNAME` |  —  |  —  |        ✅         | **Build arg**: bot username, no leading `@`                |
+| Variable                     | api | bot | admin (build arg) | miniapp (build arg) | Source on Railway                                          |
+|------------------------------|:---:|:---:|:-----------------:|:-------------------:|------------------------------------------------------------|
+| `DATABASE_URL`               |  ✅ |  ✅³|        —          |          —          | `${{Postgres.DATABASE_URL}}` (reference the plugin)        |
+| `TELEGRAM_BOT_TOKEN`         |  ✅ |  ✅ |        —          |          —          | Railway secret (from BotFather)                            |
+| `ADMIN_SESSION_SECRET`       |  ✅ |  ✅¹|        —          |          —          | Railway secret, min 16 chars                               |
+| `API_URL`                    |  ⚪ |  ✅ |        —          |          —          | `https://<beosand-api public domain>` (no trailing slash)  |
+| `PORT`                       |  ✅ |  —  |        ✅²        |         ✅²         | Railway-injected automatically                             |
+| `ADMIN_TELEGRAM_IDS`         |  ✅ |  ✅ |        —          |          —          | Comma-separated numeric Telegram IDs                       |
+| `MANAGER_CONTACT`            |  ⚪ |  ⚪ |        —          |          —          | e.g. `@beosand_manager`                                    |
+| `WAITLIST_WINDOW_MINUTES`    |  ⚪ |  ⚪ |        —          |          —          | Optional; defaults to 30                                   |
+| `NODE_ENV`                   |  ✅ |  ✅ |        —          |          —          | `production`                                               |
+| `VITE_API_URL`               |  —  |  —  |        ✅         |          ✅         | **Build arg**: `https://<beosand-api public domain>`       |
+| `VITE_TELEGRAM_BOT_USERNAME` |  —  |  —  |        ✅         |          —          | **Build arg**: bot username, no leading `@`                |
 
 ✅ required · ⚪ optional/defaulted · — not used.
 ¹ The bot imports `@beosand/config` (`apps/bot/src/index.ts` calls `loadEnv()`), which validates the
 whole contract — so `ADMIN_SESSION_SECRET` and `TELEGRAM_BOT_TOKEN` must be set on the **bot** service
 too, or it crashes at boot.
-² `PORT` for admin is consumed by the static server (`serve -l ${PORT}`), not by app code.
+² `PORT` for admin and miniapp is consumed by the static server (`serve -l ${PORT}`), not by app code.
 ³ The bot never queries the DB, but `loadEnv()` validates the **whole** contract, and `DATABASE_URL`
 is required with no default — so the bot service must still have `DATABASE_URL` set (point it at the
 same `${{Postgres.DATABASE_URL}}`) or it crashes at boot.
 
 `VITE_*` are **inlined into the bundle at build time** — changing them requires a **rebuild/redeploy**
-of `beosand-admin`, not just a restart. The admin must **never** import `@beosand/config` (browser).
+of `beosand-admin` / `beosand-miniapp`, not just a restart. Browser apps must **never** import
+`@beosand/config`.
 
 ## Local Docker build (optional, no Railway account needed)
 
@@ -78,6 +83,8 @@ docker build -f apps/bot/Dockerfile   -t beosand-bot .
 docker build -f apps/admin/Dockerfile -t beosand-admin \
   --build-arg VITE_API_URL=http://localhost:3000 \
   --build-arg VITE_TELEGRAM_BOT_USERNAME=beosand_bot .
+docker build -f apps/miniapp/Dockerfile -t beosand-miniapp \
+  --build-arg VITE_API_URL=http://localhost:3000 .
 ```
 
 Run locally (start local Postgres first with `pnpm db:up`):
@@ -95,6 +102,11 @@ curl -sS http://localhost:3000/health   # {"status":"ok","service":"beosand-api"
 docker run --rm -p 8080:8080 -e PORT=8080 beosand-admin
 curl -sS http://localhost:8080/             # index.html
 curl -sS http://localhost:8080/some/route   # index.html (SPA fallback)
+
+# Mini App SPA serves and falls back to index.html on deep links
+docker run --rm -p 8081:8081 -e PORT=8081 beosand-miniapp
+curl -sS http://localhost:8081/             # index.html
+curl -sS http://localhost:8081/some/route   # index.html (SPA fallback)
 ```
 
 ## Railway project setup
@@ -235,7 +247,35 @@ and the Dockerfile reads them via `ARG`→`ENV` before `vite build`):
 
 **Generate a public domain** for `beosand-admin` and open it in a browser.
 
-### 6. BotFather domain for Telegram Login (admin console)
+### 6. Deploy `beosand-miniapp`
+
+Create another service from the same repo.
+
+| Setting          | Value                                          |
+|------------------|------------------------------------------------|
+| Service name     | `beosand-miniapp`                              |
+| Root directory   | `apps/miniapp`                                 |
+| Builder          | Dockerfile                                     |
+| Dockerfile path  | `apps/miniapp/Dockerfile`                      |
+| Watch paths      | `apps/miniapp/**`, `packages/**`               |
+| Start command    | `serve -s apps/miniapp/dist -l ${PORT:-3000}`  |
+| Restart policy   | On failure (max 10 retries)                    |
+
+**Build args** (Variables → set as **build-time** before the first build):
+
+| Build arg      | Value                                               |
+|----------------|-----------------------------------------------------|
+| `VITE_API_URL` | `https://<beosand-api-domain>` (no trailing slash)  |
+
+> `VITE_API_URL` is inlined at build time. After changing it, trigger a
+> **rebuild/redeploy** of `beosand-miniapp` — a restart will not pick up the new API URL.
+
+**Runtime env:** none required (the Mini App needs no secrets at runtime; `VITE_API_URL` is baked).
+
+**Generate a public domain** for `beosand-miniapp` and open it in a browser. Use this HTTPS URL when
+configuring the Telegram Mini App entrypoint in BotFather.
+
+### 7. BotFather domain for Telegram Login (admin console)
 
 The admin login page uses the **Telegram Login Widget** (`VITE_TELEGRAM_BOT_USERNAME`). Telegram only
 renders the widget on a domain you have authorized for the bot:
@@ -245,6 +285,13 @@ renders the widget on a domain you have authorized for the bot:
 
 Without this, the Telegram login button on the admin will not appear / will reject the callback.
 
+### 8. BotFather Mini App URL
+
+Telegram Mini Apps must be served over HTTPS. After `beosand-miniapp` has a public Railway domain,
+configure the bot's Mini App URL in [@BotFather](https://t.me/BotFather) (for example, via
+`/newapp` or `/myapps`, depending on whether the Mini App already exists) with the
+`https://<beosand-miniapp-domain>` URL.
+
 ## Auto-deploy & CI
 
 - **CI** (`.github/workflows/ci.yml`) runs on every PR and on push to `main`: install (frozen
@@ -253,15 +300,16 @@ Without this, the Telegram login button on the admin will not appear / will reje
   enable deploy on push to `main`. Watch paths scope rebuilds so only the affected service redeploys
   (`apps/<svc>/**` + shared `packages/**`). CI and Railway deploys are independent; keep `main` green.
 
-## Known caveat: production CORS blocks the browser admin
+## Known caveat: production CORS blocks browser apps
 
 `apps/api/src/main.ts` sets `origin: false` when `NODE_ENV=production`, so the API rejects
-cross-origin browser requests in production. The browser admin (`beosand-admin`) will therefore be
-**unable to call the API** until the admin-auth feature ships an origin allowlist. This is a known,
-documented follow-up — **do not change the API source as part of deployment**. Options until then:
+cross-origin browser requests in production. The browser admin (`beosand-admin`) and Telegram Mini App
+(`beosand-miniapp`) will therefore be **unable to call the API** until the admin-auth/CORS feature
+ships an origin allowlist. This is a known, documented follow-up — **do not change the API source as
+part of deployment**. Options until then:
 
-- Run the admin only against a non-production API, or
-- Ship the admin-auth + CORS-allowlist feature, then set the admin domain as an allowed origin.
+- Run the browser apps only against a non-production API, or
+- Ship the admin-auth/CORS-allowlist feature, then set the admin and Mini App domains as allowed origins.
 
 The bot is unaffected (server-to-server calls, no browser CORS).
 
@@ -269,7 +317,7 @@ The bot is unaffected (server-to-server calls, no browser CORS).
 
 1. Open the affected service in Railway → **Deployments**.
 2. Select a previous successful deployment → **Redeploy** (or use Railway rollback).
-3. Roll back `beosand-api`, `beosand-bot`, and `beosand-admin` **independently**.
+3. Roll back `beosand-api`, `beosand-bot`, `beosand-admin`, and `beosand-miniapp` **independently**.
 4. **Database rollbacks are not automatic.** Drizzle migrations are forward-only. Take a Postgres
    backup before risky schema changes and plan manual down migrations.
 
@@ -283,10 +331,11 @@ The bot is unaffected (server-to-server calls, no browser CORS).
 | Bot boots then exits                            | `loadEnv()` rejected env — set `TELEGRAM_BOT_TOKEN` **and** `ADMIN_SESSION_SECRET` on the bot too |
 | Bot: `409 Conflict` / duplicate `getUpdates`    | More than one bot replica polling — scale `beosand-bot` to exactly 1            |
 | Bot can't reach API                             | `API_URL` wrong or has a trailing slash; must be the API public domain          |
-| Admin shows wrong API URL                       | Stale build; `VITE_API_URL` is baked at build — **rebuild** `beosand-admin`     |
-| Admin deep-link 404 on refresh                  | SPA fallback missing — start command must be `serve -s ...` (`-s` = SPA mode)    |
+| Admin / Mini App shows wrong API URL            | Stale build; `VITE_API_URL` is baked at build — **rebuild** the browser service |
+| Admin / Mini App deep-link 404 on refresh       | SPA fallback missing — start command must be `serve -s ...` (`-s` = SPA mode)    |
 | Telegram login button missing on admin          | Run BotFather `/setdomain` with the admin public domain                         |
-| Admin loads but API calls fail (CORS)           | Expected in production until admin-auth/CORS ships (`origin:false`) — see caveat |
+| Mini App URL rejected by Telegram               | Use the HTTPS `beosand-miniapp` public domain when configuring BotFather         |
+| Browser app loads but API calls fail (CORS)     | Expected in production until admin-auth/CORS ships (`origin:false`) — see caveat |
 
 ## Per-service dashboard checklist
 
@@ -320,11 +369,19 @@ Mirror of the committed `railway.json` files, for hand configuration.
 - [ ] Generate public domain; rebuild after any `VITE_*` change.
 - [ ] BotFather `/setdomain` → admin public domain (Telegram Login).
 
+**beosand-miniapp** (`apps/miniapp/railway.json`)
+- [ ] Root directory `apps/miniapp`; Builder Dockerfile; Dockerfile path `apps/miniapp/Dockerfile`.
+- [ ] Watch paths `apps/miniapp/**`, `packages/**`.
+- [ ] Start command `serve -s apps/miniapp/dist -l ${PORT:-3000}`; restart On failure.
+- [ ] Build arg `VITE_API_URL=https://<beosand-api domain>`.
+- [ ] Generate public domain; rebuild after any `VITE_API_URL` change.
+- [ ] BotFather Mini App URL → miniapp public domain.
+
 ## What stays outside this repo
 
 - Railway project/service creation, domain assignment, and secret variable values.
-- BotFather token and `/setdomain` configuration.
-- The admin-auth + CORS-allowlist feature that unblocks the browser admin in production.
+- BotFather token, `/setdomain`, and Mini App URL configuration.
+- The admin-auth/CORS-allowlist feature that unblocks browser apps in production.
 - Optional staging environment (`staging` vs `production` Railway environments).
 
 See also: root `package.json` scripts (`db:migrate`, `db:seed`), `packages/config/src/env.ts` (env

@@ -18,6 +18,7 @@ export const botRu: Record<string, string> = {
   // --- Main menu (menu.ts) ---
   "bot.menu.welcomeFull":
     "Добро пожаловать в BeoSand 🏐\n\nЗдесь вы можете:\n• записаться на тренировку\n• посмотреть свободные места\n• увидеть свои записи",
+  "bot.menu.openApp": "🚀 Открыть приложение",
   "bot.menu.availableTrainings": "🎫 Разовое посещение",
   "bot.menu.todayFreeSlots": "📅 Свободные места сегодня",
   "bot.menu.joinGroup": "👥 Записаться в группу",

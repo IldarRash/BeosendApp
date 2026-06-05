@@ -27,9 +27,9 @@ export default tseslint.config(
       "@typescript-eslint/no-explicit-any": "warn"
     }
   },
-  // Browser + React rules for the admin SPA only.
+  // Browser + React rules for the SPAs (admin console + Telegram Mini App).
   {
-    files: ["apps/admin/**/*.{ts,tsx}"],
+    files: ["apps/admin/**/*.{ts,tsx}", "apps/miniapp/**/*.{ts,tsx}"],
     plugins: { "react-hooks": reactHooks },
     languageOptions: {
       globals: globals.browser

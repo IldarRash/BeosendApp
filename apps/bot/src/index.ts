@@ -139,6 +139,7 @@ async function main(): Promise<void> {
   const env = loadEnv();
   const api = new ApiClient(env.API_URL);
   const bot = new Bot<BotContext>(env.TELEGRAM_BOT_TOKEN);
+  const miniappUrl = env.MINIAPP_URL;
 
   // i18n: hydrate the merged catalogs from the API (admin overrides applied) and
   // refresh them periodically; the bundled @beosand/i18n static catalog is the
@@ -168,7 +169,9 @@ async function main(): Promise<void> {
   // The main menu shows the admin moderation entry only to admins (config-based);
   // the API still re-gates every moderation read/write by x-telegram-id.
   const menuFor = (telegramId: number, catalog: Catalog) =>
-    isAdmin(env, telegramId) ? adminMenuKeyboard(catalog) : mainMenuKeyboard(catalog);
+    isAdmin(env, telegramId)
+      ? adminMenuKeyboard(catalog, miniappUrl)
+      : mainMenuKeyboard(catalog, miniappUrl);
 
   // First entry (UX sections 1–2): new users (API 404) enter onboarding;
   // returning users land on the main menu (admin-aware), in their stored language.
@@ -651,6 +654,23 @@ async function main(): Promise<void> {
   // Hydrate the i18n catalogs (merged from the API; static fallback if down) and
   // start the periodic refresh so admin label edits propagate without a restart.
   await catalogs.start();
+
+  // Launcher (FOUNDATION slice D): point the chat menu button at the Mini App so
+  // every chat has a one-tap entry into the web UI. Guarded on MINIAPP_URL being
+  // configured (it's dev-tolerant/optional) — a tunnel-less local setup just
+  // keeps the default menu button. The label uses the default-locale catalog
+  // since setChatMenuButton sets a single global button text.
+  if (miniappUrl) {
+    await bot.api.setChatMenuButton({
+      menu_button: {
+        type: "web_app",
+        text: t(catalogFor(asLocale(undefined)), "bot.menu.openApp"),
+        web_app: { url: miniappUrl }
+      }
+    });
+  } else {
+    console.warn("MINIAPP_URL not set — skipping Mini App menu button");
+  }
 
   // Surface API reachability early without blocking startup.
   api

@@ -51,9 +51,10 @@ export class ClientsController {
   @Get("by-telegram/:telegramId")
   async getByTelegram(
     @Headers("x-telegram-id") telegramIdHeader: string | undefined,
-    @Param("telegramId") telegramId: string
+    @Param("telegramId") telegramId: string,
+    @Headers("x-client-telegram-id") clientTelegramIdHeader?: string
   ): Promise<Client> {
-    const actorTelegramId = parseTelegramId(telegramIdHeader);
+    const actorTelegramId = parseTelegramId(clientTelegramIdHeader ?? telegramIdHeader);
     const target = parseParamTelegramId(telegramId);
     const client = await this.clients.getByTelegramId(actorTelegramId, target);
     return validate(clientSchema, client);
@@ -74,9 +75,10 @@ export class ClientsController {
   @Post("onboard")
   async onboard(
     @Headers("x-telegram-id") telegramIdHeader: string | undefined,
-    @Body() body: unknown
+    @Body() body: unknown,
+    @Headers("x-client-telegram-id") clientTelegramIdHeader?: string
   ): Promise<Client> {
-    const actorTelegramId = parseTelegramId(telegramIdHeader);
+    const actorTelegramId = parseTelegramId(clientTelegramIdHeader ?? telegramIdHeader);
     const input = validate(onboardClientSchema, body ?? {});
     const client = await this.clients.onboard(actorTelegramId, input);
     return validate(clientSchema, client);
@@ -86,9 +88,10 @@ export class ClientsController {
   async setLanguage(
     @Headers("x-telegram-id") telegramIdHeader: string | undefined,
     @Param("telegramId") telegramId: string,
-    @Body() body: unknown
+    @Body() body: unknown,
+    @Headers("x-client-telegram-id") clientTelegramIdHeader?: string
   ): Promise<Client> {
-    const actorTelegramId = parseTelegramId(telegramIdHeader);
+    const actorTelegramId = parseTelegramId(clientTelegramIdHeader ?? telegramIdHeader);
     const target = parseParamTelegramId(telegramId);
     const { language } = validate(setLanguageSchema, body ?? {});
     const client = await this.clients.setLanguage(actorTelegramId, target, language);
@@ -96,7 +99,12 @@ export class ClientsController {
   }
 }
 
-/** Resolve the caller's numeric Telegram id from the x-telegram-id header. */
+/**
+ * Resolve the caller's numeric Telegram id. Admin-only endpoints pass the
+ * x-telegram-id header (bot raw / admin-session bridge); client/self endpoints
+ * pass `x-client-telegram-id ?? x-telegram-id` so a Mini App client session
+ * (bridged to x-client-telegram-id only) and the bot both resolve their actor.
+ */
 function parseTelegramId(header: string | undefined): number {
   const value = Number(header);
   if (!header || !Number.isInteger(value)) {

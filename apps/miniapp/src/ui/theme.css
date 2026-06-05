@@ -1,0 +1,881 @@
+/*
+ * BeoSand Mini App design layer.
+ *
+ * The base is native Telegram: @telegram-apps/telegram-ui supplies the
+ * theme-adaptive (light/dark) component system, and the SDK binds Telegram's
+ * theme params to --tgui--* CSS variables so colors follow the user's client.
+ *
+ * On top of that we apply a single BeoSand brand accent — sunset coral — by
+ * overriding the few accent tokens telegram-ui derives its primary buttons,
+ * links, and icons from. This keeps the native look while making the app
+ * unmistakably BeoSand, in both light and dark.
+ */
+
+:root {
+  --beosand-coral: #e1543f;
+  --beosand-coral-ink: #b23a2a;
+  /* Coral tint for selected rows / brand surfaces; alpha so it adapts to light & dark. */
+  --beosand-coral-tint: rgba(225, 84, 63, 0.12);
+
+  /* Layout rhythm — one scale reused by every screen so spacing stays consistent. */
+  --beosand-gap: 16px;
+  --beosand-gap-sm: 12px;
+  --beosand-gap-xs: 8px;
+  --beosand-screen-pad: 16px;
+}
+
+/*
+ * Re-point telegram-ui's accent tokens at the brand coral. button_color drives
+ * the filled MainButton/primary Button background; link_color drives accent
+ * text, icons, and bezeled controls. button_text_color stays Telegram's so text
+ * keeps its contrast against the coral fill.
+ */
+.tgui-root,
+:root {
+  --tgui--button_color: var(--beosand-coral);
+  --tgui--link_color: var(--beosand-coral-ink);
+}
+
+html,
+body,
+#root {
+  height: 100%;
+  margin: 0;
+}
+
+body {
+  background: var(--tgui--secondary_bg_color, var(--tgui--bg_color, #fff));
+  color: var(--tgui--text_color, #000);
+  -webkit-font-smoothing: antialiased;
+}
+
+/* App-level layout helpers (telegram-ui owns component styling). */
+.app-root {
+  min-height: 100%;
+}
+
+.screen {
+  padding: var(--beosand-screen-pad);
+  display: flex;
+  flex-direction: column;
+  gap: var(--beosand-gap);
+  /*
+   * Leave room for the native MainButton fixed at the bottom of the viewport so
+   * the last List/Section is never hidden behind it. The button is ~60px; pad a
+   * little more for comfortable scroll-to-end.
+   */
+  padding-bottom: calc(var(--beosand-screen-pad) + 88px);
+}
+
+/*
+ * Screens whose primary action is NOT the native MainButton (e.g. the profile
+ * landing has no submit) don't need the bottom reservation.
+ */
+.screen--no-mainbutton {
+  padding-bottom: var(--beosand-screen-pad);
+}
+
+.screen__center {
+  min-height: 70vh;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  text-align: center;
+  gap: 12px;
+}
+
+.stack {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.muted {
+  color: var(--tgui--hint_color, #999);
+}
+
+/*
+ * Onboarding wizard step header: the telegram-ui <Steps> progress bar plus the
+ * "Шаг N из 3" caption, grouped at the top of the screen.
+ */
+.wizard-progress {
+  display: flex;
+  flex-direction: column;
+  gap: var(--beosand-gap-xs);
+}
+
+/*
+ * A single-select row inside a <Section> (language / level pickers). The chosen
+ * row gets a subtle coral tint + a coral leading marker so selection is obvious
+ * at a glance and survives light/dark. telegram-ui owns the row chrome; we only
+ * tint the active one. The selection marker is conveyed to AT via aria-selected /
+ * a Radio input on the row, not by color alone.
+ */
+.pick-row--selected {
+  background: var(--beosand-coral-tint);
+}
+
+/*
+ * Keyboard focus ring for our custom tappable rows (telegram-ui Cells used as
+ * options). Contrast-safe coral outline; only shows for keyboard users.
+ */
+.pick-row:focus-visible {
+  outline: 2px solid var(--beosand-coral);
+  outline-offset: -2px;
+  border-radius: 8px;
+}
+
+/* The coral leading dot marking the selected option in a picker list. */
+.pick-marker {
+  display: inline-block;
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  background: var(--beosand-coral);
+}
+
+/* Helper caption under a wizard field (e.g. the name hint). */
+.screen-hint {
+  padding: var(--beosand-gap-xs) var(--beosand-screen-pad) 0;
+}
+
+/* Trailing chevron on an interactive profile row (opens the language sheet). */
+.chevron {
+  color: var(--tgui--hint_color, #999);
+  font-size: 20px;
+  line-height: 1;
+}
+
+/*
+ * Home menu (S2). The brand header above the section-list: app name + tagline,
+ * sitting on the screen's secondary background so the white List sections read
+ * as cards beneath it. No MainButton on Home, so no bottom reservation (the
+ * .screen--no-mainbutton modifier handles that on the screen element).
+ */
+.home-header {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: var(--beosand-gap-xs) var(--beosand-gap-xs) 0;
+}
+
+/*
+ * The coral leading "chip" behind each menu icon: a soft tinted square so the
+ * brand accent is present on every row without flooding the list. The icon itself
+ * is coral (currentColor). The tint uses alpha, so it adapts to light & dark.
+ */
+.menu-icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 32px;
+  height: 32px;
+  border-radius: 8px;
+  background: var(--beosand-coral-tint);
+  color: var(--beosand-coral);
+  flex: none;
+}
+
+.menu-icon svg {
+  width: 20px;
+  height: 20px;
+  display: block;
+}
+
+/*
+ * Keyboard focus ring for tappable menu cells (telegram-ui Cells used as nav
+ * rows). Contrast-safe coral outline; only shows for keyboard users.
+ */
+.menu-row:focus-visible {
+  outline: 2px solid var(--beosand-coral);
+  outline-offset: -2px;
+  border-radius: 8px;
+}
+
+/* =====================================================================
+ * Browse + book (S3/S4): slot cards, filter chips, filter sheet, states.
+ * Coral is reserved for engaged state (active chip, the seat-free badge,
+ * the success tick) — never the default surface. Free/full is conveyed by
+ * text + structure, never by color alone (a11y).
+ * ===================================================================== */
+
+/* Bare browse-flow glyph (no coral chip), inherits the surrounding color. */
+.glyph {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex: none;
+}
+
+.glyph svg {
+  width: 18px;
+  height: 18px;
+  display: block;
+}
+
+/* ---- Filter bar: a horizontally scrollable row of pills. ---- */
+.chip-bar {
+  display: flex;
+  gap: var(--beosand-gap-xs);
+  overflow-x: auto;
+  padding: 2px var(--beosand-gap-xs);
+  margin: 0 calc(-1 * var(--beosand-gap-xs));
+  /* Hide the scrollbar but keep horizontal scrolling on touch. */
+  scrollbar-width: none;
+  -webkit-overflow-scrolling: touch;
+}
+
+.chip-bar::-webkit-scrollbar {
+  display: none;
+}
+
+.chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  flex: none;
+  height: 34px;
+  padding: 0 14px;
+  border: 0;
+  border-radius: 17px;
+  font: inherit;
+  font-size: 14px;
+  line-height: 1;
+  cursor: pointer;
+  white-space: nowrap;
+  /* Inactive: native bezeled surface that adapts to light/dark. */
+  background: var(--tgui--secondary_fill, rgba(127, 127, 127, 0.12));
+  color: var(--tgui--text_color, #000);
+}
+
+/* Active filter / engaged Today toggle: the single coral accent in the bar. */
+.chip--active {
+  background: var(--beosand-coral);
+  color: var(--tgui--button_text_color, #fff);
+}
+
+.chip:focus-visible {
+  outline: 2px solid var(--beosand-coral);
+  outline-offset: 2px;
+}
+
+/* Count badge on the filter trigger (number of active filters). */
+.chip__badge {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 18px;
+  height: 18px;
+  padding: 0 5px;
+  border-radius: 9px;
+  font-size: 12px;
+  font-weight: 600;
+  background: var(--tgui--button_text_color, #fff);
+  color: var(--beosand-coral);
+}
+
+/* ---- Slot card meta row: seat badge + price chip. ---- */
+.slot-card:focus-visible {
+  outline: 2px solid var(--beosand-coral);
+  outline-offset: -2px;
+  border-radius: 10px;
+}
+
+.slot-card__meta {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--beosand-gap-xs);
+  margin-top: 4px;
+}
+
+/*
+ * Seat badge. Free vs. full differ in BOTH color and text ("3 места" vs "Нет
+ * мест"), so state never rides on color alone. Free = coral tint; full = a neutral
+ * hint surface so it reads as unavailable without relying on red/green.
+ */
+.slot-badge {
+  display: inline-flex;
+  align-items: center;
+  height: 22px;
+  padding: 0 9px;
+  border-radius: 11px;
+  font-size: 13px;
+  font-weight: 600;
+  line-height: 1;
+}
+
+.slot-badge--free {
+  background: var(--beosand-coral-tint);
+  color: var(--beosand-coral-ink);
+}
+
+.slot-badge--full {
+  background: var(--tgui--secondary_fill, rgba(127, 127, 127, 0.14));
+  color: var(--tgui--hint_color, #999);
+}
+
+/* Price chip — neutral outline so the coral stays on availability, not money. */
+.slot-price-chip {
+  display: inline-flex;
+  align-items: center;
+  height: 22px;
+  padding: 0 9px;
+  border-radius: 11px;
+  font-size: 13px;
+  font-weight: 600;
+  line-height: 1;
+  color: var(--tgui--text_color, #000);
+  background: var(--tgui--secondary_fill, rgba(127, 127, 127, 0.1));
+}
+
+/* Waitlist pill on a full card — the S6 seam; an outline, not a coral fill. */
+.slot-card__waitlist-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--beosand-coral-ink);
+}
+
+/* ---- Filter sheet (bottom-sheet Modal). ---- */
+.filter-sheet {
+  padding-bottom: var(--beosand-gap-sm);
+}
+
+.filter-sheet__actions {
+  display: flex;
+  gap: var(--beosand-gap-sm);
+  padding: var(--beosand-gap-sm) var(--beosand-screen-pad);
+}
+
+/* ---- Shared list states: loading / empty / error. ---- */
+.state-view {
+  min-height: 40vh;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  text-align: center;
+  gap: var(--beosand-gap-sm);
+}
+
+/* ---- Confirm step. ---- */
+.confirm-price {
+  font-weight: 600;
+}
+
+.confirm-error {
+  padding: var(--beosand-gap-sm) var(--beosand-screen-pad);
+  border-radius: 10px;
+  background: var(--beosand-coral-tint);
+  color: var(--beosand-coral-ink);
+  font-size: 14px;
+}
+
+/* The success tick on the booked-state Placeholder. */
+.success-badge {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 56px;
+  height: 56px;
+  border-radius: 50%;
+  background: var(--beosand-coral);
+  color: var(--tgui--button_text_color, #fff);
+  font-size: 28px;
+  line-height: 1;
+}
+
+/* =====================================================================
+ * Waitlist (S6): join confirm/result + the deep-link accept screen.
+ * Coral stays on the native MainButton and the success tick only; the
+ * waiting/accept glyph sits on a soft coral-tint chip (an "in progress",
+ * not "done", signal — visually distinct from the solid success tick).
+ * Every state is conveyed by structure + text, never color alone.
+ * ===================================================================== */
+
+/*
+ * The leading glyph on a waitlist Placeholder (joined / accept prompt): a tinted
+ * coral chip with the coral glyph, echoing the Home `.menu-icon` chip so it reads
+ * as the same brand family. Tint (not fill) keeps it distinct from the solid
+ * `.success-badge` tick — "you're queued / a seat is open", not "done".
+ */
+.waitlist-badge {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 56px;
+  height: 56px;
+  border-radius: 50%;
+  background: var(--beosand-coral-tint);
+  color: var(--beosand-coral);
+}
+
+.waitlist-badge svg {
+  width: 28px;
+  height: 28px;
+  display: block;
+}
+
+/*
+ * The closed-window / seat-re-taken state: the same chip on a neutral hint surface
+ * (not red), so "the window closed" reads as calm and unavailable rather than as an
+ * error — matching the `.slot-badge--full` "unavailable without alarm" treatment.
+ */
+.waitlist-badge--muted {
+  background: var(--tgui--secondary_fill, rgba(127, 127, 127, 0.14));
+  color: var(--tgui--hint_color, #999);
+}
+
+/*
+ * The returned waitlist position under the joined-success Placeholder: a centered
+ * coral-tint pill so the reassuring "you're #N in line" detail is legible without a
+ * second coral accent competing with the MainButton.
+ */
+.waitlist-position {
+  align-self: center;
+  padding: var(--beosand-gap-xs) var(--beosand-gap-sm);
+  border-radius: 14px;
+  background: var(--beosand-coral-tint);
+  color: var(--beosand-coral-ink);
+  font-size: 14px;
+  font-weight: 600;
+}
+
+/* =====================================================================
+ * My bookings (S5): segmented Upcoming|Past, booking-item status chips,
+ * the Cancel affordance (shown only on canCancel), and the cancel confirm.
+ *
+ * Palette discipline: coral is reserved for the ACTIVE segment, the native
+ * MainButton, and the success tick — never the default surfaces. Every
+ * booking status is conveyed by a TEXT chip + icon + structure, never color
+ * alone; the destructive cancel uses Telegram's own danger color (text), not
+ * the brand coral, so "destructive" reads distinctly from "brand".
+ *
+ * Neutral tokens reused: --tgui--hint_color (muted), --tgui--secondary_fill
+ * (calm chip surface), --tgui--destructive_text_color (the cancel verb).
+ * ===================================================================== */
+
+/* ---- Segmented Upcoming|Past control (TGUI SegmentedControl shell). ---- */
+/*
+ * The control sits at the top of the screen above the List. We tint only the
+ * ACTIVE segment with coral so the chosen scope is unmistakable in light/dark.
+ * Selection is announced via role="tablist"/aria-selected on the segments, so
+ * the active state is never color-only.
+ */
+.segmented {
+  margin-bottom: var(--beosand-gap-sm);
+}
+
+.segmented .tgui-segmented-control-item--selected,
+.segmented [data-selected="true"] {
+  color: var(--beosand-coral-ink);
+}
+
+/* The sliding pill behind the active segment picks up the brand tint. */
+.segmented .tgui-segmented-control__slider,
+.segmented .segmented__slider {
+  background: var(--beosand-coral-tint);
+}
+
+/* Keyboard focus ring for the segment tabs. */
+.segmented [role="tab"]:focus-visible {
+  outline: 2px solid var(--beosand-coral);
+  outline-offset: 2px;
+  border-radius: 14px;
+}
+
+/* ---- Booking item card meta row (status chip + cancel affordance). ---- */
+.booking-card:focus-visible {
+  outline: 2px solid var(--beosand-coral);
+  outline-offset: -2px;
+  border-radius: 10px;
+}
+
+.booking-card__meta {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--beosand-gap-xs);
+  margin-top: 4px;
+}
+
+/*
+ * Status / outcome chip. One pill shape; the variant differs in BOTH color and
+ * text + a leading glyph, so state never rides on color alone. Tone is calm:
+ * past outcomes are visually distinct but not alarming (no red fills, no
+ * green "good job" — these are neutral facts about a finished session).
+ */
+.booking-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  height: 22px;
+  padding: 0 9px;
+  border-radius: 11px;
+  font-size: 13px;
+  font-weight: 600;
+  line-height: 1;
+}
+
+.booking-chip svg {
+  width: 13px;
+  height: 13px;
+  display: block;
+}
+
+/*
+ * Upcoming / booked: the active, "you're in" state — soft coral tint, the one
+ * place the booking list carries brand color. Matches the slot-badge--free
+ * "engaged" treatment so the two list surfaces read as one family.
+ */
+.booking-chip--booked {
+  background: var(--beosand-coral-tint);
+  color: var(--beosand-coral-ink);
+}
+
+/*
+ * Attended: a finished, accounted-for session. Neutral-positive — a quiet ink
+ * chip on a calm surface, NOT a celebratory green, so the Past list stays a
+ * calm log rather than a scoreboard.
+ */
+.booking-chip--attended {
+  background: var(--tgui--secondary_fill, rgba(127, 127, 127, 0.12));
+  color: var(--tgui--text_color, #000);
+}
+
+/*
+ * No-show and cancelled: a muted hint chip — "this didn't happen" — reusing the
+ * exact slot-badge--full / waitlist-badge--muted "unavailable without alarm"
+ * treatment. Distinguished from attended by text + glyph, never by red.
+ */
+.booking-chip--noShow,
+.booking-chip--cancelled {
+  background: var(--tgui--secondary_fill, rgba(127, 127, 127, 0.14));
+  color: var(--tgui--hint_color, #999);
+}
+
+/*
+ * The Cancel affordance on an upcoming, cancellable row. Subtle text button in
+ * Telegram's native destructive color (not the brand coral) so "remove" reads
+ * distinctly from "brand action". It is the row's trailing `after` control;
+ * tapping opens the confirm sheet (the destructive write itself is gated there).
+ */
+.booking-cancel {
+  appearance: none;
+  border: 0;
+  background: transparent;
+  padding: 6px 8px;
+  margin: -6px -2px -6px 0;
+  border-radius: 8px;
+  font: inherit;
+  font-size: 14px;
+  font-weight: 600;
+  line-height: 1;
+  cursor: pointer;
+  color: var(--tgui--destructive_text_color, #e53935);
+}
+
+.booking-cancel:focus-visible {
+  outline: 2px solid var(--tgui--destructive_text_color, #e53935);
+  outline-offset: 1px;
+}
+
+/* ---- Cancel confirm (bottom-sheet Modal over the list). ---- */
+.cancel-sheet {
+  padding-bottom: var(--beosand-gap-sm);
+}
+
+/*
+ * The slot summary inside the confirm sheet sits in a plain Section; the warning
+ * framing is carried by copy + the warning haptic, not a red panel — the actual
+ * destructive commit is the sheet's primary button.
+ */
+.cancel-sheet__actions {
+  display: flex;
+  gap: var(--beosand-gap-sm);
+  padding: var(--beosand-gap-sm) var(--beosand-screen-pad);
+}
+
+/* =====================================================================
+ * Group monthly subscription (S7): group list, group detail + two-option
+ * month picker, confirm sub-state, and the result screen (created count +
+ * skipped dates).
+ *
+ * Palette discipline (same as the rest of the app): coral is reserved for the
+ * native MainButton, the ACTIVE month row (reusing the picker tint), and the
+ * solid success tick on the result. Money (the monthly price) is a NEUTRAL
+ * chip — coral never rides on price. The skipped-dates block is conveyed by a
+ * header + text + a neutral muted surface, NEVER by color (no red "error"
+ * panel): a skipped date is calm, informational, not a failure.
+ *
+ * Reuses without new tokens: `.pick-row`/`.pick-row--selected`/`.pick-marker`
+ * (the month picker is an OptionList), `.menu-icon`/`Glyph` (the group glyph),
+ * `.success-badge` (the result tick), `.confirm-price` (the price emphasis),
+ * `.confirm-error` (the verbatim server error on a failed confirm), and the
+ * shared StateView loading/empty/error surfaces.
+ * ===================================================================== */
+
+/* ---- Group list row meta (weekdays · time, trainer, monthly price chip). ---- */
+.group-card:focus-visible {
+  outline: 2px solid var(--beosand-coral);
+  outline-offset: -2px;
+  border-radius: 10px;
+}
+
+/*
+ * The group-card meta line under the title: the weekday/time facts plus the
+ * monthly-price chip. Mirrors `.slot-card__meta` so the two list surfaces read
+ * as one family.
+ */
+.group-card__meta {
+  display: inline-flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: var(--beosand-gap-xs);
+  margin-top: 4px;
+}
+
+/*
+ * Monthly-price chip — the "абонемент на месяц" amount. NEUTRAL by design: the
+ * same outline treatment as the browse `.slot-price-chip` so money never wears
+ * the brand coral. Display-only; the value is the API's `priceMonthRsd`.
+ */
+.group-price-chip {
+  display: inline-flex;
+  align-items: center;
+  height: 22px;
+  padding: 0 9px;
+  border-radius: 11px;
+  font-size: 13px;
+  font-weight: 600;
+  line-height: 1;
+  color: var(--tgui--text_color, #000);
+  background: var(--tgui--secondary_fill, rgba(127, 127, 127, 0.1));
+}
+
+/* ---- Result screen: skipped-dates block (informational, never an error). ---- */
+/*
+ * The "Пропущенные даты (нет мест)" block beneath the success tick. It sits on
+ * the neutral hint surface — the SAME calm "unavailable without alarm"
+ * treatment as `.slot-badge--full` / `.booking-chip--cancelled` — so a skipped
+ * date reads as a quiet fact, not a red failure. State is carried by the header
+ * text + the per-date rows, never by color. Announced as a `role="note"`
+ * region by the screen.
+ */
+.skipped-block {
+  border-radius: 10px;
+  background: var(--tgui--secondary_fill, rgba(127, 127, 127, 0.12));
+  padding: var(--beosand-gap-sm);
+  display: flex;
+  flex-direction: column;
+  gap: var(--beosand-gap-xs);
+}
+
+.skipped-block__header {
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--tgui--text_color, #000);
+}
+
+/* A single skipped date, listed as a calm muted line (date + the "no seats" reason). */
+.skipped-block__item {
+  font-size: 14px;
+  color: var(--tgui--hint_color, #999);
+}
+
+/*
+ * The created-trainings count beneath the success tick: a centered coral-tint
+ * pill echoing `.waitlist-position`, so the reassuring "Создано тренировок: N"
+ * detail is legible without a second solid-coral accent competing with the
+ * MainButton. Display-only — the count is `GroupBookingResult.created.length`.
+ */
+.created-count {
+  align-self: center;
+  padding: var(--beosand-gap-xs) var(--beosand-gap-sm);
+  border-radius: 14px;
+  background: var(--beosand-coral-tint);
+  color: var(--beosand-coral-ink);
+  font-size: 14px;
+  font-weight: 600;
+}
+
+/* =====================================================================
+ * Individual training request (S8): trainer list, confirm sub-state, the
+ * delivered-success state, and the calm soft "trainer-unavailable" state.
+ *
+ * Palette discipline (same as the rest of the app): coral is reserved for the
+ * native MainButton ("Запросить тренировку"), the leading trainer chip (the
+ * same `.menu-icon` brand chip used on Home), and the solid `.success-badge`
+ * tick on the delivered state. The trainer-TYPE label (main/guest) is NEUTRAL
+ * reference text — never coral, never a court/identity leak (telegramId is
+ * never rendered). The soft `delivered:false` state is conveyed by a MUTED
+ * chip + header + body on a calm hint surface — NEVER a red error panel: a
+ * busy trainer is an informational fact, not a failure, and is announced as a
+ * `role="status"` region, not a `role="alert"`.
+ *
+ * Reuses without new tokens: `.menu-icon` (the coral leading trainer chip,
+ * with the existing `individual` glyph), `.chevron` (the trailing row
+ * affordance), `.success-badge` (the delivered tick), `.waitlist-badge--muted`
+ * (the soft-state chip surface), and the shared StateView loading/empty/error
+ * surfaces (`LoadingState` / `EmptyState` / `ErrorState`).
+ * ===================================================================== */
+
+/* The trainer-list row: same focus ring as the other tappable list cards. */
+.trainer-card:focus-visible {
+  outline: 2px solid var(--beosand-coral);
+  outline-offset: -2px;
+  border-radius: 10px;
+}
+
+/* =====================================================================
+ * Court rental request (S9): date picker → start-time picker →
+ * duration → server price preview → calm pending state.
+ *
+ * Palette discipline (unchanged from the rest of the app): coral is
+ * reserved for the SELECTED date pill, the SELECTED time pill, the
+ * active duration row (the OptionList tint), the native MainButton
+ * ("Отправить заявку"), and the solid `.success-badge` tick on the
+ * pending state. The free-courts COUNT chip uses the existing
+ * `.slot-badge--free` "engaged" tint (it is a count, NEVER a court
+ * number/id — a court id is never rendered anywhere in this flow). The
+ * price is a NEUTRAL chip/row — coral never rides on money. The
+ * "this time is taken" availability note reuses the calm muted
+ * "unavailable without alarm" surface — NOT a red error.
+ *
+ * Reuses without new tokens: `.pick-row`/`.pick-row--selected`/
+ * `.pick-marker` (the duration OptionList), `.slot-badge--free` (the
+ * free-courts count chip), `.confirm-price` (the price emphasis),
+ * `.confirm-error` (a verbatim 409 on submit), `.success-badge` (the
+ * pending tick), `.waitlist-badge--muted` (the calm "taken" chip), the
+ * shared StateView surfaces, and the screen / screen__center layout.
+ *
+ * New surfaces below: the horizontal date/time PILL grids and the
+ * selected pill state. These differ from the existing `.chip` filter
+ * bar (single-select, larger tap target, 2-line date pill) so they get
+ * their own classes rather than overloading the filter chip.
+ * ===================================================================== */
+
+/*
+ * A horizontally scrollable rail of single-select pills — used for BOTH
+ * the date window and the start-time list. Mirrors `.chip-bar` scroll
+ * behaviour (hidden scrollbar, touch momentum) so the two rails read as
+ * one family, but with a roomier gap for the taller date pills.
+ */
+.court-rail {
+  display: flex;
+  gap: var(--beosand-gap-xs);
+  overflow-x: auto;
+  padding: 2px var(--beosand-gap-xs);
+  margin: 0 calc(-1 * var(--beosand-gap-xs));
+  scrollbar-width: none;
+  -webkit-overflow-scrolling: touch;
+}
+
+.court-rail::-webkit-scrollbar {
+  display: none;
+}
+
+/*
+ * One selectable pill in a date/time rail. Inactive = the native
+ * bezeled surface (adapts light/dark); selected = the coral fill, the
+ * single accent that marks the current choice. Selection is announced
+ * via `aria-pressed`/`aria-current` on the button, NEVER by color
+ * alone (the weekday + day text and the time text carry the meaning).
+ */
+.court-pill {
+  display: inline-flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 2px;
+  flex: none;
+  min-width: 56px;
+  min-height: 56px;
+  padding: 8px 12px;
+  border: 0;
+  border-radius: 14px;
+  font: inherit;
+  line-height: 1.1;
+  cursor: pointer;
+  white-space: nowrap;
+  background: var(--tgui--secondary_fill, rgba(127, 127, 127, 0.12));
+  color: var(--tgui--text_color, #000);
+}
+
+/* A single-line (time) pill is a touch shorter than the 2-line date pill. */
+.court-pill--time {
+  flex-direction: row;
+  gap: 6px;
+  min-height: 48px;
+}
+
+/* The chosen date/time pill: the one coral accent in the rail. */
+.court-pill--selected {
+  background: var(--beosand-coral);
+  color: var(--tgui--button_text_color, #fff);
+}
+
+.court-pill:focus-visible {
+  outline: 2px solid var(--beosand-coral);
+  outline-offset: 2px;
+}
+
+/* The small weekday caption above the day number inside a date pill. */
+.court-pill__weekday {
+  font-size: 12px;
+  font-weight: 600;
+  opacity: 0.85;
+}
+
+/* The day·month line inside a date pill. */
+.court-pill__day {
+  font-size: 15px;
+  font-weight: 600;
+}
+
+/*
+ * The free-courts COUNT chip trailing a start-time pill (e.g. "4
+ * свободно"). It is a COUNT of free courts, NEVER a court number/id.
+ * On an unselected pill it uses the calm coral-tint `.slot-badge--free`
+ * treatment; on the selected (coral-filled) pill it switches to a
+ * translucent-on-fill surface so it stays legible against the coral.
+ */
+.court-count {
+  display: inline-flex;
+  align-items: center;
+  height: 20px;
+  padding: 0 8px;
+  border-radius: 10px;
+  font-size: 12px;
+  font-weight: 600;
+  line-height: 1;
+  background: var(--beosand-coral-tint);
+  color: var(--beosand-coral-ink);
+}
+
+.court-pill--selected .court-count {
+  background: rgba(255, 255, 255, 0.22);
+  color: var(--tgui--button_text_color, #fff);
+}
+
+/*
+ * The trainer-TYPE label (main/guest) shown as the row subtitle and on the
+ * confirm summary. A NEUTRAL muted hint pill — the calm "secondary fact"
+ * treatment (mirrors `.slot-badge--full` / `.booking-chip--attended`), so the
+ * type reads as quiet reference data and never competes with the coral chip or
+ * the MainButton. Non-sensitive; the trainer's telegramId is never rendered.
+ */
+.trainer-type {
+  display: inline-flex;
+  align-items: center;
+  height: 22px;
+  padding: 0 9px;
+  border-radius: 11px;
+  font-size: 13px;
+  font-weight: 600;
+  line-height: 1;
+  color: var(--tgui--hint_color, #999);
+  background: var(--tgui--secondary_fill, rgba(127, 127, 127, 0.12));
+}

@@ -44,6 +44,29 @@ describe("loadEnv", () => {
     );
   });
 
+  it("leaves MINIAPP_URL undefined and the origin list empty by default", () => {
+    const env = loadEnv(base);
+    expect(env.MINIAPP_URL).toBeUndefined();
+    expect(env.MINIAPP_ALLOWED_ORIGINS).toEqual([]);
+  });
+
+  it("parses MINIAPP_URL and the Mini App CORS allowlist", () => {
+    const env = loadEnv({
+      ...base,
+      MINIAPP_URL: "https://miniapp.example.com",
+      MINIAPP_ALLOWED_ORIGINS: "https://miniapp.example.com, https://tunnel.trycloudflare.com"
+    });
+    expect(env.MINIAPP_URL).toBe("https://miniapp.example.com");
+    expect(env.MINIAPP_ALLOWED_ORIGINS).toEqual([
+      "https://miniapp.example.com",
+      "https://tunnel.trycloudflare.com"
+    ]);
+  });
+
+  it("fails closed on a non-URL MINIAPP_URL", () => {
+    expect(() => loadEnv({ ...base, MINIAPP_URL: "not-a-url" })).toThrow(/MINIAPP_URL/);
+  });
+
   it("isAdmin matches by numeric or string id", () => {
     const env = loadEnv({ ...base, ADMIN_TELEGRAM_IDS: "111,222" });
     expect(isAdmin(env, 111)).toBe(true);

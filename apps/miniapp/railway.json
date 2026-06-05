@@ -1,0 +1,13 @@
+{
+  "$schema": "https://railway.com/railway.schema.json",
+  "build": {
+    "builder": "DOCKERFILE",
+    "dockerfilePath": "apps/miniapp/Dockerfile",
+    "watchPatterns": ["apps/miniapp/**", "packages/**"]
+  },
+  "deploy": {
+    "startCommand": "sh -c \"serve -s apps/miniapp/dist -l tcp://0.0.0.0:${PORT:-3000}\"",
+    "restartPolicyType": "ON_FAILURE",
+    "restartPolicyMaxRetries": 10
+  }
+}

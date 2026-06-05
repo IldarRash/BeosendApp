@@ -41,6 +41,27 @@ const envSchema = z.object({
         .split(",")
         .map((part) => part.trim())
         .filter(Boolean)
+    ),
+  /**
+   * HTTPS URL of the Telegram Mini App. The bot points its menu button and
+   * web_app inline buttons here. Dev-tolerant (optional) so the bot still boots
+   * over a tunnel-less local setup; the bot guards on it being set. In
+   * production it must be a real HTTPS origin (Telegram requires HTTPS).
+   */
+  MINIAPP_URL: z.string().url().optional(),
+  /**
+   * Comma-separated browser origins allowed to call the API in production from
+   * the Mini App (the tunnel/host origin serving apps/miniapp). Sibling to
+   * ADMIN_ALLOWED_ORIGINS; both are merged into the API CORS allow-list.
+   */
+  MINIAPP_ALLOWED_ORIGINS: z
+    .string()
+    .default("")
+    .transform((value) =>
+      value
+        .split(",")
+        .map((part) => part.trim())
+        .filter(Boolean)
     )
 });
 

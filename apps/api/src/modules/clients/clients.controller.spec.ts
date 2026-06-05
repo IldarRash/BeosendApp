@@ -85,6 +85,22 @@ describe("ClientsController", () => {
     expect(service.getByTelegramId).toHaveBeenCalledWith(TELEGRAM_ID, TELEGRAM_ID);
   });
 
+  it("GET by-telegram resolves the actor from x-client-telegram-id (Mini App session) when present", async () => {
+    // The bridge strips x-telegram-id for a client token, so only the client
+    // header carries the Mini App caller's identity here.
+    await expect(
+      controller.getByTelegram(undefined, String(TELEGRAM_ID), HEADER)
+    ).resolves.toEqual(client);
+    expect(service.getByTelegramId).toHaveBeenCalledWith(TELEGRAM_ID, TELEGRAM_ID);
+  });
+
+  it("GET by-telegram prefers x-client-telegram-id over any x-telegram-id", async () => {
+    await expect(controller.getByTelegram("9999", String(TELEGRAM_ID), HEADER)).resolves.toEqual(
+      client
+    );
+    expect(service.getByTelegramId).toHaveBeenCalledWith(TELEGRAM_ID, TELEGRAM_ID);
+  });
+
   it("GET by-telegram surfaces a 404 from the service for a missing client", async () => {
     service = makeService({
       getByTelegramId: vi.fn(async () => {

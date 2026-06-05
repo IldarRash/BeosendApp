@@ -47,6 +47,24 @@ describe("mainMenuKeyboard", () => {
     expect(MENU_ACTIONS.individual).toBe("menu:individual");
     expect(callbacksOf(mainMenuKeyboard(ru))).toContain(MENU_ACTIONS.individual);
   });
+
+  it("omits the Mini App web_app button when no URL is configured", () => {
+    const buttons = mainMenuKeyboard(ru).inline_keyboard.flat();
+    expect(buttons.some((b) => "web_app" in b)).toBe(false);
+  });
+
+  it("prepends a prominent Mini App web_app button when a URL is configured", () => {
+    const url = "https://miniapp.example.com";
+    const first = mainMenuKeyboard(ru, url).inline_keyboard[0]?.[0];
+    expect(first).toMatchObject({
+      text: ru["bot.menu.openApp"],
+      web_app: { url }
+    });
+    // Legacy inline flow callbacks are unchanged (the web_app button carries no
+    // callback_data, so it appears as undefined and is filtered out here).
+    const withApp = callbacksOf(mainMenuKeyboard(ru, url)).filter((d) => d !== undefined);
+    expect(withApp).toEqual(callbacksOf(mainMenuKeyboard(ru)));
+  });
 });
 
 describe("adminMenuKeyboard", () => {

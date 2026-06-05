@@ -2,6 +2,7 @@ import {
   BadRequestException,
   Body,
   Controller,
+  ForbiddenException,
   Get,
   Headers,
   Param,
@@ -46,33 +47,50 @@ export class CourtRequestsController {
   }
 
   /**
-   * C2 — server-computed price + availability for a desired slot. No write. The
-   * body carries telegram_id (never a clientId); any client-sent amount is ignored.
+   * C2 — server-computed price + availability for a desired slot. No write. Any
+   * client-sent amount is ignored (price is computed server-side). The actor is
+   * resolved from the verified session (`x-client-telegram-id ?? x-telegram-id`);
+   * the body still carries telegramId for the bot's server-to-server path, but it
+   * must match the verified actor — a mismatched id is rejected (no impersonation).
    */
   @Post("preview")
-  async preview(@Body() body: unknown): Promise<CourtRequestPreview> {
+  async preview(
+    @Body() body: unknown,
+    @Headers("x-telegram-id") telegramIdHeader: string | undefined,
+    @Headers("x-client-telegram-id") clientTelegramIdHeader?: string
+  ): Promise<CourtRequestPreview> {
+    const actorTelegramId = parseTelegramId(clientTelegramIdHeader ?? telegramIdHeader);
     const parsed = previewCourtRequestSchema.safeParse(body);
     if (!parsed.success) {
       throw new BadRequestException(
         "Invalid preview body: expected { telegramId, date, startTime, durationHours: 1|1.5|2 }."
       );
     }
-    return this.service.previewRequest(parsed.data);
+    assertSelf(parsed.data.telegramId, actorTelegramId);
+    return this.service.previewRequest({ ...parsed.data, telegramId: actorTelegramId });
   }
 
   /**
-   * C2 — create a pending court request for the caller's own client (resolved by
-   * telegram_id). Price is computed server-side; no court is assigned until admin.
+   * C2 — create a pending court request for the caller's own client (resolved from
+   * the verified session: `x-client-telegram-id ?? x-telegram-id`). Price is
+   * computed server-side; no court is assigned until admin. The body telegramId
+   * must match the verified actor — a mismatched id is rejected (no impersonation).
    */
   @Post()
-  async create(@Body() body: unknown): Promise<CourtRequest> {
+  async create(
+    @Body() body: unknown,
+    @Headers("x-telegram-id") telegramIdHeader: string | undefined,
+    @Headers("x-client-telegram-id") clientTelegramIdHeader?: string
+  ): Promise<CourtRequest> {
+    const actorTelegramId = parseTelegramId(clientTelegramIdHeader ?? telegramIdHeader);
     const parsed = createCourtRequestSchema.safeParse(body);
     if (!parsed.success) {
       throw new BadRequestException(
         "Invalid request body: expected { telegramId, date, startTime, durationHours: 1|1.5|2 }."
       );
     }
-    return this.service.createRequest(parsed.data);
+    assertSelf(parsed.data.telegramId, actorTelegramId);
+    return this.service.createRequest({ ...parsed.data, telegramId: actorTelegramId });
   }
 
   /**
@@ -173,6 +191,18 @@ function parseTelegramId(raw: string | undefined): number {
     throw new BadRequestException("Missing or invalid x-telegram-id header.");
   }
   return parsed.data;
+}
+
+/**
+ * Self-only guard: the body telegramId must equal the actor resolved from the
+ * verified session header. Blocks a forged/foreign body telegramId from acting on
+ * another client's behalf (no impersonation); the bot keeps working because it
+ * sends a body telegramId that matches its x-telegram-id header.
+ */
+function assertSelf(bodyTelegramId: number, actorTelegramId: number): void {
+  if (bodyTelegramId !== actorTelegramId) {
+    throw new ForbiddenException("Body telegramId does not match the authenticated caller.");
+  }
 }
 
 function parseRequestId(raw: string): string {

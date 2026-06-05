@@ -179,25 +179,20 @@ describe("previewCourtRequestSchema (C2 request input — keyed off telegram id)
     );
   });
 
-  it("strips a smuggled clientId / courtId / priceRsd — identity and money are never client input", () => {
-    // Forbidden path: the bot must never send a client identity or amount. Even if a
-    // crafted body carries them, the contract parses them away so the service can
-    // resolve the caller by telegram_id and compute the price itself.
-    const parsed = previewCourtRequestSchema.parse({
+  it("rejects a smuggled clientId / courtId / priceRsd — identity and money are never client input", () => {
+    // Forbidden path: the bot must never send a client identity or amount. The strict
+    // contract rejects such a crafted body outright (rather than silently stripping),
+    // so the service always resolves the caller by telegram_id and computes the price.
+    const result = previewCourtRequestSchema.safeParse({
       ...validBody,
       clientId: "11111111-1111-1111-1111-111111111111",
       courtId: "22222222-2222-2222-2222-222222222222",
       priceRsd: 1
     });
-    expect(Object.keys(parsed).sort()).toEqual([
-      "date",
-      "durationHours",
-      "startTime",
-      "telegramId"
-    ]);
-    expect("clientId" in parsed).toBe(false);
-    expect("courtId" in parsed).toBe(false);
-    expect("priceRsd" in parsed).toBe(false);
+    expect(result.success).toBe(false);
+    if (!result.success) {
+      expect(result.error.issues[0]?.code).toBe("unrecognized_keys");
+    }
   });
 });
 
@@ -213,24 +208,19 @@ describe("createCourtRequestSchema (C2 submit input — same telegram-id shape, 
     expect(createCourtRequestSchema.safeParse(validBody).success).toBe(true);
   });
 
-  it("strips a client-supplied courtId / priceRsd / status from the submit body", () => {
+  it("rejects a client-supplied courtId / priceRsd / status on the submit body", () => {
     // Invariant: the request is created pending with no court and a server price;
     // the create body can carry none of those decisions.
-    const parsed = createCourtRequestSchema.parse({
+    const result = createCourtRequestSchema.safeParse({
       ...validBody,
       courtId: "22222222-2222-2222-2222-222222222222",
       priceRsd: 999,
       status: "confirmed"
     });
-    expect(Object.keys(parsed).sort()).toEqual([
-      "date",
-      "durationHours",
-      "startTime",
-      "telegramId"
-    ]);
-    expect("courtId" in parsed).toBe(false);
-    expect("priceRsd" in parsed).toBe(false);
-    expect("status" in parsed).toBe(false);
+    expect(result.success).toBe(false);
+    if (!result.success) {
+      expect(result.error.issues[0]?.code).toBe("unrecognized_keys");
+    }
   });
 });
 
