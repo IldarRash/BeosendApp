@@ -42,8 +42,7 @@ export function Chip({ label, active, onClick, glyph, pressed, badge }: ChipProp
 
 /**
  * The horizontal, scrollable bar that holds the Today toggle, the filter trigger,
- * and any active-filter chips. Uses `.chiprow` (from the handoff) which is also
- * aliased by `.chip-bar` for backward compat with existing callers.
+ * and any active-filter chips. Uses the handoff `.chiprow` class.
  */
 export function ChipBar({ label, children }: { label: string; children: ReactNode }): JSX.Element {
   return (

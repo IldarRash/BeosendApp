@@ -1,13 +1,4 @@
 import { useCallback, useMemo, useState } from "react";
-import {
-  Caption,
-  Input,
-  Placeholder,
-  Section,
-  Snackbar,
-  Spinner,
-  Steps
-} from "@telegram-apps/telegram-ui";
 import { LOCALES, asLocale, localeLabel, type Locale } from "@beosand/i18n";
 import { useApiClient } from "../api/ApiProvider";
 import { useLevels, useOnboard, useSetLanguage } from "../api/hooks";
@@ -30,6 +21,10 @@ interface OnboardingWizardProps {
  * from the verified session (getMe); the wizard never accepts a foreign telegramId
  * — the server resolves and enforces the actor. No domain logic lives here: levels
  * come from the API, the locale list from @beosand/i18n.
+ *
+ * Markup follows the handoff prototype: a `.tg-sech` step overline, `.card`/`.note`
+ * for the name field, `.optrow` rows (via OptionList) for language/level, and the
+ * `.stateview`/`.spinner` calm-state pattern while levels load.
  */
 export function OnboardingWizard({ onDone }: OnboardingWizardProps): JSX.Element {
   const api = useApiClient();
@@ -129,24 +124,29 @@ export function OnboardingWizard({ onDone }: OnboardingWizardProps): JSX.Element
 
   return (
     <div className="screen" aria-busy={submitting || undefined}>
-      <div className="wizard-progress">
-        <Steps count={3} progress={step} />
-        <Caption level="1" className="muted">
-          {t("miniapp.onboarding.step", { n: step + 1 })}
-        </Caption>
+      {/* Step overline — uppercase muted (`.tg-sech`); announced on change. */}
+      <div className="tg-sech" style={{ padding: 0 }} role="status" aria-live="polite">
+        {t("miniapp.onboarding.step", { n: step + 1 })}
       </div>
 
       {step === 0 && (
-        <Section header={t("miniapp.onboarding.nameHeader")}>
-          <Input
-            value={name}
-            placeholder={t("miniapp.onboarding.namePlaceholder")}
-            onChange={(e) => setName(e.target.value)}
-          />
-          <Caption level="1" className="muted screen-hint">
-            {t("miniapp.onboarding.nameHint")}
-          </Caption>
-        </Section>
+        <div>
+          <div className="tg-sech" style={{ padding: "0 0 7px" }}>
+            {t("miniapp.onboarding.nameHeader")}
+          </div>
+          <div className="card">
+            <input
+              className="tg-input"
+              type="text"
+              value={name}
+              placeholder={t("miniapp.onboarding.namePlaceholder")}
+              aria-label={t("miniapp.onboarding.nameHeader")}
+              autoComplete="name"
+              onChange={(e) => setName(e.target.value)}
+            />
+          </div>
+          <div className="note">{t("miniapp.onboarding.nameHint")}</div>
+        </div>
       )}
 
       {step === 1 && (
@@ -161,9 +161,10 @@ export function OnboardingWizard({ onDone }: OnboardingWizardProps): JSX.Element
 
       {step === 2 &&
         (levels.isLoading ? (
-          <Placeholder description={t("miniapp.common.loading")}>
-            <Spinner size="m" />
-          </Placeholder>
+          <div className="stateview" role="status" aria-live="polite">
+            <div className="spinner" aria-hidden="true" />
+            <div className="stateview__sub">{t("miniapp.common.loading")}</div>
+          </div>
         ) : (
           <OptionList
             name="onboarding-level"
@@ -175,18 +176,22 @@ export function OnboardingWizard({ onDone }: OnboardingWizardProps): JSX.Element
           />
         ))}
 
+      {errorMessage && (
+        <div className="note" role="alert">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={1.8} strokeLinecap="round" strokeLinejoin="round" aria-hidden="true" focusable="false">
+            <circle cx="12" cy="12" r="8.5" />
+            <path d="M12 8v4M12 16h.01" />
+          </svg>
+          <span>{errorMessage}</span>
+        </div>
+      )}
+
       <FallbackButton
         text={mainText}
         onClick={onMainClick}
         disabled={step === 0 ? !nameValid : false}
         loading={submitting}
       />
-
-      {errorMessage && (
-        <Snackbar onClose={() => setErrorMessage(null)} duration={5000}>
-          {errorMessage}
-        </Snackbar>
-      )}
     </div>
   );
 }

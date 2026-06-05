@@ -1,4 +1,3 @@
-import { Cell, List, Placeholder, Section } from "@telegram-apps/telegram-ui";
 import type { SlotCard as SlotCardData } from "@beosand/types";
 import { useT } from "../i18n/LanguageProvider";
 import { useMainButton } from "../tg/buttons";
@@ -42,17 +41,17 @@ interface WaitlistJoinViewProps {
  *
  * Three states, one native MainButton:
  *   - prompt   → MainButton "Встать в лист ожидания" fires {@link onJoin}
- *   - joined   → a success Placeholder showing the returned waitlist position, and
+ *   - joined   → a success `.stateview` showing the returned waitlist position, and
  *                the MainButton becomes the "done" action (back to the list)
  *   - conflict → the server's 409 message verbatim (already-on-list / now-bookable)
  *                stays beneath the prompt; no fabricated "joined" state.
  *
  * Interaction layer only: it renders the API's `position` and the verbatim server
  * message — no eligibility, ordering, or window math here. Coral lives only on the
- * primary MainButton (native) and the success tick; the conflict notice reuses the
- * `.confirm-error` coral-tint surface so it reads as an inline alert, not an error
- * page. State is conveyed by structure + text (role="status"/"alert"), never color
- * alone.
+ * primary MainButton (native) and the success `.stateview` icon; the conflict notice
+ * reuses the prototype `.note` hint (coral icon + text) so it reads as an inline
+ * alert, not an error page. State is conveyed by structure + text
+ * (role="status"/"alert"), never color alone.
  */
 export function WaitlistJoinView({
   slot,
@@ -77,16 +76,19 @@ export function WaitlistJoinView({
   if (joined) {
     return (
       <div className="screen" role="status" aria-live="polite">
-        <Placeholder
-          header={t("miniapp.waitlist.joinedTitle")}
-          description={t("miniapp.waitlist.joinedBody")}
-        >
-          <span className="waitlist-badge" aria-hidden="true">
+        <div className="stateview">
+          <div className="stateview__ic" aria-hidden="true">
             <Glyph name="waitlist" />
-          </span>
-        </Placeholder>
-        <div className="waitlist-position" role="note">
-          {t("miniapp.waitlist.positionLabel", { position })}
+          </div>
+          <div className="stateview__title">{t("miniapp.waitlist.joinedTitle")}</div>
+          <div className="stateview__sub">{t("miniapp.waitlist.joinedBody")}</div>
+        </div>
+        <div className="note" role="note">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={1.8} strokeLinecap="round" strokeLinejoin="round" aria-hidden="true" focusable="false">
+            <circle cx="12" cy="12" r="8.5" />
+            <path d="M12 11v5M12 8h.01" />
+          </svg>
+          <span>{t("miniapp.waitlist.positionLabel", { position })}</span>
         </div>
         <FallbackButton text={t(doneLabelKey)} onClick={onDone} />
       </div>
@@ -104,21 +106,42 @@ export function WaitlistJoinView({
 
   return (
     <div className="screen" aria-busy={submitting || undefined}>
-      <List>
-        <Section header={header} footer={t("miniapp.waitlist.joinConfirmBody")}>
-          {slot ? (
-            <>
-              <Cell subhead={t("miniapp.booking.dateLabel")}>{dateLine}</Cell>
-              <Cell subhead={t("miniapp.booking.timeLabel")}>{timeLine}</Cell>
-              <Cell subhead={t("miniapp.booking.trainerLabel")}>{slot.trainerName}</Cell>
-            </>
-          ) : null}
-        </Section>
-      </List>
+      <div className="tg-sech" style={{ padding: "0 0 7px" }}>
+        {header}
+      </div>
+
+      {slot ? (
+        <div className="card">
+          <div className="sumrow">
+            <span className="sumrow__k">{t("miniapp.booking.dateLabel")}</span>
+            <span className="sumrow__v">{dateLine}</span>
+          </div>
+          <div className="sumrow">
+            <span className="sumrow__k">{t("miniapp.booking.timeLabel")}</span>
+            <span className="sumrow__v">{timeLine}</span>
+          </div>
+          <div className="sumrow">
+            <span className="sumrow__k">{t("miniapp.booking.trainerLabel")}</span>
+            <span className="sumrow__v">{slot.trainerName}</span>
+          </div>
+        </div>
+      ) : null}
+
+      <div className="note">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={1.8} strokeLinecap="round" strokeLinejoin="round" aria-hidden="true" focusable="false">
+          <circle cx="12" cy="12" r="8.5" />
+          <path d="M12 11v5M12 8h.01" />
+        </svg>
+        <span>{t("miniapp.waitlist.joinConfirmBody")}</span>
+      </div>
 
       {errorMessage && (
-        <div className="confirm-error" role="alert">
-          {errorMessage}
+        <div className="note" role="alert">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={1.8} strokeLinecap="round" strokeLinejoin="round" aria-hidden="true" focusable="false">
+            <circle cx="12" cy="12" r="8.5" />
+            <path d="M12 8v4M12 16h.01" />
+          </svg>
+          <span>{errorMessage}</span>
         </div>
       )}
 

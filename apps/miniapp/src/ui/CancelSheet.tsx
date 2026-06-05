@@ -1,4 +1,4 @@
-import { Button, Cell, Modal, Section } from "@telegram-apps/telegram-ui";
+import { Button, Modal } from "@telegram-apps/telegram-ui";
 import type { MyBookingItem } from "@beosand/types";
 import { useT } from "../i18n/LanguageProvider";
 import { formatDayMonth, formatTimeRange, weekdayFullKey } from "./format";
@@ -16,10 +16,11 @@ interface CancelSheetProps {
 }
 
 /**
- * The cancel confirm step as a native bottom-sheet Modal (mirroring FilterSheet): a
- * plain read-only summary of the booking being cancelled, a warning line, then a
- * "keep" (plain) and a destructive "cancel the booking" action. The destructive
- * commit is gated here — the row's Cancel affordance only opens this sheet.
+ * The cancel confirm step as a native bottom-sheet Modal: a read-only summary of
+ * the booking being cancelled built from the handoff `.sumrow` rows, a `.note`
+ * warning line, then a "keep" (plain) and a destructive "cancel the booking"
+ * action. The destructive commit is gated here — the row's Cancel affordance only
+ * opens this sheet.
  *
  * The warning haptic is fired by the screen on open; the actual write, success, and
  * refetch are owned by the screen via `useCancelBooking`. A 409 (already cancelled /
@@ -35,12 +36,10 @@ export function CancelSheet({
 }: CancelSheetProps): JSX.Element {
   const t = useT();
 
-  const summary = item
-    ? `${t(weekdayFullKey(item.dayOfWeek))}, ${formatDayMonth(item.date)} · ${formatTimeRange(
-        item.startTime,
-        item.endTime
-      )}`
+  const dateLine = item
+    ? `${t(weekdayFullKey(item.dayOfWeek))}, ${formatDayMonth(item.date)}`
     : "";
+  const timeLine = item ? formatTimeRange(item.startTime, item.endTime) : "";
 
   return (
     <Modal
@@ -50,12 +49,27 @@ export function CancelSheet({
     >
       <div className="cancel-sheet">
         {item && (
-          <Section footer={t("miniapp.myBookings.cancelConfirmBody")}>
-            <Cell subhead={t("miniapp.booking.dateLabel")} multiline>
-              {summary}
-            </Cell>
-            <Cell subhead={t("miniapp.booking.trainerLabel")}>{item.trainerName}</Cell>
-          </Section>
+          <>
+            <div className="card">
+              <div className="sumrow">
+                <span className="sumrow__k">{t("miniapp.booking.dateLabel")}</span>
+                <span className="sumrow__v">{dateLine}</span>
+              </div>
+              <div className="sumrow">
+                <span className="sumrow__k">{t("miniapp.booking.timeLabel")}</span>
+                <span className="sumrow__v">{timeLine}</span>
+              </div>
+              <div className="sumrow">
+                <span className="sumrow__k">{t("miniapp.booking.trainerLabel")}</span>
+                <span className="sumrow__v">{item.trainerName}</span>
+              </div>
+            </div>
+
+            <p className="note">
+              <Warning />
+              {t("miniapp.myBookings.cancelConfirmBody")}
+            </p>
+          </>
         )}
 
         {errorMessage && (
@@ -74,5 +88,21 @@ export function CancelSheet({
         </div>
       </div>
     </Modal>
+  );
+}
+
+/** Warning glyph for the `.note` line (inherits coral via the `.note svg` rule). */
+function Warning(): JSX.Element {
+  return (
+    <svg viewBox="0 0 24 24" fill="none" aria-hidden="true" focusable="false">
+      <path
+        d="M12 4.5l8.5 14.5h-17L12 4.5Z"
+        stroke="currentColor"
+        strokeWidth={1.8}
+        strokeLinejoin="round"
+      />
+      <path d="M12 10v4.2" stroke="currentColor" strokeWidth={1.8} strokeLinecap="round" />
+      <circle cx="12" cy="17" r="1" fill="currentColor" />
+    </svg>
   );
 }

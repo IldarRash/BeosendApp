@@ -1,4 +1,3 @@
-import { Placeholder } from "@telegram-apps/telegram-ui";
 import { useT } from "../i18n/LanguageProvider";
 import { useMainButton } from "../tg/buttons";
 import { FallbackButton } from "./FallbackButton";
@@ -34,11 +33,13 @@ interface WaitlistAcceptViewProps {
  * MainButton. The confirmed booking is the post-accept detail.
  *
  * Three terminal states, all distinct (a11y: role + text, never color alone):
- *   - prompt   → role="status"; MainButton "Подтвердить" fires {@link onAccept}
- *   - accepted → a success Placeholder (coral tick); MainButton becomes "На главную"
- *   - conflict → a calm "window closed" Placeholder with the server message verbatim
- *                and a path Home; NO booking is rendered (the invariant: accept never
- *                over-books — a re-taken seat surfaces here, never as a booked card).
+ *   - prompt   → role="status"; a coral `.stateview`; MainButton "Подтвердить" fires {@link onAccept}
+ *   - accepted → a success `.stateview` (coral check); MainButton becomes "На главную"
+ *   - conflict → a calm `.stateview` ("window closed", amber/neutral tone) with the
+ *                server message verbatim and a path Home; announced politely
+ *                (role="status"), NOT a red alarm. NO booking is rendered (the
+ *                invariant: accept never over-books — a re-taken seat surfaces here,
+ *                never as a booked card).
  *
  * A hard (non-conflict) error reuses the shared ErrorState via the screen; this view
  * owns only the domain states above. Interaction layer only — it calls and renders.
@@ -65,30 +66,30 @@ export function WaitlistAcceptView({
   if (accepted) {
     return (
       <div className="screen screen__center" role="status" aria-live="polite">
-        <Placeholder
-          header={t("miniapp.waitlist.acceptedTitle")}
-          description={t("miniapp.waitlist.acceptedBody")}
-        >
-          <span className="success-badge" aria-hidden="true">
-            ✓
-          </span>
-        </Placeholder>
+        <div className="stateview">
+          <div className="stateview__ic" aria-hidden="true">
+            <Glyph name="accept" />
+          </div>
+          <div className="stateview__title">{t("miniapp.waitlist.acceptedTitle")}</div>
+          <div className="stateview__sub">{t("miniapp.waitlist.acceptedBody")}</div>
+        </div>
         <FallbackButton text={t("miniapp.waitlist.toHome")} onClick={onHome} />
       </div>
     );
   }
 
   if (conflict) {
+    // Calm "window closed" — amber/neutral tone, NOT a red alarm. role="status"
+    // (polite) so a re-taken seat reads as an expected outcome, never an error.
     return (
-      <div className="screen screen__center" role="alert">
-        <Placeholder
-          header={t("miniapp.waitlist.expiredTitle")}
-          description={errorMessage || t("miniapp.waitlist.expiredBody")}
-        >
-          <span className="waitlist-badge waitlist-badge--muted" aria-hidden="true">
+      <div className="screen screen__center" role="status" aria-live="polite">
+        <div className="stateview">
+          <div className="stateview__ic stateview__ic--calm" aria-hidden="true">
             <Glyph name="waitlist" />
-          </span>
-        </Placeholder>
+          </div>
+          <div className="stateview__title">{t("miniapp.waitlist.expiredTitle")}</div>
+          <div className="stateview__sub">{errorMessage || t("miniapp.waitlist.expiredBody")}</div>
+        </div>
         <FallbackButton text={t("miniapp.waitlist.toHome")} onClick={onHome} />
       </div>
     );
@@ -96,14 +97,13 @@ export function WaitlistAcceptView({
 
   return (
     <div className="screen screen__center" role="status" aria-live="polite" aria-busy={submitting || undefined}>
-      <Placeholder
-        header={t("miniapp.waitlist.acceptHeader")}
-        description={t("miniapp.waitlist.acceptBody")}
-      >
-        <span className="waitlist-badge" aria-hidden="true">
+      <div className="stateview">
+        <div className="stateview__ic" aria-hidden="true">
           <Glyph name="accept" />
-        </span>
-      </Placeholder>
+        </div>
+        <div className="stateview__title">{t("miniapp.waitlist.acceptHeader")}</div>
+        <div className="stateview__sub">{t("miniapp.waitlist.acceptBody")}</div>
+      </div>
       <FallbackButton
         text={t("miniapp.waitlist.accept")}
         onClick={onAccept}

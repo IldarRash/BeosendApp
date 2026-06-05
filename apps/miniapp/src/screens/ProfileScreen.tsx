@@ -1,5 +1,5 @@
 import { useCallback, useMemo, useState } from "react";
-import { Cell, List, Modal, Section, Snackbar, Title } from "@telegram-apps/telegram-ui";
+import { Modal, Snackbar } from "@telegram-apps/telegram-ui";
 import { LOCALES, asLocale, localeLabel, type Locale } from "@beosand/i18n";
 import type { Client } from "@beosand/types";
 import { useLevels, useSetLanguage } from "../api/hooks";
@@ -11,11 +11,26 @@ interface ProfileScreenProps {
   client: Client;
 }
 
+/** Right-pointing chevron used on the tappable language row (`.lrow__chev`). */
+function Chevron(): JSX.Element {
+  return (
+    <span className="lrow__chev" aria-hidden="true">
+      <svg viewBox="0 0 8 14" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round" focusable="false">
+        <path d="M1 1l6 6-6 6" />
+      </svg>
+    </span>
+  );
+}
+
 /**
  * The authenticated landing for S1: a read-only profile (name + level) with the
  * one editable control — the interface language. Name and level are read-only by
  * invariant (no edit affordance). All values come from the validated client record
  * and the levels cache; the level name is resolved by id, never recomputed.
+ *
+ * Rendered with the handoff prototype structure: `.tg-sech` section headers over
+ * `.card` groups of `.lrow` rows. Only the language row is interactive (opens the
+ * native picker); the identity rows are static facts.
  */
 export function ProfileScreen({ client }: ProfileScreenProps): JSX.Element {
   const t = useT();
@@ -61,28 +76,45 @@ export function ProfileScreen({ client }: ProfileScreenProps): JSX.Element {
 
   return (
     <div className="screen screen--no-mainbutton">
-      <Title level="1" weight="2">
-        {client.name}
-      </Title>
+      {/* Identity — read-only facts, no edit affordance */}
+      <section aria-label={t("miniapp.profile.title")}>
+        <div className="tg-sech">{t("miniapp.profile.title")}</div>
+        <div className="card">
+          <div className="lrow" style={{ cursor: "default" }}>
+            <div className="lrow__main">
+              <div className="lrow__title">{client.name}</div>
+              {client.telegramUsername && (
+                <div className="lrow__sub">@{client.telegramUsername}</div>
+              )}
+            </div>
+          </div>
+          <div className="lrow" style={{ cursor: "default" }}>
+            <div className="lrow__main">
+              <div className="lrow__sub">{t("miniapp.profile.level")}</div>
+              <div className="lrow__title">{levelName}</div>
+            </div>
+          </div>
+        </div>
+      </section>
 
-      <List>
-        <Section header={t("miniapp.profile.title")}>
-          <Cell subtitle={client.telegramUsername ? `@${client.telegramUsername}` : undefined}>
-            {client.name}
-          </Cell>
-          <Cell subhead={t("miniapp.profile.level")}>{levelName}</Cell>
-        </Section>
-
-        <Section header={t("miniapp.profile.settings")}>
-          <Cell
-            subtitle={localeLabel[locale]}
+      {/* Settings — the one editable control: interface language */}
+      <section aria-label={t("miniapp.profile.settings")}>
+        <div className="tg-sech">{t("miniapp.profile.settings")}</div>
+        <div className="card">
+          <button
+            type="button"
+            className="lrow"
             onClick={() => setPickerOpen(true)}
-            after={<span className="chevron" aria-hidden="true">›</span>}
+            style={{ width: "100%", border: "none", font: "inherit", textAlign: "left", background: "var(--tg-bg)" }}
           >
-            {t("miniapp.profile.language")}
-          </Cell>
-        </Section>
-      </List>
+            <div className="lrow__main">
+              <div className="lrow__title">{t("miniapp.profile.language")}</div>
+              <div className="lrow__sub">{localeLabel[locale]}</div>
+            </div>
+            <Chevron />
+          </button>
+        </div>
+      </section>
 
       <Modal
         open={pickerOpen}

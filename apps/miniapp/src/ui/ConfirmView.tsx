@@ -2,6 +2,7 @@ import type { SlotCard as SlotCardData } from "@beosand/types";
 import { useT } from "../i18n/LanguageProvider";
 import { useMainButton } from "../tg/buttons";
 import { FallbackButton } from "./FallbackButton";
+import { Glyph } from "./icons";
 import {
   formatDayMonth,
   formatRsd,
@@ -72,7 +73,9 @@ export function ConfirmView({
     return (
       <div className="screen" role="status" aria-live="polite">
         <div className="stateview">
-          <span className="success-badge" aria-hidden="true">✓</span>
+          <div className="stateview__ic" aria-hidden="true">
+            <Glyph name="accept" />
+          </div>
           <div className="stateview__title">{t("miniapp.booking.successTitle")}</div>
           <div className="stateview__sub">{dateLine} · {timeLine}</div>
         </div>
@@ -117,8 +120,12 @@ export function ConfirmView({
       </div>
 
       {errorMessage && (
-        <div className="confirm-error" role="alert">
-          {errorMessage}
+        <div className="note" role="alert">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={1.8} strokeLinecap="round" strokeLinejoin="round" aria-hidden="true" focusable="false">
+            <circle cx="12" cy="12" r="8.5" />
+            <path d="M12 8v4M12 16h.01" />
+          </svg>
+          <span>{errorMessage}</span>
         </div>
       )}
 
