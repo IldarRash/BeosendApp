@@ -40,6 +40,26 @@ function statusLabel(status: TrainingStatus, t: Translate): string {
   return t(`admin.trainings.status${status.charAt(0).toUpperCase()}${status.slice(1)}`);
 }
 
+/** ISO `yyyy-mm-dd` for the given (year, 1-based month, day). Presentation only. */
+function isoDate(year: number, month: number, day: number): string {
+  const mm = String(month).padStart(2, "0");
+  const dd = String(day).padStart(2, "0");
+  return `${year}-${mm}-${dd}`;
+}
+
+/** First/last day of a calendar month as ISO strings (`month` is 1-12). */
+function monthRange(year: number, month: number): { from: string; to: string } {
+  // Day 0 of the next month is the last day of this month — plain Date math.
+  const lastDay = new Date(year, month, 0).getDate();
+  return { from: isoDate(year, month, 1), to: isoDate(year, month, lastDay) };
+}
+
+/** First/last day of the current calendar month as ISO strings. */
+function currentMonthRange(): { from: string; to: string } {
+  const now = new Date();
+  return monthRange(now.getFullYear(), now.getMonth() + 1);
+}
+
 /** Month options 1..12 with localized names. */
 function monthOptions(t: Translate): SelectOption[] {
   return Array.from({ length: 12 }, (_, i) => ({
@@ -68,8 +88,10 @@ export function Trainings(): JSX.Element {
   const [view, setView] = useState<TrainingsView>("table");
 
   // ── Range / group filter ───────────────────────────────────────────────
-  const [from, setFrom] = useState("");
-  const [to, setTo] = useState("");
+  // Default to the current calendar month so the table shows data on first load;
+  // clearing a date drops the query back to the pick-range placeholder.
+  const [from, setFrom] = useState(() => currentMonthRange().from);
+  const [to, setTo] = useState(() => currentMonthRange().to);
   const [filterGroupId, setFilterGroupId] = useState("");
 
   const groups = useGroups();
@@ -277,6 +299,10 @@ export function Trainings(): JSX.Element {
           generate.mutate(input, {
             onSuccess: (rows) => {
               setGenOpen(false);
+              // Move the table to the generated month so the new rows are visible.
+              const range = monthRange(input.year, input.month);
+              setFrom(range.from);
+              setTo(range.to);
               notify(t("admin.trainings.generated", { count: rows.length }), "success");
             }
           });
@@ -295,6 +321,10 @@ export function Trainings(): JSX.Element {
           generateAll.mutate(input, {
             onSuccess: (result) => {
               setGenAllOpen(false);
+              // Move the table to the generated month so the new rows are visible.
+              const range = monthRange(input.year, input.month);
+              setFrom(range.from);
+              setTo(range.to);
               setAllResult(result);
             }
           });

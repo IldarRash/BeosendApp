@@ -97,10 +97,21 @@ class FakeBookingsRepository {
     return work({} as Database);
   }
 
+  /**
+   * Extra lockable trainings keyed by id, for the subscription-batch tests where a
+   * decline must recompute several distinct trainings. `training` remains the single
+   * default fixture used by the rest of the suite.
+   */
+  trainingsById: Record<string, FakeTraining> = {};
+
   async findTrainingForUpdate(
     _tx: Database,
     trainingId: string
   ): Promise<TrainingLockRow | undefined> {
+    const extra = this.trainingsById[trainingId];
+    if (extra) {
+      return { ...extra, trainerId: extra.trainerId ?? TRAINER_ID };
+    }
     if (!this.training || this.training.id !== trainingId) {
       return undefined;
     }
@@ -132,8 +143,13 @@ class FakeBookingsRepository {
     clientId: string,
     trainingId: string
   ): Promise<Booking | undefined> {
+    // Mirrors the repo: a `pending` hold also occupies the seat, so it counts as a
+    // duplicate exactly like a `booked` one.
     return this.bookings.find(
-      (b) => b.clientId === clientId && b.trainingId === trainingId && b.status === "booked"
+      (b) =>
+        b.clientId === clientId &&
+        b.trainingId === trainingId &&
+        (b.status === "booked" || b.status === "pending")
     );
   }
 
@@ -144,7 +160,7 @@ class FakeBookingsRepository {
       trainingId: string;
       type: "single" | "group";
       groupSubscriptionId: string | null;
-      status: "booked";
+      status: "booked" | "pending";
       source: Booking["source"];
     }
   ): Promise<Booking> {
@@ -159,10 +175,36 @@ class FakeBookingsRepository {
       groupSubscriptionId: values.groupSubscriptionId,
       createdAt: new Date().toISOString(),
       status: values.status,
-      source: values.source
+      source: values.source,
+      paymentStatus: "unpaid",
+      paidAt: null,
+      paidBy: null
     };
     this.bookings.push(booking);
     return booking;
+  }
+
+  /**
+   * Every row of a subscription (ANY status), locked for the confirm/decline batch,
+   * joined to its training's trainerId. Mirrors the repo: matched by
+   * groupSubscriptionId ONLY so the service can detect an empty batch (404) and
+   * authorize before short-circuiting on an already-decided one.
+   */
+  async findBySubscriptionForUpdate(
+    _tx: Database,
+    groupSubscriptionId: string
+  ): Promise<
+    { id: string; clientId: string; trainingId: string; trainerId: string; status: Booking["status"] }[]
+  > {
+    return this.bookings
+      .filter((b) => b.groupSubscriptionId === groupSubscriptionId)
+      .map((b) => ({
+        id: b.id,
+        clientId: b.clientId,
+        trainingId: b.trainingId,
+        trainerId: this.trainingsById[b.trainingId]?.trainerId ?? this.training?.trainerId ?? TRAINER_ID,
+        status: b.status
+      }));
   }
 
   async findBookingForUpdate(
@@ -250,6 +292,11 @@ class FakeBookingsRepository {
       this.training.bookedCount = bookedCount;
       this.training.status = status;
     }
+    const extra = this.trainingsById[trainingId];
+    if (extra) {
+      extra.bookedCount = bookedCount;
+      extra.status = status;
+    }
     const monthRow = this.monthTrainings.find((t) => t.id === trainingId);
     if (monthRow) {
       monthRow.bookedCount = bookedCount;
@@ -274,6 +321,9 @@ class FakeTrainersRepository {
   trainers: Trainer[] = [];
   async findByTelegramId(telegramId: number): Promise<Trainer | undefined> {
     return this.trainers.find((t) => t.telegramId === telegramId && t.status === "active");
+  }
+  async findById(id: string): Promise<Trainer | undefined> {
+    return this.trainers.find((t) => t.id === id);
   }
 }
 
@@ -539,7 +589,10 @@ describe("BookingsService.createGroupBooking", () => {
         groupSubscriptionId: null,
         createdAt: new Date().toISOString(),
         status: "booked",
-        source: "telegram"
+        source: "telegram",
+        paymentStatus: "unpaid",
+        paidAt: null,
+        paidBy: null
       }
     ];
 
@@ -787,6 +840,9 @@ describe("BookingsService.cancelBooking", () => {
     createdAt: new Date().toISOString(),
     status: "booked",
     source: "telegram",
+    paymentStatus: "unpaid",
+    paidAt: null,
+    paidBy: null,
     ...over
   });
 
@@ -924,6 +980,9 @@ describe("BookingsService.markAttendance (T2.3)", () => {
     createdAt: new Date().toISOString(),
     status: "booked",
     source: "telegram",
+    paymentStatus: "unpaid",
+    paidAt: null,
+    paidBy: null,
     ...over
   });
 
@@ -1204,5 +1263,574 @@ describe("BookingsService.createManual (Feature 5 — admin/trainer manual booki
     await expect(
       service.createManual(ADMIN_ID, { clientId: WALKIN_CLIENT_ID, trainingId: TRAINING_ID })
     ).rejects.toBeInstanceOf(NotFoundException);
+  });
+});
+
+// --- Trainer-confirmation feature ---------------------------------------------
+//
+// A client request onto a training whose trainer HAS a Telegram id starts
+// `pending` (seat held), and the trainer confirms (→ booked) or declines
+// (→ cancelled, seat freed). A trainer with NO Telegram id can never act, so the
+// request auto-confirms (→ booked) instead of hanging forever. The pending hold
+// counts toward capacity exactly like a booked seat, so recompute / open⇔full /
+// the duplicate guard are unchanged by it.
+
+/** A spying notifications double covering every trainer-confirm send. */
+function makeNotificationsSpy() {
+  const calls = {
+    confirmation: [] as string[],
+    groupConfirmation: [] as string[][],
+    pending: [] as string[],
+    declined: [] as string[],
+    groupDeclined: [] as string[][],
+    pendingToTrainer: [] as { trainerTelegramId: number; bookingTrainingId: string }[],
+    groupPendingToTrainer: [] as { trainerTelegramId: number; trainingIds: string[] }[]
+  };
+  const service = {
+    sendBookingConfirmation: async (clientId: string): Promise<void> => {
+      calls.confirmation.push(clientId);
+    },
+    sendGroupBookingConfirmation: async (_c: string, ids: string[]): Promise<void> => {
+      calls.groupConfirmation.push(ids);
+    },
+    sendBookingPending: async (clientId: string): Promise<void> => {
+      calls.pending.push(clientId);
+    },
+    sendBookingDeclined: async (clientId: string): Promise<void> => {
+      calls.declined.push(clientId);
+    },
+    sendGroupBookingDeclined: async (_c: string, ids: string[]): Promise<void> => {
+      calls.groupDeclined.push(ids);
+    },
+    sendBookingPendingToTrainer: async (
+      trainerTelegramId: number,
+      _clientId: string,
+      bookingTrainingId: string
+    ): Promise<boolean> => {
+      calls.pendingToTrainer.push({ trainerTelegramId, bookingTrainingId });
+      return true;
+    },
+    sendGroupPendingToTrainer: async (
+      trainerTelegramId: number,
+      _clientId: string,
+      trainingIds: string[]
+    ): Promise<boolean> => {
+      calls.groupPendingToTrainer.push({ trainerTelegramId, trainingIds });
+      return true;
+    }
+  } as unknown as NotificationsService;
+  return { service, calls };
+}
+
+const TRAINER_WITH_TG: Trainer = {
+  id: TRAINER_ID,
+  name: "Coach",
+  type: "main",
+  status: "active",
+  telegramId: TRAINER_ID_TG
+};
+const TRAINER_NO_TG: Trainer = {
+  id: TRAINER_ID,
+  name: "Coach",
+  type: "main",
+  status: "active",
+  telegramId: null
+};
+
+describe("BookingsService.createSingle — pending vs auto-confirm (trainer-confirmation)", () => {
+  let bookingsRepo: FakeBookingsRepository;
+  let trainersRepo: FakeTrainersRepository;
+  let notifications: ReturnType<typeof makeNotificationsSpy>;
+  let service: BookingsService;
+
+  beforeEach(() => {
+    bookingsRepo = new FakeBookingsRepository();
+    trainersRepo = new FakeTrainersRepository();
+    notifications = makeNotificationsSpy();
+    service = new BookingsService(
+      bookingsRepo as unknown as BookingsRepository,
+      new FakeClientsRepository() as unknown as ClientsRepository,
+      new FakeGroupsRepository() as unknown as GroupsRepository,
+      notifications.service,
+      fakeWaitlist,
+      trainersRepo as unknown as TrainersRepository,
+      env
+    );
+    bookingsRepo.training = {
+      id: TRAINING_ID,
+      capacity: 6,
+      bookedCount: 2,
+      status: "open",
+      trainerId: TRAINER_ID
+    };
+  });
+
+  const input = { clientId: CLIENT_ID, trainingId: TRAINING_ID };
+
+  it("holds a pending seat and DMs the trainer when the trainer has a Telegram id", async () => {
+    trainersRepo.trainers = [TRAINER_WITH_TG];
+
+    const booking = await service.createSingle(OWNER_ID, input);
+
+    expect(booking.status).toBe("pending");
+    // A pending hold still counts toward capacity exactly like a booked seat.
+    expect(bookingsRepo.training?.bookedCount).toBe(3);
+    expect(bookingsRepo.training?.status).toBe("open");
+    // Client gets an acknowledgement; the trainer gets a confirm/decline DM. No confirmation yet.
+    expect(notifications.calls.pending).toEqual([CLIENT_ID]);
+    expect(notifications.calls.pendingToTrainer).toEqual([
+      { trainerTelegramId: TRAINER_ID_TG, bookingTrainingId: TRAINING_ID }
+    ]);
+    expect(notifications.calls.confirmation).toEqual([]);
+  });
+
+  it("flips the slot to full on the capacity-th pending hold (recompute unchanged by pending)", async () => {
+    trainersRepo.trainers = [TRAINER_WITH_TG];
+    bookingsRepo.training = {
+      id: TRAINING_ID,
+      capacity: 6,
+      bookedCount: 5,
+      status: "open",
+      trainerId: TRAINER_ID
+    };
+    const booking = await service.createSingle(OWNER_ID, input);
+    expect(booking.status).toBe("pending");
+    expect(bookingsRepo.training?.bookedCount).toBe(6);
+    expect(bookingsRepo.training?.status).toBe("full");
+  });
+
+  it("auto-confirms (→ booked) and sends the confirmation when the trainer has no Telegram id", async () => {
+    trainersRepo.trainers = [TRAINER_NO_TG];
+
+    const booking = await service.createSingle(OWNER_ID, input);
+
+    expect(booking.status).toBe("booked");
+    expect(bookingsRepo.training?.bookedCount).toBe(3);
+    // No trainer to ask → the confirmation goes straight out; no pending/trainer DM.
+    expect(notifications.calls.confirmation).toEqual([CLIENT_ID]);
+    expect(notifications.calls.pending).toEqual([]);
+    expect(notifications.calls.pendingToTrainer).toEqual([]);
+  });
+
+  it("counts a pending hold in the duplicate guard (re-book rejected with 409)", async () => {
+    trainersRepo.trainers = [TRAINER_WITH_TG];
+    await service.createSingle(OWNER_ID, input);
+    await expect(service.createSingle(OWNER_ID, input)).rejects.toBeInstanceOf(ConflictException);
+    expect(bookingsRepo.bookings).toHaveLength(1);
+    expect(bookingsRepo.training?.bookedCount).toBe(3);
+  });
+});
+
+describe("BookingsService.confirmBooking (trainer-confirmation)", () => {
+  let bookingsRepo: FakeBookingsRepository;
+  let trainersRepo: FakeTrainersRepository;
+  let notifications: ReturnType<typeof makeNotificationsSpy>;
+  let service: BookingsService;
+
+  const BOOKING_ID = "dddddddd-dddd-dddd-dddd-dddddddddddd";
+
+  const pendingBooking = (over: Partial<Booking> = {}): Booking => ({
+    id: BOOKING_ID,
+    clientId: CLIENT_ID,
+    trainingId: TRAINING_ID,
+    type: "single",
+    groupSubscriptionId: null,
+    createdAt: new Date().toISOString(),
+    status: "pending",
+    source: "telegram",
+    paymentStatus: "unpaid",
+    paidAt: null,
+    paidBy: null,
+    ...over
+  });
+
+  beforeEach(() => {
+    bookingsRepo = new FakeBookingsRepository();
+    trainersRepo = new FakeTrainersRepository();
+    trainersRepo.trainers = [
+      TRAINER_WITH_TG,
+      {
+        id: OTHER_TRAINER_DB_ID,
+        name: "Other",
+        type: "main",
+        status: "active",
+        telegramId: OTHER_TRAINER_ID_TG
+      }
+    ];
+    notifications = makeNotificationsSpy();
+    service = new BookingsService(
+      bookingsRepo as unknown as BookingsRepository,
+      new FakeClientsRepository() as unknown as ClientsRepository,
+      new FakeGroupsRepository() as unknown as GroupsRepository,
+      notifications.service,
+      fakeWaitlist,
+      trainersRepo as unknown as TrainersRepository,
+      env
+    );
+    bookingsRepo.training = {
+      id: TRAINING_ID,
+      capacity: 6,
+      bookedCount: 3,
+      status: "open",
+      trainerId: TRAINER_ID
+    };
+  });
+
+  it("moves pending → booked WITHOUT changing the count and sends the confirmation DM", async () => {
+    bookingsRepo.bookings = [pendingBooking()];
+
+    const result = await service.confirmBooking(TRAINER_ID_TG, BOOKING_ID);
+
+    expect(result.status).toBe("booked");
+    // The seat was already counted at create time — confirm is a pure status flip.
+    expect(bookingsRepo.training?.bookedCount).toBe(3);
+    expect(bookingsRepo.training?.status).toBe("open");
+    expect(notifications.calls.confirmation).toEqual([CLIENT_ID]);
+  });
+
+  it("lets the owning admin confirm", async () => {
+    bookingsRepo.bookings = [pendingBooking()];
+    const result = await service.confirmBooking(ADMIN_ID, BOOKING_ID);
+    expect(result.status).toBe("booked");
+  });
+
+  it("forbids a different trainer (403, no status change)", async () => {
+    bookingsRepo.bookings = [pendingBooking()];
+    await expect(service.confirmBooking(OTHER_TRAINER_ID_TG, BOOKING_ID)).rejects.toBeInstanceOf(
+      ForbiddenException
+    );
+    expect(bookingsRepo.bookings[0].status).toBe("pending");
+  });
+
+  it("forbids a non-trainer non-admin (403)", async () => {
+    bookingsRepo.bookings = [pendingBooking()];
+    await expect(service.confirmBooking(STRANGER_ID, BOOKING_ID)).rejects.toBeInstanceOf(
+      ForbiddenException
+    );
+    expect(bookingsRepo.bookings[0].status).toBe("pending");
+  });
+
+  it("rejects a double-confirm with a 409 (already booked)", async () => {
+    bookingsRepo.bookings = [pendingBooking()];
+    await service.confirmBooking(TRAINER_ID_TG, BOOKING_ID);
+    await expect(service.confirmBooking(TRAINER_ID_TG, BOOKING_ID)).rejects.toBeInstanceOf(
+      ConflictException
+    );
+  });
+
+  it("rejects confirming a booking the client already withdrew (cancelled) with a 409", async () => {
+    bookingsRepo.bookings = [pendingBooking({ status: "cancelled" })];
+    await expect(service.confirmBooking(TRAINER_ID_TG, BOOKING_ID)).rejects.toBeInstanceOf(
+      ConflictException
+    );
+  });
+
+  it("404s an unknown booking", async () => {
+    bookingsRepo.bookings = [];
+    await expect(service.confirmBooking(TRAINER_ID_TG, BOOKING_ID)).rejects.toBeInstanceOf(
+      NotFoundException
+    );
+  });
+});
+
+describe("BookingsService.declineBooking (trainer-confirmation)", () => {
+  let bookingsRepo: FakeBookingsRepository;
+  let trainersRepo: FakeTrainersRepository;
+  let notifications: ReturnType<typeof makeNotificationsSpy>;
+  let promotedTrainings: string[];
+  let waitlist: WaitlistService;
+  let service: BookingsService;
+
+  const BOOKING_ID = "dddddddd-dddd-dddd-dddd-dddddddddddd";
+
+  const pendingBooking = (over: Partial<Booking> = {}): Booking => ({
+    id: BOOKING_ID,
+    clientId: CLIENT_ID,
+    trainingId: TRAINING_ID,
+    type: "single",
+    groupSubscriptionId: null,
+    createdAt: new Date().toISOString(),
+    status: "pending",
+    source: "telegram",
+    paymentStatus: "unpaid",
+    paidAt: null,
+    paidBy: null,
+    ...over
+  });
+
+  beforeEach(() => {
+    bookingsRepo = new FakeBookingsRepository();
+    trainersRepo = new FakeTrainersRepository();
+    trainersRepo.trainers = [
+      TRAINER_WITH_TG,
+      {
+        id: OTHER_TRAINER_DB_ID,
+        name: "Other",
+        type: "main",
+        status: "active",
+        telegramId: OTHER_TRAINER_ID_TG
+      }
+    ];
+    notifications = makeNotificationsSpy();
+    promotedTrainings = [];
+    waitlist = {
+      promoteNext: async (trainingId: string): Promise<void> => {
+        promotedTrainings.push(trainingId);
+      }
+    } as unknown as WaitlistService;
+    service = new BookingsService(
+      bookingsRepo as unknown as BookingsRepository,
+      new FakeClientsRepository() as unknown as ClientsRepository,
+      new FakeGroupsRepository() as unknown as GroupsRepository,
+      notifications.service,
+      waitlist,
+      trainersRepo as unknown as TrainersRepository,
+      env
+    );
+  });
+
+  it("moves pending → cancelled, frees one seat, flips full → open, declines and promotes", async () => {
+    bookingsRepo.bookings = [pendingBooking()];
+    bookingsRepo.training = {
+      id: TRAINING_ID,
+      capacity: 6,
+      bookedCount: 6,
+      status: "full",
+      trainerId: TRAINER_ID
+    };
+
+    const result = await service.declineBooking(TRAINER_ID_TG, BOOKING_ID);
+
+    expect(result.status).toBe("cancelled");
+    expect(bookingsRepo.training?.bookedCount).toBe(5);
+    expect(bookingsRepo.training?.status).toBe("open");
+    expect(notifications.calls.declined).toEqual([CLIENT_ID]);
+    // Same post-commit ordering as cancelBooking: the freed seat is promotable.
+    expect(promotedTrainings).toEqual([TRAINING_ID]);
+  });
+
+  it("lets an admin decline", async () => {
+    bookingsRepo.bookings = [pendingBooking()];
+    bookingsRepo.training = {
+      id: TRAINING_ID,
+      capacity: 6,
+      bookedCount: 3,
+      status: "open",
+      trainerId: TRAINER_ID
+    };
+    const result = await service.declineBooking(ADMIN_ID, BOOKING_ID);
+    expect(result.status).toBe("cancelled");
+    expect(bookingsRepo.training?.bookedCount).toBe(2);
+  });
+
+  it("forbids a different trainer (403, no status/seat change)", async () => {
+    bookingsRepo.bookings = [pendingBooking()];
+    bookingsRepo.training = {
+      id: TRAINING_ID,
+      capacity: 6,
+      bookedCount: 3,
+      status: "open",
+      trainerId: TRAINER_ID
+    };
+    await expect(service.declineBooking(OTHER_TRAINER_ID_TG, BOOKING_ID)).rejects.toBeInstanceOf(
+      ForbiddenException
+    );
+    expect(bookingsRepo.bookings[0].status).toBe("pending");
+    expect(bookingsRepo.training?.bookedCount).toBe(3);
+  });
+
+  it("rejects declining an already-decided (booked) booking with a 409", async () => {
+    bookingsRepo.bookings = [pendingBooking({ status: "booked" })];
+    bookingsRepo.training = {
+      id: TRAINING_ID,
+      capacity: 6,
+      bookedCount: 3,
+      status: "open",
+      trainerId: TRAINER_ID
+    };
+    await expect(service.declineBooking(TRAINER_ID_TG, BOOKING_ID)).rejects.toBeInstanceOf(
+      ConflictException
+    );
+    expect(bookingsRepo.training?.bookedCount).toBe(3);
+  });
+
+  it("rejects a double-decline with a 409", async () => {
+    bookingsRepo.bookings = [pendingBooking()];
+    bookingsRepo.training = {
+      id: TRAINING_ID,
+      capacity: 6,
+      bookedCount: 3,
+      status: "open",
+      trainerId: TRAINER_ID
+    };
+    await service.declineBooking(TRAINER_ID_TG, BOOKING_ID);
+    await expect(service.declineBooking(TRAINER_ID_TG, BOOKING_ID)).rejects.toBeInstanceOf(
+      ConflictException
+    );
+  });
+
+  it("404s an unknown booking", async () => {
+    bookingsRepo.bookings = [];
+    await expect(service.declineBooking(TRAINER_ID_TG, BOOKING_ID)).rejects.toBeInstanceOf(
+      NotFoundException
+    );
+  });
+});
+
+describe("BookingsService.confirm/declineSubscription (trainer-confirmation, monthly-batch invariant)", () => {
+  let bookingsRepo: FakeBookingsRepository;
+  let trainersRepo: FakeTrainersRepository;
+  let notifications: ReturnType<typeof makeNotificationsSpy>;
+  let promotedTrainings: string[];
+  let waitlist: WaitlistService;
+  let service: BookingsService;
+
+  const SUB_ID = "ffffffff-ffff-ffff-ffff-ffffffffffff";
+  const OTHER_SUB_ID = "fafafafa-fafa-fafa-fafa-fafafafafafa";
+  const T1 = "a1111111-1111-1111-1111-111111111111";
+  const T2 = "a2222222-2222-2222-2222-222222222222";
+  const T_OTHER = "a3333333-3333-3333-3333-333333333333";
+
+  const groupRow = (id: string, trainingId: string, subId: string): Booking => ({
+    id,
+    clientId: CLIENT_ID,
+    trainingId,
+    type: "group",
+    groupSubscriptionId: subId,
+    createdAt: new Date().toISOString(),
+    status: "pending",
+    source: "telegram",
+    paymentStatus: "unpaid",
+    paidAt: null,
+    paidBy: null
+  });
+
+  beforeEach(() => {
+    bookingsRepo = new FakeBookingsRepository();
+    trainersRepo = new FakeTrainersRepository();
+    trainersRepo.trainers = [
+      TRAINER_WITH_TG,
+      {
+        id: OTHER_TRAINER_DB_ID,
+        name: "Other",
+        type: "main",
+        status: "active",
+        telegramId: OTHER_TRAINER_ID_TG
+      }
+    ];
+    notifications = makeNotificationsSpy();
+    promotedTrainings = [];
+    waitlist = {
+      promoteNext: async (trainingId: string): Promise<void> => {
+        promotedTrainings.push(trainingId);
+      }
+    } as unknown as WaitlistService;
+    service = new BookingsService(
+      bookingsRepo as unknown as BookingsRepository,
+      new FakeClientsRepository() as unknown as ClientsRepository,
+      new FakeGroupsRepository() as unknown as GroupsRepository,
+      notifications.service,
+      waitlist,
+      trainersRepo as unknown as TrainersRepository,
+      env
+    );
+    bookingsRepo.trainingsById = {
+      [T1]: { id: T1, capacity: 6, bookedCount: 4, status: "open", trainerId: TRAINER_ID },
+      [T2]: { id: T2, capacity: 6, bookedCount: 6, status: "full", trainerId: TRAINER_ID },
+      [T_OTHER]: { id: T_OTHER, capacity: 6, bookedCount: 2, status: "open", trainerId: TRAINER_ID }
+    };
+  });
+
+  it("confirms only the subscription's pending rows (sibling on another subscription untouched)", async () => {
+    bookingsRepo.bookings = [
+      groupRow("b1111111-1111-1111-1111-111111111111", T1, SUB_ID),
+      groupRow("b2222222-2222-2222-2222-222222222222", T2, SUB_ID),
+      groupRow("b3333333-3333-3333-3333-333333333333", T_OTHER, OTHER_SUB_ID)
+    ];
+
+    await service.confirmSubscription(TRAINER_ID_TG, SUB_ID);
+
+    const byId = (id: string) => bookingsRepo.bookings.find((b) => b.id === id);
+    expect(byId("b1111111-1111-1111-1111-111111111111")?.status).toBe("booked");
+    expect(byId("b2222222-2222-2222-2222-222222222222")?.status).toBe("booked");
+    // The other subscription's date is never touched — the monthly-batch invariant.
+    expect(byId("b3333333-3333-3333-3333-333333333333")?.status).toBe("pending");
+    // Confirm holds counts steady (seats already counted at create time).
+    expect(bookingsRepo.trainingsById[T1].bookedCount).toBe(4);
+    expect(bookingsRepo.trainingsById[T2].bookedCount).toBe(6);
+    // One summary client confirmation for the subscription's two dates.
+    expect(notifications.calls.groupConfirmation).toEqual([[T1, T2]]);
+  });
+
+  it("declines only the subscription's pending rows, frees their seats and promotes each", async () => {
+    bookingsRepo.bookings = [
+      groupRow("b1111111-1111-1111-1111-111111111111", T1, SUB_ID),
+      groupRow("b2222222-2222-2222-2222-222222222222", T2, SUB_ID),
+      groupRow("b3333333-3333-3333-3333-333333333333", T_OTHER, OTHER_SUB_ID)
+    ];
+
+    await service.declineSubscription(TRAINER_ID_TG, SUB_ID);
+
+    const byId = (id: string) => bookingsRepo.bookings.find((b) => b.id === id);
+    expect(byId("b1111111-1111-1111-1111-111111111111")?.status).toBe("cancelled");
+    expect(byId("b2222222-2222-2222-2222-222222222222")?.status).toBe("cancelled");
+    expect(byId("b3333333-3333-3333-3333-333333333333")?.status).toBe("pending");
+    expect(bookingsRepo.trainingsById[T1].bookedCount).toBe(3);
+    // T2 was full → freeing a seat flips it back to open.
+    expect(bookingsRepo.trainingsById[T2].bookedCount).toBe(5);
+    expect(bookingsRepo.trainingsById[T2].status).toBe("open");
+    // The other subscription's training is never recomputed.
+    expect(bookingsRepo.trainingsById[T_OTHER].bookedCount).toBe(2);
+    expect(notifications.calls.groupDeclined).toEqual([[T1, T2]]);
+    expect(promotedTrainings).toEqual([T1, T2]);
+  });
+
+  it("rejects an already-decided batch (no pending rows) with a 409, nothing changed", async () => {
+    bookingsRepo.bookings = [groupRow("b1111111-1111-1111-1111-111111111111", T1, SUB_ID)];
+    bookingsRepo.bookings[0].status = "booked";
+
+    await expect(service.confirmSubscription(TRAINER_ID_TG, SUB_ID)).rejects.toBeInstanceOf(
+      ConflictException
+    );
+    expect(notifications.calls.groupConfirmation).toEqual([]);
+    expect(bookingsRepo.bookings[0].status).toBe("booked");
+  });
+
+  it("404s a subscription with no bookings at all", async () => {
+    bookingsRepo.bookings = [];
+    await expect(service.confirmSubscription(TRAINER_ID_TG, SUB_ID)).rejects.toBeInstanceOf(
+      NotFoundException
+    );
+    await expect(service.declineSubscription(TRAINER_ID_TG, SUB_ID)).rejects.toBeInstanceOf(
+      NotFoundException
+    );
+  });
+
+  it("forbids a trainer who does not own the batch (403, nothing decided)", async () => {
+    bookingsRepo.bookings = [
+      groupRow("b1111111-1111-1111-1111-111111111111", T1, SUB_ID),
+      groupRow("b2222222-2222-2222-2222-222222222222", T2, SUB_ID)
+    ];
+    await expect(
+      service.confirmSubscription(OTHER_TRAINER_ID_TG, SUB_ID)
+    ).rejects.toBeInstanceOf(ForbiddenException);
+    expect(
+      bookingsRepo.bookings.every((b) => b.status === "pending")
+    ).toBe(true);
+  });
+
+  it("forbids a non-owning trainer BEFORE the no-op short-circuit (403 even with no pending rows)", async () => {
+    // The batch is already decided (no pending rows): a non-owning trainer must
+    // still get a 403, not a silent no-op — authorization precedes the no-op check.
+    bookingsRepo.bookings = [groupRow("b1111111-1111-1111-1111-111111111111", T1, SUB_ID)];
+    bookingsRepo.bookings[0].status = "booked";
+
+    await expect(
+      service.confirmSubscription(OTHER_TRAINER_ID_TG, SUB_ID)
+    ).rejects.toBeInstanceOf(ForbiddenException);
+    await expect(
+      service.declineSubscription(OTHER_TRAINER_ID_TG, SUB_ID)
+    ).rejects.toBeInstanceOf(ForbiddenException);
+    expect(bookingsRepo.bookings[0].status).toBe("booked");
   });
 });

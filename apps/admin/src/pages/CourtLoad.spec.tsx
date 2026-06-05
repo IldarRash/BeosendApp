@@ -1,10 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { cleanup, fireEvent, render, screen, within } from "@testing-library/react";
-import type {
-  CourtLoadGrid,
-  CourtRequestAdminView,
-  TrainingCalendarItem
-} from "@beosand/types";
+import type { CourtLoadGrid, CourtRequestAdminView, TrainingCalendarItem } from "@beosand/types";
 
 // The data hooks are mocked so the page is unit-tested without the ApiClient/network.
 const useCourtLoad = vi.fn();
@@ -168,7 +164,9 @@ describe("CourtLoad page", () => {
     expect(block.tagName).toBe("SPAN");
     expect(block.className).toContain("load-seg--block");
 
-    const training = screen.getByLabelText("Корт 1, 09:00 — Тренировка. Открыть детали тренировки.");
+    const training = screen.getByLabelText(
+      "Корт 1, 09:00 — Тренировка. Открыть детали тренировки."
+    );
     expect(training.tagName).toBe("BUTTON");
     expect(training.className).toContain("load-seg--training");
   });
@@ -232,5 +230,40 @@ describe("CourtLoad page", () => {
     render(<CourtLoad />);
     expect(screen.getByText("На выбранную дату кортов нет.")).toBeTruthy();
     expect(screen.queryByRole("table")).toBeNull();
+  });
+
+  it("renders the training (Т) segment for a date whose grid has a training cell", () => {
+    render(<CourtLoad />);
+
+    // The training-origin segment carries the training glyph and tint, proving the
+    // grid is not misread as empty when a court is held by a training.
+    const training = screen.getByLabelText(
+      "Корт 1, 09:00 — Тренировка. Открыть детали тренировки."
+    );
+    expect(training.className).toContain("load-seg--training");
+    expect(training.textContent).toBe("Т");
+    // A held grid never shows the "all free" hint.
+    expect(screen.queryByText("На выбранную дату все корты свободны.")).toBeNull();
+  });
+
+  it("shows the all-free hint above the grid when every cell is free", () => {
+    const allFreeGrid: CourtLoadGrid = {
+      ...GRID,
+      rows: GRID.rows.map((row) => ({
+        ...row,
+        cells: row.cells.map((c) => cell(c.startTime, "free"))
+      }))
+    };
+    useCourtLoad.mockReturnValue({
+      isPending: false,
+      isError: false,
+      error: null,
+      data: allFreeGrid
+    });
+    render(<CourtLoad />);
+
+    // The hint is additive — the grid still renders alongside it.
+    expect(screen.getByText("На выбранную дату все корты свободны.")).toBeTruthy();
+    expect(screen.getByRole("table")).toBeTruthy();
   });
 });

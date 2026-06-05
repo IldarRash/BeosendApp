@@ -31,7 +31,10 @@ const cancelledBooking: Booking = {
   groupSubscriptionId: null,
   createdAt: "2099-01-01T00:00:00.000Z",
   status: "cancelled",
-  source: "telegram"
+  source: "telegram",
+  paymentStatus: "unpaid",
+  paidAt: null,
+  paidBy: null
 };
 
 const attendedBooking: Booking = {
@@ -42,7 +45,10 @@ const attendedBooking: Booking = {
   groupSubscriptionId: null,
   createdAt: "2026-06-03T00:00:00.000Z",
   status: "attended",
-  source: "telegram"
+  source: "telegram",
+  paymentStatus: "unpaid",
+  paidAt: null,
+  paidBy: null
 };
 
 function makeService(overrides: Partial<BookingsService> = {}): BookingsService {

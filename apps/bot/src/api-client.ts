@@ -111,6 +111,20 @@ export type ChangeCapacityResult =
   | { ok: false; reason: "forbidden" | "belowBooked" };
 
 /**
+ * Outcome of a trainer confirm/decline action (trainer-confirmation). `ok` maps
+ * a 2xx (the pending booking — or subscription batch — was confirmed/declined);
+ * `alreadyDecided` maps the API's 409 (the row is no longer `pending`, e.g. a
+ * double-tap or another device already handled it) and `notAuthorized` maps a 403
+ * (the caller is not this batch's trainer/admin) so the bot can edit the DM to a
+ * soft outcome instead of erroring. The authorization (trainer/admin against the
+ * training's trainer), the status transition and the client/waitlist notifications
+ * all happen server-side; the bot only forwards the id.
+ */
+export type TrainerDecisionResult =
+  | { ok: true }
+  | { ok: false; reason: "alreadyDecided" | "notAuthorized" };
+
+/**
  * Outcome of an admin training cancel (A1). `forbidden` maps the 403 (caller not
  * an admin); `notFound` maps the 404 (no such training); `alreadyCancelled` maps
  * the 409 the service raises for an idempotent re-cancel, so the handler can show
@@ -652,6 +666,121 @@ export class ApiClient {
       throw new Error(`API /trainers/me/today failed: ${res.status}`);
     }
     return trainerTodaySchema.parse(await res.json());
+  }
+
+  /**
+   * A trainer's own upcoming trainings (trainer-confirmation queue). Identity is
+   * the caller's telegram_id (sent both as the `x-telegram-id` header and the
+   * `telegramId` query the API cross-checks); the API resolves the trainer and
+   * scopes the list to them, defaulting the horizon server-side. A 403 (caller is
+   * not a trainer) resolves to null so the bot can gate the screen instead of
+   * erroring — mirroring {@link getTrainerToday}. The response reuses the
+   * today-item contract; the bot only renders the returned items.
+   */
+  async getTrainerUpcoming(telegramId: number): Promise<TrainerTodayItem[] | null> {
+    const res = await fetch(`${this.baseUrl}/trainers/me/upcoming?telegramId=${telegramId}`, {
+      headers: {
+        "content-type": "application/json",
+        [TELEGRAM_ID_HEADER]: String(telegramId)
+      }
+    });
+    if (res.status === 403) {
+      // Caller is not a trainer: the bot hides the trainer UI rather than erroring.
+      return null;
+    }
+    if (!res.ok) {
+      throw new Error(`API /trainers/me/upcoming failed: ${res.status}`);
+    }
+    return trainerTodaySchema.parse(await res.json());
+  }
+
+  /**
+   * Confirm a pending single booking (trainer-confirmation). The booking is
+   * matched by id; authorization (the booking's training belongs to the caller's
+   * trainer, admins excepted), the `pending → booked` transition and the client
+   * confirmation DM are all decided server-side from the caller's telegram_id. A
+   * 409 (the booking is no longer pending — a double-tap or another device) is
+   * surfaced as `alreadyDecided` so the handler edits the DM to "уже обработано"
+   * instead of erroring. The bot only forwards the id and renders the outcome.
+   */
+  confirmBooking(bookingId: string, actorTelegramId: number): Promise<TrainerDecisionResult> {
+    return this.trainerDecision(`/bookings/${bookingId}/confirm`, actorTelegramId);
+  }
+
+  /**
+   * Decline a pending single booking (trainer-confirmation). Authorization, the
+   * `pending → cancelled` transition, the client decline DM and any waitlist
+   * promotion are all decided server-side from the caller's telegram_id. A 409
+   * (no longer pending) is surfaced as `alreadyDecided`. The bot only forwards
+   * the id and renders the outcome.
+   */
+  declineBooking(bookingId: string, actorTelegramId: number): Promise<TrainerDecisionResult> {
+    return this.trainerDecision(`/bookings/${bookingId}/decline`, actorTelegramId);
+  }
+
+  /**
+   * Confirm every pending booking of a monthly group subscription batch
+   * (trainer-confirmation). The API acts only on that batch's `pending` rows,
+   * authorizes against the training's trainer, transitions them to `booked` and
+   * DMs the client — all server-side. A 409 is surfaced as `alreadyDecided`. The
+   * bot only forwards the subscription id and renders the outcome.
+   */
+  confirmSubscription(
+    groupSubscriptionId: string,
+    actorTelegramId: number
+  ): Promise<TrainerDecisionResult> {
+    return this.trainerDecision(
+      `/bookings/subscription/${groupSubscriptionId}/confirm`,
+      actorTelegramId
+    );
+  }
+
+  /**
+   * Decline every pending booking of a monthly group subscription batch
+   * (trainer-confirmation). Authorization, the `pending → cancelled` transition,
+   * the client decline DM and waitlist promotion are all server-side. A 409 is
+   * surfaced as `alreadyDecided`. The bot only forwards the subscription id.
+   */
+  declineSubscription(
+    groupSubscriptionId: string,
+    actorTelegramId: number
+  ): Promise<TrainerDecisionResult> {
+    return this.trainerDecision(
+      `/bookings/subscription/${groupSubscriptionId}/decline`,
+      actorTelegramId
+    );
+  }
+
+  /**
+   * Shared POST for the four trainer confirm/decline endpoints: empty body,
+   * caller's telegram id in the header, a 409 mapped to the soft `alreadyDecided`
+   * result, a 403 to the soft `notAuthorized` result and any other non-2xx thrown.
+   * The API owns the decision; the bot only forwards the id.
+   */
+  private async trainerDecision(
+    path: string,
+    actorTelegramId: number
+  ): Promise<TrainerDecisionResult> {
+    const res = await fetch(`${this.baseUrl}${path}`, {
+      method: "POST",
+      headers: {
+        "content-type": "application/json",
+        [TELEGRAM_ID_HEADER]: String(actorTelegramId)
+      },
+      body: JSON.stringify({})
+    });
+    if (res.status === 409) {
+      // Row is no longer pending (double-tap / handled elsewhere): edit the DM.
+      return { ok: false, reason: "alreadyDecided" };
+    }
+    if (res.status === 403) {
+      // Caller is not this batch's trainer/admin: soft outcome, not an error.
+      return { ok: false, reason: "notAuthorized" };
+    }
+    if (!res.ok) {
+      throw new Error(`API ${path} failed: ${res.status}`);
+    }
+    return { ok: true };
   }
 
   /**
