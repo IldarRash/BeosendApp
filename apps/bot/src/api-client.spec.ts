@@ -741,8 +741,60 @@ const clientBody = {
   levelId: null,
   registeredAt: "2026-01-01T00:00:00.000Z",
   status: "active" as const,
-  language: "sr" as const
+  language: "sr" as const,
+  source: "telegram" as const,
+  phone: null,
+  note: null
 };
+
+describe("ApiClient.requestIndividualSession", () => {
+  const TRAINER_ID = "33333333-3333-3333-3333-333333333333";
+
+  afterEach(() => {
+    vi.unstubAllGlobals();
+  });
+
+  it("POSTs /trainers/:id/individual-request with the self telegram id in header and body", async () => {
+    const fetchMock = mockFetch({ delivered: true });
+    const result = await new ApiClient("http://api.test").requestIndividualSession(TRAINER_ID, 999);
+    expect(result).toEqual({ delivered: true });
+    const [url, init] = fetchMock.mock.calls[0] as [string, RequestInit];
+    expect(url).toBe(`http://api.test/trainers/${TRAINER_ID}/individual-request`);
+    expect(init.method).toBe("POST");
+    expect((init.headers as Record<string, string>)["x-telegram-id"]).toBe("999");
+    expect(JSON.parse(init.body as string)).toEqual({ telegramId: 999 });
+  });
+
+  it("returns the soft trainer-unavailable result the API reports", async () => {
+    mockFetch({ delivered: false, reason: "trainer-unavailable" });
+    await expect(
+      new ApiClient("http://api.test").requestIndividualSession(TRAINER_ID, 999)
+    ).resolves.toEqual({ delivered: false, reason: "trainer-unavailable" });
+  });
+
+  // Soft path: an unknown/inactive trainer or not-onboarded client is a 404,
+  // mapped to the soft trainer-unavailable result so the bot never errors.
+  it("maps a 404 to a soft trainer-unavailable result rather than throwing", async () => {
+    mockFetch({}, false, 404);
+    await expect(
+      new ApiClient("http://api.test").requestIndividualSession(TRAINER_ID, 999)
+    ).resolves.toEqual({ delivered: false, reason: "trainer-unavailable" });
+  });
+
+  it("throws on any other non-2xx (e.g. 403 non-self)", async () => {
+    mockFetch({}, false, 403);
+    await expect(
+      new ApiClient("http://api.test").requestIndividualSession(TRAINER_ID, 999)
+    ).rejects.toThrow(/403/);
+  });
+
+  it("rejects a 2xx body that violates the result contract", async () => {
+    mockFetch({ delivered: false, reason: "nope" });
+    await expect(
+      new ApiClient("http://api.test").requestIndividualSession(TRAINER_ID, 999)
+    ).rejects.toThrow();
+  });
+});
 
 describe("ApiClient.getLabelCatalog", () => {
   afterEach(() => {

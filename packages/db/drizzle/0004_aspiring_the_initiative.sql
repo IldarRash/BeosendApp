@@ -1,0 +1,1 @@
+ALTER TABLE "court_requests" ALTER COLUMN "duration_hours" SET DATA TYPE numeric(3, 1);

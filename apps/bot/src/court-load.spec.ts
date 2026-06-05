@@ -12,18 +12,21 @@ import { getStaticCatalog } from "@beosand/i18n";
 
 const ru = getStaticCatalog("ru");
 
-/** Build the cells for a court whose given hours are occupied; rest are free. */
+/**
+ * Build the cells for a court across a working window in 30-min slots; slots
+ * whose "HH:MM" start appears in `occupied` carry that state, the rest are free.
+ */
 function cells(
-  occupied: Record<number, "request" | "block">,
+  occupied: Record<string, "request" | "block">,
   openHour = 8,
   closeHour = 10
 ): CourtLoadGrid["rows"][number]["cells"] {
   const out: CourtLoadGrid["rows"][number]["cells"] = [];
-  for (let h = openHour; h < closeHour; h += 1) {
+  for (let m = openHour * 60; m < closeHour * 60; m += 30) {
+    const startTime = `${String(Math.floor(m / 60)).padStart(2, "0")}:${String(m % 60).padStart(2, "0")}`;
     out.push({
-      hour: h,
-      startTime: `${String(h).padStart(2, "0")}:00`,
-      state: occupied[h] ?? "free",
+      startTime,
+      state: occupied[startTime] ?? "free",
       requestId: null
     });
   }
@@ -38,12 +41,12 @@ const grid: CourtLoadGrid = {
     {
       courtId: "11111111-1111-1111-1111-111111111111",
       courtNumber: 1,
-      cells: cells({ 8: "request" })
+      cells: cells({ "08:00": "request", "08:30": "request" })
     },
     {
       courtId: "22222222-2222-2222-2222-222222222222",
       courtNumber: 2,
-      cells: cells({ 9: "block" })
+      cells: cells({ "09:00": "block", "09:30": "block" })
     }
   ]
 };
@@ -55,14 +58,15 @@ describe("courtLoadGridText", () => {
     expect(text).toContain("</pre>");
     // Header carries the date.
     expect(text).toContain("15.06");
-    // Hour header columns for the working window.
+    // Hour header columns for the working window (one label per whole hour).
     expect(text).toContain("08");
     expect(text).toContain("09");
-    // Court 1 has a confirmed request at 08:00 (R) and is free at 09:00 (·).
-    // Row = "К1 " (label padded to 3) + "  R" + "  ·".
-    expect(text).toContain("К1   R  ·");
-    // Court 2 is free at 08:00 (·) and blocked at 09:00 (B).
-    expect(text).toContain("К2   ·  B");
+    // 30-min grid: 08:00 and 08:30 are two columns. Court 1 has a confirmed
+    // request across both 08:xx slots (R R) and is free across 09:xx (· ·).
+    // Row = "К1 " (label padded to 3) + glyph per 30-min slot.
+    expect(text).toContain("К1   R  R  ·  ·");
+    // Court 2 is free across 08:xx (· ·) and blocked across 09:xx (B B).
+    expect(text).toContain("К2   ·  ·  B  B");
     // Legend explains the glyphs.
     expect(text).toContain("· свободно");
     expect(text).toContain("R заявка");

@@ -5,10 +5,22 @@ import {
   type UseMutationResult,
   type UseQueryResult
 } from "@tanstack/react-query";
-import type { Client, OnboardClientInput } from "@beosand/types";
+import type {
+  Booking,
+  Client,
+  CreateSingleBookingInput,
+  CreateWalkInInput,
+  OnboardClientInput
+} from "@beosand/types";
 import { useApiClient } from "../api/ApiProvider";
+import { invalidateTrainings } from "./useTrainings";
 
 const CLIENTS_KEY = ["clients"] as const;
+
+/** Stable cache key for one clients search (empty/undefined = full list). */
+function searchKey(search: string): readonly unknown[] {
+  return [...CLIENTS_KEY, "search", search] as const;
+}
 
 /** Stable cache key for one client-by-telegram lookup. */
 function byTelegramKey(telegramId: number): readonly unknown[] {
@@ -43,7 +55,56 @@ export function useOnboardClient(): UseMutationResult<Client, Error, OnboardClie
   return useMutation({
     mutationFn: (input: OnboardClientInput) => api.onboardClient(input),
     onSuccess: (client) => {
-      queryClient.setQueryData(byTelegramKey(client.telegramId), client);
+      // Onboarded clients always carry a Telegram id; guard the nullable contract
+      // type so a (never-happening) walk-in result doesn't seed under a null key.
+      if (client.telegramId !== null) {
+        queryClient.setQueryData(byTelegramKey(client.telegramId), client);
+      }
     }
+  });
+}
+
+/**
+ * Feature 5 — admin clients list for the manual-booking picker (GET /clients,
+ * optional name/phone substring). `enabled` only when the modal is open so a
+ * closed screen makes no call; the API owns the search/ordering.
+ */
+export function useClientSearch(
+  search: string,
+  enabled: boolean
+): UseQueryResult<Client[], Error> {
+  const api = useApiClient();
+  const trimmed = search.trim();
+  return useQuery({
+    queryKey: searchKey(trimmed),
+    queryFn: () => api.listClients(trimmed || undefined),
+    enabled
+  });
+}
+
+/** Feature 5 — create a walk-in client by name (admin-only server-side). */
+export function useCreateWalkIn(): UseMutationResult<Client, Error, CreateWalkInInput> {
+  const api = useApiClient();
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (input: CreateWalkInInput) => api.createWalkIn(input),
+    onSuccess: () => {
+      // A new walk-in widens the picker list; refresh any open search.
+      void queryClient.invalidateQueries({ queryKey: CLIENTS_KEY });
+    }
+  });
+}
+
+/**
+ * Feature 5 — admin/trainer manual booking onto a training. The server owns
+ * capacity/status/duplicate math and authorization; on success refresh the
+ * trainings lists so the row's bookedCount/status reflect the new seat.
+ */
+export function useBookManual(): UseMutationResult<Booking, Error, CreateSingleBookingInput> {
+  const api = useApiClient();
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (input: CreateSingleBookingInput) => api.bookManual(input),
+    onSuccess: () => invalidateTrainings(queryClient)
   });
 }

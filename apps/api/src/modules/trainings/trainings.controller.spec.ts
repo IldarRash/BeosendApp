@@ -17,6 +17,7 @@ import type {
   TrainingsRepository
 } from "./trainings.repository";
 import type { GroupsRepository } from "../groups/groups.repository";
+import type { CourtBlocksRepository } from "../courts/court-blocks.repository";
 import type { NotificationsService } from "../notifications/notifications.service";
 import type { TrainersRepository } from "../trainers/trainers.repository";
 
@@ -34,6 +35,7 @@ const group: Group = {
   startTime: "20:00",
   endTime: "21:30",
   trainerId: "33333333-3333-3333-3333-333333333333",
+  trainerName: "Jovana",
   capacity: 12,
   priceSingleRsd: 1500,
   priceMonthRsd: 10000,
@@ -70,8 +72,23 @@ function makeTrainingsRepo(
 function makeGroupsRepo(overrides: Partial<GroupsRepository> = {}): GroupsRepository {
   return {
     findById: vi.fn(async () => group),
+    listActive: vi.fn(async () => [group]),
     ...overrides
   } as unknown as GroupsRepository;
+}
+
+function makeCourtBlocksRepo(
+  overrides: Partial<CourtBlocksRepository> = {}
+): CourtBlocksRepository {
+  return {
+    activeCourts: vi.fn(async () => [{ id: "c0000000-0000-4000-8000-000000000001", number: 1 }]),
+    countActiveCourts: vi.fn(async () => 1),
+    confirmedOccupancyForDate: vi.fn(async () => []),
+    blocksOccupancyForDate: vi.fn(async () => []),
+    insert: vi.fn(async (input) => ({ id: "b0000000-0000-4000-8000-000000000001", ...input })),
+    deleteByGroupTrainingId: vi.fn(async () => true),
+    ...overrides
+  } as unknown as CourtBlocksRepository;
 }
 
 function makeTrainersRepo(overrides: Partial<TrainersRepository> = {}): TrainersRepository {
@@ -103,7 +120,14 @@ describe("TrainingsController", () => {
     trainingsRepo = makeTrainingsRepo();
     groupsRepo = makeGroupsRepo();
     controller = new TrainingsController(
-      new TrainingsService(trainingsRepo, groupsRepo, makeTrainersRepo(), makeNotifications(), env)
+      new TrainingsService(
+        trainingsRepo,
+        groupsRepo,
+        makeTrainersRepo(),
+        makeNotifications(),
+        makeCourtBlocksRepo(),
+        env
+      )
     );
   });
 
@@ -165,6 +189,54 @@ describe("TrainingsController", () => {
       BadRequestException
     );
     expect(trainingsRepo.listInRange).not.toHaveBeenCalled();
+  });
+
+  it("POST /trainings/generate-all returns a per-group summary for an admin", async () => {
+    const result = await controller.generateAll(String(ADMIN_ID), { year: 2026, month: 7 });
+    expect(result.perGroup).toHaveLength(1);
+    expect(result.perGroup[0].groupId).toBe(GROUP_ID);
+    expect(result.perGroup[0].blocked + result.perGroup[0].skipped).toBe(
+      result.perGroup[0].created
+    );
+  });
+
+  it("rejects generate-all from a non-admin header with ForbiddenException and writes nothing", async () => {
+    await expect(
+      controller.generateAll(String(NON_ADMIN_ID), { year: 2026, month: 7 })
+    ).rejects.toBeInstanceOf(ForbiddenException);
+    expect(groupsRepo.listActive).not.toHaveBeenCalled();
+    expect(trainingsRepo.insertMany).not.toHaveBeenCalled();
+  });
+
+  it("rejects generate-all with a missing/invalid x-telegram-id (400) before any work", () => {
+    expect(() => controller.generateAll(undefined, { year: 2026, month: 7 })).toThrow(
+      BadRequestException
+    );
+    expect(() => controller.generateAll("not-a-number", { year: 2026, month: 7 })).toThrow(
+      BadRequestException
+    );
+    expect(trainingsRepo.insertMany).not.toHaveBeenCalled();
+  });
+
+  it("rejects an invalid generate-all body (month 13) with BadRequestException", () => {
+    expect(() => controller.generateAll(String(ADMIN_ID), { year: 2026, month: 13 })).toThrow(
+      BadRequestException
+    );
+  });
+
+  it("accepts an optional preferred courtId on generate and proceeds to create trainings", async () => {
+    const courtId = "c0000000-0000-4000-8000-000000000001";
+    await expect(
+      controller.generate(String(ADMIN_ID), { ...validBody, courtId })
+    ).resolves.toEqual([sampleTraining]);
+    expect(trainingsRepo.insertMany).toHaveBeenCalledOnce();
+  });
+
+  it("rejects a non-uuid courtId on generate at the boundary (400)", () => {
+    expect(() => controller.generate(String(ADMIN_ID), { ...validBody, courtId: "nope" })).toThrow(
+      BadRequestException
+    );
+    expect(trainingsRepo.insertMany).not.toHaveBeenCalled();
   });
 });
 
@@ -232,7 +304,14 @@ describe("Trainer-scoped reads (T2.3)", () => {
         trainers.find((t) => t.telegramId === tg && t.status === "active")
       )
     } as unknown as Partial<TrainersRepository>);
-    return new TrainingsService(repo, makeGroupsRepo(), trainersRepo, makeNotifications(), env);
+    return new TrainingsService(
+      repo,
+      makeGroupsRepo(),
+      trainersRepo,
+      makeNotifications(),
+      makeCourtBlocksRepo(),
+      env
+    );
   }
 
   describe("GET /trainings/:id/roster", () => {
@@ -412,7 +491,14 @@ describe("Admin manager writes (A1)", () => {
     const notify = vi.fn(async () => 0);
     const notifications = { sendTrainingCancelled: notify } as unknown as NotificationsService;
     const controller = new TrainingsController(
-      new TrainingsService(repo, makeGroupsRepo(), makeTrainersRepo(), notifications, env)
+      new TrainingsService(
+        repo,
+        makeGroupsRepo(),
+        makeTrainersRepo(),
+        notifications,
+        makeCourtBlocksRepo(),
+        env
+      )
     );
     return { controller, lockRef, cancelBookedCalls, notify };
   }

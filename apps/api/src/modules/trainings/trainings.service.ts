@@ -9,11 +9,18 @@ import {
 } from "@nestjs/common";
 import type { Env } from "@beosand/config";
 import { isAdmin } from "@beosand/config";
+import type { Database } from "@beosand/db";
 import type {
   AvailableSlotsQuery,
   ChangeCapacityInput,
+  CourtCellOccupant,
+  CourtSlotOccupant,
   DayOfWeek,
+  GenerateAllMonthInput,
+  GenerateAllResult,
+  GenerateGroupResult,
   GenerateMonthInput,
+  Group,
   ListTrainingsQuery,
   SlotCard,
   Training,
@@ -21,10 +28,18 @@ import type {
   TrainingRoster
 } from "@beosand/types";
 import {
+  COURT_CLOSE_HOUR,
+  COURT_OPEN_HOUR,
+  courtFreeForSlots,
+  courtSlotsCovered,
+  freeCourtsBySlot,
   freeSeats,
+  generateAllResultSchema,
+  generateGroupResultSchema,
   isBookable,
   isoWeekdayOf,
   matchesSlotFilters,
+  minutesOfDay,
   monthTrainingDates,
   recomputeTrainingStatus,
   slotCardSchema,
@@ -34,6 +49,10 @@ import {
 } from "@beosand/types";
 import { z } from "zod";
 import { ENV } from "../../config/config.module";
+import {
+  CourtBlocksRepository,
+  type CourtOccupancyRow
+} from "../courts/court-blocks.repository";
 import { GroupsRepository } from "../groups/groups.repository";
 import { NotificationsService } from "../notifications/notifications.service";
 import { TrainersRepository } from "../trainers/trainers.repository";
@@ -56,10 +75,15 @@ export class TrainingsService {
     private readonly groups: GroupsRepository,
     private readonly trainers: TrainersRepository,
     private readonly notifications: NotificationsService,
+    private readonly courtBlocks: CourtBlocksRepository,
     @Inject(ENV) private readonly env: Env
   ) {}
 
-  /** Generate one training per group weekday in the month; returns only newly created rows. */
+  /**
+   * Generate one training per group weekday in the month (15.1), and — in the same
+   * transaction — one auto court block per NEW training so the court is marked busy
+   * (Feature 2). Returns only the newly created trainings. Admin-only, idempotent.
+   */
   async generateMonth(actorTelegramId: number, input: GenerateMonthInput): Promise<Training[]> {
     this.assertAdmin(actorTelegramId);
 
@@ -71,36 +95,200 @@ export class TrainingsService {
       throw new BadRequestException("Cannot generate trainings for an inactive group");
     }
 
-    const today = new Date().toISOString().slice(0, 10);
-    const candidateDates = monthTrainingDates(
-      group.daysOfWeek as DayOfWeek[],
-      input.year,
-      input.month
-    ).filter((date) => date >= today);
+    return this.trainings.transaction(async (tx) => {
+      const { created } = await this.generateMonthForGroup(
+        tx,
+        group,
+        input.year,
+        input.month,
+        input.courtId
+      );
+      return created;
+    });
+  }
 
-    const existing = new Set(
-      await this.trainings.existingDatesForGroup(group.id, candidateDates)
+  /**
+   * Feature 3 — generate the month for every ACTIVE group at once. Admin-only. Each
+   * group runs in its own transaction so one failing group records its partial
+   * result and never aborts the batch. Auto-picks the court per training (no
+   * preferred court). Returns a per-group summary (created / blocked / skipped).
+   */
+  async generateMonthForAll(
+    actorTelegramId: number,
+    input: GenerateAllMonthInput
+  ): Promise<GenerateAllResult> {
+    this.assertAdmin(actorTelegramId);
+
+    const groups = await this.groups.listActive();
+    const perGroup: GenerateGroupResult[] = [];
+    for (const group of groups) {
+      try {
+        const result = await this.trainings.transaction((tx) =>
+          this.generateMonthForGroup(tx, group, input.year, input.month, undefined)
+        );
+        perGroup.push(
+          generateGroupResultSchema.parse({
+            groupId: group.id,
+            groupName: group.name,
+            created: result.created.length,
+            blocked: result.blocked,
+            skipped: result.skipped
+          })
+        );
+      } catch (error) {
+        this.logger.error(
+          `generate-all failed for group ${group.id} (${group.name}); continuing: ` +
+            (error instanceof Error ? error.message : String(error))
+        );
+        perGroup.push(
+          generateGroupResultSchema.parse({
+            groupId: group.id,
+            groupName: group.name,
+            created: 0,
+            blocked: 0,
+            skipped: 0
+          })
+        );
+      }
+    }
+    return generateAllResultSchema.parse({ perGroup });
+  }
+
+  /**
+   * Insert the month's NEW trainings for one group and reserve a court for each, in
+   * the caller's transaction. Idempotent: dates already having a training for the
+   * group are skipped (so re-running creates no duplicate training and, since a
+   * skipped date inserts no training, no duplicate auto-block). For each new
+   * training, pick the preferred court if free for every covered slot and within the
+   * 6-per-slot limit, else the lowest-numbered free court, else skip the block
+   * (counted in `skipped`). In-run auto-blocks accumulate so two trainings in one run
+   * cannot grab the same court/slot. `reason = group.name`, `groupTrainingId = training.id`.
+   */
+  private async generateMonthForGroup(
+    tx: Database,
+    group: Group,
+    year: number,
+    month: number,
+    preferredCourtId?: string
+  ): Promise<{ created: Training[]; blocked: number; skipped: number }> {
+    const today = new Date().toISOString().slice(0, 10);
+    const candidateDates = monthTrainingDates(group.daysOfWeek as DayOfWeek[], year, month).filter(
+      (date) => date >= today
     );
+
+    const existing = new Set(await this.trainings.existingDatesForGroup(group.id, candidateDates));
     const newDates = candidateDates.filter((date) => !existing.has(date));
     if (newDates.length === 0) {
-      return [];
+      return { created: [], blocked: 0, skipped: 0 };
     }
 
-    return this.trainings.transaction((tx) =>
-      this.trainings.insertMany(
-        tx,
-        newDates.map((date) => ({
-          groupId: group.id,
-          date,
-          startTime: group.startTime,
-          endTime: group.endTime,
-          trainerId: group.trainerId,
-          capacity: group.capacity,
-          bookedCount: 0,
-          status: "open" as const
-        }))
-      )
+    const created = await this.trainings.insertMany(
+      tx,
+      newDates.map((date) => ({
+        groupId: group.id,
+        date,
+        startTime: group.startTime,
+        endTime: group.endTime,
+        trainerId: group.trainerId,
+        capacity: group.capacity,
+        bookedCount: 0,
+        status: "open" as const
+      }))
     );
+
+    const activeCourts = await this.courtBlocks.activeCourts(tx);
+    const activeCourtCount = activeCourts.length;
+    const durationMinutes = minutesOfDay(group.endTime) - minutesOfDay(group.startTime);
+
+    let blocked = 0;
+    let skipped = 0;
+    // Per-date occupancy read once and mutated as we add this run's auto-blocks, so two
+    // trainings on the same date in one run cannot both take the same court/slot.
+    const occupancyByDate = new Map<string, { confirmed: CourtOccupancyRow[]; blocks: CourtOccupancyRow[] }>();
+
+    for (const training of created) {
+      const slots = courtSlotsCovered(training.startTime, durationMinutes);
+      let occupancy = occupancyByDate.get(training.date);
+      if (!occupancy) {
+        const [confirmed, blocks] = await Promise.all([
+          this.courtBlocks.confirmedOccupancyForDate(training.date, tx),
+          this.courtBlocks.blocksOccupancyForDate(training.date, tx)
+        ]);
+        occupancy = { confirmed, blocks };
+        occupancyByDate.set(training.date, occupancy);
+      }
+
+      const courtId = this.pickCourtForSlots(
+        slots,
+        activeCourts,
+        activeCourtCount,
+        preferredCourtId,
+        occupancy.confirmed,
+        occupancy.blocks
+      );
+      if (!courtId) {
+        skipped += 1;
+        continue;
+      }
+
+      await this.courtBlocks.insert(
+        {
+          courtId,
+          date: training.date,
+          startTime: training.startTime,
+          endTime: training.endTime,
+          reason: group.name,
+          groupTrainingId: training.id
+        },
+        tx
+      );
+      // Reflect the new block in this run's occupancy so later trainings see it taken.
+      occupancy.blocks.push({ courtId, startTime: training.startTime, durationMinutes });
+      blocked += 1;
+    }
+
+    return { created, blocked, skipped };
+  }
+
+  /**
+   * Pick a court for an auto-block: the preferred court if it is active, free for
+   * every covered slot, and within the 6-per-slot limit; else the lowest-numbered
+   * active court that is free for every slot; else null (limit reached → skip). Never
+   * exceeds the active-court count for any covered slot.
+   */
+  private pickCourtForSlots(
+    slots: readonly string[],
+    activeCourts: readonly { id: string; number: number }[],
+    activeCourtCount: number,
+    preferredCourtId: string | undefined,
+    confirmed: readonly CourtOccupancyRow[],
+    blocks: readonly CourtOccupancyRow[]
+  ): string | null {
+    // Hard 6-per-slot guard: if any covered slot WITHIN working hours already has no
+    // free court, skip. Slots outside [open, close) carry no rental limit (the grid
+    // only tracks working hours), so a training extending past close is not blocked
+    // on that account — only the per-court freeness below still applies.
+    const free = freeCourtsBySlot({
+      activeCourtCount,
+      openHour: COURT_OPEN_HOUR,
+      closeHour: COURT_CLOSE_HOUR,
+      confirmed: [],
+      blocks: [...toSlotOccupants(confirmed), ...toSlotOccupants(blocks)]
+    });
+    if (slots.some((slot) => free.has(slot) && (free.get(slot) ?? 0) <= 0)) {
+      return null;
+    }
+
+    const occupants = toCellOccupants(confirmed, blocks);
+    if (
+      preferredCourtId &&
+      activeCourts.some((court) => court.id === preferredCourtId) &&
+      courtFreeForSlots(preferredCourtId, slots, occupants)
+    ) {
+      return preferredCourtId;
+    }
+    const fallback = activeCourts.find((court) => courtFreeForSlots(court.id, slots, occupants));
+    return fallback ? fallback.id : null;
   }
 
   /** Admin range read for schedule views. */
@@ -259,6 +447,9 @@ export class TrainingsService {
       }
       const cancelledClientIds = await this.trainings.cancelBookedBookingsForTraining(tx, id);
       const marked = await this.trainings.markCancelled(tx, id);
+      // Free the court: delete this training's auto-block (no-op if absent; a block is
+      // not active plan state, so delete is correct). Manual blocks (null link) untouched.
+      await this.courtBlocks.deleteByGroupTrainingId(id, tx);
       return { updated: marked, cancelledClientIds };
     });
 
@@ -356,4 +547,22 @@ function addDays(isoDate: string, days: number): string {
   const cursor = new Date(`${isoDate}T00:00:00Z`);
   cursor.setUTCDate(cursor.getUTCDate() + days);
   return cursor.toISOString().slice(0, 10);
+}
+
+/** Combine confirmed + block rows into the pure helper's per-court occupant shape. */
+function toCellOccupants(
+  confirmed: readonly CourtOccupancyRow[],
+  blocks: readonly CourtOccupancyRow[]
+): CourtCellOccupant[] {
+  return [...confirmed, ...blocks].map((row) => ({
+    courtId: row.courtId,
+    startTime: row.startTime,
+    durationMinutes: row.durationMinutes,
+    requestId: row.requestId
+  }));
+}
+
+/** Map occupancy rows to minute-span slot occupants for the per-slot limit tally. */
+function toSlotOccupants(rows: readonly CourtOccupancyRow[]): CourtSlotOccupant[] {
+  return rows.map((row) => ({ startTime: row.startTime, durationMinutes: row.durationMinutes }));
 }

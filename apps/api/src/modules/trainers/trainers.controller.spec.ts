@@ -1,10 +1,12 @@
 import { BadRequestException, ForbiddenException } from "@nestjs/common";
 import type { Env } from "@beosand/config";
-import type { Trainer } from "@beosand/types";
+import type { Client, Trainer } from "@beosand/types";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { TrainersController } from "./trainers.controller";
 import { TrainersService } from "./trainers.service";
 import type { TrainersRepository } from "./trainers.repository";
+import type { ClientsRepository } from "../clients/clients.repository";
+import type { NotificationsService } from "../notifications/notifications.service";
 
 const ADMIN_ID = 111;
 const NON_ADMIN_ID = 999;
@@ -40,6 +42,32 @@ function makeRepo(overrides: Partial<TrainersRepository> = {}): TrainersReposito
   } as unknown as TrainersRepository;
 }
 
+const client: Client = {
+  id: "cccccccc-cccc-cccc-cccc-cccccccccccc",
+  name: "Ivan",
+  telegramId: 777,
+  telegramUsername: "ivan",
+  levelId: null,
+  source: "telegram",
+  phone: null,
+  note: null,
+  language: "ru",
+  registeredAt: new Date().toISOString(),
+  status: "active"
+};
+
+function makeClients(): ClientsRepository {
+  return {
+    findByTelegramId: vi.fn(async () => client)
+  } as unknown as ClientsRepository;
+}
+
+function makeNotifications(): NotificationsService {
+  return {
+    requestIndividualSession: vi.fn(async () => true)
+  } as unknown as NotificationsService;
+}
+
 /**
  * Controller-boundary tests: the actor id arrives only on the x-telegram-id
  * header and is fed into the service's admin gate. A real service + fake repo
@@ -48,11 +76,15 @@ function makeRepo(overrides: Partial<TrainersRepository> = {}): TrainersReposito
  */
 describe("TrainersController", () => {
   let repo: TrainersRepository;
+  let notifications: NotificationsService;
   let controller: TrainersController;
 
   beforeEach(() => {
     repo = makeRepo();
-    controller = new TrainersController(new TrainersService(repo, env));
+    notifications = makeNotifications();
+    controller = new TrainersController(
+      new TrainersService(repo, makeClients(), notifications, env)
+    );
   });
 
   it("GET /trainers returns active trainers without requiring a header", async () => {
@@ -108,5 +140,50 @@ describe("TrainersController", () => {
       BadRequestException
     );
     expect(repo.update).not.toHaveBeenCalled();
+  });
+
+  describe("POST :id/individual-request (Feature 8, self-only)", () => {
+    const TRAINER_ID = "11111111-1111-1111-1111-111111111111";
+
+    it("rejects a non-self request (body id ≠ header id) with ForbiddenException and no send", () => {
+      expect(() => controller.requestIndividual(String(777), TRAINER_ID, { telegramId: 888 })).toThrow(
+        ForbiddenException
+      );
+      expect(notifications.requestIndividualSession).not.toHaveBeenCalled();
+    });
+
+    it("rejects a missing/invalid header before any work", () => {
+      expect(() => controller.requestIndividual(undefined, TRAINER_ID, { telegramId: 777 })).toThrow(
+        BadRequestException
+      );
+      expect(() =>
+        controller.requestIndividual("not-a-number", TRAINER_ID, { telegramId: 777 })
+      ).toThrow(BadRequestException);
+    });
+
+    it("rejects a non-uuid trainer id with BadRequestException", () => {
+      expect(() => controller.requestIndividual(String(777), "not-a-uuid", { telegramId: 777 })).toThrow(
+        BadRequestException
+      );
+    });
+
+    it("rejects a body with an extra field (strict) with BadRequestException", () => {
+      expect(() =>
+        controller.requestIndividual(String(777), TRAINER_ID, { telegramId: 777, foo: 1 })
+      ).toThrow(BadRequestException);
+    });
+
+    it("on a self request delivers and returns the typed result", async () => {
+      const reachable: Trainer = { ...milena, telegramId: 555 };
+      repo = makeRepo({ findById: vi.fn(async () => reachable) });
+      notifications = makeNotifications();
+      controller = new TrainersController(
+        new TrainersService(repo, makeClients(), notifications, env)
+      );
+      await expect(
+        controller.requestIndividual(String(777), TRAINER_ID, { telegramId: 777 })
+      ).resolves.toEqual({ delivered: true });
+      expect(notifications.requestIndividualSession).toHaveBeenCalledOnce();
+    });
   });
 });

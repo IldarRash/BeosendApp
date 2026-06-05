@@ -59,16 +59,41 @@ export const groupSchema = z.object({
   startTime: timeString,
   endTime: timeString,
   trainerId: uuid,
+  /** Read-only display field, joined server-side from trainers; never accepted on writes. */
+  trainerName: z.string(),
   capacity: z.number().int().positive(),
   priceSingleRsd: rsd,
   priceMonthRsd: rsd,
   status: entityStatus
 });
-export const createGroupSchema = groupSchema.omit({ id: true, status: true });
-export const updateGroupSchema = groupSchema.omit({ id: true }).partial();
+export const createGroupSchema = groupSchema.omit({ id: true, status: true, trainerName: true });
+export const updateGroupSchema = groupSchema.omit({ id: true, trainerName: true }).partial();
 export type Group = z.infer<typeof groupSchema>;
 export type CreateGroupInput = z.infer<typeof createGroupSchema>;
 export type UpdateGroupInput = z.infer<typeof updateGroupSchema>;
+
+// --- Individual training request (Feature 8): notification-only, no persisted booking ---
+
+/** Body for POST /trainers/:id/individual-request: the requesting client's own Telegram id. */
+export const individualRequestSchema = z
+  .object({
+    telegramId: z.number().int()
+  })
+  .strict();
+export type IndividualRequestInput = z.infer<typeof individualRequestSchema>;
+
+/**
+ * Result of an individual-training request. `delivered` is whether the trainer
+ * DM was sent; `reason` is present only on failure so the bot picks its message.
+ * The single soft case is a trainer with no/unreachable Telegram channel.
+ */
+export const individualRequestResultSchema = z
+  .object({
+    delivered: z.boolean(),
+    reason: z.enum(["trainer-unavailable"]).optional()
+  })
+  .strict();
+export type IndividualRequestResult = z.infer<typeof individualRequestResultSchema>;
 
 // --- Trainings (3.5): a concrete date/time instance ---
 export const trainingStatus = z.enum(["open", "full", "cancelled", "completed"]);
@@ -90,9 +115,37 @@ export type Training = z.infer<typeof trainingSchema>;
 export const generateMonthSchema = z.object({
   groupId: uuid,
   year: z.number().int().min(2024),
-  month: z.number().int().min(1).max(12)
+  month: z.number().int().min(1).max(12),
+  /** Preferred court for this group's auto-blocks; falls back per date if not free. */
+  courtId: uuid.optional()
 });
 export type GenerateMonthInput = z.infer<typeof generateMonthSchema>;
+
+/** Generate the month for every active group at once (Feature 3). No courtId — auto-pick per group. */
+export const generateAllMonthSchema = z.object({
+  year: z.number().int().min(2024),
+  month: z.number().int().min(1).max(12)
+});
+export type GenerateAllMonthInput = z.infer<typeof generateAllMonthSchema>;
+
+/**
+ * Per-group outcome of a generation run: new trainings created, auto-blocks
+ * created, and trainings left without a free court. Invariant: blocked + skipped
+ * === created (every new training either gets a block or is recorded as skipped).
+ */
+export const generateGroupResultSchema = z.object({
+  groupId: uuid,
+  groupName: z.string(),
+  created: z.number().int().nonnegative(),
+  blocked: z.number().int().nonnegative(),
+  skipped: z.number().int().nonnegative()
+});
+export type GenerateGroupResult = z.infer<typeof generateGroupResultSchema>;
+
+export const generateAllResultSchema = z.object({
+  perGroup: z.array(generateGroupResultSchema)
+});
+export type GenerateAllResult = z.infer<typeof generateAllResultSchema>;
 
 /**
  * Body for POST /trainings/:id/cancel (admin manager console). The training id is

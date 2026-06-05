@@ -7,13 +7,17 @@ import {
 } from "@tanstack/react-query";
 import type {
   ChangeCapacityInput,
+  GenerateAllMonthInput,
+  GenerateAllResult,
   GenerateMonthInput,
   ListTrainingsQuery,
   Training
 } from "@beosand/types";
 import { useApiClient } from "../api/ApiProvider";
+import { COURT_LOAD_KEY } from "./useCourtLoad";
 
 const TRAININGS_KEY = ["trainings"] as const;
+const COURT_BLOCKS_KEY = ["court-blocks"] as const;
 
 /** Stable cache key for one trainings range query. */
 function listKey(query: ListTrainingsQuery): readonly unknown[] {
@@ -36,11 +40,19 @@ export function useTrainings(
   });
 }
 
-/** Invalidate every trainings list query (range/group agnostic). */
-function invalidateTrainings(
+/**
+ * Invalidate every trainings list query (range/group agnostic). Generation also
+ * creates auto court blocks, so the blocks lists and the load grid are refreshed
+ * too — a generated month reserves courts the court-load screens render.
+ */
+export function invalidateTrainings(
   queryClient: ReturnType<typeof useQueryClient>
 ): Promise<void> {
-  return queryClient.invalidateQueries({ queryKey: TRAININGS_KEY });
+  return Promise.all([
+    queryClient.invalidateQueries({ queryKey: TRAININGS_KEY }),
+    queryClient.invalidateQueries({ queryKey: COURT_BLOCKS_KEY }),
+    queryClient.invalidateQueries({ queryKey: COURT_LOAD_KEY })
+  ]).then(() => undefined);
 }
 
 /** Generate a month of trainings for a group; refreshes the lists on success. */
@@ -49,6 +61,24 @@ export function useGenerateMonth(): UseMutationResult<Training[], Error, Generat
   const queryClient = useQueryClient();
   return useMutation({
     mutationFn: (input: GenerateMonthInput) => api.generateMonth(input),
+    onSuccess: () => invalidateTrainings(queryClient)
+  });
+}
+
+/**
+ * Feature 3 — generate the month for every active group at once. Refreshes the
+ * trainings lists, the blocks lists and the load grid (auto-blocks landed); the
+ * per-group summary is surfaced by the caller from the resolved result.
+ */
+export function useGenerateAllGroups(): UseMutationResult<
+  GenerateAllResult,
+  Error,
+  GenerateAllMonthInput
+> {
+  const api = useApiClient();
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (input: GenerateAllMonthInput) => api.generateAllGroups(input),
     onSuccess: () => invalidateTrainings(queryClient)
   });
 }

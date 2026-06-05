@@ -27,22 +27,22 @@ const REQUEST_ID = "33333333-3333-3333-3333-333333333333";
 const GRID: CourtLoadGrid = {
   date: "2026-06-10",
   openHour: 8,
-  closeHour: 10,
+  closeHour: 9,
   rows: [
     {
       courtId: "11111111-1111-1111-1111-111111111111",
       courtNumber: 1,
       cells: [
-        { hour: 8, startTime: "08:00", state: "free", requestId: null },
-        { hour: 9, startTime: "09:00", state: "request", requestId: REQUEST_ID }
+        { startTime: "08:00", state: "free", requestId: null },
+        { startTime: "08:30", state: "request", requestId: REQUEST_ID }
       ]
     },
     {
       courtId: "22222222-2222-2222-2222-222222222222",
       courtNumber: 2,
       cells: [
-        { hour: 8, startTime: "08:00", state: "block", requestId: null },
-        { hour: 9, startTime: "09:00", state: "free", requestId: null }
+        { startTime: "08:00", state: "block", requestId: null },
+        { startTime: "08:30", state: "free", requestId: null }
       ]
     }
   ]
@@ -79,13 +79,13 @@ beforeEach(() => {
 afterEach(cleanup);
 
 describe("CourtLoad page", () => {
-  it("renders a court row per grid row with hour column headers from the API", () => {
+  it("renders a court row per grid row with 30-min slot column headers from the API", () => {
     render(<CourtLoad />);
 
     const table = screen.getByRole("table", { name: "Загрузка кортов на 2026-06-10" });
-    // Hour headers come straight from the contract cells — no client-side hour math.
+    // Slot headers come straight from the contract cells — no client-side slot math.
     expect(within(table).getByRole("columnheader", { name: "08:00" })).toBeTruthy();
-    expect(within(table).getByRole("columnheader", { name: "09:00" })).toBeTruthy();
+    expect(within(table).getByRole("columnheader", { name: "08:30" })).toBeTruthy();
     // One row header per court, by number.
     expect(within(table).getByRole("rowheader", { name: "№ 1" })).toBeTruthy();
     expect(within(table).getByRole("rowheader", { name: "№ 2" })).toBeTruthy();
@@ -98,7 +98,7 @@ describe("CourtLoad page", () => {
     expect(free.className).toContain("load-cell--free");
 
     // A request cell is an actionable button that opens the booking detail.
-    const request = screen.getByLabelText("Корт 1, 09:00 — Заявка. Открыть детали брони.");
+    const request = screen.getByLabelText("Корт 1, 08:30 — Заявка. Открыть детали брони.");
     expect(request.tagName).toBe("BUTTON");
     expect(request.className).toContain("load-cell--request");
 
@@ -115,7 +115,7 @@ describe("CourtLoad page", () => {
   it("opens the booking detail with the API-decided values when a request cell is clicked", () => {
     render(<CourtLoad />);
 
-    fireEvent.click(screen.getByLabelText("Корт 1, 09:00 — Заявка. Открыть детали брони."));
+    fireEvent.click(screen.getByLabelText("Корт 1, 08:30 — Заявка. Открыть детали брони."));
 
     // The detail hook is asked for exactly the clicked cell's request id.
     expect(useCourtRequestDetail).toHaveBeenLastCalledWith(REQUEST_ID);

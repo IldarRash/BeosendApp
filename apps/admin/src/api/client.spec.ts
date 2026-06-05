@@ -149,6 +149,94 @@ describe("ApiClient auth contracts", () => {
   });
 });
 
+describe("ApiClient group-court scheduling (features 2+3)", () => {
+  afterEach(() => {
+    vi.unstubAllGlobals();
+  });
+
+  const GROUP_ID = "11111111-1111-1111-1111-111111111111";
+  const COURT_ID = "22222222-2222-2222-2222-222222222222";
+  const BLOCK_ID = "33333333-3333-3333-3333-333333333333";
+  const TRAINING_ID = "44444444-4444-4444-4444-444444444444";
+
+  it("omits courtId from generateMonth when none is chosen", async () => {
+    const calls = mockFetchOnce([]);
+    await new ApiClient("http://api.test").generateMonth({
+      groupId: GROUP_ID,
+      year: 2026,
+      month: 6
+    });
+    const body = JSON.parse(calls[0]?.init?.body as string);
+    expect(body).toEqual({ groupId: GROUP_ID, year: 2026, month: 6 });
+    expect(body).not.toHaveProperty("courtId");
+  });
+
+  it("sends courtId in generateMonth when chosen", async () => {
+    const calls = mockFetchOnce([]);
+    await new ApiClient("http://api.test").generateMonth({
+      groupId: GROUP_ID,
+      year: 2026,
+      month: 6,
+      courtId: COURT_ID
+    });
+    const body = JSON.parse(calls[0]?.init?.body as string);
+    expect(body.courtId).toBe(COURT_ID);
+  });
+
+  it("validates a well-formed generate-all summary", async () => {
+    const calls = mockFetchOnce({
+      perGroup: [{ groupId: GROUP_ID, groupName: "Группа А", created: 8, blocked: 7, skipped: 1 }]
+    });
+    const result = await new ApiClient("http://api.test").generateAllGroups({ year: 2026, month: 6 });
+    expect(calls[0]?.url).toBe("http://api.test/trainings/generate-all");
+    expect(calls[0]?.init?.method).toBe("POST");
+    expect(result.perGroup[0].skipped).toBe(1);
+  });
+
+  it("rejects a malformed generate-all summary (contract enforced)", async () => {
+    // `created` must be a non-negative integer; a string fails the contract.
+    mockFetchOnce({
+      perGroup: [{ groupId: GROUP_ID, groupName: "Группа А", created: "eight", blocked: 7, skipped: 1 }]
+    });
+    await expect(
+      new ApiClient("http://api.test").generateAllGroups({ year: 2026, month: 6 })
+    ).rejects.toThrow();
+  });
+
+  it("PATCHes a court reassignment and returns the moved block", async () => {
+    const calls = mockFetchOnce({
+      id: BLOCK_ID,
+      courtId: COURT_ID,
+      date: "2026-06-10",
+      startTime: "14:00",
+      endTime: "15:00",
+      reason: "Группа А",
+      groupTrainingId: TRAINING_ID
+    });
+    const result = await new ApiClient("http://api.test").reassignCourtBlock(BLOCK_ID, COURT_ID);
+    expect(calls[0]?.url).toBe(`http://api.test/court-blocks/${BLOCK_ID}`);
+    expect(calls[0]?.init?.method).toBe("PATCH");
+    expect(JSON.parse(calls[0]?.init?.body as string)).toEqual({ courtId: COURT_ID });
+    expect(result.courtId).toBe(COURT_ID);
+    expect(result.groupTrainingId).toBe(TRAINING_ID);
+  });
+
+  it("rejects a malformed reassign response (contract enforced)", async () => {
+    // Missing the required groupTrainingId field fails the courtBlock contract.
+    mockFetchOnce({
+      id: BLOCK_ID,
+      courtId: COURT_ID,
+      date: "2026-06-10",
+      startTime: "14:00",
+      endTime: "15:00",
+      reason: "Группа А"
+    });
+    await expect(
+      new ApiClient("http://api.test").reassignCourtBlock(BLOCK_ID, COURT_ID)
+    ).rejects.toThrow();
+  });
+});
+
 describe("ApiClient i18n", () => {
   afterEach(() => {
     vi.unstubAllGlobals();
@@ -209,5 +297,74 @@ describe("ApiClient i18n", () => {
     });
     expect(calls[0]?.init?.method).toBe("DELETE");
     expect(result.override).toBeNull();
+  });
+});
+
+describe("ApiClient walk-in & manual booking (Feature 5)", () => {
+  afterEach(() => {
+    vi.unstubAllGlobals();
+  });
+
+  const walkIn = {
+    id: "11111111-1111-1111-1111-111111111111",
+    name: "Марко",
+    telegramId: null,
+    telegramUsername: null,
+    levelId: null,
+    source: "walk_in",
+    phone: "+381601234567",
+    note: null,
+    language: "ru",
+    registeredAt: "2026-01-01T00:00:00.000Z",
+    status: "active"
+  };
+
+  it("creates a walk-in client and validates the returned record", async () => {
+    const calls = mockFetchOnce(walkIn);
+    const result = await new ApiClient("http://api.test").createWalkIn({ name: "Марко" });
+    expect(calls[0]?.url).toBe("http://api.test/clients/walk-in");
+    expect(calls[0]?.init?.method).toBe("POST");
+    expect(result.telegramId).toBeNull();
+    expect(result.source).toBe("walk_in");
+  });
+
+  it("lists clients with a trimmed search query and validates each row", async () => {
+    const calls = mockFetchOnce([walkIn]);
+    const result = await new ApiClient("http://api.test").listClients("  марко  ");
+    expect(calls[0]?.url).toBe("http://api.test/clients?search=%D0%BC%D0%B0%D1%80%D0%BA%D0%BE");
+    expect(result).toHaveLength(1);
+  });
+
+  it("omits the search param when no query is given", async () => {
+    const calls = mockFetchOnce([]);
+    await new ApiClient("http://api.test").listClients();
+    expect(calls[0]?.url).toBe("http://api.test/clients");
+  });
+
+  it("rejects a malformed clients-list response (unsafe path)", async () => {
+    // A row missing the required `source` field must be rejected by the contract.
+    mockFetchOnce([{ ...walkIn, source: undefined }]);
+    await expect(new ApiClient("http://api.test").listClients()).rejects.toThrow();
+  });
+
+  it("posts a manual booking and validates the returned booking", async () => {
+    const booking = {
+      id: "22222222-2222-2222-2222-222222222222",
+      clientId: walkIn.id,
+      trainingId: "33333333-3333-3333-3333-333333333333",
+      type: "single",
+      groupSubscriptionId: null,
+      createdAt: "2026-06-01T00:00:00.000Z",
+      status: "booked",
+      source: "walk_in"
+    };
+    const calls = mockFetchOnce(booking);
+    const result = await new ApiClient("http://api.test").bookManual({
+      clientId: walkIn.id,
+      trainingId: booking.trainingId
+    });
+    expect(calls[0]?.url).toBe("http://api.test/bookings/manual");
+    expect(calls[0]?.init?.method).toBe("POST");
+    expect(result.source).toBe("walk_in");
   });
 });

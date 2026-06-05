@@ -42,7 +42,7 @@ export class CourtsService {
    * read (mirrors listActiveCourts): this view exposes court numbers, which must
    * never leak to clients. Every cell is derived purely from confirmed requests +
    * blocks via the shared `courtLoadGrid` helper, so a `free` cell is exactly a
-   * court/hour C3 counts as free. Read-only — no write path.
+   * court/slot C3 counts as free. Read-only — no write path.
    */
   async getLoadGrid(callerTelegramId: number, date: string): Promise<CourtLoadGrid> {
     if (!isAdmin(this.env, callerTelegramId)) {
@@ -72,16 +72,11 @@ export class CourtsService {
         courtId: row.courtId,
         courtNumber: row.courtNumber,
         cells: row.cells.map((cell) => ({
-          hour: cell.hour,
-          startTime: hourToTime(cell.hour),
+          startTime: cell.startTime,
           state: cell.state,
           requestId: cell.requestId
         }))
       }))
     });
   }
-}
-
-function hourToTime(hour: number): string {
-  return `${String(hour).padStart(2, "0")}:00`;
 }

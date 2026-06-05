@@ -16,12 +16,12 @@ import { formatRsd } from "../lib/format";
 type Translate = (key: string, params?: Record<string, string | number>) => string;
 
 /**
- * M3 — Загрузка кортов: the per-day load grid (courts × working hours). Every
+ * M3 — Загрузка кортов: the per-day load grid (courts × 30-minute slots). Every
  * cell's state (free | request | block) comes straight from the API — this
- * screen never computes occupancy, the 6-per-hour limit, or per-hour court
+ * screen never computes occupancy, the 6-per-slot limit, or per-slot court
  * availability. As an admin view it may show court numbers (rows) and the
  * occupancy of confirmed requests / blocks. The grid is a real <table> so
- * screen readers get column (hour) and row (court) headers; each cell conveys
+ * screen readers get column (slot start) and row (court) headers; each cell conveys
  * its state via text + aria-label, never by colour alone. A `request` cell is a
  * clickable button that opens the booking detail (who/when/price); `free`/`block`
  * cells are inert — the API never identifies them, and blocks aren't requests.
@@ -52,8 +52,8 @@ function errorText(error: unknown, t: Translate): string {
   return error instanceof Error ? error.message : t("admin.courtLoad.loadError");
 }
 
-/** "08:00" from a cell's start time (already a contract time-string). */
-function hourLabel(cell: CourtLoadCell): string {
+/** The slot-start label (e.g. "08:30") from a cell — already a contract time-string. */
+function slotLabel(cell: CourtLoadCell): string {
   return cell.startTime;
 }
 
@@ -134,8 +134,8 @@ export function CourtLoad(): JSX.Element {
                     {t("admin.courtLoad.colCourt")}
                   </th>
                   {headerCells.map((cell) => (
-                    <th key={cell.hour} scope="col" className="datatable__num">
-                      {hourLabel(cell)}
+                    <th key={cell.startTime} scope="col" className="datatable__num">
+                      {slotLabel(cell)}
                     </th>
                   ))}
                 </tr>
@@ -149,14 +149,14 @@ export function CourtLoad(): JSX.Element {
                     {row.cells.map((cell) => {
                       const requestId = cell.state === "request" ? cell.requestId : null;
                       return (
-                        <td key={cell.hour} className="load-grid__cell">
+                        <td key={cell.startTime} className="load-grid__cell">
                           {requestId ? (
                             <button
                               type="button"
                               className={`load-cell load-cell--${cell.state} load-cell--clickable`}
                               aria-label={t("admin.courtLoad.cellOpenAria", {
                                 number: row.courtNumber,
-                                hour: hourLabel(cell),
+                                hour: slotLabel(cell),
                                 state: cellStateLabel(cell.state, t)
                               })}
                               onClick={() => setOpenRequestId(requestId)}
@@ -168,7 +168,7 @@ export function CourtLoad(): JSX.Element {
                               className={`load-cell load-cell--${cell.state}`}
                               aria-label={t("admin.courtLoad.cellAria", {
                                 number: row.courtNumber,
-                                hour: hourLabel(cell),
+                                hour: slotLabel(cell),
                                 state: cellStateLabel(cell.state, t)
                               })}
                             >

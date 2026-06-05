@@ -37,6 +37,9 @@ const EXISTING: Client = {
   telegramId: 42,
   telegramUsername: "anya",
   levelId: null,
+  source: "telegram",
+  phone: null,
+  note: null,
   registeredAt: "2026-01-01T00:00:00.000Z",
   status: "active",
   language: "ru"

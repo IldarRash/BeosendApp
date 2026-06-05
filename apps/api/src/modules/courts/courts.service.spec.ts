@@ -1,7 +1,7 @@
 import { ForbiddenException } from "@nestjs/common";
 import { describe, expect, it, vi } from "vitest";
 import type { Env } from "@beosand/config";
-import { freeCourtsByHour } from "@beosand/types";
+import { freeCourtsBySlot, timeOfMinutes } from "@beosand/types";
 import { CourtsRepository } from "./courts.repository";
 import { CourtsService } from "./courts.service";
 
@@ -83,10 +83,10 @@ describe("CourtsService.getLoadGrid", () => {
       ]),
       confirmedCourtOccupancyForDate: vi
         .fn()
-        .mockResolvedValue([{ courtId: courtA, startTime: "10:00", durationHours: 2 }]),
+        .mockResolvedValue([{ courtId: courtA, startTime: "10:00", durationMinutes: 120 }]),
       blocksByCourtForDate: vi
         .fn()
-        .mockResolvedValue([{ courtId: courtB, startTime: "09:00", durationHours: 3 }])
+        .mockResolvedValue([{ courtId: courtB, startTime: "09:00", durationMinutes: 180 }])
     } as unknown as CourtsRepository;
   }
 
@@ -112,15 +112,16 @@ describe("CourtsService.getLoadGrid", () => {
 
     const rowA = grid.rows.find((r) => r.courtId === courtA);
     const rowB = grid.rows.find((r) => r.courtId === courtB);
-    const stateAt = (row: typeof rowA, hour: number): string =>
-      row?.cells.find((c) => c.hour === hour)?.state ?? "missing";
+    const stateAt = (row: typeof rowA, t: string): string =>
+      row?.cells.find((c) => c.startTime === t)?.state ?? "missing";
 
-    expect(stateAt(rowA, 10)).toBe("request");
-    expect(stateAt(rowA, 11)).toBe("request");
-    expect(stateAt(rowA, 9)).toBe("free");
-    expect(stateAt(rowB, 9)).toBe("block");
-    expect(stateAt(rowB, 11)).toBe("block");
-    expect(stateAt(rowB, 12)).toBe("free");
+    expect(stateAt(rowA, "10:00")).toBe("request");
+    expect(stateAt(rowA, "11:30")).toBe("request");
+    expect(stateAt(rowA, "12:00")).toBe("free");
+    expect(stateAt(rowA, "09:00")).toBe("free");
+    expect(stateAt(rowB, "09:00")).toBe("block");
+    expect(stateAt(rowB, "11:30")).toBe("block");
+    expect(stateAt(rowB, "12:00")).toBe("free");
     expect(rowA?.cells[0].startTime).toBe("08:00");
   });
 
@@ -157,8 +158,8 @@ describe("CourtsService.getLoadGrid", () => {
     expect(repo.blocksByCourtForDate).toHaveBeenCalledOnce();
   });
 
-  it("free-cell count per hour equals freeCourtsByHour for the same data (C3 consistency)", async () => {
-    // Invariant: a `free` cell is exactly a court/hour C3 counts as free. The grid
+  it("free-cell count per slot equals freeCourtsBySlot for the same data (C3 consistency)", async () => {
+    // Invariant: a `free` cell is exactly a court/slot C3 counts as free. The grid
     // and the C3 free-court math must agree by construction for the same occupancy.
     const repo = makeLoadRepo();
     const service = new CourtsService(adminEnv, repo);
@@ -167,22 +168,21 @@ describe("CourtsService.getLoadGrid", () => {
 
     // Mirror the repo fixture: a 2h confirmed request on courtA at 10:00 and a 3h
     // block on courtB at 09:00, against 2 active courts.
-    const free = freeCourtsByHour({
+    const free = freeCourtsBySlot({
       activeCourtCount: 2,
       openHour: grid.openHour,
       closeHour: grid.closeHour,
       confirmed: [{ startTime: "10:00", durationHours: 2 }],
-      blocks: [9, 10, 11].map((h) => ({
-        startTime: `${String(h).padStart(2, "0")}:00`,
-        durationHours: 1 as const
-      }))
+      blocks: [{ startTime: "09:00", durationMinutes: 180 }]
     });
 
-    for (let hour = grid.openHour; hour < grid.closeHour; hour += 1) {
+    const closeMinutes = grid.closeHour * 60;
+    for (let m = grid.openHour * 60; m < closeMinutes; m += 30) {
+      const startTime = timeOfMinutes(m);
       const freeCells = grid.rows.filter(
-        (r) => r.cells.find((c) => c.hour === hour)?.state === "free"
+        (r) => r.cells.find((c) => c.startTime === startTime)?.state === "free"
       ).length;
-      expect(freeCells).toBe(free.get(hour));
+      expect(freeCells).toBe(free.get(startTime));
     }
   });
 });

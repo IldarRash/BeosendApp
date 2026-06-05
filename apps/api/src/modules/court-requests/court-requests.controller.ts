@@ -54,7 +54,7 @@ export class CourtRequestsController {
     const parsed = previewCourtRequestSchema.safeParse(body);
     if (!parsed.success) {
       throw new BadRequestException(
-        "Invalid preview body: expected { telegramId, date, startTime, durationHours: 1|2 }."
+        "Invalid preview body: expected { telegramId, date, startTime, durationHours: 1|1.5|2 }."
       );
     }
     return this.service.previewRequest(parsed.data);
@@ -69,7 +69,7 @@ export class CourtRequestsController {
     const parsed = createCourtRequestSchema.safeParse(body);
     if (!parsed.success) {
       throw new BadRequestException(
-        "Invalid request body: expected { telegramId, date, startTime, durationHours: 1|2 }."
+        "Invalid request body: expected { telegramId, date, startTime, durationHours: 1|1.5|2 }."
       );
     }
     return this.service.createRequest(parsed.data);

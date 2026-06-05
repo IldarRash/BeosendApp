@@ -6,9 +6,17 @@ import {
   Headers,
   Param,
   Patch,
-  Post
+  Post,
+  Query
 } from "@nestjs/common";
-import { type Client, clientSchema, localeSchema, onboardClientSchema } from "@beosand/types";
+import {
+  type Client,
+  clientSchema,
+  createWalkInSchema,
+  listClientsQuerySchema,
+  localeSchema,
+  onboardClientSchema
+} from "@beosand/types";
 import type { ZodSchema } from "zod";
 import { z } from "zod";
 import { ClientsService } from "./clients.service";
@@ -29,6 +37,30 @@ export class ClientsController {
     const actorTelegramId = parseTelegramId(telegramIdHeader);
     const target = parseParamTelegramId(telegramId);
     const client = await this.clients.getByTelegramId(actorTelegramId, target);
+    return validate(clientSchema, client);
+  }
+
+  /** Admin: list clients for the manual-booking picker. Admin-gated in the service. */
+  @Get()
+  async list(
+    @Headers("x-telegram-id") telegramIdHeader: string | undefined,
+    @Query() query: unknown
+  ): Promise<Client[]> {
+    const actorTelegramId = parseTelegramId(telegramIdHeader);
+    const { search } = validate(listClientsQuerySchema, query ?? {});
+    const clients = await this.clients.list(actorTelegramId, { search });
+    return z.array(clientSchema).parse(clients);
+  }
+
+  /** Admin: create a walk-in client by name (no Telegram). Admin-gated in the service. */
+  @Post("walk-in")
+  async createWalkIn(
+    @Headers("x-telegram-id") telegramIdHeader: string | undefined,
+    @Body() body: unknown
+  ): Promise<Client> {
+    const actorTelegramId = parseTelegramId(telegramIdHeader);
+    const input = validate(createWalkInSchema, body ?? {});
+    const client = await this.clients.createWalkIn(actorTelegramId, input);
     return validate(clientSchema, client);
   }
 

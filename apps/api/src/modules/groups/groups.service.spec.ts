@@ -37,7 +37,7 @@ class FakeGroupsRepository {
 
   async create(input: CreateGroupInput): Promise<Group> {
     const id = `00000000-0000-0000-0000-00000000000${++this.seq}`;
-    const row: Group = { ...input, id, status: "active" };
+    const row: Group = { ...input, id, status: "active", trainerName: "Jovana" };
     this.rows.set(id, row);
     return row;
   }
@@ -85,6 +85,37 @@ describe("GroupsService", () => {
     await expect(
       service.create(ADMIN_ID, { ...baseInput, startTime: "21:00", endTime: "20:00" })
     ).rejects.toBeInstanceOf(Error);
+  });
+
+  it("accepts a :30-aligned create (18:00–19:30)", async () => {
+    const created = await service.create(ADMIN_ID, {
+      ...baseInput,
+      startTime: "18:00",
+      endTime: "19:30"
+    });
+    expect(created.startTime).toBe("18:00");
+    expect(created.endTime).toBe("19:30");
+  });
+
+  it("rejects a create with a start off the 30-minute grid (:15)", async () => {
+    await expect(
+      service.create(ADMIN_ID, { ...baseInput, startTime: "18:15", endTime: "19:30" })
+    ).rejects.toMatchObject({ status: 400 });
+    expect(await service.listActive()).toHaveLength(0);
+  });
+
+  it("rejects a create with an end off the 30-minute grid (:45)", async () => {
+    await expect(
+      service.create(ADMIN_ID, { ...baseInput, startTime: "18:00", endTime: "19:45" })
+    ).rejects.toMatchObject({ status: 400 });
+    expect(await service.listActive()).toHaveLength(0);
+  });
+
+  it("rejects a partial update that moves the start off the 30-minute grid", async () => {
+    const created = await service.create(ADMIN_ID, baseInput);
+    await expect(
+      service.update(ADMIN_ID, created.id, { startTime: "18:15" })
+    ).rejects.toMatchObject({ status: 400 });
   });
 
   it("rejects a partial update that would make endTime <= startTime", async () => {

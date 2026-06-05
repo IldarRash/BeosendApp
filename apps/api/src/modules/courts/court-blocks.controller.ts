@@ -7,6 +7,7 @@ import {
   Headers,
   HttpCode,
   Param,
+  Patch,
   Post,
   Query
 } from "@nestjs/common";
@@ -14,6 +15,7 @@ import { z } from "zod";
 import {
   courtAvailabilityQuerySchema,
   createCourtBlockSchema,
+  reassignCourtBlockSchema,
   uuid,
   type CourtBlock
 } from "@beosand/types";
@@ -54,6 +56,25 @@ export class CourtBlocksController {
       throw new BadRequestException("Invalid query: expected date=YYYY-MM-DD.");
     }
     return this.service.listBlocks(telegramId, parsed.data.date);
+  }
+
+  /** Admin-only. Move a block to another court (re-checks overlap + 6-per-slot limit). */
+  @Patch(":id")
+  async reassign(
+    @Headers("x-telegram-id") rawTelegramId: string | undefined,
+    @Param("id") rawId: string,
+    @Body() body: unknown
+  ): Promise<CourtBlock> {
+    const telegramId = parseTelegramId(rawTelegramId);
+    const idParsed = uuid.safeParse(rawId);
+    if (!idParsed.success) {
+      throw new BadRequestException("Invalid block id.");
+    }
+    const bodyParsed = reassignCourtBlockSchema.safeParse(body);
+    if (!bodyParsed.success) {
+      throw new BadRequestException("Invalid body: expected { courtId }.");
+    }
+    return this.service.reassignCourt(telegramId, idParsed.data, bodyParsed.data);
   }
 
   /** Admin-only. Remove a block, restoring availability. */

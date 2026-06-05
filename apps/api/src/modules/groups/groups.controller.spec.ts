@@ -19,6 +19,7 @@ const intermediate: Group = {
   startTime: "20:00",
   endTime: "21:30",
   trainerId: "33333333-3333-3333-3333-333333333333",
+  trainerName: "Jovana",
   capacity: 12,
   priceSingleRsd: 1500,
   priceMonthRsd: 10000,

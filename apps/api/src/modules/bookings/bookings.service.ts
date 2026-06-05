@@ -18,6 +18,7 @@ import type {
   MyBookingScope
 } from "@beosand/types";
 import {
+  type BookingSource,
   bookingSchema,
   groupBookingResultSchema,
   isBookable,
@@ -25,13 +26,14 @@ import {
   myBookingItemSchema,
   recomputeTrainingStatus
 } from "@beosand/types";
+import type { Database } from "@beosand/db";
 import { ENV } from "../../config/config.module";
 import { ClientsRepository } from "../clients/clients.repository";
 import { GroupsRepository } from "../groups/groups.repository";
 import { NotificationsService } from "../notifications/notifications.service";
 import { TrainersRepository } from "../trainers/trainers.repository";
 import { WaitlistService } from "../waitlist/waitlist.service";
-import { BookingsRepository } from "./bookings.repository";
+import { BookingsRepository, type TrainingLockRow } from "./bookings.repository";
 
 interface CreateSingleInput {
   clientId: string;
@@ -81,48 +83,12 @@ export class BookingsService {
       if (!training) {
         throw new NotFoundException(`Training ${input.trainingId} not found`);
       }
-
-      if (
-        !isBookable({
-          capacity: training.capacity,
-          bookedCount: training.bookedCount,
-          status: training.status
-        })
-      ) {
-        // Typed 409 so the bot branches to the waitlist instead of a generic error.
-        throw new ConflictException("Training is not bookable");
-      }
-
-      const existing = await this.bookings.findActiveBookingForClient(
-        tx,
-        input.clientId,
-        input.trainingId
-      );
-      if (existing) {
-        throw new ConflictException("Client already booked this training");
-      }
-
-      const created = await this.bookings.insertBooking(tx, {
+      return this.bookSeat(tx, {
         clientId: input.clientId,
-        trainingId: input.trainingId,
+        training,
         type: "single",
-        groupSubscriptionId: null,
-        status: "booked",
         source: "telegram"
       });
-
-      const newCount = training.bookedCount + 1;
-      const newStatus = recomputeTrainingStatus({
-        capacity: training.capacity,
-        bookedCount: newCount,
-        status: training.status
-      });
-      await this.bookings.updateTrainingCount(tx, input.trainingId, newCount, newStatus);
-
-      this.logger.log(
-        `Single booking ${created.id} on training ${input.trainingId} (${newCount}/${training.capacity}, ${newStatus})`
-      );
-      return created;
     });
 
     // After the commit, fire-and-forget: a confirmation failure must never undo
@@ -134,6 +100,123 @@ export class BookingsService {
     );
 
     return bookingSchema.parse(booking);
+  }
+
+  /**
+   * Admin/trainer manual booking (Feature 5): book any (existing or walk-in)
+   * client onto a training from the console — the same atomic seat math as
+   * createSingle, but a different authorization rule and a Telegram-safe
+   * confirmation. Invariants enforced here:
+   * - Authorization is admin-or-trainer-of-the-training (assertTrainerOrAdmin),
+   *   checked INSIDE the tx against the locked training's trainerId, never the
+   *   self-only ownership of createSingle.
+   * - Capacity/status recompute, the full/non-bookable 409, and the duplicate
+   *   active-booking 409 are the shared bookSeat body — no parallel booking math.
+   * - source = "walk_in" when the booked client has no telegram_id, else "admin".
+   * - A walk-in (no telegram_id) is never sent a Telegram DM: the post-commit
+   *   confirmation is skipped entirely for it (and tolerated for everyone).
+   */
+  async createManual(actorTelegramId: number, input: CreateSingleInput): Promise<Booking> {
+    // Captured inside the tx (after authorization) for the post-commit notification
+    // decision, so an unauthorized caller can't use this endpoint as a client oracle.
+    let recipientTelegramId: number | null = null;
+    let source: BookingSource = "admin";
+
+    const booking = await this.bookings.transaction(async (tx) => {
+      const training = await this.bookings.findTrainingForUpdate(tx, input.trainingId);
+      if (!training) {
+        throw new NotFoundException(`Training ${input.trainingId} not found`);
+      }
+      // Authorize against the locked training BEFORE resolving the client: admin
+      // passes; otherwise the caller must be this training's trainer. Resolving the
+      // client only after this check avoids leaking client existence (404 vs 403).
+      await this.assertTrainerOrAdmin(actorTelegramId, training.trainerId);
+
+      const client = await this.clients.findById(input.clientId);
+      if (!client) {
+        throw new NotFoundException(`Client ${input.clientId} not found`);
+      }
+      recipientTelegramId = client.telegramId;
+      // source = "walk_in" when the booked client has no telegram_id, else "admin".
+      source = client.telegramId === null ? "walk_in" : "admin";
+
+      return this.bookSeat(tx, {
+        clientId: input.clientId,
+        training,
+        type: "single",
+        source
+      });
+    });
+
+    this.logger.log(`Manual booking ${booking.id} (source ${source}) by actor ${actorTelegramId}`);
+
+    // Only attempt a Telegram confirmation for a client that has a Telegram id;
+    // a walk-in has none, so the send is skipped (never throws, booking stands).
+    if (recipientTelegramId !== null) {
+      await this.sendConfirmationSafely(() =>
+        this.notifications.sendBookingConfirmation(input.clientId, input.trainingId)
+      );
+    }
+
+    return bookingSchema.parse(booking);
+  }
+
+  /**
+   * Shared atomic seat write used by createSingle and createManual: locks already
+   * held by the caller's tx via the passed-in (FOR UPDATE) training row. Rejects a
+   * non-bookable slot (full/cancelled/completed) and a duplicate active booking
+   * with a typed 409, inserts the booking, then increments bookedCount and
+   * recomputes open⇔full so concurrent bookings can never oversell. The only
+   * booking math in the module lives here.
+   */
+  private async bookSeat(
+    tx: Database,
+    params: {
+      clientId: string;
+      training: TrainingLockRow;
+      type: "single" | "group";
+      source: BookingSource;
+    }
+  ): Promise<Booking> {
+    const { clientId, training, type, source } = params;
+
+    if (
+      !isBookable({
+        capacity: training.capacity,
+        bookedCount: training.bookedCount,
+        status: training.status
+      })
+    ) {
+      // Typed 409 so the bot branches to the waitlist instead of a generic error.
+      throw new ConflictException("Training is not bookable");
+    }
+
+    const existing = await this.bookings.findActiveBookingForClient(tx, clientId, training.id);
+    if (existing) {
+      throw new ConflictException("Client already booked this training");
+    }
+
+    const created = await this.bookings.insertBooking(tx, {
+      clientId,
+      trainingId: training.id,
+      type,
+      groupSubscriptionId: null,
+      status: "booked",
+      source
+    });
+
+    const newCount = training.bookedCount + 1;
+    const newStatus = recomputeTrainingStatus({
+      capacity: training.capacity,
+      bookedCount: newCount,
+      status: training.status
+    });
+    await this.bookings.updateTrainingCount(tx, training.id, newCount, newStatus);
+
+    this.logger.log(
+      `Booking ${created.id} on training ${training.id} (${newCount}/${training.capacity}, ${newStatus})`
+    );
+    return created;
   }
 
   /**

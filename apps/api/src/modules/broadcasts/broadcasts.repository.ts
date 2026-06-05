@@ -91,20 +91,31 @@ export class BroadcastsRepository {
     }));
   }
 
-  /** Telegram ids of every active client — the default ("all") audience. */
+  /**
+   * Telegram ids of every active client — the default ("all") audience. Walk-ins
+   * (null telegram_id) have no Telegram channel and are excluded.
+   */
   async listActiveRecipients(): Promise<BroadcastRecipient[]> {
-    return this.database.db
+    const rows = await this.database.db
       .select({ telegramId: tables.clients.telegramId })
       .from(tables.clients)
-      .where(eq(tables.clients.status, "active"));
+      .where(and(eq(tables.clients.status, "active"), isNotNull(tables.clients.telegramId)));
+    return toRecipients(rows);
   }
 
-  /** Active clients of one level (T3.2 `level` segment). */
+  /** Active clients of one level (T3.2 `level` segment). Walk-ins excluded. */
   async listActiveRecipientsByLevel(levelId: string): Promise<BroadcastRecipient[]> {
-    return this.database.db
+    const rows = await this.database.db
       .select({ telegramId: tables.clients.telegramId })
       .from(tables.clients)
-      .where(and(eq(tables.clients.status, "active"), eq(tables.clients.levelId, levelId)));
+      .where(
+        and(
+          eq(tables.clients.status, "active"),
+          eq(tables.clients.levelId, levelId),
+          isNotNull(tables.clients.telegramId)
+        )
+      );
+    return toRecipients(rows);
   }
 
   /**
@@ -127,10 +138,17 @@ export class BroadcastsRepository {
     if (ids.length === 0) {
       return [];
     }
-    return this.database.db
+    const rows = await this.database.db
       .select({ telegramId: tables.clients.telegramId })
       .from(tables.clients)
-      .where(and(eq(tables.clients.status, "active"), inArray(tables.clients.id, ids)));
+      .where(
+        and(
+          eq(tables.clients.status, "active"),
+          inArray(tables.clients.id, ids),
+          isNotNull(tables.clients.telegramId)
+        )
+      );
+    return toRecipients(rows);
   }
 
   /**
@@ -154,22 +172,28 @@ export class BroadcastsRepository {
     const where = recentClientIds.length
       ? and(
           eq(tables.clients.status, "active"),
-          notInArray(tables.clients.id, recentClientIds)
+          notInArray(tables.clients.id, recentClientIds),
+          isNotNull(tables.clients.telegramId)
         )
-      : eq(tables.clients.status, "active");
+      : and(eq(tables.clients.status, "active"), isNotNull(tables.clients.telegramId));
 
-    return this.database.db
+    const rows = await this.database.db
       .select({ telegramId: tables.clients.telegramId })
       .from(tables.clients)
       .where(where);
+    return toRecipients(rows);
   }
 
-  /** Count of active clients (audience size) for the default-audience preview. */
+  /**
+   * Count of active clients reachable by Telegram (audience size) for the
+   * default-audience preview. Walk-ins (null telegram_id) are excluded so the
+   * preview count matches the actual recipient set.
+   */
   async countActiveRecipients(): Promise<number> {
     const [row] = await this.database.db
       .select({ value: count() })
       .from(tables.clients)
-      .where(eq(tables.clients.status, "active"));
+      .where(and(eq(tables.clients.status, "active"), isNotNull(tables.clients.telegramId)));
     return row?.value ?? 0;
   }
 
@@ -186,6 +210,16 @@ export class BroadcastsRepository {
       .returning();
     return toBroadcast(row);
   }
+}
+
+/**
+ * Narrow selected rows (already filtered to `telegram_id IS NOT NULL` in SQL) to
+ * non-null recipients; the DB column type is nullable since walk-ins exist.
+ */
+function toRecipients(rows: { telegramId: number | null }[]): BroadcastRecipient[] {
+  return rows
+    .filter((row): row is { telegramId: number } => row.telegramId !== null)
+    .map((row) => ({ telegramId: row.telegramId }));
 }
 
 /** Map a DB row to the Broadcast contract (timestamp → ISO string). */

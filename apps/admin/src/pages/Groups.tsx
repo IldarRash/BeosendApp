@@ -140,11 +140,13 @@ function GroupForm({ form, onChange, levels, trainers, error }: GroupFormProps):
           label={t("admin.field.startTime")}
           value={form.startTime}
           onChange={(event) => onChange({ ...form, startTime: event.target.value })}
+          step={1800}
         />
         <TimeField
           label={t("admin.field.endTime")}
           value={form.endTime}
           onChange={(event) => onChange({ ...form, endTime: event.target.value })}
+          step={1800}
         />
       </div>
       <NumberField

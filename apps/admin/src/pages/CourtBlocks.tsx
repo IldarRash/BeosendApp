@@ -11,7 +11,8 @@ import { useCourts } from "../hooks/useCourts";
 import {
   useCourtBlocks,
   useCreateCourtBlock,
-  useDeleteCourtBlock
+  useDeleteCourtBlock,
+  useReassignCourtBlock
 } from "../hooks/useCourtBlocks";
 
 type Translate = (key: string, params?: Record<string, string | number>) => string;
@@ -42,6 +43,9 @@ export function CourtBlocks(): JSX.Element {
   const courts = useCourts();
   const blocks = useCourtBlocks(date || null);
   const remove = useDeleteCourtBlock();
+
+  // Block whose court is being reassigned (the "change court" dialog target).
+  const [reassignTarget, setReassignTarget] = useState<CourtBlock | null>(null);
 
   // Map court id → number so blocks (which carry only courtId) show a court number.
   const courtNumberById = useMemo<Map<string, number>>(() => {
@@ -75,14 +79,33 @@ export function CourtBlocks(): JSX.Element {
   const columns: Column<CourtBlock>[] = [
     { key: "court", header: t("admin.courtBlocks.colCourt"), render: (b) => courtLabel(b.courtId) },
     { key: "time", header: t("admin.courtBlocks.colTime"), render: (b) => `${b.startTime}–${b.endTime}` },
+    {
+      key: "type",
+      header: t("admin.courtBlocks.colType"),
+      // groupTrainingId non-null ⇒ an auto-block created under a group at month
+      // generation; null ⇒ a manual admin block. The flag comes from the API.
+      render: (b) =>
+        b.groupTrainingId ? (
+          <span className="tag tag--info">{t("admin.courtBlocks.typeGroup")}</span>
+        ) : (
+          <span className="tag">{t("admin.courtBlocks.typeManual")}</span>
+        )
+    },
     { key: "reason", header: t("admin.courtBlocks.colReason"), render: (b) => b.reason },
     {
       key: "actions",
       header: t("admin.courtBlocks.colActions"),
       render: (b) => (
-        <Button variant="danger" onClick={() => handleDelete(b)} disabled={remove.isPending}>
-          {t("admin.action.delete")}
-        </Button>
+        <div style={{ display: "flex", gap: 8 }}>
+          {b.groupTrainingId ? (
+            <Button variant="ghost" onClick={() => setReassignTarget(b)}>
+              {t("admin.courtBlocks.changeCourt")}
+            </Button>
+          ) : null}
+          <Button variant="danger" onClick={() => handleDelete(b)} disabled={remove.isPending}>
+            {t("admin.action.delete")}
+          </Button>
+        </div>
       )
     }
   ];
@@ -137,6 +160,15 @@ export function CourtBlocks(): JSX.Element {
           date={date || todayIso()}
           courts={courts.data ?? []}
           onClose={() => setCreating(false)}
+        />
+      ) : null}
+
+      {reassignTarget ? (
+        <ReassignCourtDialog
+          block={reassignTarget}
+          courts={courts.data ?? []}
+          courtLabel={courtLabel}
+          onClose={() => setReassignTarget(null)}
         />
       ) : null}
     </AppShell>
@@ -210,12 +242,14 @@ function CreateBlockDialog({ date, courts, onClose }: CreateBlockDialogProps): J
           label={t("admin.field.startTime")}
           value={startTime}
           onChange={(e) => setStartTime(e.target.value)}
+          step={1800}
           required
         />
         <TimeField
           label={t("admin.field.endTime")}
           value={endTime}
           onChange={(e) => setEndTime(e.target.value)}
+          step={1800}
           required
         />
         <TextField
@@ -228,6 +262,95 @@ function CreateBlockDialog({ date, courts, onClose }: CreateBlockDialogProps): J
         {create.error ? (
           <p className="state state--error" role="alert">
             {errorText(create.error, t)}
+          </p>
+        ) : null}
+      </form>
+    </Modal>
+  );
+}
+
+interface ReassignCourtDialogProps {
+  block: CourtBlock;
+  courts: Court[];
+  courtLabel: (courtId: string) => string;
+  onClose: () => void;
+}
+
+/**
+ * Move a group auto-block to another court. The server re-checks the target
+ * court's freeness and the 6-per-30-min limit for the block's own slots and
+ * rejects (409) a clash; this dialog only collects the chosen court and renders
+ * the server's error — it computes no availability itself.
+ */
+function ReassignCourtDialog({
+  block,
+  courts,
+  courtLabel,
+  onClose
+}: ReassignCourtDialogProps): JSX.Element {
+  const t = useT();
+  const { notify } = useToast();
+  const reassign = useReassignCourtBlock();
+
+  // Offer every court except the block's current one (moving to itself is a no-op).
+  const targets = courts.filter((c) => c.id !== block.courtId);
+  const [courtId, setCourtId] = useState(targets[0]?.id ?? "");
+
+  function handleSubmit(event: React.FormEvent): void {
+    event.preventDefault();
+    if (courtId === "") return;
+    reassign.mutate(
+      { id: block.id, courtId },
+      {
+        onSuccess: () => {
+          notify(t("admin.courtBlocks.courtChanged"), "success");
+          onClose();
+        }
+      }
+    );
+  }
+
+  return (
+    <Modal
+      open
+      onClose={onClose}
+      title={t("admin.courtBlocks.changeCourtTitle")}
+      footer={
+        <>
+          <Button variant="ghost" onClick={onClose} disabled={reassign.isPending}>
+            {t("admin.action.cancel")}
+          </Button>
+          <Button
+            type="submit"
+            form="reassign-court-form"
+            disabled={reassign.isPending || courtId === ""}
+          >
+            {reassign.isPending ? t("admin.action.saving") : t("admin.action.save")}
+          </Button>
+        </>
+      }
+    >
+      <form id="reassign-court-form" onSubmit={handleSubmit} className="form">
+        <p className="state">
+          {t("admin.courtBlocks.changeCourtHint", {
+            court: courtLabel(block.courtId),
+            start: block.startTime,
+            end: block.endTime
+          })}
+        </p>
+        <SelectField
+          label={t("admin.courtBlocks.colCourt")}
+          value={courtId}
+          onChange={(e) => setCourtId(e.target.value)}
+          required
+          options={targets.map((court) => ({
+            value: court.id,
+            label: t("admin.courtBlocks.court", { number: court.number })
+          }))}
+        />
+        {reassign.error ? (
+          <p className="state state--error" role="alert">
+            {errorText(reassign.error, t)}
           </p>
         ) : null}
       </form>

@@ -8,7 +8,7 @@ import {
 } from "@nestjs/common";
 import type { Env } from "@beosand/config";
 import { isAdmin } from "@beosand/config";
-import type { Client, Locale } from "@beosand/types";
+import type { Client, CreateWalkInInput, ListClientsQuery, Locale } from "@beosand/types";
 import { ENV } from "../../config/config.module";
 import { DatabaseService } from "../../db/database.service";
 import { LevelsRepository } from "../levels/levels.repository";
@@ -108,6 +108,29 @@ export class ClientsService {
     return updated;
   }
 
+  /**
+   * Create a walk-in client by name (Feature 5): no Telegram account, source
+   * "walk_in", optional phone/note. Admin-only — a walk-in is an admin-created
+   * record, never self-served. The booking of that walk-in onto a training is a
+   * separate, admin-or-trainer action (BookingsService.createManual).
+   */
+  async createWalkIn(actorTelegramId: number, input: CreateWalkInInput): Promise<Client> {
+    this.assertAdmin(actorTelegramId);
+    const client = await this.clients.insertWalkIn(input);
+    this.logger.log(`Created walk-in client ${client.id} (${client.name})`);
+    return client;
+  }
+
+  /**
+   * List clients for the admin manual-booking picker (Feature 5). Admin-only;
+   * optional case-insensitive name/phone substring search. Returns the same
+   * client contract the API already exposes — no rosters, no other-user data.
+   */
+  async list(actorTelegramId: number, query: ListClientsQuery): Promise<Client[]> {
+    this.assertAdmin(actorTelegramId);
+    return this.clients.list(query.search);
+  }
+
   /** A client may only act on its own record; admins may act on any. */
   private assertSelfOrAdmin(actorTelegramId: number, targetTelegramId: number): void {
     if (actorTelegramId === targetTelegramId) {
@@ -115,6 +138,13 @@ export class ClientsService {
     }
     if (!isAdmin(this.env, actorTelegramId)) {
       throw new ForbiddenException("Cannot act on another client's record");
+    }
+  }
+
+  /** Admin-only guard for the manager surface (walk-in creation, clients list). */
+  private assertAdmin(actorTelegramId: number): void {
+    if (!isAdmin(this.env, actorTelegramId)) {
+      throw new ForbiddenException("Admin only");
     }
   }
 }

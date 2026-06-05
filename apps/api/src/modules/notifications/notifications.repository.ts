@@ -13,7 +13,8 @@ import { DatabaseService } from "../../db/database.service";
 export interface NotificationRecipient {
   clientId: string;
   trainingId: string;
-  telegramId: number;
+  /** Null for walk-in clients (no Telegram account); they are never DM'd. */
+  telegramId: number | null;
   date: string;
   startTime: string;
   endTime: string;
@@ -117,7 +118,9 @@ export class NotificationsRepository {
           sql`${tables.trainings.status} in ('open','full')`,
           gte(startsAt, lower),
           lte(startsAt, upper),
-          isNull(tables.notifications.id)
+          isNull(tables.notifications.id),
+          // Walk-ins (null telegram_id) have no Telegram channel; never select them.
+          sql`${tables.clients.telegramId} is not null`
         )
       );
 
@@ -206,7 +209,14 @@ export class NotificationsRepository {
           eq(tables.notifications.type, type)
         )
       )
-      .where(and(eq(tables.trainings.id, trainingId), isNull(tables.notifications.id)));
+      .where(
+        and(
+          eq(tables.trainings.id, trainingId),
+          isNull(tables.notifications.id),
+          // Walk-ins (null telegram_id) have no Telegram channel; never select them.
+          sql`${tables.clients.telegramId} is not null`
+        )
+      );
 
     return rows.map((row) => normalizeRecipient(row));
   }
@@ -246,7 +256,7 @@ export class NotificationsRepository {
 interface RecipientRow {
   clientId: string;
   trainingId: string;
-  telegramId: number;
+  telegramId: number | null;
   date: string;
   startTime: string;
   endTime: string;

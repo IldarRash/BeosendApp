@@ -1,7 +1,13 @@
 import { describe, expect, it, vi } from "vitest";
-import { MENU_ACTIONS, NAV_ACTIONS, welcomeText } from "./menu";
+import { MENU_ACTIONS, NAV_ACTIONS, mainMenuKeyboard, welcomeText } from "./menu";
 import { getStaticCatalog } from "@beosand/i18n";
-import { menuHandlers, resolveCallback, type MenuHandlerDeps, type MenuReplyCtx } from "./navigation";
+import {
+  menuHandlers,
+  resolveCallback,
+  todayDateString,
+  type MenuHandlerDeps,
+  type MenuReplyCtx
+} from "./navigation";
 
 // The court rental entry (menu:court), the language switch (menu:lang) and the
 // back-to-menu action (menu:home) are routed by dedicated handlers in index.ts,
@@ -14,12 +20,17 @@ const DISPATCHED_ACTIONS = Object.values(MENU_ACTIONS).filter(
     a !== MENU_ACTIONS.language &&
     a !== MENU_ACTIONS.backToMenu
 );
-const MENU_BUTTON_ACTIONS = Object.values(MENU_ACTIONS).filter((a) => a !== MENU_ACTIONS.backToMenu);
-
 const CLIENT = { id: "22222222-2222-2222-2222-222222222222" };
 
 const ru = getStaticCatalog("ru");
 const WELCOME_TEXT = welcomeText(ru);
+
+// The fallback re-renders the full main menu, so the expected callbacks are
+// exactly mainMenuKeyboard's rows in order (today → single-visit → group →
+// individual → bookings → court → contact → language).
+const MENU_BUTTON_ACTIONS = mainMenuKeyboard(ru).inline_keyboard
+  .flat()
+  .map((b) => ("callback_data" in b ? b.callback_data : undefined));
 
 function makeDeps(): MenuHandlerDeps {
   return {
@@ -136,6 +147,49 @@ describe("menu dispatch table", () => {
     expect(callbacks).toContain(`book:start:${card.trainingId}`);
     // The back/home footer is always present so the journey never dead-ends.
     expect(callbacks.slice(-2)).toEqual([NAV_ACTIONS.back, NAV_ACTIONS.home]);
+  });
+
+  it("lists today's free slots (from === to === today) under the today header with book buttons", async () => {
+    const card = {
+      trainingId: "11111111-1111-1111-1111-111111111111",
+      date: todayDateString(),
+      dayOfWeek: 3 as const,
+      startTime: "18:00",
+      endTime: "19:30",
+      trainerName: "Марко",
+      levelName: "Начинающий",
+      freeSeats: 4,
+      priceSingleRsd: 1500
+    };
+    const { ctx, reply } = fakeCtx();
+    const localDeps = makeDeps();
+    (localDeps.api.listAvailableSlots as ReturnType<typeof vi.fn>).mockResolvedValue([card]);
+    await menuHandlers[MENU_ACTIONS.todayFreeSlots]!(ctx, localDeps);
+    const today = todayDateString();
+    expect(localDeps.api.listAvailableSlots).toHaveBeenCalledWith({ from: today, to: today });
+    expect(reply.mock.calls[0][0]).toContain(ru["bot.today.header"]);
+    const callbacks = callbacksOf(reply);
+    expect(callbacks).toContain(`book:start:${card.trainingId}`);
+    expect(callbacks.slice(-2)).toEqual([NAV_ACTIONS.back, NAV_ACTIONS.home]);
+  });
+
+  it("shows the today empty-state when there are no free slots", async () => {
+    const { ctx, reply } = fakeCtx();
+    const localDeps = makeDeps();
+    (localDeps.api.listAvailableSlots as ReturnType<typeof vi.fn>).mockResolvedValue([]);
+    await menuHandlers[MENU_ACTIONS.todayFreeSlots]!(ctx, localDeps);
+    expect(reply.mock.calls[0][0]).toBe(ru["bot.today.none"]);
+  });
+
+  it("renders the trainer picker for menu:individual", async () => {
+    const { ctx, reply } = fakeCtx();
+    const localDeps = makeDeps();
+    (localDeps.api.listTrainers as ReturnType<typeof vi.fn>).mockResolvedValue([
+      { id: "33333333-3333-3333-3333-333333333333", name: "Jovana", type: "main", telegramId: 5, status: "active" }
+    ]);
+    await menuHandlers[MENU_ACTIONS.individual]!(ctx, localDeps);
+    expect(reply.mock.calls[0][0]).toBe(ru["bot.individual.pickTrainer"]);
+    expect(callbacksOf(reply)).toContain("ind:pick:33333333-3333-3333-3333-333333333333");
   });
 
   it("renders the manager contact (from config) for menu:contact", async () => {

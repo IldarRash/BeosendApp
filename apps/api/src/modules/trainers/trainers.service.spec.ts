@@ -1,9 +1,41 @@
 import { ForbiddenException, NotFoundException } from "@nestjs/common";
 import type { Env } from "@beosand/config";
-import type { Trainer } from "@beosand/types";
+import type { Client, Trainer } from "@beosand/types";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { TrainersService } from "./trainers.service";
 import type { TrainersRepository } from "./trainers.repository";
+import type { ClientsRepository } from "../clients/clients.repository";
+import type { NotificationsService } from "../notifications/notifications.service";
+
+const client: Client = {
+  id: "cccccccc-cccc-cccc-cccc-cccccccccccc",
+  name: "Ivan",
+  telegramId: 777,
+  telegramUsername: "ivan",
+  levelId: null,
+  source: "telegram",
+  phone: null,
+  note: null,
+  language: "ru",
+  registeredAt: new Date().toISOString(),
+  status: "active"
+};
+
+function makeClients(overrides: Partial<ClientsRepository> = {}): ClientsRepository {
+  return {
+    findByTelegramId: vi.fn(async () => client),
+    ...overrides
+  } as unknown as ClientsRepository;
+}
+
+function makeNotifications(
+  overrides: Partial<NotificationsService> = {}
+): NotificationsService {
+  return {
+    requestIndividualSession: vi.fn(async () => true),
+    ...overrides
+  } as unknown as NotificationsService;
+}
 
 const ADMIN_ID = 111;
 const NON_ADMIN_ID = 999;
@@ -41,11 +73,15 @@ function makeRepo(overrides: Partial<TrainersRepository> = {}): TrainersReposito
 
 describe("TrainersService", () => {
   let repo: TrainersRepository;
+  let clients: ClientsRepository;
+  let notifications: NotificationsService;
   let service: TrainersService;
 
   beforeEach(() => {
     repo = makeRepo();
-    service = new TrainersService(repo, env);
+    clients = makeClients();
+    notifications = makeNotifications();
+    service = new TrainersService(repo, clients, notifications, env);
   });
 
   it("lists only active trainers (reference-facing)", async () => {
@@ -99,10 +135,65 @@ describe("TrainersService", () => {
 
   it("404s when updating a missing trainer", async () => {
     repo = makeRepo({ findById: vi.fn(async () => undefined) });
-    service = new TrainersService(repo, env);
+    service = new TrainersService(repo, clients, notifications, env);
     await expect(
       service.update(ADMIN_ID, milena.id, { name: "X" })
     ).rejects.toBeInstanceOf(NotFoundException);
     expect(repo.update).not.toHaveBeenCalled();
+  });
+
+  describe("requestIndividual (Feature 8)", () => {
+    const reachableTrainer: Trainer = { ...milena, telegramId: 555 };
+
+    it("404s when the requesting client is not onboarded (no send)", async () => {
+      clients = makeClients({ findByTelegramId: vi.fn(async () => undefined) });
+      service = new TrainersService(repo, clients, notifications, env);
+      await expect(service.requestIndividual(milena.id, 777)).rejects.toBeInstanceOf(
+        NotFoundException
+      );
+      expect(notifications.requestIndividualSession).not.toHaveBeenCalled();
+    });
+
+    it("404s when the trainer is unknown or inactive (no send)", async () => {
+      repo = makeRepo({ findById: vi.fn(async () => undefined) });
+      service = new TrainersService(repo, clients, notifications, env);
+      await expect(service.requestIndividual(milena.id, 777)).rejects.toBeInstanceOf(
+        NotFoundException
+      );
+      expect(notifications.requestIndividualSession).not.toHaveBeenCalled();
+    });
+
+    it("returns trainer-unavailable (no send) when the trainer has no telegram id", async () => {
+      // milena.telegramId === null
+      await expect(service.requestIndividual(milena.id, 777)).resolves.toEqual({
+        delivered: false,
+        reason: "trainer-unavailable"
+      });
+      expect(notifications.requestIndividualSession).not.toHaveBeenCalled();
+    });
+
+    it("delivers to a reachable trainer and returns delivered:true", async () => {
+      repo = makeRepo({ findById: vi.fn(async () => reachableTrainer) });
+      service = new TrainersService(repo, clients, notifications, env);
+      await expect(service.requestIndividual(reachableTrainer.id, 777)).resolves.toEqual({
+        delivered: true
+      });
+      expect(notifications.requestIndividualSession).toHaveBeenCalledWith(
+        expect.objectContaining({ id: reachableTrainer.id, telegramId: 555 }),
+        client
+      );
+    });
+
+    it("returns trainer-unavailable when the send fails", async () => {
+      repo = makeRepo({ findById: vi.fn(async () => reachableTrainer) });
+      notifications = makeNotifications({
+        requestIndividualSession: vi.fn(async () => false)
+      });
+      service = new TrainersService(repo, clients, notifications, env);
+      await expect(service.requestIndividual(reachableTrainer.id, 777)).resolves.toEqual({
+        delivered: false,
+        reason: "trainer-unavailable"
+      });
+    });
   });
 });

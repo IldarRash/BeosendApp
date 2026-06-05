@@ -32,6 +32,7 @@ const group: Group = {
   startTime: "08:00",
   endTime: "09:30",
   trainerId: "33333333-3333-3333-3333-333333333333",
+  trainerName: "Jovana",
   capacity: 10,
   priceSingleRsd: 1500,
   priceMonthRsd: 9000,
@@ -92,11 +93,12 @@ describe("renderGroupsText", () => {
     expect(renderGroupsText(ru, [])).toBe(ru["bot.group.none"]);
   });
 
-  it("lists the name, days and the server RSD month price", () => {
+  it("lists the name, days, trainer name and the server RSD month price", () => {
     const text = renderGroupsText(ru, [group]);
     expect(text).toContain(ru["bot.group.header"]);
     expect(text).toContain("Утро Pro");
     expect(text).toContain("Пн, Ср");
+    expect(text).toContain("Jovana");
     expect(text).toContain("9000 RSD");
   });
 });

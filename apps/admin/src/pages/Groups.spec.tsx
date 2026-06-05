@@ -44,6 +44,7 @@ const GROUP: Group = {
   startTime: "08:00",
   endTime: "09:30",
   trainerId: TRAINER.id,
+  trainerName: TRAINER.name,
   capacity: 12,
   priceSingleRsd: 1500,
   priceMonthRsd: 12000,

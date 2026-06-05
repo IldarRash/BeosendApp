@@ -103,6 +103,7 @@ export function formatGroupLine(catalog: Catalog, group: Group): string {
   return [
     `👥 ${group.name}`,
     `${daysLabel(catalog, group.daysOfWeek)} · ${group.startTime}–${group.endTime}`,
+    t(catalog, "bot.group.trainer", { name: group.trainerName }),
     t(catalog, "bot.group.monthSubscription", { price: group.priceMonthRsd })
   ].join("\n");
 }

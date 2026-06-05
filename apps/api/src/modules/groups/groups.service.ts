@@ -7,6 +7,7 @@ import {
 } from "@nestjs/common";
 import type { Env } from "@beosand/config";
 import { isAdmin } from "@beosand/config";
+import { isSlotAligned } from "@beosand/types";
 import type { CreateGroupInput, Group, UpdateGroupInput } from "@beosand/types";
 import { ENV } from "../../config/config.module";
 import { GroupsRepository } from "./groups.repository";
@@ -53,8 +54,17 @@ export class GroupsService {
     return updated;
   }
 
-  /** "HH:MM" compares lexicographically; rejects empty/zero-length slots. */
+  /**
+   * Group times sit on the same 30-min grid as court bookings: both ends must be
+   * on a :00/:30 boundary and "HH:MM" compares lexicographically, so end > start
+   * rejects empty/zero-length slots.
+   */
   private assertTimeOrder(startTime: string, endTime: string): void {
+    if (!isSlotAligned(startTime) || !isSlotAligned(endTime)) {
+      throw new BadRequestException(
+        "Group times must be on a 30-minute boundary (HH:00 or HH:30)."
+      );
+    }
     if (endTime <= startTime) {
       throw new BadRequestException("endTime must be after startTime");
     }

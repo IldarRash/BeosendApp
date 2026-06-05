@@ -1,5 +1,10 @@
 import { describe, expect, it } from "vitest";
-import { clientSchema, onboardClientSchema } from "./client-contracts";
+import {
+  clientSchema,
+  createWalkInSchema,
+  listClientsQuerySchema,
+  onboardClientSchema
+} from "./client-contracts";
 
 const UUID = "11111111-1111-4111-8111-111111111111";
 
@@ -65,13 +70,16 @@ describe("onboardClientSchema (POST /clients/onboard body)", () => {
 });
 
 describe("clientSchema (bot-facing client record)", () => {
-  it("accepts a fully-populated client", () => {
+  it("accepts a fully-populated bot client", () => {
     const client = {
       id: UUID,
       name: "Аня",
       telegramId: 42,
       telegramUsername: "anya",
       levelId: UUID,
+      source: "telegram" as const,
+      phone: null,
+      note: null,
       language: "ru" as const,
       registeredAt: "2026-01-01T00:00:00.000Z",
       status: "active" as const
@@ -86,11 +94,49 @@ describe("clientSchema (bot-facing client record)", () => {
       telegramId: 42,
       telegramUsername: null,
       levelId: null,
+      source: "telegram" as const,
+      phone: null,
+      note: null,
       language: "sr" as const,
       registeredAt: "2026-01-01T00:00:00.000Z",
       status: "active" as const
     };
     expect(clientSchema.parse(client)).toEqual(client);
+  });
+
+  it("accepts a walk-in client (null telegramId, source walk_in, phone/note)", () => {
+    const client = {
+      id: UUID,
+      name: "Marko",
+      telegramId: null,
+      telegramUsername: null,
+      levelId: null,
+      source: "walk_in" as const,
+      phone: "+381601234567",
+      note: "via Instagram",
+      language: "ru" as const,
+      registeredAt: "2026-01-01T00:00:00.000Z",
+      status: "active" as const
+    };
+    expect(clientSchema.parse(client)).toEqual(client);
+  });
+
+  it("rejects an unknown source", () => {
+    expect(
+      clientSchema.safeParse({
+        id: UUID,
+        name: "Аня",
+        telegramId: 42,
+        telegramUsername: null,
+        levelId: null,
+        source: "web",
+        phone: null,
+        note: null,
+        language: "ru",
+        registeredAt: "2026-01-01T00:00:00.000Z",
+        status: "active"
+      }).success
+    ).toBe(false);
   });
 
   it("rejects an unsupported language", () => {
@@ -101,6 +147,9 @@ describe("clientSchema (bot-facing client record)", () => {
         telegramId: 42,
         telegramUsername: null,
         levelId: null,
+        source: "telegram",
+        phone: null,
+        note: null,
         language: "de",
         registeredAt: "2026-01-01T00:00:00.000Z",
         status: "active"
@@ -116,10 +165,45 @@ describe("clientSchema (bot-facing client record)", () => {
         telegramId: 42,
         telegramUsername: null,
         levelId: null,
+        source: "telegram",
+        phone: null,
+        note: null,
         language: "ru",
         registeredAt: "2026-01-01",
         status: "active"
       }).success
     ).toBe(false);
+  });
+});
+
+describe("createWalkInSchema (POST /clients/walk-in body)", () => {
+  it("accepts a name only", () => {
+    expect(createWalkInSchema.parse({ name: "Marko" })).toEqual({ name: "Marko" });
+  });
+
+  it("accepts name + optional phone/note", () => {
+    const parsed = createWalkInSchema.parse({ name: "Marko", phone: "+381", note: "IG" });
+    expect(parsed).toEqual({ name: "Marko", phone: "+381", note: "IG" });
+  });
+
+  it("rejects a missing/empty name", () => {
+    expect(createWalkInSchema.safeParse({}).success).toBe(false);
+    expect(createWalkInSchema.safeParse({ name: "" }).success).toBe(false);
+  });
+
+  it("rejects unknown fields (strict)", () => {
+    expect(createWalkInSchema.safeParse({ name: "Marko", telegramId: 1 }).success).toBe(false);
+  });
+});
+
+describe("listClientsQuerySchema (GET /clients query)", () => {
+  it("accepts an empty query and an optional search", () => {
+    expect(listClientsQuerySchema.safeParse({}).success).toBe(true);
+    expect(listClientsQuerySchema.safeParse({ search: "mar" }).success).toBe(true);
+  });
+
+  it("rejects an empty search and unknown fields (strict)", () => {
+    expect(listClientsQuerySchema.safeParse({ search: "" }).success).toBe(false);
+    expect(listClientsQuerySchema.safeParse({ q: "x" }).success).toBe(false);
   });
 });

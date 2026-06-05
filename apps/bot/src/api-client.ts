@@ -7,6 +7,7 @@ import {
   clientSchema,
   groupBookingResultSchema,
   groupSchema,
+  individualRequestResultSchema,
   labelCatalogSchema,
   levelSchema,
   markAttendanceSchema,
@@ -32,6 +33,7 @@ import {
   type GenerateMonthInput,
   type Group,
   type GroupBookingResult,
+  type IndividualRequestResult,
   type LabelCatalog,
   type Level,
   type Locale,
@@ -185,6 +187,38 @@ export class ApiClient {
    */
   listTrainers(): Promise<Trainer[]> {
     return this.request("/trainers", trainersSchema);
+  }
+
+  /**
+   * Feature 8 — request an individual training with a trainer. Client-facing and
+   * self-only: the caller's numeric telegram id is sent both as the
+   * `x-telegram-id` header and the body, and the API DMs the chosen trainer with
+   * a clickable link to the client (server-composed, never the bot). The bot only
+   * forwards the trainerId + its own id and renders the typed result. A 404
+   * (unknown/inactive trainer or not-onboarded client) resolves to the soft
+   * `trainer-unavailable` result so the bot shows the "тренер пока недоступен"
+   * message instead of erroring. No money/availability math here.
+   */
+  async requestIndividualSession(
+    trainerId: string,
+    telegramId: number
+  ): Promise<IndividualRequestResult> {
+    const res = await fetch(`${this.baseUrl}/trainers/${trainerId}/individual-request`, {
+      method: "POST",
+      headers: {
+        "content-type": "application/json",
+        [TELEGRAM_ID_HEADER]: String(telegramId)
+      },
+      body: JSON.stringify({ telegramId })
+    });
+    if (res.status === 404) {
+      // Unknown/inactive trainer or not-onboarded client: surfaced softly.
+      return { delivered: false, reason: "trainer-unavailable" };
+    }
+    if (!res.ok) {
+      throw new Error(`API /trainers/${trainerId}/individual-request failed: ${res.status}`);
+    }
+    return individualRequestResultSchema.parse(await res.json());
   }
 
   /**

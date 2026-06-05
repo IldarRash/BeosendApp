@@ -25,6 +25,9 @@ const ownerClient: Client = {
   telegramId: OWNER_ID,
   telegramUsername: null,
   levelId: null,
+  source: "telegram",
+  phone: null,
+  note: null,
   language: "ru",
   registeredAt: new Date().toISOString(),
   status: "active"

@@ -3,6 +3,7 @@ import {
   type CourtDurationHours,
   type CourtLoadCellState
 } from "./court-contracts";
+import { SLOT_MINUTES, minutesOfDay, timeOfMinutes } from "./common";
 import type { DayOfWeek, TimeOfDay } from "./common";
 import type { TrainingStatus } from "./training-contracts";
 
@@ -71,7 +72,10 @@ export function monthTrainingDates(
   return result;
 }
 
-/** Court rental price in RSD (section "Стоимость аренды"). */
+/**
+ * Court rental price in RSD (section "Стоимость аренды"). Fractional hours are
+ * allowed (1 | 1.5 | 2); 1.5h × 2000 = 3000 stays whole RSD for these durations.
+ */
 export function courtPriceRsd(
   durationHours: CourtDurationHours,
   ratePerHour: number = COURT_RATE_RSD_PER_HOUR
@@ -79,10 +83,22 @@ export function courtPriceRsd(
   return durationHours * ratePerHour;
 }
 
-/** Whole clock hours covered by a court booking starting at "HH:MM". */
-export function courtHoursCovered(startTime: string, durationHours: CourtDurationHours): number[] {
-  const startHour = Number(startTime.slice(0, 2));
-  return Array.from({ length: durationHours }, (_, i) => startHour + i);
+/** A court duration in whole minutes (1 → 60, 1.5 → 90, 2 → 120). */
+export function durationMinutesOf(durationHours: CourtDurationHours): number {
+  return durationHours * 60;
+}
+
+/**
+ * The 30-min slot start times an occupant covers, by minute span.
+ * courtSlotsCovered("17:30", 90) → ["17:30","18:00","18:30"].
+ */
+export function courtSlotsCovered(startTime: string, durationMinutes: number): string[] {
+  const start = minutesOfDay(startTime);
+  const slots: string[] = [];
+  for (let m = start; m < start + durationMinutes; m += SLOT_MINUTES) {
+    slots.push(timeOfMinutes(m));
+  }
+  return slots;
 }
 
 // --- Analytics aggregation math (T3.1, ТЗ §17) ---
@@ -152,46 +168,81 @@ export function matchesSlotFilters(slot: FilterableSlot, filters: SlotFilters): 
   return true;
 }
 
-/** A court occupant (confirmed request or block) by its start time and duration in whole hours. */
+/** A court occupant (confirmed request) by its start time and 1|1.5|2h duration. */
 export interface CourtOccupant {
   startTime: string;
   durationHours: CourtDurationHours;
 }
 
 /**
- * True when two whole-hour ranges on the same court overlap (C5 block guard).
- * Ranges are half-open [start, end): 09:00–11:00 and 11:00–12:00 do not overlap.
- * Inputs are "HH:MM"; only the hour component is significant.
+ * A minute-span occupant for the slot math (confirmed request or block). Blocks
+ * carry an arbitrary :30-aligned `[startTime, endTime)` span, not constrained to
+ * 1|1.5|2h, so they are expressed directly in minutes.
  */
-export function hourRangesOverlap(
+export interface CourtSlotOccupant {
+  startTime: string;
+  durationMinutes: number;
+}
+
+/**
+ * Convert a confirmed-request occupant (1|1.5|2h) to a minute-span occupant so
+ * the slot math has one occupant shape. Blocks pass their own minute span directly.
+ */
+export function toSlotOccupant(occupant: CourtOccupant): CourtSlotOccupant {
+  return { startTime: occupant.startTime, durationMinutes: durationMinutesOf(occupant.durationHours) };
+}
+
+/**
+ * True when [aStart,aEnd) and [bStart,bEnd) overlap, by minute (half-open).
+ * 17:30–19:00 vs 19:00–20:00 → false (touching is not overlap). Inputs are "HH:MM".
+ */
+export function timeRangesOverlap(
   aStart: string,
   aEnd: string,
   bStart: string,
   bEnd: string
 ): boolean {
-  const a0 = Number(aStart.slice(0, 2));
-  const a1 = Number(aEnd.slice(0, 2));
-  const b0 = Number(bStart.slice(0, 2));
-  const b1 = Number(bEnd.slice(0, 2));
-  return a0 < b1 && b0 < a1;
+  return minutesOfDay(aStart) < minutesOfDay(bEnd) && minutesOfDay(bStart) < minutesOfDay(aEnd);
 }
 
 /** A court occupant tied to a specific court (confirmed request or block) on a date. */
 export interface CourtCellOccupant {
   courtId: string;
   startTime: string;
-  /** Whole clock hours held. Blocks may span >2h; confirmed requests are 1 or 2. */
-  durationHours: number;
+  /** Minutes held. Blocks may span any :30-aligned range; requests are 60/90/120. */
+  durationMinutes: number;
   /** Confirmed-request id, so a `request` cell can link to its detail. Blocks omit it. */
   requestId?: string;
 }
 
 /**
- * C6 — per-day court load grid (admin). For each active court and each hour in
- * [openHour, closeHour): `block` if a block covers that court/hour, else `request`
- * if a confirmed request covers it, else `free`. This is the per-court analogue of
- * `freeCourtsByHour` and uses the same occupancy notion as the C4 confirm re-check,
- * so a `free` cell is exactly a court/hour C3 counts as free. Pure: no Nest/DB.
+ * True when a specific court has no occupant (confirmed request or block) overlapping
+ * any of `slots`. The single pure source of per-court freeness, shared by the
+ * free-courts read (C4), the confirm re-check, the auto-block court selection (group
+ * scheduling), and the reassign re-check — so the offer and the write can't disagree.
+ * Pure: no Nest/DB. Pass occupants as `CourtCellOccupant` (court id + minute span);
+ * exclude a self block by `requestId`/identity at the call site if needed.
+ */
+export function courtFreeForSlots(
+  courtId: string,
+  slots: readonly string[],
+  occupants: readonly CourtCellOccupant[]
+): boolean {
+  const wanted = new Set(slots);
+  return !occupants.some(
+    (occupant) =>
+      occupant.courtId === courtId &&
+      courtSlotsCovered(occupant.startTime, occupant.durationMinutes).some((s) => wanted.has(s))
+  );
+}
+
+/**
+ * C6 — per-day court load grid (admin). For each active court and each 30-min slot
+ * in [openHour:00, closeHour:00): `block` if a block covers that court/slot, else
+ * `request` if a confirmed request covers it, else `free`. This is the per-court
+ * analogue of `freeCourtsBySlot` and uses the same `courtSlotsCovered` notion as
+ * the C4 confirm re-check, so a `free` cell is exactly a court/slot C3 counts as
+ * free. Pure: no Nest/DB.
  */
 export function courtLoadGrid(input: {
   courts: readonly { id: string; number: number }[];
@@ -202,22 +253,25 @@ export function courtLoadGrid(input: {
 }): {
   courtId: string;
   courtNumber: number;
-  cells: { hour: number; state: CourtLoadCellState; requestId: string | null }[];
+  cells: { startTime: string; state: CourtLoadCellState; requestId: string | null }[];
 }[] {
-  const blockHours = occupiedHoursByCourt(input.blocks);
-  const requestHours = occupiedHoursByCourt(input.confirmed);
+  const blockSlots = occupiedSlotsByCourt(input.blocks);
+  const requestSlots = occupiedSlotsByCourt(input.confirmed);
+  const openMinutes = input.openHour * 60;
+  const closeMinutes = input.closeHour * 60;
 
   return input.courts.map((court) => {
-    const blocked = blockHours.get(court.id);
-    const requested = requestHours.get(court.id);
-    const cells: { hour: number; state: CourtLoadCellState; requestId: string | null }[] = [];
-    for (let hour = input.openHour; hour < input.closeHour; hour += 1) {
-      if (blocked?.has(hour)) {
-        cells.push({ hour, state: "block", requestId: null });
-      } else if (requested?.has(hour)) {
-        cells.push({ hour, state: "request", requestId: requested.get(hour) ?? null });
+    const blocked = blockSlots.get(court.id);
+    const requested = requestSlots.get(court.id);
+    const cells: { startTime: string; state: CourtLoadCellState; requestId: string | null }[] = [];
+    for (let m = openMinutes; m < closeMinutes; m += SLOT_MINUTES) {
+      const startTime = timeOfMinutes(m);
+      if (blocked?.has(startTime)) {
+        cells.push({ startTime, state: "block", requestId: null });
+      } else if (requested?.has(startTime)) {
+        cells.push({ startTime, state: "request", requestId: requested.get(startTime) ?? null });
       } else {
-        cells.push({ hour, state: "free", requestId: null });
+        cells.push({ startTime, state: "free", requestId: null });
       }
     }
     return { courtId: court.id, courtNumber: court.number, cells };
@@ -225,56 +279,60 @@ export function courtLoadGrid(input: {
 }
 
 /**
- * Map each court id to its occupied whole clock hours. Each hour maps to the
- * occupant's `requestId` (or `null` for blocks / unidentified occupants), so a
- * `request` cell can carry the covering request id.
+ * Map each court id to its occupied 30-min slot starts ("HH:MM"). Each slot maps
+ * to the occupant's `requestId` (or `null` for blocks / unidentified occupants),
+ * so a `request` cell can carry the covering request id.
  */
-function occupiedHoursByCourt(
+function occupiedSlotsByCourt(
   occupants: readonly CourtCellOccupant[]
-): Map<string, Map<number, string | null>> {
-  const byCourt = new Map<string, Map<number, string | null>>();
+): Map<string, Map<string, string | null>> {
+  const byCourt = new Map<string, Map<string, string | null>>();
   for (const occupant of occupants) {
-    const startHour = Number(occupant.startTime.slice(0, 2));
-    let hours = byCourt.get(occupant.courtId);
-    if (!hours) {
-      hours = new Map<number, string | null>();
-      byCourt.set(occupant.courtId, hours);
+    let slots = byCourt.get(occupant.courtId);
+    if (!slots) {
+      slots = new Map<string, string | null>();
+      byCourt.set(occupant.courtId, slots);
     }
-    for (let i = 0; i < occupant.durationHours; i += 1) {
-      hours.set(startHour + i, occupant.requestId ?? null);
+    for (const slot of courtSlotsCovered(occupant.startTime, occupant.durationMinutes)) {
+      slots.set(slot, occupant.requestId ?? null);
     }
   }
   return byCourt;
 }
 
 /**
- * Free courts per working clock hour (Edition 2 — max 6 confirmed per hour).
- * free(h) = activeCourtCount − confirmed covering h − blocks covering h, floored at 0.
- * Shared by the availability read (C3) and the confirm re-check (C4); the limit
- * logic lives only here so the two paths can never diverge.
+ * Free courts per working 30-min slot (Edition 2 — max 6 confirmed per slot).
+ * free(slot) = activeCourtCount − confirmed covering slot − blocks covering slot,
+ * floored at 0. Shared by the availability read (C3) and the confirm re-check (C4);
+ * the limit logic lives only here so the two paths can never diverge. The key is
+ * the slot-start time "HH:MM".
  */
-export function freeCourtsByHour(input: {
+export function freeCourtsBySlot(input: {
   activeCourtCount: number;
   openHour: number;
   closeHour: number;
   confirmed: readonly CourtOccupant[];
-  blocks: readonly CourtOccupant[];
-}): Map<number, number> {
-  const occupiedCount = new Map<number, number>();
-  const tally = (occupants: readonly CourtOccupant[]): void => {
-    for (const occupant of occupants) {
-      for (const hour of courtHoursCovered(occupant.startTime, occupant.durationHours)) {
-        occupiedCount.set(hour, (occupiedCount.get(hour) ?? 0) + 1);
-      }
+  blocks: readonly CourtSlotOccupant[];
+}): Map<string, number> {
+  const occupiedCount = new Map<string, number>();
+  const tally = (slots: readonly string[]): void => {
+    for (const slot of slots) {
+      occupiedCount.set(slot, (occupiedCount.get(slot) ?? 0) + 1);
     }
   };
-  tally(input.confirmed);
-  tally(input.blocks);
+  for (const occupant of input.confirmed) {
+    tally(courtSlotsCovered(occupant.startTime, durationMinutesOf(occupant.durationHours)));
+  }
+  for (const block of input.blocks) {
+    tally(courtSlotsCovered(block.startTime, block.durationMinutes));
+  }
 
-  const result = new Map<number, number>();
-  for (let hour = input.openHour; hour < input.closeHour; hour += 1) {
-    const free = input.activeCourtCount - (occupiedCount.get(hour) ?? 0);
-    result.set(hour, Math.max(0, free));
+  const result = new Map<string, number>();
+  const closeMinutes = input.closeHour * 60;
+  for (let m = input.openHour * 60; m < closeMinutes; m += SLOT_MINUTES) {
+    const slot = timeOfMinutes(m);
+    const free = input.activeCourtCount - (occupiedCount.get(slot) ?? 0);
+    result.set(slot, Math.max(0, free));
   }
   return result;
 }

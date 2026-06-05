@@ -50,18 +50,18 @@ describe("courtDateKeyboard", () => {
 describe("courtTimeKeyboard", () => {
   const availability: CourtAvailability = {
     date: "2026-06-15",
-    hours: [
-      { hour: 14, startTime: "14:00", freeCourts: 2 },
-      { hour: 15, startTime: "15:00", freeCourts: 0 },
-      { hour: 16, startTime: "16:00", freeCourts: 1 }
+    slots: [
+      { startTime: "14:00", freeCourts: 2 },
+      { startTime: "14:30", freeCourts: 0 },
+      { startTime: "15:00", freeCourts: 1 }
     ]
   };
 
-  it("renders only bookable hours (a free court exists), never a full one", () => {
+  it("renders only bookable 30-min slots (a free court exists), never a full one", () => {
     const cb = callbacks(courtTimeKeyboard(ru, availability));
     expect(cb).toContain(`${COURT_ACTIONS.timePrefix}14:00:2026-06-15`);
-    expect(cb).toContain(`${COURT_ACTIONS.timePrefix}16:00:2026-06-15`);
-    expect(cb).not.toContain(`${COURT_ACTIONS.timePrefix}15:00:2026-06-15`);
+    expect(cb).toContain(`${COURT_ACTIONS.timePrefix}15:00:2026-06-15`);
+    expect(cb).not.toContain(`${COURT_ACTIONS.timePrefix}14:30:2026-06-15`);
   });
 
   it("never exposes a court number in any callback or label", () => {
@@ -72,19 +72,33 @@ describe("courtTimeKeyboard", () => {
     expect(labels.some((l) => /корт|№/i.test(l))).toBe(false);
   });
 
-  it("offers only the back path when no hour is bookable", () => {
+  it("offers only the back path when no slot is bookable", () => {
     const none: CourtAvailability = {
       date: "2026-06-15",
-      hours: [{ hour: 15, startTime: "15:00", freeCourts: 0 }]
+      slots: [{ startTime: "15:00", freeCourts: 0 }]
     };
     expect(callbacks(courtTimeKeyboard(ru, none))).toEqual([COURT_ACTIONS.open]);
+  });
+
+  it("offers :30 start times from availability.slots", () => {
+    const cb = callbacks(courtTimeKeyboard(ru, availability));
+    expect(cb).toContain(`${COURT_ACTIONS.timePrefix}14:00:2026-06-15`);
+    // a :30-aligned free slot is offerable
+    const withHalf: CourtAvailability = {
+      date: "2026-06-15",
+      slots: [{ startTime: "17:30", freeCourts: 3 }]
+    };
+    expect(callbacks(courtTimeKeyboard(ru, withHalf))).toContain(
+      `${COURT_ACTIONS.timePrefix}17:30:2026-06-15`
+    );
   });
 });
 
 describe("courtDurationKeyboard", () => {
-  it("offers 1h and 2h carrying date + start time as ids", () => {
+  it("offers 1h, 1.5h and 2h carrying date + start time as ids", () => {
     const cb = callbacks(courtDurationKeyboard(ru, "2026-06-15", "14:00"));
     expect(cb).toContain(`${COURT_ACTIONS.durationPrefix}1:2026-06-15:14:00`);
+    expect(cb).toContain(`${COURT_ACTIONS.durationPrefix}1.5:2026-06-15:14:00`);
     expect(cb).toContain(`${COURT_ACTIONS.durationPrefix}2:2026-06-15:14:00`);
   });
 });
@@ -117,6 +131,23 @@ describe("courtPreviewText", () => {
     const cb = callbacks(courtPreviewKeyboard(ru, base));
     expect(cb).toContain(`${COURT_ACTIONS.confirmPrefix}2026-06-15:14:00:2`);
   });
+
+  it("renders a 1.5h preview with the server-computed price (no bot math)", () => {
+    const halfHour: CourtRequestPreview = {
+      date: "2026-06-15",
+      startTime: "17:30",
+      endTime: "19:00",
+      durationHours: 1.5,
+      priceRsd: 3000,
+      available: true
+    };
+    expect(courtPreviewText(ru, halfHour)).toBe(
+      "Дата: 15.06, Время: 17:30–19:00 (1.5 часа). Итого: 3 000 RSD"
+    );
+    expect(callbacks(courtPreviewKeyboard(ru, halfHour))).toContain(
+      `${COURT_ACTIONS.confirmPrefix}2026-06-15:17:30:1.5`
+    );
+  });
 });
 
 describe("callback round-trips", () => {
@@ -139,6 +170,14 @@ describe("callback round-trips", () => {
     });
   });
 
+  it("round-trips a 1.5h duration callback (:30 start)", () => {
+    expect(parseDuration(`${COURT_ACTIONS.durationPrefix}1.5:2026-06-15:17:30`)).toEqual({
+      durationHours: 1.5,
+      date: "2026-06-15",
+      startTime: "17:30"
+    });
+  });
+
   it("parses a confirm callback", () => {
     expect(parseConfirm(`${COURT_ACTIONS.confirmPrefix}2026-06-15:14:00:2`)).toEqual({
       date: "2026-06-15",
@@ -146,11 +185,19 @@ describe("callback round-trips", () => {
       durationHours: 2
     });
   });
+
+  it("round-trips a 1.5h confirm callback (:30 start)", () => {
+    expect(parseConfirm(`${COURT_ACTIONS.confirmPrefix}2026-06-15:17:30:1.5`)).toEqual({
+      date: "2026-06-15",
+      startTime: "17:30",
+      durationHours: 1.5
+    });
+  });
 });
 
 describe("callback-data size budget (Telegram caps at 64 bytes)", () => {
   it("keeps the longest court callback under 64 bytes", () => {
-    const longest = `${COURT_ACTIONS.confirmPrefix}2026-06-15:14:00:2`;
+    const longest = `${COURT_ACTIONS.confirmPrefix}2026-06-15:17:30:1.5`;
     expect(Buffer.byteLength(longest, "utf8")).toBeLessThanOrEqual(64);
   });
 });

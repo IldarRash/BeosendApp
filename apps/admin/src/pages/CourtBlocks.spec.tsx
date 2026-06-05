@@ -20,8 +20,10 @@ const useCourts = vi.fn();
 const useCourtBlocks = vi.fn();
 const createMutate = vi.fn();
 const deleteMutate = vi.fn();
+const reassignMutate = vi.fn();
 const useCreateCourtBlock = vi.fn();
 const useDeleteCourtBlock = vi.fn();
+const useReassignCourtBlock = vi.fn();
 
 vi.mock("../hooks/useCourts", () => ({
   useCourts: () => useCourts()
@@ -29,7 +31,8 @@ vi.mock("../hooks/useCourts", () => ({
 vi.mock("../hooks/useCourtBlocks", () => ({
   useCourtBlocks: () => useCourtBlocks(),
   useCreateCourtBlock: () => useCreateCourtBlock(),
-  useDeleteCourtBlock: () => useDeleteCourtBlock()
+  useDeleteCourtBlock: () => useDeleteCourtBlock(),
+  useReassignCourtBlock: () => useReassignCourtBlock()
 }));
 
 import { CourtBlocks } from "./CourtBlocks";
@@ -47,6 +50,8 @@ const sampleCourts: Court[] = [
   { id: "c2222222-2222-2222-2222-222222222222", number: 2, status: "active" }
 ];
 
+const GROUP_TRAINING_ID = "a1111111-1111-1111-1111-111111111111";
+
 const sampleBlocks: CourtBlock[] = [
   {
     id: "b1111111-1111-1111-1111-111111111111",
@@ -54,7 +59,9 @@ const sampleBlocks: CourtBlock[] = [
     date: "2026-06-10",
     startTime: "10:00",
     endTime: "12:00",
-    reason: "Турнир"
+    reason: "Турнир",
+    // Manual admin block (C5): no source training.
+    groupTrainingId: null
   },
   {
     id: "b2222222-2222-2222-2222-222222222222",
@@ -62,7 +69,9 @@ const sampleBlocks: CourtBlock[] = [
     date: "2026-06-10",
     startTime: "14:00",
     endTime: "15:00",
-    reason: "Ремонт"
+    reason: "Группа А",
+    // Auto-block created under a group at month generation.
+    groupTrainingId: GROUP_TRAINING_ID
   }
 ];
 
@@ -70,10 +79,12 @@ beforeEach(() => {
   notify.mockReset();
   createMutate.mockReset();
   deleteMutate.mockReset();
+  reassignMutate.mockReset();
   useCourts.mockReturnValue({ isError: false, data: sampleCourts });
   useCourtBlocks.mockReturnValue({ isPending: false, isError: false, data: sampleBlocks });
   useCreateCourtBlock.mockReturnValue({ mutate: createMutate, isPending: false, error: null });
   useDeleteCourtBlock.mockReturnValue({ mutate: deleteMutate, isPending: false, error: null });
+  useReassignCourtBlock.mockReturnValue({ mutate: reassignMutate, isPending: false, error: null });
 });
 
 afterEach(() => {
@@ -89,7 +100,7 @@ describe("CourtBlocks page", () => {
     expect(screen.getByText("10:00–12:00")).toBeTruthy();
     expect(screen.getByText("14:00–15:00")).toBeTruthy();
     expect(screen.getByText("Турнир")).toBeTruthy();
-    expect(screen.getByText("Ремонт")).toBeTruthy();
+    expect(screen.getByText("Группа А")).toBeTruthy();
   });
 
   it("shows a loading state", () => {
@@ -152,6 +163,46 @@ describe("CourtBlocks page", () => {
     fireEvent.click(screen.getAllByRole("button", { name: "Удалить" })[0]);
     expect(deleteMutate).toHaveBeenCalledTimes(1);
     expect(deleteMutate.mock.calls[0][0]).toBe(sampleBlocks[0].id);
+  });
+
+  it("distinguishes a group auto-block from a manual block by type tag", () => {
+    renderPage();
+    // The manual block (null link) is tagged "Ручная"; the group auto-block "Группа".
+    expect(screen.getByText("Ручная")).toBeTruthy();
+    expect(screen.getByText("Группа")).toBeTruthy();
+  });
+
+  it("offers 'Сменить корт' only on a group auto-block and reassigns the court", () => {
+    renderPage();
+    // Only the auto-block row exposes a change-court action (one button, not two).
+    const changeButtons = screen.getAllByRole("button", { name: "Сменить корт" });
+    expect(changeButtons).toHaveLength(1);
+
+    fireEvent.click(changeButtons[0]);
+    const dialog = screen.getByRole("dialog", { name: "Сменить корт блокировки" });
+    // The current court (2) is excluded from the targets; court 1 remains.
+    fireEvent.change(within(dialog).getByLabelText("Корт"), {
+      target: { value: sampleCourts[0].id }
+    });
+    fireEvent.click(within(dialog).getByRole("button", { name: "Сохранить" }));
+
+    expect(reassignMutate).toHaveBeenCalledTimes(1);
+    expect(reassignMutate.mock.calls[0][0]).toEqual({
+      id: sampleBlocks[1].id,
+      courtId: sampleCourts[0].id
+    });
+  });
+
+  it("surfaces a reassign error (e.g. 409 limit) inside the change-court dialog", () => {
+    useReassignCourtBlock.mockReturnValue({
+      mutate: reassignMutate,
+      isPending: false,
+      error: new Error("Превышен лимит кортов")
+    });
+    renderPage();
+    fireEvent.click(screen.getByRole("button", { name: "Сменить корт" }));
+    const dialog = screen.getByRole("dialog", { name: "Сменить корт блокировки" });
+    expect(within(dialog).getByRole("alert").textContent).toContain("Превышен лимит кортов");
   });
 
   it("surfaces a create error inside the dialog", () => {

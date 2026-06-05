@@ -64,9 +64,9 @@ export function useCourtRequests(
 }
 
 /**
- * C4 — the active courts free for every hour a request covers (gated; no call
- * until a request is selected for confirmation). The server owns the per-hour
- * limit; the picker only offers what this returns.
+ * C4 — the active courts free for every 30-min slot a request covers (gated; no
+ * call until a request is selected for confirmation). The server owns the
+ * per-slot limit; the picker only offers what this returns.
  */
 export function useFreeCourts(requestId: string | null): UseQueryResult<Court[], Error> {
   const api = useApiClient();

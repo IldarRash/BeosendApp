@@ -2,11 +2,11 @@ import { Injectable } from "@nestjs/common";
 import { and, asc, eq, tables } from "@beosand/db";
 import { DatabaseService } from "../../db/database.service";
 
-/** A court occupant (confirmed request or block) on a date: court id + whole-hour span. */
+/** A court occupant (confirmed request or block) on a date: court id + minute span. */
 export interface CourtOccupancyRow {
   courtId: string;
   startTime: string;
-  durationHours: number;
+  durationMinutes: number;
   /** Covering confirmed-request id, so the load grid can link a `request` cell to its detail. */
   requestId?: string;
 }
@@ -51,7 +51,7 @@ export class CourtsRepository {
         requestId: row.requestId,
         courtId: row.courtId,
         startTime: row.startTime.slice(0, 5),
-        durationHours: row.durationHours
+        durationMinutes: Number(row.durationHours) * 60
       }));
   }
 
@@ -71,14 +71,14 @@ export class CourtsRepository {
     return rows.map((row) => ({
       courtId: row.courtId,
       startTime: row.startTime.slice(0, 5),
-      durationHours: hourSpan(row.startTime, row.endTime)
+      durationMinutes: minuteSpan(row.startTime, row.endTime)
     }));
   }
 }
 
-/** Whole clock hours spanned by a block (e.g. 09:00→11:00 = 2). At least 1. */
-function hourSpan(startTime: string, endTime: string): number {
-  const startHour = Number(startTime.slice(0, 2));
-  const endHour = Number(endTime.slice(0, 2));
-  return Math.max(1, endHour - startHour);
+/** Minutes spanned by a block (e.g. 17:30→19:00 = 90). At least one slot. */
+function minuteSpan(startTime: string, endTime: string): number {
+  const start = Number(startTime.slice(0, 2)) * 60 + Number(startTime.slice(3, 5));
+  const end = Number(endTime.slice(0, 2)) * 60 + Number(endTime.slice(3, 5));
+  return Math.max(30, end - start);
 }

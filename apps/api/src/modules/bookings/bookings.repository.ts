@@ -1,7 +1,7 @@
 import { Injectable } from "@nestjs/common";
 import { type Database, tables } from "@beosand/db";
-import type { BookingStatus, TrainingStatus } from "@beosand/types";
-import { type Booking } from "@beosand/types";
+import type { BookingSource, BookingStatus, TrainingStatus } from "@beosand/types";
+import { type Booking, bookingSource } from "@beosand/types";
 import { and, asc, desc, eq, gte, inArray, lt, lte } from "drizzle-orm";
 import { DatabaseService } from "../../db/database.service";
 
@@ -14,6 +14,8 @@ export interface TrainingLockRow {
   capacity: number;
   bookedCount: number;
   status: TrainingStatus;
+  /** Trainer scoping for the manual-booking authz (assertTrainerOrAdmin). */
+  trainerId: string;
 }
 
 /** A booking row locked FOR UPDATE, carrying just what the cancel write needs. */
@@ -77,7 +79,8 @@ export class BookingsRepository {
         id: tables.trainings.id,
         capacity: tables.trainings.capacity,
         bookedCount: tables.trainings.bookedCount,
-        status: tables.trainings.status
+        status: tables.trainings.status,
+        trainerId: tables.trainings.trainerId
       })
       .from(tables.trainings)
       .where(eq(tables.trainings.id, trainingId))
@@ -104,7 +107,8 @@ export class BookingsRepository {
         date: tables.trainings.date,
         capacity: tables.trainings.capacity,
         bookedCount: tables.trainings.bookedCount,
-        status: tables.trainings.status
+        status: tables.trainings.status,
+        trainerId: tables.trainings.trainerId
       })
       .from(tables.trainings)
       .where(
@@ -299,10 +303,7 @@ function toBooking(row: BookingRow): Booking {
   };
 }
 
-/** `source` is a free-text column; the contract only permits "telegram". */
-function bookingSourceOf(source: string): "telegram" {
-  if (source !== "telegram") {
-    throw new Error(`Unexpected booking source "${source}"`);
-  }
-  return source;
+/** `source` is a free-text column; validate it against the contract enum. */
+function bookingSourceOf(source: string): BookingSource {
+  return bookingSource.parse(source);
 }

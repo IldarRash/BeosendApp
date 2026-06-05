@@ -12,9 +12,10 @@ export const botSr: Record<string, string> = {
   // --- Main menu (menu.ts) ---
   "bot.menu.welcomeFull":
     "Dobro došli u BeoSand 🏐\n\nOvde možete:\n• prijaviti se za trening\n• pogledati slobodna mesta\n• videti svoje prijave",
-  "bot.menu.availableTrainings": "🏐 Dostupni treninzi",
+  "bot.menu.availableTrainings": "🎫 Pojedinačni dolazak",
   "bot.menu.todayFreeSlots": "📅 Slobodna mesta danas",
   "bot.menu.joinGroup": "👥 Prijava u grupu",
+  "bot.menu.individual": "🧑‍🏫 Individualni trening",
   "bot.menu.myBookings": "📋 Moje prijave",
   "bot.menu.rentCourt": "🏖 Iznajmi teren",
   "bot.menu.contactManager": "ℹ️ Kontaktiraj menadžera",
@@ -22,7 +23,18 @@ export const botSr: Record<string, string> = {
   "bot.menu.adminCourtModeration": "🛠 Zahtevi za teren (admin)",
   "bot.menu.adminCourtLoad": "📊 Zauzetost terena (admin)",
   "bot.menu.contactManagerLine": "Kontaktiraj menadžera: {contact}",
-  "bot.menu.todayStub": "Slobodna mesta za danas uskoro će biti ovde.",
+
+  // --- Free spots today (navigation.ts, Feature 6) ---
+  "bot.today.header": "Slobodna mesta za danas:",
+  "bot.today.none": "Za danas nema slobodnih mesta. Pogledajte kasnije 🙌",
+
+  // --- Individual training (individual.ts, Feature 8) ---
+  "bot.individual.pickTrainer": "Kod kog trenera želite da se prijavite?",
+  "bot.individual.noTrainers": "Trenutno nema dostupnih trenera. Pogledajte kasnije 🙌",
+  "bot.individual.requested": "✅ Zahtev je poslat treneru. Kontaktiraće vas na Telegramu.",
+  "bot.individual.trainerUnavailable":
+    "Ovaj trener trenutno nije dostupan na Telegramu. Izaberite drugog ili kontaktirajte menadžera.",
+  "bot.individual.pickButton": "🧑‍🏫 {name}",
 
   // --- Shared navigation (menu.ts) ---
   "bot.nav.back": "⬅️ Nazad",
@@ -110,6 +122,7 @@ export const botSr: Record<string, string> = {
   // --- Group booking (group-booking.ts) ---
   "bot.group.none": "Trenutno nema grupa za prijavu. Navratite kasnije 🙌",
   "bot.group.header": "Grupe za mesečnu prijavu:",
+  "bot.group.trainer": "Trener: {name}",
   "bot.group.monthSubscription": "Mesečna pretplata: {price} RSD",
   "bot.group.pickButton": "👥 {name}",
   "bot.group.monthPickTitle": "Grupa „{name}“",
@@ -144,6 +157,7 @@ export const botSr: Record<string, string> = {
     "Zahtev je poslat administratoru na potvrdu. Sačekajte obaveštenje sa brojem terena.",
   "bot.court.durationHours": "{hours} č",
   "bot.court.duration.1": "1 sat",
+  "bot.court.duration.1.5": "1.5 sata",
   "bot.court.duration.2": "2 sata",
   "bot.court.previewLine": "Datum: {date}, Vreme: {start}–{end} ({duration}). Ukupno: {price} RSD",
   "bot.court.previewUnavailable": "Nažalost, ovo vreme je već zauzeto. Izaberite drugo.",

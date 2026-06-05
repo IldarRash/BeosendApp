@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+import { bookingSource } from "./common";
 import {
   availableSlotsQuerySchema,
   cancelTrainingSchema,
@@ -6,8 +7,14 @@ import {
   createGroupBookingSchema,
   createGroupSchema,
   createSingleBookingSchema,
+  generateAllMonthSchema,
+  generateAllResultSchema,
+  generateGroupResultSchema,
   generateMonthSchema,
   groupBookingResultSchema,
+  groupSchema,
+  individualRequestResultSchema,
+  individualRequestSchema,
   listTrainingsQuerySchema,
   createWaitlistEntrySchema,
   markAttendanceSchema,
@@ -95,6 +102,32 @@ describe("createGroupSchema", () => {
       expect("status" in parsed.data).toBe(false);
     }
   });
+
+  it("omits the read-only trainerName (writes never carry it)", () => {
+    const parsed = createGroupSchema.safeParse({ ...valid, trainerName: "Jovana" });
+    expect(parsed.success).toBe(true);
+    if (parsed.success) {
+      expect("trainerName" in parsed.data).toBe(false);
+    }
+  });
+});
+
+describe("groupSchema (bot-facing, includes trainerName)", () => {
+  const fullGroup = {
+    ...valid,
+    id: "11111111-1111-1111-1111-111111111111",
+    trainerName: "Jovana",
+    status: "active"
+  };
+
+  it("accepts a group carrying the joined trainerName", () => {
+    expect(groupSchema.safeParse(fullGroup).success).toBe(true);
+  });
+
+  it("rejects a group missing trainerName", () => {
+    const { trainerName: _omitted, ...withoutName } = fullGroup;
+    expect(groupSchema.safeParse(withoutName).success).toBe(false);
+  });
 });
 
 describe("updateGroupSchema", () => {
@@ -109,6 +142,55 @@ describe("updateGroupSchema", () => {
   it("still validates field shapes when present", () => {
     expect(updateGroupSchema.safeParse({ capacity: 0 }).success).toBe(false);
     expect(updateGroupSchema.safeParse({ daysOfWeek: [9] }).success).toBe(false);
+  });
+
+  it("drops the read-only trainerName from a patch", () => {
+    const parsed = updateGroupSchema.safeParse({ trainerName: "Jovana", capacity: 8 });
+    expect(parsed.success).toBe(true);
+    if (parsed.success) {
+      expect("trainerName" in parsed.data).toBe(false);
+    }
+  });
+});
+
+describe("individualRequestSchema (Feature 8)", () => {
+  it("accepts a numeric telegramId", () => {
+    expect(individualRequestSchema.safeParse({ telegramId: 777 }).success).toBe(true);
+  });
+
+  it("accepts a telegram id beyond the 32-bit range", () => {
+    expect(individualRequestSchema.safeParse({ telegramId: 8_000_000_000 }).success).toBe(true);
+  });
+
+  it("rejects a non-integer or missing telegramId", () => {
+    expect(individualRequestSchema.safeParse({ telegramId: 1.5 }).success).toBe(false);
+    expect(individualRequestSchema.safeParse({}).success).toBe(false);
+  });
+
+  it("rejects extra fields (strict)", () => {
+    expect(individualRequestSchema.safeParse({ telegramId: 777, foo: 1 }).success).toBe(false);
+  });
+});
+
+describe("individualRequestResultSchema (Feature 8)", () => {
+  it("accepts a delivered result without a reason", () => {
+    expect(individualRequestResultSchema.safeParse({ delivered: true }).success).toBe(true);
+  });
+
+  it("accepts the soft trainer-unavailable failure", () => {
+    expect(
+      individualRequestResultSchema.safeParse({ delivered: false, reason: "trainer-unavailable" })
+        .success
+    ).toBe(true);
+  });
+
+  it("rejects an unknown reason or extra fields (strict)", () => {
+    expect(
+      individualRequestResultSchema.safeParse({ delivered: false, reason: "nope" }).success
+    ).toBe(false);
+    expect(
+      individualRequestResultSchema.safeParse({ delivered: true, extra: 1 }).success
+    ).toBe(false);
   });
 });
 
@@ -134,6 +216,53 @@ describe("generateMonthSchema", () => {
 
   it("rejects a non-uuid groupId", () => {
     expect(generateMonthSchema.safeParse({ ...validBody, groupId: "nope" }).success).toBe(false);
+  });
+
+  it("T10 — accepts an optional preferred courtId", () => {
+    expect(
+      generateMonthSchema.safeParse({
+        ...validBody,
+        courtId: "33333333-3333-4333-8333-333333333333"
+      }).success
+    ).toBe(true);
+  });
+
+  it("T10 — rejects a non-uuid courtId", () => {
+    expect(generateMonthSchema.safeParse({ ...validBody, courtId: "nope" }).success).toBe(false);
+  });
+});
+
+describe("generateAllMonthSchema (T10)", () => {
+  it("accepts year + month", () => {
+    expect(generateAllMonthSchema.safeParse({ year: 2026, month: 7 }).success).toBe(true);
+  });
+
+  it("rejects an out-of-range month", () => {
+    expect(generateAllMonthSchema.safeParse({ year: 2026, month: 13 }).success).toBe(false);
+  });
+});
+
+describe("generateGroupResult / generateAllResult schemas (T10)", () => {
+  const groupResult = {
+    groupId: "11111111-1111-1111-1111-111111111111",
+    groupName: "Intermediate",
+    created: 9,
+    blocked: 7,
+    skipped: 2
+  };
+
+  it("accepts a per-group result", () => {
+    expect(generateGroupResultSchema.safeParse(groupResult).success).toBe(true);
+  });
+
+  it("rejects a negative count", () => {
+    expect(generateGroupResultSchema.safeParse({ ...groupResult, skipped: -1 }).success).toBe(
+      false
+    );
+  });
+
+  it("accepts a perGroup envelope", () => {
+    expect(generateAllResultSchema.safeParse({ perGroup: [groupResult] }).success).toBe(true);
   });
 });
 
@@ -225,6 +354,18 @@ describe("createSingleBookingSchema", () => {
     expect(createSingleBookingSchema.safeParse({ ...validBody, source: "web" }).success).toBe(
       false
     );
+  });
+});
+
+describe("bookingSource", () => {
+  it("accepts telegram, admin, and walk_in", () => {
+    expect(bookingSource.safeParse("telegram").success).toBe(true);
+    expect(bookingSource.safeParse("admin").success).toBe(true);
+    expect(bookingSource.safeParse("walk_in").success).toBe(true);
+  });
+
+  it("rejects any other source", () => {
+    expect(bookingSource.safeParse("web").success).toBe(false);
   });
 });
 

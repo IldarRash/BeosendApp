@@ -37,6 +37,21 @@ export class BookingsController {
     return this.bookings.createSingle(actorTelegramId, input);
   }
 
+  /**
+   * Admin/trainer: manually book any (existing or walk-in) client onto a training
+   * from the console (Feature 5). Distinct from /single: the service authorizes
+   * admin-or-trainer-of-the-training, not the bot's self-only ownership.
+   */
+  @Post("manual")
+  createManual(
+    @Headers("x-telegram-id") telegramIdHeader: string | undefined,
+    @Body() body: unknown
+  ): Promise<Booking> {
+    const actorTelegramId = parseTelegramId(telegramIdHeader);
+    const input = validate(createSingleBookingSchema, body ?? {});
+    return this.bookings.createManual(actorTelegramId, input);
+  }
+
   /** Client: book a whole month into a group as a linked batch (T1.9). */
   @Post("group")
   createGroup(

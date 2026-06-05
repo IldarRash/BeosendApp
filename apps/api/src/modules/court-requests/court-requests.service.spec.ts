@@ -61,7 +61,7 @@ function makeRow(overrides: Partial<CourtRequestRow> = {}): CourtRequestRow {
     clientId,
     date,
     startTime: "14:00:00",
-    durationHours: 2,
+    durationHours: "2.0",
     priceRsd: 4000,
     status: "pending",
     courtId: null,
@@ -72,137 +72,123 @@ function makeRow(overrides: Partial<CourtRequestRow> = {}): CourtRequestRow {
   };
 }
 
-const hourCount = COURT_CLOSE_HOUR - COURT_OPEN_HOUR;
+const slotCount = (COURT_CLOSE_HOUR - COURT_OPEN_HOUR) * 2;
+
+/** Build a confirmed-request occupant fixture (carries both hour and minute span). */
+function occ(startTime: string, durationHours: number): OccupantRow {
+  return { startTime, durationHours, durationMinutes: durationHours * 60 };
+}
+
+/** Build a block occupant fixture (minute span only, may be arbitrary). */
+function blockOcc(startTime: string, durationMinutes: number): OccupantRow {
+  return { startTime, durationMinutes };
+}
 
 describe("CourtRequestsService.getAvailability", () => {
-  it("offers every working hour with the full active count when nothing is booked", async () => {
+  it("offers every working 30-min slot with the full active count when nothing is booked", async () => {
     const service = makeService(makeRepo({ activeCourtCount: 6 }));
     const result = await service.getAvailability(date);
 
     expect(result.date).toBe(date);
-    expect(result.hours).toHaveLength(hourCount);
-    expect(result.hours[0]).toEqual({ hour: COURT_OPEN_HOUR, startTime: "08:00", freeCourts: 6 });
-    expect(result.hours.every((h) => h.freeCourts === 6)).toBe(true);
+    expect(result.slots).toHaveLength(slotCount);
+    expect(result.slots[0]).toEqual({ startTime: "08:00", freeCourts: 6 });
+    expect(result.slots[1]).toEqual({ startTime: "08:30", freeCourts: 6 });
+    expect(result.slots.every((s) => s.freeCourts === 6)).toBe(true);
   });
 
-  it("subtracts confirmed requests from the hours they cover", async () => {
+  it("subtracts confirmed requests from the slots they cover", async () => {
     const service = makeService(
-      makeRepo({
-        activeCourtCount: 6,
-        confirmed: [{ startTime: "10:00", durationHours: 2 }]
-      })
+      makeRepo({ activeCourtCount: 6, confirmed: [occ("10:00", 2)] })
     );
     const result = await service.getAvailability(date);
 
-    const ten = result.hours.find((h) => h.hour === 10);
-    const eleven = result.hours.find((h) => h.hour === 11);
-    const twelve = result.hours.find((h) => h.hour === 12);
-    expect(ten?.freeCourts).toBe(5);
-    expect(eleven?.freeCourts).toBe(5);
-    expect(twelve?.freeCourts).toBe(6);
+    const at = (t: string) => result.slots.find((s) => s.startTime === t)?.freeCourts;
+    expect(at("10:00")).toBe(5);
+    expect(at("11:30")).toBe(5);
+    expect(at("12:00")).toBe(6);
   });
 
-  it("drops a fully booked hour from the offered start times", async () => {
-    const confirmed: OccupantRow[] = Array.from({ length: 6 }, () => ({
-      startTime: "14:00",
-      durationHours: 1
-    }));
+  it("drops a fully booked slot from the offered start times", async () => {
+    const confirmed = Array.from({ length: 6 }, () => occ("14:00", 1));
     const service = makeService(makeRepo({ activeCourtCount: 6, confirmed }));
     const result = await service.getAvailability(date);
 
-    expect(result.hours.find((h) => h.hour === 14)).toBeUndefined();
+    expect(result.slots.find((s) => s.startTime === "14:00")).toBeUndefined();
+    expect(result.slots.find((s) => s.startTime === "14:30")).toBeUndefined();
   });
 
-  it("blocks reduce availability the same as confirmed requests (and can drop an hour)", async () => {
-    const blocks: OccupantRow[] = [{ startTime: "09:00", durationHours: 1 }];
-    const service = makeService(makeRepo({ activeCourtCount: 1, blocks }));
+  it("blocks reduce availability the same as confirmed requests (and can drop a slot)", async () => {
+    const service = makeService(makeRepo({ activeCourtCount: 1, blocks: [blockOcc("09:00", 60)] }));
     const result = await service.getAvailability(date);
 
-    expect(result.hours.find((h) => h.hour === 9)).toBeUndefined();
-    expect(result.hours.find((h) => h.hour === 8)?.freeCourts).toBe(1);
+    expect(result.slots.find((s) => s.startTime === "09:00")).toBeUndefined();
+    expect(result.slots.find((s) => s.startTime === "08:00")?.freeCourts).toBe(1);
   });
 
   it("never exposes a court id/number in the response", async () => {
     const service = makeService(makeRepo({ activeCourtCount: 6 }));
     const result = await service.getAvailability(date);
 
-    for (const hour of result.hours) {
-      expect(Object.keys(hour).sort()).toEqual(["freeCourts", "hour", "startTime"]);
+    for (const slot of result.slots) {
+      expect(Object.keys(slot).sort()).toEqual(["freeCourts", "startTime"]);
     }
   });
 
   it("never leaks a court number even when confirmed requests hold assigned courts", async () => {
-    // Confirmed rows could carry an assigned courtId upstream; the read must surface
-    // only {hour,startTime,freeCourts} and never a court id/number to the client.
     const service = makeService(
-      makeRepo({
-        activeCourtCount: 6,
-        confirmed: [
-          { startTime: "10:00", durationHours: 2 },
-          { startTime: "16:00", durationHours: 1 }
-        ]
-      })
+      makeRepo({ activeCourtCount: 6, confirmed: [occ("10:00", 2), occ("16:00", 1)] })
     );
     const result = await service.getAvailability(date);
 
-    // The response carries only free-court *counts*, never a court id or court number.
-    for (const hour of result.hours) {
-      expect(Object.keys(hour).sort()).toEqual(["freeCourts", "hour", "startTime"]);
+    for (const slot of result.slots) {
+      expect(Object.keys(slot).sort()).toEqual(["freeCourts", "startTime"]);
     }
     const serialized = JSON.stringify(result);
     expect(serialized).not.toContain("courtId");
-    // No UUID (a court id) is ever serialized into the read response.
     expect(serialized).not.toMatch(/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/i);
   });
 
-  it("offers the last 1h start (20:00) but never a start past COURT_CLOSE_HOUR", async () => {
+  it("offers the last 30-min start (20:30) but never a start past COURT_CLOSE_HOUR", async () => {
     const service = makeService(makeRepo({ activeCourtCount: 6 }));
     const result = await service.getAvailability(date);
 
-    // Last working start hour is COURT_CLOSE_HOUR - 1 (20:00); 21:00 is the close, never offered.
-    expect(result.hours.at(-1)).toEqual({ hour: 20, startTime: "20:00", freeCourts: 6 });
-    expect(result.hours.find((h) => h.hour >= COURT_CLOSE_HOUR)).toBeUndefined();
-    expect(result.hours.find((h) => h.startTime === "21:00")).toBeUndefined();
+    expect(result.slots.at(-1)).toEqual({ startTime: "20:30", freeCourts: 6 });
+    expect(result.slots.find((s) => s.startTime === "21:00")).toBeUndefined();
   });
 });
 
 describe("C5 court block reduces availability via the same getAvailability math", () => {
   // Brief acceptance criterion: blocking a court for 18:00–20:00 makes exactly
-  // those hours show one fewer free court, and removing the block restores it.
-  // A block is expanded to one 1h occupant per covered hour, so a 2h block must
-  // reduce BOTH covered hours — never a neighbouring hour.
-  const block18to20: OccupantRow = { startTime: "18:00", durationHours: 2 };
+  // those slots show one fewer free court, and removing the block restores it.
+  const block18to20: OccupantRow = blockOcc("18:00", 120);
 
-  function freeAt(result: { hours: { hour: number; freeCourts: number }[] }, hour: number): number {
-    // An hour dropped from the list has zero free courts left.
-    return result.hours.find((h) => h.hour === hour)?.freeCourts ?? 0;
+  function freeAt(result: { slots: { startTime: string; freeCourts: number }[] }, t: string): number {
+    // A slot dropped from the list has zero free courts left.
+    return result.slots.find((s) => s.startTime === t)?.freeCourts ?? 0;
   }
 
-  it("reduces exactly the covered hours by one and leaves neighbours untouched", async () => {
+  it("reduces exactly the covered slots by one and leaves neighbours untouched", async () => {
     const withBlock = await makeService(
       makeRepo({ activeCourtCount: 6, blocks: [block18to20] })
     ).getAvailability(date);
 
-    // The two covered hours each lose exactly one free court...
-    expect(freeAt(withBlock, 18)).toBe(5);
-    expect(freeAt(withBlock, 19)).toBe(5);
-    // ...while the hours abutting the block keep the full active count.
-    expect(freeAt(withBlock, 17)).toBe(6);
-    expect(freeAt(withBlock, 20)).toBe(6);
+    expect(freeAt(withBlock, "18:00")).toBe(5);
+    expect(freeAt(withBlock, "19:30")).toBe(5);
+    expect(freeAt(withBlock, "17:30")).toBe(6);
+    expect(freeAt(withBlock, "20:00")).toBe(6);
   });
 
-  it("a block sits on TOP of confirmed requests for the same hour (server-side, additive)", async () => {
-    // The block and a confirmed request both occupy hour 18 → two fewer free.
+  it("a block sits on TOP of confirmed requests for the same slot (server-side, additive)", async () => {
     const result = await makeService(
       makeRepo({
         activeCourtCount: 6,
-        confirmed: [{ startTime: "18:00", durationHours: 1 }],
+        confirmed: [occ("18:00", 1)],
         blocks: [block18to20]
       })
     ).getAvailability(date);
 
-    expect(freeAt(result, 18)).toBe(4); // 6 − 1 confirmed − 1 block
-    expect(freeAt(result, 19)).toBe(5); // block only
+    expect(freeAt(result, "18:00")).toBe(4); // 6 − 1 confirmed − 1 block
+    expect(freeAt(result, "19:00")).toBe(5); // block only
   });
 
   it("removing the block fully restores availability to the no-block baseline", async () => {
@@ -210,68 +196,58 @@ describe("C5 court block reduces availability via the same getAvailability math"
       makeRepo({ activeCourtCount: 6, blocks: [] })
     ).getAvailability(date);
     const restored = await makeService(
-      // The same repo state once the block row is gone (delete restores availability).
       makeRepo({ activeCourtCount: 6, blocks: [] })
     ).getAvailability(date);
 
-    // Both covered hours are back to the full count, identical to never blocking.
-    expect(freeAt(restored, 18)).toBe(6);
-    expect(freeAt(restored, 19)).toBe(6);
+    expect(freeAt(restored, "18:00")).toBe(6);
+    expect(freeAt(restored, "19:30")).toBe(6);
     expect(restored).toEqual(baseline);
   });
 
-  it("on a single-court date the block drops exactly its covered hours from the offer", async () => {
-    // With one active court, the block fully occupies hours 18 and 19, so neither
-    // is offered, but 17:00 and 20:00 remain offerable — the reduction is local.
+  it("on a single-court date the block drops exactly its covered slots from the offer", async () => {
     const result = await makeService(
       makeRepo({ activeCourtCount: 1, blocks: [block18to20] })
     ).getAvailability(date);
 
-    expect(result.hours.find((h) => h.hour === 18)).toBeUndefined();
-    expect(result.hours.find((h) => h.hour === 19)).toBeUndefined();
-    expect(freeAt(result, 17)).toBe(1);
-    expect(freeAt(result, 20)).toBe(1);
+    expect(result.slots.find((s) => s.startTime === "18:00")).toBeUndefined();
+    expect(result.slots.find((s) => s.startTime === "19:30")).toBeUndefined();
+    expect(freeAt(result, "17:30")).toBe(1);
+    expect(freeAt(result, "20:00")).toBe(1);
   });
 });
 
-describe("freeForDuration (min over covered hours — the rule C4 re-checks)", () => {
-  it("a 1h slot's availability is exactly its single covered hour", () => {
-    const freeByHour = new Map<number, number>([
-      [10, 4],
-      [11, 2]
+describe("freeForDuration (min over covered 30-min slots — the rule C4 re-checks)", () => {
+  it("a 1h slot's availability is the min of its two covered slots", () => {
+    const free = new Map<string, number>([
+      ["10:00", 4],
+      ["10:30", 2]
     ]);
-    expect(freeForDuration(freeByHour, "10:00", 1)).toBe(4);
+    expect(freeForDuration(free, "10:00", 1)).toBe(2);
   });
 
-  it("a 2h slot is the MIN of both covered hours, not the start hour alone", () => {
-    const freeByHour = new Map<number, number>([
-      [10, 4], // start hour has room
-      [11, 1] // second hour is the tighter constraint
+  it("a 1.5h slot is the MIN over its three covered slots", () => {
+    const free = new Map<string, number>([
+      ["10:00", 4],
+      ["10:30", 1],
+      ["11:00", 3]
     ]);
-    expect(freeForDuration(freeByHour, "10:00", 2)).toBe(1);
+    expect(freeForDuration(free, "10:00", 1.5)).toBe(1);
   });
 
-  it("a 2h slot is unavailable when only the SECOND covered hour is full", () => {
-    // Unsafe path: offering this 2h start would over-confirm hour 11.
-    const freeByHour = new Map<number, number>([
-      [10, 3], // first hour free
-      [11, 0] // second hour at the active-court count
+  it("a 2h slot is unavailable when only the LAST covered slot is full", () => {
+    const free = new Map<string, number>([
+      ["10:00", 3],
+      ["10:30", 3],
+      ["11:00", 3],
+      ["11:30", 0]
     ]);
-    expect(freeForDuration(freeByHour, "10:00", 2)).toBe(0);
+    expect(freeForDuration(free, "10:00", 2)).toBe(0);
   });
 
-  it("a 2h slot is unavailable when only the FIRST covered hour is full", () => {
-    const freeByHour = new Map<number, number>([
-      [10, 0],
-      [11, 5]
-    ]);
-    expect(freeForDuration(freeByHour, "10:00", 2)).toBe(0);
-  });
-
-  it("treats a missing covered hour as 0 free (cannot be offered)", () => {
-    const freeByHour = new Map<number, number>([[20, 6]]);
-    // 20:00 for 2h covers hour 21, which is past close and absent from the map.
-    expect(freeForDuration(freeByHour, "20:00", 2)).toBe(0);
+  it("treats a missing covered slot as 0 free (cannot be offered)", () => {
+    const free = new Map<string, number>([["20:30", 6]]);
+    // 20:30 for 1h covers 21:00, which is past close and absent from the map.
+    expect(freeForDuration(free, "20:30", 1)).toBe(0);
   });
 });
 
@@ -301,11 +277,41 @@ describe("CourtRequestsService.previewRequest (C2 price + availability)", () => 
     expect(one.endTime).toBe("15:00");
   });
 
-  it("reports available=false when the slot's hours are full, without throwing", async () => {
-    const confirmed: OccupantRow[] = Array.from({ length: 6 }, () => ({
-      startTime: "14:00",
+  it("computes 3 000 RSD for a 1.5h booking and a :30 end time", async () => {
+    const service = makeService(makeRepo({}));
+    const preview = await service.previewRequest({
+      telegramId: tg,
+      date,
+      startTime: "15:00",
+      durationHours: 1.5
+    });
+    expect(preview.priceRsd).toBe(3000);
+    expect(preview.endTime).toBe("16:30");
+  });
+
+  it("accepts a :30 start and rejects a :15 start", async () => {
+    const service = makeService(makeRepo({}));
+    const ok = await service.previewRequest({
+      telegramId: tg,
+      date,
+      startTime: "08:30",
       durationHours: 1
-    }));
+    });
+    expect(ok.endTime).toBe("09:30");
+    await expect(
+      service.previewRequest({ telegramId: tg, date, startTime: "08:15", durationHours: 1 })
+    ).rejects.toBeInstanceOf(BadRequestException);
+  });
+
+  it("rejects a 1.5h start that overruns closing (20:00 + 1.5h ends 21:30)", async () => {
+    const service = makeService(makeRepo({}));
+    await expect(
+      service.previewRequest({ telegramId: tg, date, startTime: "20:00", durationHours: 1.5 })
+    ).rejects.toBeInstanceOf(BadRequestException);
+  });
+
+  it("reports available=false when the slot's slots are full, without throwing", async () => {
+    const confirmed = Array.from({ length: 6 }, () => occ("14:00", 1));
     const service = makeService(makeRepo({ activeCourtCount: 6, confirmed }));
 
     const preview = await service.previewRequest({
@@ -383,10 +389,7 @@ describe("CourtRequestsService.createRequest (C2 pending creation)", () => {
   });
 
   it("rejects (conflict) when the slot is fully booked at submit time", async () => {
-    const confirmed: OccupantRow[] = Array.from({ length: 6 }, () => ({
-      startTime: "14:00",
-      durationHours: 1
-    }));
+    const confirmed = Array.from({ length: 6 }, () => occ("14:00", 1));
     const service = makeService(makeRepo({ activeCourtCount: 6, confirmed }));
     await expect(
       service.createRequest({ telegramId: tg, date, startTime: "14:00", durationHours: 1 })
@@ -441,6 +444,16 @@ describe("CourtRequestsService.createRequest (C2 pending creation)", () => {
 });
 
 // --- C4 admin moderation -------------------------------------------------------
+
+/** Build a per-court occupancy fixture (confirmed request: hour + minute span). */
+function courtOcc(courtId: string, startTime: string, durationHours: number): CourtOccupancyRow {
+  return { courtId, startTime, durationHours, durationMinutes: durationHours * 60 };
+}
+
+/** Build a per-court block occupancy fixture (minute span only). */
+function courtBlockOcc(courtId: string, startTime: string, durationMinutes: number): CourtOccupancyRow {
+  return { courtId, startTime, durationMinutes };
+}
 
 function adminRow(overrides: Partial<CourtRequestAdminRow> = {}): CourtRequestAdminRow {
   return {
@@ -564,11 +577,9 @@ describe("CourtRequestsService.freeCourts (C4 admin)", () => {
     await expect(service.freeCourts(123, requestId)).rejects.toBeInstanceOf(ForbiddenException);
   });
 
-  it("returns active courts free for every covered hour and excludes taken ones", async () => {
+  it("returns active courts free for every covered slot and excludes taken ones", async () => {
     const service = makeService(
-      makeModerationRepo({
-        confirmed: [{ courtId: courtIdA, startTime: "14:00", durationHours: 1 }]
-      })
+      makeModerationRepo({ confirmed: [courtOcc(courtIdA, "14:00", 1)] })
     );
     const courts = await service.freeCourts(adminId, requestId);
     // Request covers 14:00–16:00; court A is taken at 14, so only court B is free.
@@ -577,11 +588,9 @@ describe("CourtRequestsService.freeCourts (C4 admin)", () => {
     expect(courts[0].number).toBe(2);
   });
 
-  it("excludes a court blocked for any covered hour", async () => {
+  it("excludes a court blocked for any covered slot", async () => {
     const service = makeService(
-      makeModerationRepo({
-        blocks: [{ courtId: courtIdB, startTime: "15:00", durationHours: 1 }]
-      })
+      makeModerationRepo({ blocks: [courtBlockOcc(courtIdB, "15:00", 60)] })
     );
     const courts = await service.freeCourts(adminId, requestId);
     expect(courts.map((c) => c.id)).toEqual([courtIdA]);
@@ -629,10 +638,10 @@ describe("CourtRequestsService.confirmRequest (C4 admin)", () => {
     expect(notify.mock.calls[0][1]).toContain("4000 RSD");
   });
 
-  it("rejects confirming onto a court already taken for a covered hour", async () => {
+  it("rejects confirming onto a court already taken for a covered slot", async () => {
     const { tx } = makeTx({
       request: makeRow(),
-      confirmed: [{ courtId: courtIdA, startTime: "15:00", durationHours: 1 }]
+      confirmed: [courtOcc(courtIdA, "15:00", 1)]
     });
     const service = makeService(makeModerationRepo({ tx }));
     await expect(
@@ -640,10 +649,10 @@ describe("CourtRequestsService.confirmRequest (C4 admin)", () => {
     ).rejects.toBeInstanceOf(ConflictException);
   });
 
-  it("rejects confirming onto a court blocked for a covered hour", async () => {
+  it("rejects confirming onto a court blocked for a covered slot", async () => {
     const { tx } = makeTx({
       request: makeRow(),
-      blocks: [{ courtId: courtIdA, startTime: "14:00", durationHours: 2 }]
+      blocks: [courtBlockOcc(courtIdA, "14:00", 120)]
     });
     const service = makeService(makeModerationRepo({ tx }));
     await expect(
@@ -651,14 +660,11 @@ describe("CourtRequestsService.confirmRequest (C4 admin)", () => {
     ).rejects.toBeInstanceOf(ConflictException);
   });
 
-  it("rejects when every active court is already taken that hour (per-hour limit)", async () => {
+  it("rejects when every active court is already taken that slot (per-slot limit)", async () => {
     const { tx } = makeTx({
       request: makeRow(),
       activeCourtIds: [courtIdA, courtIdB],
-      confirmed: [
-        { courtId: courtIdA, startTime: "14:00", durationHours: 2 },
-        { courtId: courtIdB, startTime: "14:00", durationHours: 2 }
-      ]
+      confirmed: [courtOcc(courtIdA, "14:00", 2), courtOcc(courtIdB, "14:00", 2)]
     });
     const service = makeService(makeModerationRepo({ tx }));
     await expect(
@@ -688,6 +694,74 @@ describe("CourtRequestsService.confirmRequest (C4 admin)", () => {
     await expect(
       service.confirmRequest(adminId, { requestId, courtId: courtIdA, decidedBy: adminId })
     ).rejects.toBeInstanceOf(NotFoundException);
+  });
+});
+
+describe("C3 read ↔ C4 confirm agree at the per-slot 6-court limit", () => {
+  // The brief's core invariant: the availability read and the confirm re-check share
+  // one freeCourtsBySlot rule, so a slot the client never sees as free can never be
+  // confirmed onto a 7th court for any 30-min slot it covers.
+  const sixActiveCourts = [
+    { id: courtIdA, number: 1 },
+    { id: "55555555-5555-4555-8555-555555555555", number: 2 },
+    { id: "66666666-6666-4666-8666-666666666666", number: 3 },
+    { id: "77777777-7777-4777-8777-777777777777", number: 4 },
+    { id: "88888888-8888-4888-8888-888888888888", number: 5 },
+    { id: courtIdB, number: 6 }
+  ];
+
+  it("a slot full in C3 cannot accept a 7th confirm in C4 (same helper)", async () => {
+    // Six distinct courts are each held for 14:00–15:00, so the 14:00 + 14:30 slots
+    // are at the 6-court limit.
+    const confirmedAvail = sixActiveCourts.map(() => occ("14:00", 1));
+    const c3 = await makeService(
+      makeRepo({ activeCourtCount: 6, confirmed: confirmedAvail })
+    ).getAvailability(date);
+    // C3 never offers a slot that is full.
+    expect(c3.slots.find((s) => s.startTime === "14:00")).toBeUndefined();
+    expect(c3.slots.find((s) => s.startTime === "14:30")).toBeUndefined();
+
+    // C4 sees the same six courts taken at 14:00; confirming a 14:00–16:00 request
+    // (the makeRow default) onto any active court must be refused.
+    const confirmedByCourt = sixActiveCourts.map((c) => courtOcc(c.id, "14:00", 1));
+    const { tx } = makeTx({
+      request: makeRow(),
+      activeCourtIds: sixActiveCourts.map((c) => c.id),
+      confirmed: confirmedByCourt
+    });
+    const service = makeService(
+      makeModerationRepo({ tx, activeCourts: sixActiveCourts, confirmed: confirmedByCourt })
+    );
+    await expect(
+      service.confirmRequest(adminId, { requestId, courtId: courtIdA, decidedBy: adminId })
+    ).rejects.toBeInstanceOf(ConflictException);
+  });
+
+  it("a slot C3 reports free (5 of 6 taken) accepts the next confirm onto the open court", async () => {
+    // Five courts taken at 14:00 → C3 still offers 14:00 with one free court.
+    const fiveTaken = sixActiveCourts.slice(0, 5);
+    const c3 = await makeService(
+      makeRepo({ activeCourtCount: 6, confirmed: fiveTaken.map(() => occ("14:00", 1)) })
+    ).getAvailability(date);
+    expect(c3.slots.find((s) => s.startTime === "14:00")?.freeCourts).toBe(1);
+
+    // The one remaining active court (courtIdB) is free for the whole 14:00–16:00 span.
+    const confirmedByCourt = fiveTaken.map((c) => courtOcc(c.id, "14:00", 1));
+    const { tx } = makeTx({
+      request: makeRow(),
+      activeCourtIds: sixActiveCourts.map((c) => c.id),
+      confirmed: confirmedByCourt
+    });
+    const service = makeService(
+      makeModerationRepo({ tx, activeCourts: sixActiveCourts, confirmed: confirmedByCourt })
+    );
+    const result = await service.confirmRequest(adminId, {
+      requestId,
+      courtId: courtIdB,
+      decidedBy: adminId
+    });
+    expect(result.status).toBe("confirmed");
+    expect(result.courtId).toBe(courtIdB);
   });
 });
 

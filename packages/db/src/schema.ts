@@ -1,6 +1,8 @@
+import { sql } from "drizzle-orm";
 import {
   date,
   integer,
+  numeric,
   pgEnum,
   pgTable,
   text,
@@ -76,16 +78,30 @@ export const clients = pgTable(
   {
     id: uuid("id").primaryKey().defaultRandom(),
     name: text("name").notNull(),
-    telegramId: integer("telegram_id").notNull(),
+    // Nullable: walk-in clients (source "walk_in") have no Telegram account;
+    // bot-onboarded clients still set it. The unique index below is partial so
+    // multiple NULL walk-ins coexist.
+    telegramId: integer("telegram_id"),
     telegramUsername: text("telegram_username"),
     levelId: uuid("level_id").references(() => levels.id),
+    // "telegram" for bot-onboarded, "walk_in" for manually created by an admin.
+    // Free text constrained by the Zod clientSource enum (mirrors bookings.source;
+    // no dedicated pgEnum).
+    source: text("source").notNull().default("telegram"),
+    // Optional walk-in contact details (no Telegram channel for them).
+    phone: text("phone"),
+    note: text("note"),
     // Per-user bot UI locale; defaults to RU (the authoritative locale).
     language: locale("language").notNull().default("ru"),
     registeredAt: timestamp("registered_at", { withTimezone: true }).notNull().defaultNow(),
     status: entityStatus("status").notNull().default("active")
   },
   (table) => ({
-    telegramIdx: uniqueIndex("clients_telegram_id_idx").on(table.telegramId)
+    // Partial so multiple walk-ins (all NULL telegram_id) don't collide, while
+    // bot-onboarded clients stay unique on telegram_id (idempotent /start).
+    telegramIdx: uniqueIndex("clients_telegram_id_idx")
+      .on(table.telegramId)
+      .where(sql`${table.telegramId} IS NOT NULL`)
   })
 );
 
@@ -181,16 +197,32 @@ export const courts = pgTable("courts", {
   status: entityStatus("status").notNull().default("active")
 });
 
-export const courtBlocks = pgTable("court_blocks", {
-  id: uuid("id").primaryKey().defaultRandom(),
-  courtId: uuid("court_id")
-    .notNull()
-    .references(() => courts.id),
-  date: date("date").notNull(),
-  startTime: time("start_time").notNull(),
-  endTime: time("end_time").notNull(),
-  reason: text("reason").notNull()
-});
+export const courtBlocks = pgTable(
+  "court_blocks",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    courtId: uuid("court_id")
+      .notNull()
+      .references(() => courts.id),
+    date: date("date").notNull(),
+    startTime: time("start_time").notNull(),
+    endTime: time("end_time").notNull(),
+    reason: text("reason").notNull(),
+    // Non-null = an auto-block created for this training instance at month
+    // generation; null = a manual admin block (C5). Lets auto-blocks be
+    // distinguished, reassigned, and removed when the training is cancelled.
+    // No ON DELETE CASCADE: trainings are never deleted (they go to cancelled);
+    // the auto-block is deleted explicitly on cancel.
+    groupTrainingId: uuid("group_training_id").references(() => trainings.id)
+  },
+  (table) => ({
+    // One auto-block per training instance (defends service idempotency at the
+    // DB). Partial so manual blocks (null link) are unconstrained.
+    groupTrainingIdx: uniqueIndex("court_blocks_group_training_id_idx")
+      .on(table.groupTrainingId)
+      .where(sql`${table.groupTrainingId} IS NOT NULL`)
+  })
+);
 
 export const courtRequests = pgTable("court_requests", {
   id: uuid("id").primaryKey().defaultRandom(),
@@ -199,7 +231,8 @@ export const courtRequests = pgTable("court_requests", {
     .references(() => clients.id),
   date: date("date").notNull(),
   startTime: time("start_time").notNull(),
-  durationHours: integer("duration_hours").notNull(),
+  /** 1 | 1.5 | 2 hours on the 30-min grid; numeric so 1.5 is storable. Drizzle reads it as a string. */
+  durationHours: numeric("duration_hours", { precision: 3, scale: 1 }).notNull(),
   priceRsd: integer("price_rsd").notNull(),
   status: courtRequestStatus("status").notNull().default("pending"),
   /** Assigned only on admin confirmation. */
