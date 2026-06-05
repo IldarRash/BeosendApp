@@ -71,6 +71,16 @@ const UPCOMING_LOCKED: MyBookingItem = {
   canCancel: false
 };
 
+// A request awaiting the trainer's confirmation (status `pending`). The server marks
+// it cancel-eligible (a client may withdraw a pending request), so the UI offers Cancel
+// gated solely on the server's canCancel flag — never on the status.
+const UPCOMING_PENDING: MyBookingItem = {
+  ...UPCOMING,
+  bookingId: "cccccccc-cccc-cccc-cccc-cccccccccccc",
+  bookingStatus: "pending",
+  canCancel: true
+};
+
 const PAST_ATTENDED: MyBookingItem = {
   bookingId: "66666666-6666-6666-6666-666666666666",
   trainingId: "44444444-4444-4444-4444-444444444444",
@@ -198,6 +208,27 @@ describe("MyBookingsScreen render", () => {
     // whose name ends with the cancel hint); the locked row is a plain non-button row.
     const cancels = screen.getAllByRole("button", { name: ROW_CANCEL });
     expect(cancels).toHaveLength(1);
+  });
+
+  it("renders a pending request with its own 'awaiting confirmation' chip, not the booked chip", async () => {
+    api = makeApi({ listMyBookings: vi.fn().mockResolvedValue([UPCOMING_PENDING]) });
+    renderWithProviders(<MyBookingsScreen onBrowse={() => {}} />);
+
+    await screen.findByText("Иван · Начинающий");
+    // The pending chip carries its own RU label (text, not color-only) — never "Запись".
+    expect(screen.getByText("Ожидает подтверждения")).toBeTruthy();
+    expect(screen.queryByText("Запись")).toBeNull();
+  });
+
+  it("offers Cancel for a pending request the server marks canCancel (client may withdraw)", async () => {
+    api = makeApi({ listMyBookings: vi.fn().mockResolvedValue([UPCOMING_PENDING]) });
+    renderWithProviders(<MyBookingsScreen onBrowse={() => {}} />);
+
+    await screen.findByText("Ожидает подтверждения");
+    // canCancel is the sole gate; a pending row the server marks cancellable shows Cancel.
+    // The redesigned row is a whole-row button; match it by the same trailing-hint regex
+    // every other row-cancel assertion uses (the label carries the full row content).
+    expect(screen.getByRole("button", { name: ROW_CANCEL })).toBeTruthy();
   });
 
   it("switches to Past and queries the past scope", async () => {
