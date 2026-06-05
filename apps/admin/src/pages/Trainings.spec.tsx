@@ -9,6 +9,7 @@ const useGenerateAllGroups = vi.fn();
 const useCancelTraining = vi.fn();
 const useChangeCapacity = vi.fn();
 const useGroups = vi.fn();
+const useGenerationStatus = vi.fn();
 const useTrainers = vi.fn();
 const useCourts = vi.fn();
 const useClientsList = vi.fn();
@@ -28,6 +29,9 @@ vi.mock("../hooks/useClients", () => ({
   useBookManual: () => useBookManual()
 }));
 vi.mock("../hooks/useGroups", () => ({ useGroups: () => useGroups() }));
+vi.mock("../hooks/useGenerationStatus", () => ({
+  useGenerationStatus: (...args: unknown[]) => useGenerationStatus(...args)
+}));
 vi.mock("../hooks/useTrainers", () => ({ useTrainers: () => useTrainers() }));
 vi.mock("../hooks/useCourts", () => ({ useCourts: () => useCourts() }));
 
@@ -110,6 +114,7 @@ function idleQuery(data: unknown): Record<string, unknown> {
 beforeEach(() => {
   vi.clearAllMocks();
   useGroups.mockReturnValue({ data: [GROUP] });
+  useGenerationStatus.mockReturnValue(idleQuery([]));
   useTrainers.mockReturnValue({ data: [TRAINER] });
   useCourts.mockReturnValue({ data: COURTS });
   useGenerateMonth.mockReturnValue(idleMutation());
@@ -196,6 +201,29 @@ describe("Trainings page", () => {
     fireEvent.click(within(dialog).getByRole("button", { name: "Сгенерировать" }));
 
     expect(mutate.mock.calls[0][0]).not.toHaveProperty("courtId");
+  });
+
+  it("marks an already fully-generated group disabled in the generate-month modal", () => {
+    useGenerationStatus.mockReturnValue(
+      idleQuery([
+        {
+          groupId: GROUP.id,
+          groupName: GROUP.name,
+          expected: 8,
+          existing: 8,
+          fullyGenerated: true
+        }
+      ])
+    );
+    render(<Trainings />);
+
+    fireEvent.click(screen.getByRole("button", { name: "Сгенерировать месяц" }));
+    const dialog = screen.getByRole("dialog", { name: "Сгенерировать месяц" });
+    const option = within(dialog).getByRole("option", {
+      name: "Утренняя группа (готово)"
+    }) as HTMLOptionElement;
+    // The status query is honoured: the group is shown but cannot be selected.
+    expect(option.disabled).toBe(true);
   });
 
   it("runs generate-all and shows the server's per-group summary", () => {

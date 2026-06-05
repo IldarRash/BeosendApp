@@ -153,19 +153,23 @@ export type CourtAvailability = z.infer<typeof courtAvailabilitySchema>;
  * be returned on a client path. Reuse `courtAvailabilityQuerySchema` for the date
  * query; do not add a second date-only schema.
  */
-export const courtLoadCellState = z.enum(["free", "request", "block"]);
+export const courtLoadCellState = z.enum(["free", "request", "block", "training"]);
 export type CourtLoadCellState = z.infer<typeof courtLoadCellState>;
 
 /**
  * One court/30-min-slot cell: what (if anything) holds it. For a `request` cell
- * this is the confirmed court request covering that court/slot, so the admin grid
- * can link to its detail; `free`/`block` cells carry `null` (a block is not a request).
- * The cell is keyed by its slot-start time (`:00`/`:30`).
+ * this is the confirmed court request covering that court/slot (`requestId` set,
+ * `trainingId` null), so the admin grid can link to its detail. A `training` cell
+ * is an auto-block under a group training, carrying the covering training's id in
+ * `trainingId` (so the grid can open its detail) with `requestId` null.
+ * `free`/`block` cells carry both null (a block is not a request, a manual block
+ * has no training). The cell is keyed by its slot-start time (`:00`/`:30`).
  */
 export const courtLoadCellSchema = z.object({
   startTime: timeString,
   state: courtLoadCellState,
-  requestId: uuid.nullable()
+  requestId: uuid.nullable(),
+  trainingId: uuid.nullable()
 });
 export type CourtLoadCell = z.infer<typeof courtLoadCellSchema>;
 

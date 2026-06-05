@@ -187,7 +187,7 @@ export const botRu: Record<string, string> = {
   "bot.courtLoad.title": "📊 Загрузка кортов",
   "bot.courtLoad.notAdmin": "Раздел доступен только администратору.",
   "bot.courtLoad.pickDate": "Выберите дату:",
-  "bot.courtLoad.legend": "· свободно   R заявка   B блок",
+  "bot.courtLoad.legend": "· свободно   R заявка   B блок   T тренировка",
   "bot.courtLoad.otherDate": "📅 Другая дата",
 
   // --- Trainer today (trainer-today.ts) ---

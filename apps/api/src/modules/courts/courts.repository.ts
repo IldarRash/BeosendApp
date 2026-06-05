@@ -9,6 +9,8 @@ export interface CourtOccupancyRow {
   durationMinutes: number;
   /** Covering confirmed-request id, so the load grid can link a `request` cell to its detail. */
   requestId?: string;
+  /** Covering auto-block's group_training_id, so a `training` cell can link to its training detail. */
+  trainingId?: string;
 }
 
 /** Only place that touches Drizzle for courts. No business rules. */
@@ -64,14 +66,16 @@ export class CourtsRepository {
       .select({
         courtId: tables.courtBlocks.courtId,
         startTime: tables.courtBlocks.startTime,
-        endTime: tables.courtBlocks.endTime
+        endTime: tables.courtBlocks.endTime,
+        groupTrainingId: tables.courtBlocks.groupTrainingId
       })
       .from(tables.courtBlocks)
       .where(eq(tables.courtBlocks.date, date));
     return rows.map((row) => ({
       courtId: row.courtId,
       startTime: row.startTime.slice(0, 5),
-      durationMinutes: minuteSpan(row.startTime, row.endTime)
+      durationMinutes: minuteSpan(row.startTime, row.endTime),
+      trainingId: row.groupTrainingId ?? undefined
     }));
   }
 }

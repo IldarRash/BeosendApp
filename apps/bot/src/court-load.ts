@@ -29,7 +29,7 @@ export function courtLoadPickDateText(catalog: Catalog): string {
 }
 
 /** Glyphs per cell state. */
-const CELL_GLYPH = { free: "·", request: "R", block: "B" } as const;
+const CELL_GLYPH = { free: "·", request: "R", block: "B", training: "T" } as const;
 
 /** Date keyboard for the grid; reuses the shared court date options. */
 export function courtLoadDateKeyboard(catalog: Catalog, dates: string[]): InlineKeyboard {

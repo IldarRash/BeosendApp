@@ -15,6 +15,7 @@ import {
   courtBlockSchema,
   courtLoadGridSchema,
   generateAllResultSchema,
+  generationStatusItemSchema,
   courtRequestAdminViewSchema,
   courtRequestSchema,
   courtSchema,
@@ -25,6 +26,7 @@ import {
   popularSlotSchema,
   trainerLoadSchema,
   trainerSchema,
+  trainingCalendarItemSchema,
   trainingRosterSchema,
   trainingSchema,
   type AdminMe,
@@ -56,6 +58,8 @@ import {
   type GenerateAllMonthInput,
   type GenerateAllResult,
   type GenerateMonthInput,
+  type GenerationStatusItem,
+  type GenerationStatusQuery,
   type Group,
   type LabelCatalog,
   type LabelEntry,
@@ -73,6 +77,7 @@ import {
   type Trainer,
   type TrainerLoad,
   type Training,
+  type TrainingCalendarItem,
   type TrainingRoster,
   type UpdateGroupInput,
   type UpdateLevelInput,
@@ -89,8 +94,10 @@ const levelsSchema = z.array(levelSchema);
 const trainersSchema = z.array(trainerSchema);
 const groupsSchema = z.array(groupSchema);
 const trainingsSchema = z.array(trainingSchema);
+const trainingCalendarSchema = z.array(trainingCalendarItemSchema);
 const popularSlotsSchema = z.array(popularSlotSchema);
 const trainerLoadListSchema = z.array(trainerLoadSchema);
+const generationStatusSchema = z.array(generationStatusItemSchema);
 
 /** Input for creating a level — just the name (schema is server-validated). */
 export interface CreateLevelInput {
@@ -430,6 +437,19 @@ export class ApiClient {
     });
   }
 
+  /**
+   * Per-group month generation coverage (GET /trainings/generation-status?year&month).
+   * For the chosen year/month each item reports how many future training dates the
+   * group's weekdays imply (`expected`), how many already exist (`existing`), and
+   * whether the month is already fully generated (`fullyGenerated`). The console uses
+   * it to mark already-generated groups in the generate-month modal; it computes no
+   * generation math itself. Admin-only server-side.
+   */
+  generationStatus(query: GenerationStatusQuery): Promise<GenerationStatusItem[]> {
+    const params = new URLSearchParams({ year: String(query.year), month: String(query.month) });
+    return this.request(`/trainings/generation-status?${params.toString()}`, generationStatusSchema);
+  }
+
   /** Admin trainings list for a date range, optionally filtered to one group. */
   listTrainings(query: ListTrainingsQuery): Promise<Training[]> {
     const params = new URLSearchParams({ from: query.from, to: query.to });
@@ -437,6 +457,33 @@ export class ApiClient {
       params.set("groupId", query.groupId);
     }
     return this.request(`/trainings?${params.toString()}`, trainingsSchema);
+  }
+
+  /**
+   * Calendar view of generated trainings for a date range (GET
+   * /trainings/calendar?from&to&groupId?&trainerId?). Each item carries the
+   * training plus joined group/trainer display names and the auto-block court
+   * number (null when there's no group / no block). Admin-only server-side; the
+   * console only renders the validated, server-decided values.
+   */
+  trainingsCalendar(query: ListTrainingsQuery): Promise<TrainingCalendarItem[]> {
+    const params = new URLSearchParams({ from: query.from, to: query.to });
+    if (query.groupId) {
+      params.set("groupId", query.groupId);
+    }
+    if (query.trainerId) {
+      params.set("trainerId", query.trainerId);
+    }
+    return this.request(`/trainings/calendar?${params.toString()}`, trainingCalendarSchema);
+  }
+
+  /**
+   * Calendar detail for one training (GET /trainings/:id/detail) — the same
+   * joined view as a calendar item, backing the "whose training?" popup. Admin
+   * carries the court number; occupancy/status are the server's, never recomputed.
+   */
+  trainingDetail(id: string): Promise<TrainingCalendarItem> {
+    return this.request(`/trainings/${id}/detail`, trainingCalendarItemSchema);
   }
 
   /** Cancel a training (server notifies booked clients). */
