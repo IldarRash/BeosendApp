@@ -24,10 +24,29 @@ import { ClientsService } from "./clients.service";
 /** Bot's set-language body: only the new locale. */
 const setLanguageSchema = z.object({ language: localeSchema }).strict();
 
+/** Response contract for the admin clients list. */
+const clientListSchema = z.array(clientSchema);
+
 /** Thin: parse + Zod-validate input, resolve actor, call one service method. */
 @Controller("clients")
 export class ClientsController {
   constructor(private readonly clients: ClientsService) {}
+
+  /**
+   * Admin-only clients list (GET /clients?search=&status=). The Bearer admin
+   * session is bridged to x-telegram-id upstream; the service enforces the admin
+   * gate and normalizes the search. Unknown query fields are rejected (400).
+   */
+  @Get()
+  async list(
+    @Headers("x-telegram-id") telegramIdHeader: string | undefined,
+    @Query() query: unknown
+  ): Promise<Client[]> {
+    const actorTelegramId = parseTelegramId(telegramIdHeader);
+    const filters = validate(listClientsQuerySchema, query ?? {});
+    const clients = await this.clients.listClients(actorTelegramId, filters);
+    return validate(clientListSchema, clients);
+  }
 
   @Get("by-telegram/:telegramId")
   async getByTelegram(
@@ -38,18 +57,6 @@ export class ClientsController {
     const target = parseParamTelegramId(telegramId);
     const client = await this.clients.getByTelegramId(actorTelegramId, target);
     return validate(clientSchema, client);
-  }
-
-  /** Admin: list clients for the manual-booking picker. Admin-gated in the service. */
-  @Get()
-  async list(
-    @Headers("x-telegram-id") telegramIdHeader: string | undefined,
-    @Query() query: unknown
-  ): Promise<Client[]> {
-    const actorTelegramId = parseTelegramId(telegramIdHeader);
-    const { search } = validate(listClientsQuerySchema, query ?? {});
-    const clients = await this.clients.list(actorTelegramId, { search });
-    return z.array(clientSchema).parse(clients);
   }
 
   /** Admin: create a walk-in client by name (no Telegram). Admin-gated in the service. */

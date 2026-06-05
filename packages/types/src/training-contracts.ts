@@ -195,7 +195,7 @@ export const availableSlotsQuerySchema = z.object({
   from: dateString.optional(),
   to: dateString.optional(),
   levelId: uuid.optional(),
-  weekday: dayOfWeek.optional(),
+  weekday: z.coerce.number().int().min(1).max(7).optional(),
   timeOfDay: timeOfDay.optional(),
   trainerId: uuid.optional()
 });

@@ -4,6 +4,7 @@ import type {
   CourtRequestAdminView,
   CourtRequestStatus
 } from "@beosand/types";
+import { ConflictError } from "../api/client";
 import { AppShell } from "../ui/AppShell";
 import { Button } from "../ui/Button";
 import { DataTable, type Column } from "../ui/DataTable";
@@ -35,8 +36,15 @@ function statusLabel(status: CourtRequestStatus, t: Translate): string {
   return t(`admin.courtRequests.status${status.charAt(0).toUpperCase()}${status.slice(1)}`);
 }
 
-/** Human-readable error from a failed query/mutation (the API decides the text). */
+/**
+ * Human-readable error from a failed query/mutation. A 409 (slot taken meanwhile
+ * or request already decided) is expected here — show one localized line and let
+ * the refetch reconcile the queue/picker; other errors surface the API's text.
+ */
 function errorText(error: unknown, t: Translate): string {
+  if (error instanceof ConflictError) {
+    return t("admin.courtRequests.conflict");
+  }
   return error instanceof Error ? error.message : t("admin.courtRequests.opFailed");
 }
 
@@ -108,8 +116,9 @@ export function CourtRequests(): JSX.Element {
           notify(t("admin.courtRequests.confirmed", { client: toConfirm.clientName }), "success");
           closeConfirm();
         },
-        // A 409 (slot filled meanwhile) arrives as a thrown Error; surface the
-        // server's message and let the invalidation refetch the free courts.
+        // A 409 (slot filled meanwhile, or request already decided) arrives as a
+        // ConflictError; show the localized line and let the onSettled invalidation
+        // refetch the queue + free-court picker so a taken court drops off here.
         onError: (error) => notify(errorText(error, t), "error")
       }
     );

@@ -38,10 +38,10 @@ const walkIn: Client = {
 function makeService(overrides: Partial<ClientsService> = {}): ClientsService {
   return {
     getByTelegramId: vi.fn(async () => client),
+    listClients: vi.fn(async () => [client]),
     onboard: vi.fn(async () => client),
     setLanguage: vi.fn(async () => ({ ...client, language: "sr" }) as Client),
     createWalkIn: vi.fn(async () => walkIn),
-    list: vi.fn(async () => [client, walkIn]),
     ...overrides
   } as unknown as ClientsService;
 }
@@ -53,6 +53,31 @@ describe("ClientsController", () => {
   beforeEach(() => {
     service = makeService();
     controller = new ClientsController(service);
+  });
+
+  it("GET list passes the header actor and validated filters to the service", async () => {
+    await expect(controller.list(HEADER, { search: "ana", status: "active" })).resolves.toEqual([
+      client
+    ]);
+    expect(service.listClients).toHaveBeenCalledWith(TELEGRAM_ID, {
+      search: "ana",
+      status: "active"
+    });
+  });
+
+  it("GET list defaults to no filters when the query is empty", async () => {
+    await expect(controller.list(HEADER, {})).resolves.toEqual([client]);
+    expect(service.listClients).toHaveBeenCalledWith(TELEGRAM_ID, {});
+  });
+
+  it("GET list rejects unknown query fields (strict) before calling the service", async () => {
+    await expect(controller.list(HEADER, { nope: "1" })).rejects.toBeInstanceOf(BadRequestException);
+    expect(service.listClients).not.toHaveBeenCalled();
+  });
+
+  it("GET list rejects a missing x-telegram-id header before calling the service", async () => {
+    await expect(controller.list(undefined, {})).rejects.toBeInstanceOf(BadRequestException);
+    expect(service.listClients).not.toHaveBeenCalled();
   });
 
   it("GET by-telegram passes actor and target to the service and returns the validated client", async () => {
@@ -170,20 +195,4 @@ describe("ClientsController", () => {
     expect(service.createWalkIn).not.toHaveBeenCalled();
   });
 
-  it("GET / passes the validated search query to the service and returns validated clients", async () => {
-    const result = await controller.list(HEADER, { search: "mar" });
-    expect(result).toEqual([client, walkIn]);
-    expect(service.list).toHaveBeenCalledWith(TELEGRAM_ID, { search: "mar" });
-  });
-
-  it("GET / accepts an empty query (no search)", async () => {
-    const result = await controller.list(HEADER, {});
-    expect(result).toEqual([client, walkIn]);
-    expect(service.list).toHaveBeenCalledWith(TELEGRAM_ID, { search: undefined });
-  });
-
-  it("rejects unknown fields in the clients query (strict)", async () => {
-    await expect(controller.list(HEADER, { q: "x" })).rejects.toBeInstanceOf(BadRequestException);
-    expect(service.list).not.toHaveBeenCalled();
-  });
 });

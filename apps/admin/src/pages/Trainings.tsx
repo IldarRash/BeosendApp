@@ -20,7 +20,7 @@ import { useT } from "../i18n/LanguageProvider";
 import { useCourts } from "../hooks/useCourts";
 import { useGroups } from "../hooks/useGroups";
 import { useTrainers } from "../hooks/useTrainers";
-import { useBookManual, useClientSearch, useCreateWalkIn } from "../hooks/useClients";
+import { useBookManual, useClientsList, useCreateWalkIn } from "../hooks/useClients";
 import {
   useCancelTraining,
   useChangeCapacity,
@@ -677,7 +677,10 @@ function AddPersonModal({ target, onClose, onBooked }: AddPersonModalProps): JSX
 
   const createWalkIn = useCreateWalkIn();
   const bookManual = useBookManual();
-  const clients = useClientSearch(search, open && mode === "existing");
+  const clients = useClientsList(
+    { search: search.trim() || undefined },
+    { enabled: open && mode === "existing" }
+  );
 
   // Reset the form whenever a different training opens the modal.
   const [seededFor, setSeededFor] = useState<string | null>(null);

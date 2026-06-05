@@ -11,7 +11,7 @@ const useChangeCapacity = vi.fn();
 const useGroups = vi.fn();
 const useTrainers = vi.fn();
 const useCourts = vi.fn();
-const useClientSearch = vi.fn();
+const useClientsList = vi.fn();
 const useCreateWalkIn = vi.fn();
 const useBookManual = vi.fn();
 
@@ -23,7 +23,7 @@ vi.mock("../hooks/useTrainings", () => ({
   useChangeCapacity: () => useChangeCapacity()
 }));
 vi.mock("../hooks/useClients", () => ({
-  useClientSearch: (...args: unknown[]) => useClientSearch(...args),
+  useClientsList: (...args: unknown[]) => useClientsList(...args),
   useCreateWalkIn: () => useCreateWalkIn(),
   useBookManual: () => useBookManual()
 }));
@@ -116,7 +116,7 @@ beforeEach(() => {
   useGenerateAllGroups.mockReturnValue(idleMutation());
   useCancelTraining.mockReturnValue(idleMutation());
   useChangeCapacity.mockReturnValue(idleMutation());
-  useClientSearch.mockReturnValue(idleQuery([CLIENT]));
+  useClientsList.mockReturnValue(idleQuery([CLIENT]));
   useCreateWalkIn.mockReturnValue(idleMutation());
   useBookManual.mockReturnValue(idleMutation());
   useTrainings.mockReturnValue({ isPending: false, isError: false, error: null, data: [TRAINING] });

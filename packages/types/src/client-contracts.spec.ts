@@ -69,6 +69,28 @@ describe("onboardClientSchema (POST /clients/onboard body)", () => {
   });
 });
 
+describe("listClientsQuerySchema (GET /clients query)", () => {
+  it("accepts an empty query (list all)", () => {
+    expect(listClientsQuerySchema.parse({})).toEqual({});
+  });
+
+  it("accepts a search term and trims surrounding whitespace", () => {
+    expect(listClientsQuerySchema.parse({ search: "  @anya  " }).search).toBe("@anya");
+  });
+
+  it("accepts a status filter", () => {
+    expect(listClientsQuerySchema.parse({ status: "inactive" }).status).toBe("inactive");
+  });
+
+  it("rejects an unknown status value", () => {
+    expect(listClientsQuerySchema.safeParse({ status: "banned" }).success).toBe(false);
+  });
+
+  it("rejects unknown fields (strict)", () => {
+    expect(listClientsQuerySchema.safeParse({ search: "a", page: 2 }).success).toBe(false);
+  });
+});
+
 describe("clientSchema (bot-facing client record)", () => {
   it("accepts a fully-populated bot client", () => {
     const client = {
@@ -193,17 +215,5 @@ describe("createWalkInSchema (POST /clients/walk-in body)", () => {
 
   it("rejects unknown fields (strict)", () => {
     expect(createWalkInSchema.safeParse({ name: "Marko", telegramId: 1 }).success).toBe(false);
-  });
-});
-
-describe("listClientsQuerySchema (GET /clients query)", () => {
-  it("accepts an empty query and an optional search", () => {
-    expect(listClientsQuerySchema.safeParse({}).success).toBe(true);
-    expect(listClientsQuerySchema.safeParse({ search: "mar" }).success).toBe(true);
-  });
-
-  it("rejects an empty search and unknown fields (strict)", () => {
-    expect(listClientsQuerySchema.safeParse({ search: "" }).success).toBe(false);
-    expect(listClientsQuerySchema.safeParse({ q: "x" }).success).toBe(false);
   });
 });

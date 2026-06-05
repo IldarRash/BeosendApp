@@ -51,6 +51,24 @@ export class ClientsService {
     return client;
   }
 
+  /**
+   * Admin-only: the full clients list for the console, optionally filtered by a
+   * name/@username search and status. The search is normalized here — a leading
+   * "@" is dropped and blank means "no filter" — so the repository only queries.
+   */
+  async listClients(
+    actorTelegramId: number,
+    filters: ListClientsQuery = {}
+  ): Promise<Client[]> {
+    if (!isAdmin(this.env, actorTelegramId)) {
+      throw new ForbiddenException("Only an admin may list clients");
+    }
+    return this.clients.findAll({
+      search: normalizeSearch(filters.search),
+      status: filters.status
+    });
+  }
+
   async onboard(actorTelegramId: number, input: OnboardInput): Promise<Client> {
     this.assertSelfOrAdmin(actorTelegramId, input.telegramId);
 
@@ -121,16 +139,6 @@ export class ClientsService {
     return client;
   }
 
-  /**
-   * List clients for the admin manual-booking picker (Feature 5). Admin-only;
-   * optional case-insensitive name/phone substring search. Returns the same
-   * client contract the API already exposes — no rosters, no other-user data.
-   */
-  async list(actorTelegramId: number, query: ListClientsQuery): Promise<Client[]> {
-    this.assertAdmin(actorTelegramId);
-    return this.clients.list(query.search);
-  }
-
   /** A client may only act on its own record; admins may act on any. */
   private assertSelfOrAdmin(actorTelegramId: number, targetTelegramId: number): void {
     if (actorTelegramId === targetTelegramId) {
@@ -147,4 +155,17 @@ export class ClientsService {
       throw new ForbiddenException("Admin only");
     }
   }
+}
+
+/**
+ * Normalize a clients-list search term: drop a leading "@" (admins type "@handle"
+ * but the column stores the bare username) and treat blank/whitespace as "no
+ * filter". Returns undefined when nothing meaningful remains.
+ */
+function normalizeSearch(raw?: string): string | undefined {
+  if (!raw) {
+    return undefined;
+  }
+  const cleaned = raw.replace(/^@+/, "").trim();
+  return cleaned.length > 0 ? cleaned : undefined;
 }

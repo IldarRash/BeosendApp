@@ -10,75 +10,50 @@ import type {
   Client,
   CreateSingleBookingInput,
   CreateWalkInInput,
+  ListClientsQuery,
   OnboardClientInput
 } from "@beosand/types";
 import { useApiClient } from "../api/ApiProvider";
 import { invalidateTrainings } from "./useTrainings";
 
 const CLIENTS_KEY = ["clients"] as const;
+const CLIENTS_LIST_KEY = [...CLIENTS_KEY, "list"] as const;
 
-/** Stable cache key for one clients search (empty/undefined = full list). */
-function searchKey(search: string): readonly unknown[] {
-  return [...CLIENTS_KEY, "search", search] as const;
-}
-
-/** Stable cache key for one client-by-telegram lookup. */
-function byTelegramKey(telegramId: number): readonly unknown[] {
-  return [...CLIENTS_KEY, "by-telegram", telegramId] as const;
+/** Stable cache key for one clients-list filter combination. */
+function listKey(filters: ListClientsQuery): readonly unknown[] {
+  return [...CLIENTS_LIST_KEY, filters.search ?? "", filters.status ?? ""] as const;
 }
 
 /**
- * Look up a client by Telegram id (GET /clients/by-telegram/:telegramId).
- * `enabled` only once a numeric id is supplied. Resolves to `null` when the API
- * answers 404 (no such client) so the screen can offer onboarding; AuthError and
- * other failures propagate. Not retried so a "not found" result is immediate.
+ * Admin clients list (GET /clients), optionally filtered by name/@username
+ * `search` and `status`. The server owns the gate and search; the screen passes
+ * the filters straight through and renders the validated rows. `options.enabled`
+ * lets a closed modal (the manual-booking picker) defer the call until opened.
  */
-export function useClientByTelegram(
-  telegramId: number | null
-): UseQueryResult<Client | null, Error> {
+export function useClientsList(
+  filters: ListClientsQuery = {},
+  options?: { enabled?: boolean }
+): UseQueryResult<Client[], Error> {
   const api = useApiClient();
   return useQuery({
-    queryKey: telegramId !== null ? byTelegramKey(telegramId) : [...CLIENTS_KEY, "idle"],
-    queryFn: () => api.getClientByTelegram(telegramId as number),
-    enabled: telegramId !== null,
-    retry: false
+    queryKey: listKey(filters),
+    queryFn: () => api.listClients(filters),
+    enabled: options?.enabled
   });
 }
 
 /**
- * Register a client (POST /clients/onboard); idempotent on telegram_id. Seeds the
- * by-telegram lookup cache with the result so the screen reflects it immediately.
+ * Register a client (POST /clients/onboard); idempotent on telegram_id. Refreshes
+ * the clients list so a newly onboarded client appears under any active filter.
  */
 export function useOnboardClient(): UseMutationResult<Client, Error, OnboardClientInput> {
   const api = useApiClient();
   const queryClient = useQueryClient();
   return useMutation({
     mutationFn: (input: OnboardClientInput) => api.onboardClient(input),
-    onSuccess: (client) => {
-      // Onboarded clients always carry a Telegram id; guard the nullable contract
-      // type so a (never-happening) walk-in result doesn't seed under a null key.
-      if (client.telegramId !== null) {
-        queryClient.setQueryData(byTelegramKey(client.telegramId), client);
-      }
+    onSuccess: () => {
+      void queryClient.invalidateQueries({ queryKey: CLIENTS_LIST_KEY });
     }
-  });
-}
-
-/**
- * Feature 5 — admin clients list for the manual-booking picker (GET /clients,
- * optional name/phone substring). `enabled` only when the modal is open so a
- * closed screen makes no call; the API owns the search/ordering.
- */
-export function useClientSearch(
-  search: string,
-  enabled: boolean
-): UseQueryResult<Client[], Error> {
-  const api = useApiClient();
-  const trimmed = search.trim();
-  return useQuery({
-    queryKey: searchKey(trimmed),
-    queryFn: () => api.listClients(trimmed || undefined),
-    enabled
   });
 }
 
@@ -90,7 +65,7 @@ export function useCreateWalkIn(): UseMutationResult<Client, Error, CreateWalkIn
     mutationFn: (input: CreateWalkInInput) => api.createWalkIn(input),
     onSuccess: () => {
       // A new walk-in widens the picker list; refresh any open search.
-      void queryClient.invalidateQueries({ queryKey: CLIENTS_KEY });
+      void queryClient.invalidateQueries({ queryKey: CLIENTS_LIST_KEY });
     }
   });
 }

@@ -2,8 +2,18 @@ import { Injectable } from "@nestjs/common";
 import type { Client, ClientSource, Locale } from "@beosand/types";
 import { clientSource } from "@beosand/types";
 import { type Database, tables } from "@beosand/db";
-import { asc, eq, ilike, or } from "drizzle-orm";
+import { and, desc, eq, ilike, or, type SQL } from "drizzle-orm";
 import { DatabaseService } from "../../db/database.service";
+
+/** Filters for the admin clients list (already normalized by the service). */
+interface ClientFilters {
+  /** Case-insensitive substring matched against name OR @username; "@" pre-stripped. */
+  search?: string;
+  status?: Client["status"];
+}
+
+/** Cap the admin list so an unbounded table can never be returned in one page. */
+const LIST_LIMIT = 500;
 
 type ClientRow = typeof tables.clients.$inferSelect;
 type NewClientRow = typeof tables.clients.$inferInsert;
@@ -56,16 +66,31 @@ export class ClientsRepository {
   }
 
   /**
-   * All clients, optionally filtered by a case-insensitive substring of name or
-   * phone, ordered by name. No business rules; the admin picker drives `search`.
+   * Admin clients list, newest first. Optionally filtered by a name/@username
+   * substring (case-insensitive) and/or status. No business rules — the service
+   * owns the admin gate and search normalization.
    */
-  async list(search?: string, tx: Database = this.database.db): Promise<Client[]> {
-    const base = tx.select().from(tables.clients);
-    const rows = search
-      ? await base
-          .where(or(ilike(tables.clients.name, `%${search}%`), ilike(tables.clients.phone, `%${search}%`)))
-          .orderBy(asc(tables.clients.name))
-      : await base.orderBy(asc(tables.clients.name));
+  async findAll(filters: ClientFilters = {}, tx: Database = this.database.db): Promise<Client[]> {
+    const conditions: SQL[] = [];
+    if (filters.search) {
+      const term = `%${filters.search}%`;
+      const match = or(
+        ilike(tables.clients.name, term),
+        ilike(tables.clients.telegramUsername, term)
+      );
+      if (match) {
+        conditions.push(match);
+      }
+    }
+    if (filters.status) {
+      conditions.push(eq(tables.clients.status, filters.status));
+    }
+    const rows = await tx
+      .select()
+      .from(tables.clients)
+      .where(conditions.length > 0 ? and(...conditions) : undefined)
+      .orderBy(desc(tables.clients.registeredAt))
+      .limit(LIST_LIMIT);
     return rows.map(toClient);
   }
 

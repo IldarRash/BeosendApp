@@ -28,6 +28,7 @@ COPY apps/bot/package.json ./apps/bot/
 COPY apps/admin/package.json ./apps/admin/
 COPY packages/config/package.json ./packages/config/
 COPY packages/db/package.json ./packages/db/
+COPY packages/i18n/package.json ./packages/i18n/
 COPY packages/types/package.json ./packages/types/
 
 RUN pnpm install --frozen-lockfile --filter @beosand/admin...
@@ -66,4 +67,4 @@ USER admin
 ENV PORT=3000
 EXPOSE 3000
 
-CMD ["sh", "-c", "serve -s apps/admin/dist -l ${PORT:-3000}"]
+CMD ["sh", "-c", "serve -s apps/admin/dist -l tcp://0.0.0.0:${PORT:-3000}"]

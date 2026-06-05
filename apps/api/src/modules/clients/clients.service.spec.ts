@@ -57,6 +57,7 @@ function makeDatabase(): DatabaseService {
 function makeClientsRepo(overrides: Partial<ClientsRepository> = {}): ClientsRepository {
   return {
     findByTelegramId: vi.fn(async () => undefined),
+    findAll: vi.fn(async () => [existingClient]),
     insertIgnoreConflict: vi.fn(async (values: { telegramId: number; name: string; levelId: string | null; telegramUsername: string | null }) => ({
       ...existingClient,
       name: values.name,
@@ -74,7 +75,6 @@ function makeClientsRepo(overrides: Partial<ClientsRepository> = {}): ClientsRep
       phone: values.phone ?? null,
       note: values.note ?? null
     })),
-    list: vi.fn(async () => [existingClient, walkInClient]),
     findById: vi.fn(async () => existingClient),
     ...overrides
   } as unknown as ClientsRepository;
@@ -208,6 +208,31 @@ describe("ClientsService", () => {
     expect(result).toEqual(existingClient);
   });
 
+  it("forbids a non-admin from listing clients and never queries", async () => {
+    await expect(service.listClients(TELEGRAM_ID)).rejects.toBeInstanceOf(ForbiddenException);
+    expect(clientsRepo.findAll).not.toHaveBeenCalled();
+  });
+
+  it("lets an admin list all clients", async () => {
+    await expect(service.listClients(ADMIN_ID)).resolves.toEqual([existingClient]);
+    expect(clientsRepo.findAll).toHaveBeenCalledWith({ search: undefined, status: undefined });
+  });
+
+  it("strips a leading @ from the search before querying", async () => {
+    await service.listClients(ADMIN_ID, { search: "@Ana" });
+    expect(clientsRepo.findAll).toHaveBeenCalledWith({ search: "Ana", status: undefined });
+  });
+
+  it("treats a blank/whitespace search as no filter", async () => {
+    await service.listClients(ADMIN_ID, { search: "   " });
+    expect(clientsRepo.findAll).toHaveBeenCalledWith({ search: undefined, status: undefined });
+  });
+
+  it("passes the status filter through to the repository", async () => {
+    await service.listClients(ADMIN_ID, { status: "inactive" });
+    expect(clientsRepo.findAll).toHaveBeenCalledWith({ search: undefined, status: "inactive" });
+  });
+
   it("sets the caller's own language", async () => {
     const result = await service.setLanguage(TELEGRAM_ID, TELEGRAM_ID, "sr");
     expect(result.language).toBe("sr");
@@ -248,19 +273,6 @@ describe("ClientsService", () => {
         ForbiddenException
       );
       expect(clientsRepo.insertWalkIn).not.toHaveBeenCalled();
-    });
-  });
-
-  describe("list (Feature 5)", () => {
-    it("lets an admin list clients and passes through the search term", async () => {
-      const result = await service.list(ADMIN_ID, { search: "mar" });
-      expect(result).toEqual([existingClient, walkInClient]);
-      expect(clientsRepo.list).toHaveBeenCalledWith("mar");
-    });
-
-    it("forbids a non-admin (403, no read)", async () => {
-      await expect(service.list(TELEGRAM_ID, {})).rejects.toBeInstanceOf(ForbiddenException);
-      expect(clientsRepo.list).not.toHaveBeenCalled();
     });
   });
 });
