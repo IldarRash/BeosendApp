@@ -362,6 +362,49 @@ describe("courtLoadGrid", () => {
     expect(requestIdAt(rows, courtB, "09:00")).toBeNull();
   });
 
+  it("renders a block-with-trainingId as a training cell carrying that id; manual block stays block", () => {
+    const trainingId = "dddddddd-dddd-dddd-dddd-dddddddddddd";
+    const cell = (courtId: string, startTime: string) =>
+      rows.find((r) => r.courtId === courtId)?.cells.find((c) => c.startTime === startTime);
+
+    const rows = courtLoadGrid({
+      courts,
+      ...window,
+      confirmed: [],
+      blocks: [
+        { courtId: courtA, startTime: "10:00", durationMinutes: 90, trainingId },
+        { courtId: courtB, startTime: "10:00", durationMinutes: 60 }
+      ]
+    });
+
+    // auto-block (training origin) → training cell with the training id, request id null
+    expect(cell(courtA, "10:00")?.state).toBe("training");
+    expect(cell(courtA, "10:00")?.trainingId).toBe(trainingId);
+    expect(cell(courtA, "10:30")?.state).toBe("training");
+    expect(cell(courtA, "10:30")?.trainingId).toBe(trainingId);
+    expect(cell(courtA, "10:00")?.requestId).toBeNull();
+    // manual block (no training) → plain block cell, training id null
+    expect(cell(courtB, "10:00")?.state).toBe("block");
+    expect(cell(courtB, "10:00")?.trainingId).toBeNull();
+    // free cell carries null training id
+    expect(cell(courtA, "12:00")?.state).toBe("free");
+    expect(cell(courtA, "12:00")?.trainingId).toBeNull();
+  });
+
+  it("keeps a confirmed occupant a request cell with its requestId and null trainingId", () => {
+    const requestId = "eeeeeeee-eeee-eeee-eeee-eeeeeeeeeeee";
+    const rows = courtLoadGrid({
+      courts,
+      ...window,
+      confirmed: [{ courtId: courtA, startTime: "14:00", durationMinutes: 60, requestId }],
+      blocks: []
+    });
+    const cell = rows.find((r) => r.courtId === courtA)?.cells.find((c) => c.startTime === "14:00");
+    expect(cell?.state).toBe("request");
+    expect(cell?.requestId).toBe(requestId);
+    expect(cell?.trainingId).toBeNull();
+  });
+
   it("free-cell count per slot matches freeCourtsBySlot for the same data (C3 consistency)", () => {
     const confirmed = [{ courtId: courtA, startTime: "10:00", durationMinutes: 120 }];
     const blocks = [{ courtId: courtB, startTime: "09:00", durationMinutes: 150 }];

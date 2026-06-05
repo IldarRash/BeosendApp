@@ -111,6 +111,19 @@ export const trainingSchema = z.object({
 });
 export type Training = z.infer<typeof trainingSchema>;
 
+/**
+ * Admin calendar + detail view of a training: the training plus joined group/trainer
+ * display names and the court number from its auto-block. Admin-only (carries court
+ * number) — never returned on a client path. groupName/courtNumber are null when the
+ * training has no group / no auto-block.
+ */
+export const trainingCalendarItemSchema = trainingSchema.extend({
+  groupName: z.string().nullable(),
+  trainerName: z.string(),
+  courtNumber: z.number().int().min(1).nullable()
+});
+export type TrainingCalendarItem = z.infer<typeof trainingCalendarItemSchema>;
+
 /** Generate month trainings from a group (15.1). */
 export const generateMonthSchema = z.object({
   groupId: uuid,
@@ -147,6 +160,28 @@ export const generateAllResultSchema = z.object({
 });
 export type GenerateAllResult = z.infer<typeof generateAllResultSchema>;
 
+/** Query for GET /trainings/generation-status — which year/month to report per-group coverage for. */
+export const generationStatusQuerySchema = z.object({
+  year: z.coerce.number().int().min(2024),
+  month: z.coerce.number().int().min(1).max(12)
+});
+export type GenerationStatusQuery = z.infer<typeof generationStatusQuerySchema>;
+
+/**
+ * Per active group, how complete the month's generation is (for the chosen year/month).
+ * `expected` = future training dates implied by the group's weekdays (date >= today);
+ * `existing` = how many already have a training row; `fullyGenerated` = expected>0 && existing>=expected.
+ * A group with no remaining dates this month (expected 0) is fullyGenerated=false (nothing to offer).
+ */
+export const generationStatusItemSchema = z.object({
+  groupId: uuid,
+  groupName: z.string(),
+  expected: z.number().int().nonnegative(),
+  existing: z.number().int().nonnegative(),
+  fullyGenerated: z.boolean()
+});
+export type GenerationStatusItem = z.infer<typeof generationStatusItemSchema>;
+
 /**
  * Body for POST /trainings/:id/cancel (admin manager console). The training id is
  * the path param; the body carries nothing today. Kept as an explicit `.strict()`
@@ -168,7 +203,8 @@ export type ChangeCapacityInput = z.infer<typeof changeCapacitySchema>;
 export const listTrainingsQuerySchema = z.object({
   from: dateString,
   to: dateString,
-  groupId: uuid.optional()
+  groupId: uuid.optional(),
+  trainerId: uuid.optional()
 });
 export type ListTrainingsQuery = z.infer<typeof listTrainingsQuerySchema>;
 

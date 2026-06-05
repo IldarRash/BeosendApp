@@ -181,7 +181,7 @@ export const botEn: Record<string, string> = {
   "bot.courtLoad.title": "📊 Court load",
   "bot.courtLoad.notAdmin": "This section is available to the administrator only.",
   "bot.courtLoad.pickDate": "Choose a date:",
-  "bot.courtLoad.legend": "· free   R request   B block",
+  "bot.courtLoad.legend": "· free   R request   B block   T training",
   "bot.courtLoad.otherDate": "📅 Another date",
 
   // --- Trainer today (trainer-today.ts) ---

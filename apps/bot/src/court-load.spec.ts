@@ -17,7 +17,7 @@ const ru = getStaticCatalog("ru");
  * whose "HH:MM" start appears in `occupied` carry that state, the rest are free.
  */
 function cells(
-  occupied: Record<string, "request" | "block">,
+  occupied: Record<string, "request" | "block" | "training">,
   openHour = 8,
   closeHour = 10
 ): CourtLoadGrid["rows"][number]["cells"] {
@@ -27,7 +27,8 @@ function cells(
     out.push({
       startTime,
       state: occupied[startTime] ?? "free",
-      requestId: null
+      requestId: null,
+      trainingId: null
     });
   }
   return out;
@@ -47,6 +48,11 @@ const grid: CourtLoadGrid = {
       courtId: "22222222-2222-2222-2222-222222222222",
       courtNumber: 2,
       cells: cells({ "09:00": "block", "09:30": "block" })
+    },
+    {
+      courtId: "33333333-3333-3333-3333-333333333333",
+      courtNumber: 3,
+      cells: cells({ "08:00": "training", "08:30": "training" })
     }
   ]
 };
@@ -67,10 +73,13 @@ describe("courtLoadGridText", () => {
     expect(text).toContain("К1   R  R  ·  ·");
     // Court 2 is free across 08:xx (· ·) and blocked across 09:xx (B B).
     expect(text).toContain("К2   ·  ·  B  B");
+    // Court 3 holds a training across 08:xx (T T) and is free across 09:xx (· ·).
+    expect(text).toContain("К3   T  T  ·  ·");
     // Legend explains the glyphs.
     expect(text).toContain("· свободно");
     expect(text).toContain("R заявка");
     expect(text).toContain("B блок");
+    expect(text).toContain("T тренировка");
   });
 });
 

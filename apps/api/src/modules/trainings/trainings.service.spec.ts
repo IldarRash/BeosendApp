@@ -14,6 +14,7 @@ import type {
   AvailableSlotRow,
   RosterRow,
   TrainerTrainingRow,
+  TrainingCalendarRow,
   TrainingHeaderRow,
   TrainingLockRow,
   TrainingsRepository
@@ -110,6 +111,28 @@ class FakeTrainingsRepository {
           (!trainerId || r.trainerId === trainerId)
       )
       .sort((a, b) => a.date.localeCompare(b.date) || a.startTime.localeCompare(b.startTime));
+  }
+
+  calendar: TrainingCalendarRow[] = [];
+  async listCalendar(
+    from: string,
+    to: string,
+    groupId?: string,
+    trainerId?: string
+  ): Promise<TrainingCalendarRow[]> {
+    return this.calendar
+      .filter(
+        (r) =>
+          r.date >= from &&
+          r.date <= to &&
+          (!groupId || r.groupId === groupId) &&
+          (!trainerId || r.trainerId === trainerId)
+      )
+      .sort((a, b) => a.date.localeCompare(b.date) || a.startTime.localeCompare(b.startTime));
+  }
+
+  async findCalendarItemById(id: string): Promise<TrainingCalendarRow | undefined> {
+    return this.calendar.find((r) => r.id === id);
   }
 
   trainerToday: TrainerTrainingRow[] = [];
@@ -364,6 +387,73 @@ describe("TrainingsService", () => {
       groupId: GROUP_ID
     });
     expect(listed).toHaveLength(9);
+  });
+
+  describe("admin calendar (listCalendar / getCalendarItem)", () => {
+    const TRAINER_A = "33333333-3333-3333-3333-333333333333";
+    const calItem = (over: Partial<TrainingCalendarRow> = {}): TrainingCalendarRow => ({
+      id: "aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa",
+      groupId: GROUP_ID,
+      date: "2026-07-06",
+      startTime: "20:00",
+      endTime: "21:30",
+      trainerId: TRAINER_A,
+      capacity: 12,
+      bookedCount: 3,
+      status: "open",
+      groupName: "Intermediate",
+      trainerName: "Jovana",
+      courtNumber: 2,
+      ...over
+    });
+
+    it("listCalendar is admin-only", async () => {
+      await expect(
+        service.listCalendar(NON_ADMIN_ID, { from: "2026-07-01", to: "2026-07-31" })
+      ).rejects.toBeInstanceOf(ForbiddenException);
+    });
+
+    it("listCalendar rejects to < from", async () => {
+      await expect(
+        service.listCalendar(ADMIN_ID, { from: "2026-07-31", to: "2026-07-01" })
+      ).rejects.toBeInstanceOf(BadRequestException);
+    });
+
+    it("listCalendar returns contract-valid items in the range, with null group/court allowed", async () => {
+      trainingsRepo.calendar = [
+        calItem(),
+        calItem({
+          id: "bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb",
+          groupId: null,
+          groupName: null,
+          courtNumber: null
+        })
+      ];
+      const items = await service.listCalendar(ADMIN_ID, { from: "2026-07-01", to: "2026-07-31" });
+      expect(items).toHaveLength(2);
+      expect(items[1].groupName).toBeNull();
+      expect(items[1].courtNumber).toBeNull();
+    });
+
+    it("getCalendarItem returns the matching item for an admin", async () => {
+      trainingsRepo.calendar = [calItem()];
+      const item = await service.getCalendarItem(ADMIN_ID, calItem().id);
+      expect(item.trainerName).toBe("Jovana");
+      expect(item.courtNumber).toBe(2);
+    });
+
+    it("getCalendarItem is admin-only", async () => {
+      trainingsRepo.calendar = [calItem()];
+      await expect(
+        service.getCalendarItem(NON_ADMIN_ID, calItem().id)
+      ).rejects.toBeInstanceOf(ForbiddenException);
+    });
+
+    it("getCalendarItem 404s a missing id", async () => {
+      await expect(
+        service.getCalendarItem(ADMIN_ID, "00000000-0000-0000-0000-000000000000")
+      ).rejects.toBeInstanceOf(NotFoundException);
+    });
   });
 
   describe("listAvailable", () => {
@@ -856,6 +946,64 @@ describe("TrainingsService", () => {
         service.changeCapacity(ADMIN_ID, TRAINING_ID, { capacity: 20 })
       ).rejects.toBeInstanceOf(ConflictException);
       expect(trainingsRepo.lock.capacity).toBe(12);
+    });
+  });
+
+  describe("generationStatus (admin generate-month coverage)", () => {
+    // July 2026 (Mon+Wed) has 9 candidate future dates; January 2026 is entirely past.
+    const PAST_MONTH = 1;
+
+    const statusFor = (over: Partial<Group> = {}) => {
+      groupsRepo.activeGroups = [{ ...baseGroup, ...over }];
+      return service.generationStatus(ADMIN_ID, { year: FUTURE_YEAR, month: FUTURE_MONTH });
+    };
+
+    it("reports fullyGenerated=false for a group with no trainings for the month", async () => {
+      const [item] = await statusFor();
+      expect(item).toMatchObject({
+        groupId: GROUP_ID,
+        groupName: baseGroup.name,
+        expected: 9,
+        existing: 0,
+        fullyGenerated: false
+      });
+    });
+
+    it("reports fullyGenerated=true once every expected date has a training", async () => {
+      groupsRepo.activeGroups = [baseGroup];
+      await generate(); // creates all 9 July trainings for the group
+      const [item] = await service.generationStatus(ADMIN_ID, {
+        year: FUTURE_YEAR,
+        month: FUTURE_MONTH
+      });
+      expect(item).toMatchObject({ expected: 9, existing: 9, fullyGenerated: true });
+    });
+
+    it("reports fullyGenerated=false for a partially generated group", async () => {
+      groupsRepo.activeGroups = [baseGroup];
+      await generate();
+      // Drop one generated date so coverage is incomplete.
+      trainingsRepo.rows = trainingsRepo.rows.slice(0, -1);
+      const [item] = await service.generationStatus(ADMIN_ID, {
+        year: FUTURE_YEAR,
+        month: FUTURE_MONTH
+      });
+      expect(item).toMatchObject({ expected: 9, existing: 8, fullyGenerated: false });
+    });
+
+    it("reports expected=0 and fullyGenerated=false when no future dates remain", async () => {
+      groupsRepo.activeGroups = [baseGroup];
+      const [item] = await service.generationStatus(ADMIN_ID, {
+        year: FUTURE_YEAR,
+        month: PAST_MONTH
+      });
+      expect(item).toMatchObject({ expected: 0, existing: 0, fullyGenerated: false });
+    });
+
+    it("is admin-only", async () => {
+      await expect(
+        service.generationStatus(NON_ADMIN_ID, { year: FUTURE_YEAR, month: FUTURE_MONTH })
+      ).rejects.toBeInstanceOf(ForbiddenException);
     });
   });
 

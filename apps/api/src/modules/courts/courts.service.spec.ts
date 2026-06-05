@@ -158,6 +158,43 @@ describe("CourtsService.getLoadGrid", () => {
     expect(repo.blocksByCourtForDate).toHaveBeenCalledOnce();
   });
 
+  it("maps an auto-block (group_training_id set) to a training cell carrying that trainingId, and a manual block to a block cell", async () => {
+    const trainingId = "33333333-3333-3333-3333-333333333333";
+    const repo = {
+      findActive: vi.fn().mockResolvedValue([
+        { id: courtA, number: 1, status: "active" },
+        { id: courtB, number: 2, status: "active" }
+      ]),
+      confirmedCourtOccupancyForDate: vi.fn().mockResolvedValue([]),
+      blocksByCourtForDate: vi.fn().mockResolvedValue([
+        { courtId: courtA, startTime: "10:00", durationMinutes: 120, trainingId },
+        { courtId: courtB, startTime: "14:00", durationMinutes: 60 }
+      ])
+    } as unknown as CourtsRepository;
+    const service = new CourtsService(adminEnv, repo);
+
+    const grid = await service.getLoadGrid(111, "2026-06-10");
+
+    const rowA = grid.rows.find((r) => r.courtId === courtA);
+    const rowB = grid.rows.find((r) => r.courtId === courtB);
+    const cellAt = (row: typeof rowA, t: string) => row?.cells.find((c) => c.startTime === t);
+
+    const training = cellAt(rowA, "10:00");
+    expect(training?.state).toBe("training");
+    expect(training?.trainingId).toBe(trainingId);
+    expect(training?.requestId).toBeNull();
+    expect(cellAt(rowA, "11:30")?.state).toBe("training");
+    expect(cellAt(rowA, "11:30")?.trainingId).toBe(trainingId);
+
+    const manual = cellAt(rowB, "14:00");
+    expect(manual?.state).toBe("block");
+    expect(manual?.trainingId).toBeNull();
+
+    const free = cellAt(rowA, "12:00");
+    expect(free?.state).toBe("free");
+    expect(free?.trainingId).toBeNull();
+  });
+
   it("free-cell count per slot equals freeCourtsBySlot for the same data (C3 consistency)", async () => {
     // Invariant: a `free` cell is exactly a court/slot C3 counts as free. The grid
     // and the C3 free-court math must agree by construction for the same occupancy.

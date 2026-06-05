@@ -17,6 +17,7 @@
   --coral: #e1543f;
   --coral-ink: #b23a2a;
   --teal: #1f7a6d;
+  --indigo: #4b4fb0;
   --paper: #fffdf8;
   --shadow: 0 1px 0 rgba(28, 26, 23, 0.04), 0 12px 32px -18px rgba(28, 26, 23, 0.35);
 
@@ -817,55 +818,84 @@ legend {
   background: var(--paper);
 }
 
-.load-cell {
+/* A 2-hour column reads as one bar of 30-min sub-segments — its partial fill
+ * shows how much of the two hours is held. The grouping is purely visual; the
+ * API contract stays 30-min granular. */
+.load-grid__col {
   display: flex;
-  align-items: center;
-  justify-content: center;
+  gap: 2px;
   width: 100%;
   height: 40px;
   border-radius: 6px;
+  overflow: hidden;
+}
+
+/* One 30-min sub-segment. A free/block segment is an inert <span>; a
+ * request/training segment is an actionable <button> that opens its detail. */
+.load-seg {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex: 1 1 0;
+  min-width: 0;
   border: 1px solid var(--line);
+  border-radius: 4px;
   background: var(--sand-50);
   color: var(--ink-500);
   font-family: var(--font-mono);
-  font-size: 13px;
+  font-size: 12px;
   line-height: 1;
 }
 
-/* A request cell is an actionable button (opens the booking detail). */
-button.load-cell {
+button.load-seg {
   padding: 0;
   font: inherit;
   cursor: pointer;
   transition: filter 120ms ease;
 }
 
-.load-cell--clickable:hover {
+button.load-seg:hover {
   filter: brightness(0.96);
 }
 
-.load-cell--clickable:focus-visible {
+button.load-seg:focus-visible {
   outline: 2px solid var(--coral);
   outline-offset: 2px;
+  z-index: 1;
 }
 
-.load-cell--free {
+.load-seg--free {
   background: var(--paper);
   color: color-mix(in srgb, var(--ink-500) 45%, var(--paper));
 }
 
-.load-cell--request {
+.load-seg--request {
   border-color: var(--teal);
   background: color-mix(in srgb, var(--teal) 24%, var(--paper));
   color: var(--teal);
   font-weight: 600;
 }
 
-.load-cell--block {
+.load-seg--block {
   border-color: var(--coral);
   background: color-mix(in srgb, var(--coral) 24%, var(--paper));
   color: var(--coral-ink);
   font-weight: 600;
+}
+
+.load-seg--training {
+  border-color: var(--indigo);
+  background: color-mix(in srgb, var(--indigo) 24%, var(--paper));
+  color: var(--indigo);
+  font-weight: 600;
+}
+
+/* Legend swatches reuse the segment tints at a compact fixed size. */
+.legend__swatch.load-seg--free,
+.legend__swatch.load-seg--request,
+.legend__swatch.load-seg--block,
+.legend__swatch.load-seg--training {
+  flex: none;
 }
 
 /* ── Detail definition list (booking popup) ────────────────────────────────
@@ -899,4 +929,200 @@ button.load-cell {
   margin: 0;
   font-weight: 600;
   text-align: right;
+}
+
+/* ── View toggle (table | calendar) ────────────────────────────────────────
+ * A segmented control in the page header. The pressed segment reads inked, like
+ * the active nav item; conveyed via aria-pressed, not colour alone. */
+
+.view-toggle {
+  display: inline-flex;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  overflow: hidden;
+  background: var(--paper);
+}
+
+.view-toggle__btn {
+  font-family: var(--font-body);
+  font-size: 14px;
+  font-weight: 600;
+  padding: 9px 16px;
+  border: none;
+  background: transparent;
+  color: var(--ink-700);
+  cursor: pointer;
+}
+
+.view-toggle__btn + .view-toggle__btn {
+  border-left: 1px solid var(--line);
+}
+
+.view-toggle__btn[aria-pressed="true"] {
+  background: var(--ink-900);
+  color: var(--sand-50);
+}
+
+.view-toggle__btn:focus-visible {
+  outline: 2px solid var(--coral);
+  outline-offset: -2px;
+}
+
+/* ── Trainings calendar (Slice B) ──────────────────────────────────────────
+ * A Monday-first month grid of generated trainings. Each day cell stacks its
+ * date and event chips; chips are colour-coded by group for scanability but
+ * always carry their time + name text (colour is never the only signal). All
+ * values are the API's — the grid does no occupancy/status/court math. */
+
+.cal-nav {
+  display: flex;
+  align-items: flex-end;
+  gap: 10px;
+}
+
+.calendar {
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  overflow: hidden;
+  background: var(--paper);
+  box-shadow: var(--shadow);
+}
+
+.calendar__head,
+.calendar__week {
+  display: grid;
+  grid-template-columns: repeat(7, 1fr);
+}
+
+.calendar__weekday {
+  font-family: var(--font-mono);
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.1em;
+  color: var(--ink-500);
+  background: var(--sand-50);
+  padding: 9px 10px;
+  text-align: center;
+  border-bottom: 1px solid var(--line);
+}
+
+.calendar__weekday + .calendar__weekday {
+  border-left: 1px solid var(--line);
+}
+
+.calendar__cell {
+  min-height: 104px;
+  padding: 6px;
+  border-bottom: 1px solid var(--line);
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+}
+
+.calendar__cell + .calendar__cell {
+  border-left: 1px solid var(--line);
+}
+
+.calendar__week:last-child .calendar__cell {
+  border-bottom: none;
+}
+
+.calendar__cell--pad {
+  background: color-mix(in srgb, var(--sand-100) 50%, var(--paper));
+}
+
+.calendar__date {
+  font-family: var(--font-mono);
+  font-size: 12px;
+  color: var(--ink-500);
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+}
+
+.calendar__events {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+/* An event is an actionable chip opening the "whose training?" detail popup. */
+.cal-event {
+  display: block;
+  width: 100%;
+  text-align: left;
+  padding: 4px 7px;
+  border: 1px solid transparent;
+  border-left-width: 3px;
+  border-radius: 5px;
+  font-family: var(--font-mono);
+  font-size: 11.5px;
+  line-height: 1.35;
+  color: var(--ink-900);
+  cursor: pointer;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  transition: filter 120ms ease;
+}
+
+.cal-event:hover {
+  filter: brightness(0.97);
+}
+
+.cal-event:focus-visible {
+  outline: 2px solid var(--coral);
+  outline-offset: 1px;
+}
+
+/* Stable per-group palette: a tint background + a saturated left edge. Text is
+ * always present, so these are an aid, never the sole carrier of meaning. */
+.cal-event--c0 {
+  background: color-mix(in srgb, var(--teal) 14%, var(--paper));
+  border-color: color-mix(in srgb, var(--teal) 40%, var(--line));
+  border-left-color: var(--teal);
+}
+
+.cal-event--c1 {
+  background: color-mix(in srgb, var(--coral) 13%, var(--paper));
+  border-color: color-mix(in srgb, var(--coral) 40%, var(--line));
+  border-left-color: var(--coral);
+}
+
+.cal-event--c2 {
+  background: color-mix(in srgb, #4b6bbd 14%, var(--paper));
+  border-color: color-mix(in srgb, #4b6bbd 40%, var(--line));
+  border-left-color: #4b6bbd;
+}
+
+.cal-event--c3 {
+  background: color-mix(in srgb, #b07d2a 16%, var(--paper));
+  border-color: color-mix(in srgb, #b07d2a 42%, var(--line));
+  border-left-color: #b07d2a;
+}
+
+.cal-event--c4 {
+  background: color-mix(in srgb, #7a4ea0 14%, var(--paper));
+  border-color: color-mix(in srgb, #7a4ea0 40%, var(--line));
+  border-left-color: #7a4ea0;
+}
+
+.cal-event--c5 {
+  background: color-mix(in srgb, #2f8f5b 14%, var(--paper));
+  border-color: color-mix(in srgb, #2f8f5b 40%, var(--line));
+  border-left-color: #2f8f5b;
+}
+
+.cal-event--c6 {
+  background: color-mix(in srgb, #c0566f 14%, var(--paper));
+  border-color: color-mix(in srgb, #c0566f 40%, var(--line));
+  border-left-color: #c0566f;
+}
+
+.cal-event--c7 {
+  background: color-mix(in srgb, #4a8aa0 14%, var(--paper));
+  border-color: color-mix(in srgb, #4a8aa0 40%, var(--line));
+  border-left-color: #4a8aa0;
 }

@@ -1,7 +1,12 @@
 import { Injectable } from "@nestjs/common";
 import type { Database } from "@beosand/db";
 import { tables } from "@beosand/db";
-import type { BookingStatus, Training, TrainingStatus } from "@beosand/types";
+import type {
+  BookingStatus,
+  Training,
+  TrainingCalendarItem,
+  TrainingStatus
+} from "@beosand/types";
 import { and, asc, eq, gte, inArray, isNotNull, lte, sql } from "drizzle-orm";
 import { DatabaseService } from "../../db/database.service";
 
@@ -53,6 +58,26 @@ export interface TrainingHeaderRow {
   endTime: string;
   levelName: string;
   trainerId: string;
+}
+
+/**
+ * A training joined to its (nullable) group/court display names and its trainer
+ * name, for the admin calendar + detail views. `groupName`/`courtNumber` are null
+ * when the training has no group / no auto-block court. No business rules applied.
+ */
+export interface TrainingCalendarRow {
+  id: string;
+  groupId: string | null;
+  date: string;
+  startTime: string;
+  endTime: string;
+  trainerId: string;
+  capacity: number;
+  bookedCount: number;
+  status: TrainingStatus;
+  groupName: string | null;
+  trainerName: string;
+  courtNumber: number | null;
 }
 
 /** One roster row: a booking joined to its client name — no business rules applied. */
@@ -166,6 +191,54 @@ export class TrainingsRepository {
       .where(where)
       .orderBy(asc(tables.trainings.date), asc(tables.trainings.startTime));
     return rows.map(toTraining);
+  }
+
+  /**
+   * Admin calendar: trainings in [from, to] joined to group/trainer/court display
+   * names, optionally filtered by group and/or trainer. The trainer join is INNER
+   * (every training has a trainer); group and court are LEFT (a training may have no
+   * group, and only auto-blocked trainings carry a court). Ordered by date then start
+   * time. Times are normalized "HH:MM:SS" -> "HH:MM" like the other reads.
+   */
+  async listCalendar(
+    from: string,
+    to: string,
+    groupId?: string,
+    trainerId?: string
+  ): Promise<TrainingCalendarRow[]> {
+    const filters = [gte(tables.trainings.date, from), lte(tables.trainings.date, to)];
+    if (groupId) {
+      filters.push(eq(tables.trainings.groupId, groupId));
+    }
+    if (trainerId) {
+      filters.push(eq(tables.trainings.trainerId, trainerId));
+    }
+
+    const rows = await this.database.db
+      .select(calendarSelection)
+      .from(tables.trainings)
+      .leftJoin(tables.groups, eq(tables.trainings.groupId, tables.groups.id))
+      .innerJoin(tables.trainers, eq(tables.trainings.trainerId, tables.trainers.id))
+      .leftJoin(tables.courtBlocks, eq(tables.courtBlocks.groupTrainingId, tables.trainings.id))
+      .leftJoin(tables.courts, eq(tables.courts.id, tables.courtBlocks.courtId))
+      .where(and(...filters))
+      .orderBy(asc(tables.trainings.date), asc(tables.trainings.startTime));
+
+    return rows.map(toCalendarRow);
+  }
+
+  /** A single training shaped for the admin detail view (same joins as listCalendar). */
+  async findCalendarItemById(id: string): Promise<TrainingCalendarRow | undefined> {
+    const [row] = await this.database.db
+      .select(calendarSelection)
+      .from(tables.trainings)
+      .leftJoin(tables.groups, eq(tables.trainings.groupId, tables.groups.id))
+      .innerJoin(tables.trainers, eq(tables.trainings.trainerId, tables.trainers.id))
+      .leftJoin(tables.courtBlocks, eq(tables.courtBlocks.groupTrainingId, tables.trainings.id))
+      .leftJoin(tables.courts, eq(tables.courts.id, tables.courtBlocks.courtId))
+      .where(eq(tables.trainings.id, id))
+      .limit(1);
+    return row ? toCalendarRow(row) : undefined;
   }
 
   /**
@@ -316,4 +389,53 @@ function toTraining(row: TrainingRow): Training {
     startTime: row.startTime.slice(0, 5),
     endTime: row.endTime.slice(0, 5)
   };
+}
+
+/** Column selection shared by the admin calendar list and detail reads. */
+const calendarSelection = {
+  id: tables.trainings.id,
+  groupId: tables.trainings.groupId,
+  date: tables.trainings.date,
+  startTime: tables.trainings.startTime,
+  endTime: tables.trainings.endTime,
+  trainerId: tables.trainings.trainerId,
+  capacity: tables.trainings.capacity,
+  bookedCount: tables.trainings.bookedCount,
+  status: tables.trainings.status,
+  groupName: tables.groups.name,
+  trainerName: tables.trainers.name,
+  number: tables.courts.number
+} as const;
+
+type CalendarSelectionRow = {
+  id: string;
+  groupId: string | null;
+  date: string;
+  startTime: string;
+  endTime: string;
+  trainerId: string;
+  capacity: number;
+  bookedCount: number;
+  status: TrainingStatus;
+  groupName: string | null;
+  trainerName: string;
+  number: number | null;
+};
+
+/** Shape a joined calendar row to TrainingCalendarRow, normalizing times and nulls. */
+function toCalendarRow(row: CalendarSelectionRow): TrainingCalendarRow {
+  return {
+    id: row.id,
+    groupId: row.groupId,
+    date: row.date,
+    startTime: row.startTime.slice(0, 5),
+    endTime: row.endTime.slice(0, 5),
+    trainerId: row.trainerId,
+    capacity: row.capacity,
+    bookedCount: row.bookedCount,
+    status: row.status,
+    groupName: row.groupName ?? null,
+    trainerName: row.trainerName,
+    courtNumber: row.number ?? null
+  } satisfies TrainingCalendarItem;
 }

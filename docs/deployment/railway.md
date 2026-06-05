@@ -10,9 +10,11 @@ pnpm workspace resolution and `pnpm-lock.yaml` work. This mirrors the convention
 - `apps/admin` is a **static Vite SPA** (not Next.js) — the build emits static `dist/` served with SPA
   history fallback.
 
-Service config is committed as per-service `railway.json` files (`apps/<svc>/railway.json`). When a
-service's **Root Directory** is set to that app folder, Railway auto-discovers its `railway.json`.
-Every value in those files is also listed below as a dashboard checklist in case you configure by hand.
+Service config is committed as per-service `railway.json` files (`apps/<svc>/railway.json`). In
+Railway's **Config-as-code → Railway Config File** field, set the path with a leading slash, for
+example `/apps/api/railway.json`. Without the leading slash Railway may ignore the file and fall back
+to Railpack from the monorepo root. Every value in those files is also listed below as a dashboard
+checklist in case you configure by hand.
 
 ## Architecture
 
@@ -114,6 +116,7 @@ Create a service from the GitHub repo.
 |-----------------------|--------------------------------------------------------|
 | Service name          | `beosand-api`                                          |
 | Root directory        | `apps/api` (lets Railway auto-discover `railway.json`) |
+| Railway config file   | `/apps/api/railway.json` (absolute path from repo root) |
 | Builder               | Dockerfile                                             |
 | Dockerfile path       | `apps/api/Dockerfile`                                  |
 | Watch paths           | `apps/api/**`, `packages/**`                           |
@@ -133,6 +136,21 @@ Create a service from the GitHub repo.
 > per deploy — not on every container restart. (The Dockerfile's `CMD` chains migrate + start as a
 > fallback for plain `docker run`; the Railway start command overrides it so migration is not coupled
 > to the long-running process.)
+
+**Manual migrate from your workstation** (useful after changing database SQL, or to verify Railway
+Postgres is up to date):
+
+```powershell
+$vars = railway variable list --service Postgres --environment production --kv
+$public = ($vars | Where-Object { $_ -match '^DATABASE_PUBLIC_URL=' } | Select-Object -First 1)
+$env:DATABASE_URL = $public.Substring('DATABASE_PUBLIC_URL='.Length)
+pnpm --filter @beosand/db db:migrate
+Remove-Item Env:\DATABASE_URL
+```
+
+Do not use `railway run --service beosand-api ... db:migrate` from a local shell for this project:
+it injects the private `postgres.railway.internal` URL, which only resolves inside Railway's network.
+The pre-deploy command still uses the private URL correctly because it runs inside the API image.
 
 **Environment variables** (`beosand-api`):
 
@@ -162,11 +180,18 @@ curl -sS https://<beosand-api-domain>/health
 After the first successful migrate, load reference data once (levels, trainers, the 6 courts). Seeds
 are idempotent (`onConflictDoNothing`). Do **not** add this to every deploy.
 
-```bash
-railway run --service beosand-api pnpm --filter @beosand/db db:seed
+```powershell
+$vars = railway variable list --service Postgres --environment production --kv
+$public = ($vars | Where-Object { $_ -match '^DATABASE_PUBLIC_URL=' } | Select-Object -First 1)
+$env:DATABASE_URL = $public.Substring('DATABASE_PUBLIC_URL='.Length)
+pnpm --filter @beosand/db db:seed
+Remove-Item Env:\DATABASE_URL
 ```
 
-(Or run locally with the production `DATABASE_URL` exported into the environment.)
+This intentionally uses `DATABASE_PUBLIC_URL` from the managed Postgres service. Railway service
+variables such as `${{Postgres.DATABASE_URL}}` resolve to the private
+`postgres.railway.internal` hostname, which is correct inside Railway but not resolvable from your
+local shell.
 
 ### 4. Deploy `beosand-bot`
 
@@ -176,6 +201,7 @@ Create a second service from the same repo.
 |------------------|--------------------------------|
 | Service name     | `beosand-bot`                  |
 | Root directory   | `apps/bot`                     |
+| Railway config file | `/apps/bot/railway.json` (absolute path from repo root) |
 | Builder          | Dockerfile                     |
 | Dockerfile path  | `apps/bot/Dockerfile`          |
 | Watch paths      | `apps/bot/**`, `packages/**`   |
@@ -214,6 +240,7 @@ Create a third service from the same repo.
 |------------------|---------------------------------------------|
 | Service name     | `beosand-admin`                             |
 | Root directory   | `apps/admin`                                |
+| Railway config file | `/apps/admin/railway.json` (absolute path from repo root) |
 | Builder          | Dockerfile                                  |
 | Dockerfile path  | `apps/admin/Dockerfile`                     |
 | Watch paths      | `apps/admin/**`, `packages/**`              |
@@ -296,24 +323,24 @@ Mirror of the committed `railway.json` files, for hand configuration.
 - [ ] Add PostgreSQL database (managed addon); note `${{Postgres.DATABASE_URL}}`.
 
 **beosand-api** (`apps/api/railway.json`)
-- [ ] Root directory `apps/api`; Builder Dockerfile; Dockerfile path `apps/api/Dockerfile`.
+- [ ] Railway Config File path `/apps/api/railway.json` (leading slash required); Builder Dockerfile; Dockerfile path `apps/api/Dockerfile`.
 - [ ] Watch paths `apps/api/**`, `packages/**`.
 - [ ] Start command `node apps/api/dist/main.js`.
 - [ ] Pre-deploy command `pnpm --filter @beosand/db db:migrate`.
 - [ ] Healthcheck path `/health`; restart On failure.
 - [ ] Env: `DATABASE_URL=${{Postgres.DATABASE_URL}}`, `TELEGRAM_BOT_TOKEN`, `ADMIN_SESSION_SECRET`, `ADMIN_TELEGRAM_IDS`, `NODE_ENV=production` (+ optional `MANAGER_CONTACT`, `WAITLIST_WINDOW_MINUTES`).
 - [ ] Generate public domain.
-- [ ] Seed once: `railway run --service beosand-api pnpm --filter @beosand/db db:seed`.
+- [ ] Seed once using `DATABASE_PUBLIC_URL` from the Postgres service (see the seed command above).
 
 **beosand-bot** (`apps/bot/railway.json`)
-- [ ] Root directory `apps/bot`; Builder Dockerfile; Dockerfile path `apps/bot/Dockerfile`.
+- [ ] Railway Config File path `/apps/bot/railway.json` (leading slash required); Builder Dockerfile; Dockerfile path `apps/bot/Dockerfile`.
 - [ ] Watch paths `apps/bot/**`, `packages/**`.
 - [ ] Start command `node apps/bot/dist/index.js`.
 - [ ] **No healthcheck, no public domain.** Replicas = 1; restart On failure.
 - [ ] Env: `TELEGRAM_BOT_TOKEN`, `ADMIN_SESSION_SECRET`, `DATABASE_URL=${{Postgres.DATABASE_URL}}` (validated by `loadEnv()`, never queried), `API_URL=https://<beosand-api domain>`, `ADMIN_TELEGRAM_IDS`, `NODE_ENV=production` (+ optional `MANAGER_CONTACT`).
 
 **beosand-admin** (`apps/admin/railway.json`)
-- [ ] Root directory `apps/admin`; Builder Dockerfile; Dockerfile path `apps/admin/Dockerfile`.
+- [ ] Railway Config File path `/apps/admin/railway.json` (leading slash required); Builder Dockerfile; Dockerfile path `apps/admin/Dockerfile`.
 - [ ] Watch paths `apps/admin/**`, `packages/**`.
 - [ ] Start command `serve -s apps/admin/dist -l ${PORT:-3000}`; restart On failure.
 - [ ] Build args `VITE_API_URL=https://<beosand-api domain>`, `VITE_TELEGRAM_BOT_USERNAME=<bot username, no @>`.

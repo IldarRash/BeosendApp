@@ -203,6 +203,31 @@ describe("ApiClient group-court scheduling (features 2+3)", () => {
     ).rejects.toThrow();
   });
 
+  it("requests generation-status with the year/month query and validates the rows", async () => {
+    const calls = mockFetchOnce([
+      { groupId: GROUP_ID, groupName: "Группа А", expected: 8, existing: 8, fullyGenerated: true }
+    ]);
+    const result = await new ApiClient("http://api.test").generationStatus({ year: 2026, month: 6 });
+    expect(calls[0]?.url).toBe("http://api.test/trainings/generation-status?year=2026&month=6");
+    expect(result[0].fullyGenerated).toBe(true);
+  });
+
+  it("rejects a malformed generation-status response (contract enforced)", async () => {
+    // `expected` must be a non-negative integer; a string fails the contract.
+    mockFetchOnce([
+      {
+        groupId: GROUP_ID,
+        groupName: "Группа А",
+        expected: "eight",
+        existing: 8,
+        fullyGenerated: true
+      }
+    ]);
+    await expect(
+      new ApiClient("http://api.test").generationStatus({ year: 2026, month: 6 })
+    ).rejects.toThrow();
+  });
+
   it("PATCHes a court reassignment and returns the moved block", async () => {
     const calls = mockFetchOnce({
       id: BLOCK_ID,
@@ -234,6 +259,85 @@ describe("ApiClient group-court scheduling (features 2+3)", () => {
     await expect(
       new ApiClient("http://api.test").reassignCourtBlock(BLOCK_ID, COURT_ID)
     ).rejects.toThrow();
+  });
+});
+
+describe("ApiClient trainings calendar (Slice B)", () => {
+  afterEach(() => {
+    vi.unstubAllGlobals();
+  });
+
+  const GROUP_ID = "11111111-1111-1111-1111-111111111111";
+  const TRAINER_ID = "22222222-2222-2222-2222-222222222222";
+  const TRAINING_ID = "33333333-3333-3333-3333-333333333333";
+
+  const calendarItem = {
+    id: TRAINING_ID,
+    groupId: GROUP_ID,
+    date: "2026-07-06",
+    startTime: "08:00",
+    endTime: "09:30",
+    trainerId: TRAINER_ID,
+    capacity: 12,
+    bookedCount: 4,
+    status: "open",
+    groupName: "Утренняя группа",
+    trainerName: "Анна",
+    courtNumber: 3
+  };
+
+  it("encodes from/to and both filters into the calendar query", async () => {
+    const calls = mockFetchOnce([calendarItem]);
+    const result = await new ApiClient("http://api.test").trainingsCalendar({
+      from: "2026-07-01",
+      to: "2026-07-31",
+      groupId: GROUP_ID,
+      trainerId: TRAINER_ID
+    });
+    expect(calls[0]?.url).toBe(
+      `http://api.test/trainings/calendar?from=2026-07-01&to=2026-07-31&groupId=${GROUP_ID}&trainerId=${TRAINER_ID}`
+    );
+    expect(result[0].courtNumber).toBe(3);
+    expect(result[0].groupName).toBe("Утренняя группа");
+  });
+
+  it("omits absent filters from the calendar query", async () => {
+    const calls = mockFetchOnce([]);
+    await new ApiClient("http://api.test").trainingsCalendar({
+      from: "2026-07-01",
+      to: "2026-07-31"
+    });
+    expect(calls[0]?.url).toBe("http://api.test/trainings/calendar?from=2026-07-01&to=2026-07-31");
+  });
+
+  it("rejects a malformed calendar response (contract enforced)", async () => {
+    // `trainerName` is required and must be a string; a number fails the contract.
+    mockFetchOnce([{ ...calendarItem, trainerName: 42 }]);
+    await expect(
+      new ApiClient("http://api.test").trainingsCalendar({ from: "2026-07-01", to: "2026-07-31" })
+    ).rejects.toThrow();
+  });
+
+  it("rejects a calendar item with a non-integer court number (unsafe path)", async () => {
+    mockFetchOnce([{ ...calendarItem, courtNumber: 1.5 }]);
+    await expect(
+      new ApiClient("http://api.test").trainingsCalendar({ from: "2026-07-01", to: "2026-07-31" })
+    ).rejects.toThrow();
+  });
+
+  it("validates a well-formed training detail and allows a null court", async () => {
+    const calls = mockFetchOnce({ ...calendarItem, groupId: null, groupName: null, courtNumber: null });
+    const result = await new ApiClient("http://api.test").trainingDetail(TRAINING_ID);
+    expect(calls[0]?.url).toBe(`http://api.test/trainings/${TRAINING_ID}/detail`);
+    expect(result.courtNumber).toBeNull();
+    expect(result.groupName).toBeNull();
+  });
+
+  it("rejects a malformed training detail (contract enforced)", async () => {
+    // A missing required trainerName fails the contract.
+    const { trainerName: _omit, ...withoutTrainer } = calendarItem;
+    mockFetchOnce(withoutTrainer);
+    await expect(new ApiClient("http://api.test").trainingDetail(TRAINING_ID)).rejects.toThrow();
   });
 });
 

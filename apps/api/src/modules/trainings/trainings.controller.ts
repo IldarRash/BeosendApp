@@ -15,13 +15,16 @@ import {
   changeCapacitySchema,
   generateAllMonthSchema,
   generateMonthSchema,
+  generationStatusQuerySchema,
   listTrainingsQuerySchema,
   trainerTodayQuerySchema,
   uuid,
   type GenerateAllResult,
+  type GenerationStatusItem,
   type SlotCard,
   type Training,
   type TrainerTodayItem,
+  type TrainingCalendarItem,
   type TrainingRoster
 } from "@beosand/types";
 import type { ZodSchema } from "zod";
@@ -54,6 +57,21 @@ export class TrainingsController {
     return this.trainings.generateMonthForAll(actorTelegramId, input);
   }
 
+  /**
+   * Admin: per-group generation coverage for a year/month, so the generate-month UI
+   * can mark already-fully-generated groups. Declared before any `:id` route so the
+   * literal segment is never captured as an id. Gated in the service.
+   */
+  @Get("generation-status")
+  generationStatus(
+    @Headers("x-telegram-id") telegramIdHeader: string | undefined,
+    @Query() query: unknown
+  ): Promise<GenerationStatusItem[]> {
+    const actorTelegramId = parseTelegramId(telegramIdHeader);
+    const parsed = validate(generationStatusQuerySchema, query ?? {});
+    return this.trainings.generationStatus(actorTelegramId, parsed);
+  }
+
   /** Client: bookable slot cards (section 5). Public — same catalogue for every client. */
   @Get("available")
   available(@Query() query: unknown): Promise<SlotCard[]> {
@@ -70,6 +88,32 @@ export class TrainingsController {
     const actorTelegramId = parseTelegramId(telegramIdHeader);
     const parsed = validate(listTrainingsQuerySchema, query ?? {});
     return this.trainings.list(actorTelegramId, parsed);
+  }
+
+  /**
+   * Admin: calendar view — trainings in a range with group/trainer/court names,
+   * optionally filtered by group/trainer. Declared before any `:id` route so the
+   * literal "calendar" segment is never captured as an id. Gated in the service.
+   */
+  @Get("calendar")
+  calendar(
+    @Headers("x-telegram-id") telegramIdHeader: string | undefined,
+    @Query() query: unknown
+  ): Promise<TrainingCalendarItem[]> {
+    const actorTelegramId = parseTelegramId(telegramIdHeader);
+    const parsed = validate(listTrainingsQuerySchema, query ?? {});
+    return this.trainings.listCalendar(actorTelegramId, parsed);
+  }
+
+  /** Admin: a single training's calendar detail (group/trainer/court names). Gated in the service. */
+  @Get(":id/detail")
+  detail(
+    @Headers("x-telegram-id") telegramIdHeader: string | undefined,
+    @Param("id") id: string
+  ): Promise<TrainingCalendarItem> {
+    const actorTelegramId = parseTelegramId(telegramIdHeader);
+    const trainingId = validate(uuid, id);
+    return this.trainings.getCalendarItem(actorTelegramId, trainingId);
   }
 
   /** Trainer/admin: a training's roster (T2.3). Ownership enforced in the service. */

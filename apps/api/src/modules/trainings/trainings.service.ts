@@ -20,11 +20,14 @@ import type {
   GenerateAllResult,
   GenerateGroupResult,
   GenerateMonthInput,
+  GenerationStatusItem,
+  GenerationStatusQuery,
   Group,
   ListTrainingsQuery,
   SlotCard,
   Training,
   TrainerTodayItem,
+  TrainingCalendarItem,
   TrainingRoster
 } from "@beosand/types";
 import {
@@ -36,6 +39,7 @@ import {
   freeSeats,
   generateAllResultSchema,
   generateGroupResultSchema,
+  generationStatusItemSchema,
   isBookable,
   isoWeekdayOf,
   matchesSlotFilters,
@@ -44,6 +48,7 @@ import {
   recomputeTrainingStatus,
   slotCardSchema,
   trainerTodayItemSchema,
+  trainingCalendarItemSchema,
   trainingRosterSchema,
   trainingSchema
 } from "@beosand/types";
@@ -152,6 +157,44 @@ export class TrainingsService {
       }
     }
     return generateAllResultSchema.parse({ perGroup });
+  }
+
+  /**
+   * Per active group, how complete the month's generation is (admin-only). Reuses the
+   * same candidate-date math the generator uses (monthTrainingDates + the date>=today
+   * skip-past filter, with `today` computed exactly as generateMonthForGroup does) so
+   * the reported status matches what a generate run would actually produce. A group
+   * with no remaining future dates this month (expected 0) is reported not-fully-
+   * generated, since there is nothing left to offer. No new domain math.
+   */
+  async generationStatus(
+    actorTelegramId: number,
+    query: GenerationStatusQuery
+  ): Promise<GenerationStatusItem[]> {
+    this.assertAdmin(actorTelegramId);
+
+    const groups = await this.groups.listActive();
+    const today = new Date().toISOString().slice(0, 10);
+
+    const items: GenerationStatusItem[] = [];
+    for (const group of groups) {
+      const expectedDates = monthTrainingDates(
+        group.daysOfWeek as DayOfWeek[],
+        query.year,
+        query.month
+      ).filter((date) => date >= today);
+      const existing = (await this.trainings.existingDatesForGroup(group.id, expectedDates)).length;
+      items.push(
+        generationStatusItemSchema.parse({
+          groupId: group.id,
+          groupName: group.name,
+          expected: expectedDates.length,
+          existing,
+          fullyGenerated: expectedDates.length > 0 && existing >= expectedDates.length
+        })
+      );
+    }
+    return items;
   }
 
   /**
@@ -298,6 +341,42 @@ export class TrainingsService {
       throw new BadRequestException("`to` must be on or after `from`");
     }
     return this.trainings.listInRange(query.from, query.to, query.groupId);
+  }
+
+  /**
+   * Admin calendar: trainings in [from, to] with joined group/trainer/court display
+   * names, optionally filtered by group and/or trainer. Admin-only. Each row is
+   * validated against the contract (carries a court number, so admin-only) before
+   * returning.
+   */
+  async listCalendar(
+    actorTelegramId: number,
+    query: ListTrainingsQuery
+  ): Promise<TrainingCalendarItem[]> {
+    this.assertAdmin(actorTelegramId);
+    if (query.to < query.from) {
+      throw new BadRequestException("`to` must be on or after `from`");
+    }
+    const rows = await this.trainings.listCalendar(
+      query.from,
+      query.to,
+      query.groupId,
+      query.trainerId
+    );
+    return rows.map((row) => trainingCalendarItemSchema.parse(row));
+  }
+
+  /** Admin training detail (calendar item by id). 404 if missing. Admin-only. */
+  async getCalendarItem(
+    actorTelegramId: number,
+    id: string
+  ): Promise<TrainingCalendarItem> {
+    this.assertAdmin(actorTelegramId);
+    const row = await this.trainings.findCalendarItemById(id);
+    if (!row) {
+      throw new NotFoundException(`Training ${id} not found`);
+    }
+    return trainingCalendarItemSchema.parse(row);
   }
 
   /**

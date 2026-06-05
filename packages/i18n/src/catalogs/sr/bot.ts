@@ -181,7 +181,7 @@ export const botSr: Record<string, string> = {
   "bot.courtLoad.title": "📊 Zauzetost terena",
   "bot.courtLoad.notAdmin": "Ovaj odeljak je dostupan samo administratoru.",
   "bot.courtLoad.pickDate": "Izaberite datum:",
-  "bot.courtLoad.legend": "· slobodno   R zahtev   B blokada",
+  "bot.courtLoad.legend": "· slobodno   R zahtev   B blokada   T trening",
   "bot.courtLoad.otherDate": "📅 Drugi datum",
 
   // --- Trainer today (trainer-today.ts) ---

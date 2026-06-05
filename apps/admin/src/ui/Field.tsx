@@ -106,6 +106,8 @@ export function TimeField({ value, ...rest }: TimeFieldProps): JSX.Element {
 export interface SelectOption {
   value: string;
   label: string;
+  /** Render the option non-selectable (e.g. a group already fully generated). */
+  disabled?: boolean;
 }
 
 interface SelectFieldProps extends Omit<SelectHTMLAttributes<HTMLSelectElement>, "id"> {
@@ -135,7 +137,7 @@ export function SelectField({
         {...rest}
       >
         {options.map((opt) => (
-          <option key={opt.value} value={opt.value}>
+          <option key={opt.value} value={opt.value} disabled={opt.disabled}>
             {opt.label}
           </option>
         ))}

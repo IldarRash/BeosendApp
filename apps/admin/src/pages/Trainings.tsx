@@ -21,6 +21,7 @@ import { useCourts } from "../hooks/useCourts";
 import { useGroups } from "../hooks/useGroups";
 import { useTrainers } from "../hooks/useTrainers";
 import { useBookManual, useClientsList, useCreateWalkIn } from "../hooks/useClients";
+import { useGenerationStatus } from "../hooks/useGenerationStatus";
 import {
   useCancelTraining,
   useChangeCapacity,
@@ -28,6 +29,9 @@ import {
   useGenerateMonth,
   useTrainings
 } from "../hooks/useTrainings";
+import { TrainingsCalendar } from "./TrainingsCalendar";
+
+type TrainingsView = "table" | "calendar";
 
 type Translate = (key: string, params?: Record<string, string | number>) => string;
 
@@ -59,6 +63,9 @@ function errorText(error: unknown, t: Translate): string {
 export function Trainings(): JSX.Element {
   const t = useT();
   const { notify } = useToast();
+
+  // ── View toggle (table | calendar) ──────────────────────────────────────
+  const [view, setView] = useState<TrainingsView>("table");
 
   // ── Range / group filter ───────────────────────────────────────────────
   const [from, setFrom] = useState("");
@@ -182,6 +189,24 @@ export function Trainings(): JSX.Element {
           <p>{t("admin.trainings.lead")}</p>
         </div>
         <div style={{ display: "flex", gap: 8 }}>
+          <div className="view-toggle" role="group" aria-label={t("admin.trainings.viewLabel")}>
+            <button
+              type="button"
+              className="view-toggle__btn"
+              aria-pressed={view === "table"}
+              onClick={() => setView("table")}
+            >
+              {t("admin.trainings.viewTable")}
+            </button>
+            <button
+              type="button"
+              className="view-toggle__btn"
+              aria-pressed={view === "calendar"}
+              onClick={() => setView("calendar")}
+            >
+              {t("admin.trainings.viewCalendar")}
+            </button>
+          </div>
           <Button variant="ghost" onClick={() => setGenAllOpen(true)}>
             {t("admin.trainings.generateAll")}
           </Button>
@@ -189,47 +214,53 @@ export function Trainings(): JSX.Element {
         </div>
       </header>
 
-      <form
-        aria-label={t("admin.trainings.filterLabel")}
-        onSubmit={(e) => e.preventDefault()}
-        style={{ display: "flex", gap: 16, flexWrap: "wrap", alignItems: "flex-end" }}
-      >
-        <TextField
-          label={t("admin.field.fromDate")}
-          type="date"
-          value={from}
-          onChange={(e) => setFrom(e.target.value)}
-        />
-        <TextField
-          label={t("admin.field.toDate")}
-          type="date"
-          value={to}
-          onChange={(e) => setTo(e.target.value)}
-        />
-        <SelectField
-          label={t("admin.field.group")}
-          options={groupOptions}
-          value={filterGroupId}
-          onChange={(e) => setFilterGroupId(e.target.value)}
-        />
-      </form>
-
-      {query === null ? (
-        <p className="state">{t("admin.trainings.pickRange")}</p>
-      ) : trainings.isPending ? (
-        <p className="state">{t("admin.trainings.loading")}</p>
-      ) : trainings.isError ? (
-        <p className="state state--error" role="alert">
-          {errorText(trainings.error, t)}
-        </p>
+      {view === "calendar" ? (
+        <TrainingsCalendar />
       ) : (
-        <DataTable
-          caption={t("admin.trainings.caption")}
-          columns={columns}
-          rows={trainings.data}
-          rowKey={(row) => row.id}
-          emptyLabel={t("admin.trainings.empty")}
-        />
+        <>
+          <form
+            aria-label={t("admin.trainings.filterLabel")}
+            onSubmit={(e) => e.preventDefault()}
+            style={{ display: "flex", gap: 16, flexWrap: "wrap", alignItems: "flex-end" }}
+          >
+            <TextField
+              label={t("admin.field.fromDate")}
+              type="date"
+              value={from}
+              onChange={(e) => setFrom(e.target.value)}
+            />
+            <TextField
+              label={t("admin.field.toDate")}
+              type="date"
+              value={to}
+              onChange={(e) => setTo(e.target.value)}
+            />
+            <SelectField
+              label={t("admin.field.group")}
+              options={groupOptions}
+              value={filterGroupId}
+              onChange={(e) => setFilterGroupId(e.target.value)}
+            />
+          </form>
+
+          {query === null ? (
+            <p className="state">{t("admin.trainings.pickRange")}</p>
+          ) : trainings.isPending ? (
+            <p className="state">{t("admin.trainings.loading")}</p>
+          ) : trainings.isError ? (
+            <p className="state state--error" role="alert">
+              {errorText(trainings.error, t)}
+            </p>
+          ) : (
+            <DataTable
+              caption={t("admin.trainings.caption")}
+              columns={columns}
+              rows={trainings.data}
+              rowKey={(row) => row.id}
+              emptyLabel={t("admin.trainings.empty")}
+            />
+          )}
+        </>
       )}
 
       <GenerateMonthModal
@@ -386,17 +417,38 @@ function GenerateMonthModal({
   // Empty = auto-pick: the server chooses the lowest-numbered free court per date.
   const [courtId, setCourtId] = useState("");
 
+  // Per-group coverage for the chosen year/month: already fully-generated groups are
+  // marked "(готово)" and disabled. The query is gated on year (month is always set);
+  // a failed/loading status simply falls back to listing all groups normally.
+  const monthNumber = Number.parseInt(month, 10);
+  const status = useGenerationStatus(open ? year : null, open ? monthNumber : null);
+  const fullyGeneratedById = useMemo(() => {
+    const set = new Set<string>();
+    for (const item of status.data ?? []) {
+      if (item.fullyGenerated) set.add(item.groupId);
+    }
+    return set;
+  }, [status.data]);
+
   const groupOptions: SelectOption[] = [
     { value: "", label: t("admin.trainings.pickGroup") },
-    ...groups.map((g) => ({ value: g.id, label: g.name }))
+    ...groups.map((g) =>
+      fullyGeneratedById.has(g.id)
+        ? { value: g.id, label: t("admin.trainings.groupDone", { name: g.name }), disabled: true }
+        : { value: g.id, label: g.name }
+    )
   ];
+
+  // Derive (don't mutate state during render): a selection that has since become
+  // fully-generated is treated as no selection, without resetting the stored id.
+  const effectiveGroupId = groupId !== "" && fullyGeneratedById.has(groupId) ? "" : groupId;
 
   const courtOptions: SelectOption[] = [
     { value: "", label: t("admin.trainings.courtAuto") },
     ...courts.map((c) => ({ value: c.id, label: t("admin.trainings.courtOption", { number: c.number }) }))
   ];
 
-  const canSubmit = groupId !== "" && year !== null && !pending;
+  const canSubmit = effectiveGroupId !== "" && year !== null && !pending;
 
   return (
     <Modal
@@ -411,9 +463,9 @@ function GenerateMonthModal({
           <Button
             disabled={!canSubmit}
             onClick={() => {
-              if (groupId === "" || year === null) return;
+              if (effectiveGroupId === "" || year === null) return;
               onSubmit({
-                groupId,
+                groupId: effectiveGroupId,
                 year,
                 month: Number.parseInt(month, 10),
                 // Send courtId only when an explicit court is chosen.
@@ -430,8 +482,9 @@ function GenerateMonthModal({
       <SelectField
         label={t("admin.field.group")}
         options={groupOptions}
-        value={groupId}
+        value={effectiveGroupId}
         onChange={(e) => setGroupId(e.target.value)}
+        hint={fullyGeneratedById.size > 0 ? t("admin.trainings.groupDoneHint") : undefined}
       />
       <NumberField label={t("admin.trainings.fieldYear")} value={year} onValueChange={setYear} />
       <SelectField
