@@ -5,36 +5,107 @@
  * theme-adaptive (light/dark) component system, and the SDK binds Telegram's
  * theme params to --tgui--* CSS variables so colors follow the user's client.
  *
- * On top of that we apply a single BeoSand brand accent — sunset coral — by
- * overriding the few accent tokens telegram-ui derives its primary buttons,
- * links, and icons from. This keeps the native look while making the app
+ * On top of that we apply the BeoSand coral accent and the handoff token layer
+ * (tokens/miniapp-theme.css), keeping the native look while making the app
  * unmistakably BeoSand, in both light and dark.
  */
 
+/* =========================================================
+ * Design tokens — light (default)
+ * ========================================================= */
 :root {
-  --beosand-coral: #e1543f;
-  --beosand-coral-ink: #b23a2a;
-  /* Coral tint for selected rows / brand surfaces; alpha so it adapts to light & dark. */
-  --beosand-coral-tint: rgba(225, 84, 63, 0.12);
+  /* Telegram surface tokens (light defaults; overridden by AppRoot in dark) */
+  --tg-bg: #ffffff;
+  --tg-secondary: #f1f1f4;
+  --tg-text: #000000;
+  --tg-subtitle: #3c3c43;
+  --tg-hint: #8e8e93;
+  --tg-sep: rgba(60, 60, 67, 0.16);
+  --tg-sep-soft: rgba(60, 60, 67, 0.08);
 
-  /* Layout rhythm — one scale reused by every screen so spacing stays consistent. */
+  /* BeoSand coral accent — exact handoff values */
+  --co: #E15B43;
+  --co-ink: #C24A34;
+  --co-soft: #FCE9E3;
+
+  /* Backward-compat aliases used in existing CSS classes */
+  --beosand-coral: #E15B43;
+  --beosand-coral-ink: #C24A34;
+  --beosand-coral-tint: rgba(225, 91, 67, 0.12);
+
+  /* Semantic accents */
+  --teal: #1C9488;
+  --teal-soft: #DBF0ED;
+  --amber: #C98A12;
+  --amber-soft: #F7EBCF;
+
+  /* Geometry */
+  --r: 14px;
+  --r-lg: 20px;
+  --ff: -apple-system, BlinkMacSystemFont, "SF Pro Text", system-ui, sans-serif;
+  --ff-rounded: -apple-system, "SF Pro Rounded", system-ui, sans-serif;
+
+  /* Layout rhythm */
   --beosand-gap: 16px;
   --beosand-gap-sm: 12px;
   --beosand-gap-xs: 8px;
   --beosand-screen-pad: 16px;
 }
 
-/*
- * Re-point telegram-ui's accent tokens at the brand coral. button_color drives
- * the filled MainButton/primary Button background; link_color drives accent
- * text, icons, and bezeled controls. button_text_color stays Telegram's so text
- * keeps its contrast against the coral fill.
- */
+/* =========================================================
+ * Dark theme — mirror surface/text/separator/accent vars.
+ * Applied when the OS or Telegram client is in dark mode.
+ * telegram-ui's AppRoot also sets data-appearance="dark" /
+ * a platform class; we match both system and tgui signals.
+ * ========================================================= */
+@media (prefers-color-scheme: dark) {
+  :root {
+    --tg-bg: #1c1c1e;
+    --tg-secondary: #000000;
+    --tg-text: #ffffff;
+    --tg-subtitle: #ebebf5cc;
+    --tg-hint: #8e8e93;
+    --tg-sep: rgba(84, 84, 88, 0.6);
+    --tg-sep-soft: rgba(84, 84, 88, 0.3);
+    /* Coral stays the same; it's saturated enough for dark surfaces */
+    --co: #E15B43;
+    --co-ink: #C24A34;
+    --co-soft: #3d1c14;
+    --beosand-coral-tint: rgba(225, 91, 67, 0.18);
+    --teal-soft: #0d2e2b;
+    --amber-soft: #2e2008;
+  }
+}
+
+/* tgui dark signal (class added by AppRoot in Telegram dark) */
+.tg-theme--dark {
+  --tg-bg: #1c1c1e;
+  --tg-secondary: #000000;
+  --tg-text: #ffffff;
+  --tg-subtitle: #ebebf5cc;
+  --tg-hint: #8e8e93;
+  --tg-sep: rgba(84, 84, 88, 0.6);
+  --tg-sep-soft: rgba(84, 84, 88, 0.3);
+  --co-soft: #3d1c14;
+  --beosand-coral-tint: rgba(225, 91, 67, 0.18);
+  --teal-soft: #0d2e2b;
+  --amber-soft: #2e2008;
+}
+
+/* =========================================================
+ * telegram-ui accent override
+ * Re-point telegram-ui's accent tokens at the brand coral.
+ * ========================================================= */
 .tgui-root,
 :root {
-  --tgui--button_color: var(--beosand-coral);
-  --tgui--link_color: var(--beosand-coral-ink);
+  --tgui--button_color: var(--co);
+  --tgui--link_color: var(--co-ink);
 }
+
+/* =========================================================
+ * Base resets
+ * ========================================================= */
+* { box-sizing: border-box; }
 
 html,
 body,
@@ -44,14 +115,28 @@ body,
 }
 
 body {
-  background: var(--tgui--secondary_bg_color, var(--tgui--bg_color, #fff));
-  color: var(--tgui--text_color, #000);
+  background: var(--tg-secondary);
+  font-family: var(--ff);
+  color: var(--tg-text);
   -webkit-font-smoothing: antialiased;
 }
 
-/* App-level layout helpers (telegram-ui owns component styling). */
+/* =========================================================
+ * App-level layout
+ * ========================================================= */
 .app-root {
   min-height: 100%;
+}
+
+.ma {
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+  background: var(--tg-secondary);
+  font-family: var(--ff);
+  color: var(--tg-text);
+  -webkit-font-smoothing: antialiased;
+  position: relative;
 }
 
 .screen {
@@ -59,18 +144,11 @@ body {
   display: flex;
   flex-direction: column;
   gap: var(--beosand-gap);
-  /*
-   * Leave room for the native MainButton fixed at the bottom of the viewport so
-   * the last List/Section is never hidden behind it. The button is ~60px; pad a
-   * little more for comfortable scroll-to-end.
-   */
+  /* Leave room for the native MainButton fixed at the bottom of the viewport. */
   padding-bottom: calc(var(--beosand-screen-pad) + 88px);
 }
 
-/*
- * Screens whose primary action is NOT the native MainButton (e.g. the profile
- * landing has no submit) don't need the bottom reservation.
- */
+/* Screens with no native MainButton (e.g. Home, Profile landing). */
 .screen--no-mainbutton {
   padding-bottom: var(--beosand-screen-pad);
 }
@@ -92,67 +170,529 @@ body {
 }
 
 .muted {
-  color: var(--tgui--hint_color, #999);
+  color: var(--tg-hint);
 }
 
-/*
- * Onboarding wizard step header: the telegram-ui <Steps> progress bar plus the
- * "Шаг N из 3" caption, grouped at the top of the screen.
- */
+/* =========================================================
+ * Telegram-style section header
+ * ========================================================= */
+.tg-sech {
+  font-size: 13px;
+  color: var(--tg-hint);
+  text-transform: uppercase;
+  letter-spacing: 0.02em;
+  padding: 18px 16px 7px;
+  font-weight: 500;
+}
+
+/* =========================================================
+ * Cards / generic list
+ * ========================================================= */
+.card {
+  background: var(--tg-bg);
+  border-radius: var(--r-lg);
+  overflow: hidden;
+}
+
+.card + .card { margin-top: 12px; }
+
+/* Generic list row */
+.lrow {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 14px 16px;
+  background: var(--tg-bg);
+  cursor: pointer;
+}
+
+.lrow + .lrow { border-top: 0.5px solid var(--tg-sep); }
+
+.lrow__main { flex: 1; min-width: 0; }
+.lrow__title { font-size: 16px; font-weight: 500; }
+.lrow__sub { font-size: 13px; color: var(--tg-hint); margin-top: 1px; }
+.lrow__chev { color: var(--tg-sep); }
+.lrow__chev svg { width: 8px; height: 14px; display: block; }
+
+/* =========================================================
+ * Slot card — .slot structure
+ * ========================================================= */
+.slot {
+  background: var(--tg-bg);
+  border-radius: var(--r-lg);
+  padding: 14px 16px;
+  cursor: pointer;
+  transition: transform .08s;
+  position: relative;
+}
+
+.slot:active { transform: scale(0.985); }
+
+.slot__top { display: flex; align-items: center; justify-content: space-between; margin-bottom: 9px; }
+.slot__when { display: flex; align-items: baseline; gap: 8px; }
+.slot__time { font-size: 20px; font-weight: 700; letter-spacing: -0.4px; }
+.slot__date { font-size: 13px; color: var(--tg-hint); }
+.slot__group { font-size: 15px; font-weight: 600; margin-bottom: 3px; }
+.slot__meta { font-size: 13.5px; color: var(--tg-subtitle); display: flex; gap: 6px; align-items: center; flex-wrap: wrap; }
+.slot__foot { display: flex; align-items: center; justify-content: space-between; margin-top: 11px; padding-top: 11px; border-top: 0.5px solid var(--tg-sep-soft); }
+.slot__price { font-size: 16px; font-weight: 700; }
+.slot__price small { font-size: 12px; font-weight: 500; color: var(--tg-hint); }
+
+.slot:focus-visible {
+  outline: 2px solid var(--co);
+  outline-offset: -2px;
+  border-radius: var(--r-lg);
+}
+
+/* =========================================================
+ * Availability badge
+ * ========================================================= */
+.avail { font-size: 13px; font-weight: 600; color: var(--teal); }
+.avail--low { color: var(--amber); }
+.avail--none { color: var(--co); }
+
+/* =========================================================
+ * Pill / chip
+ * ========================================================= */
+.chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  border-radius: 18px;
+  padding: 6px 13px;
+  font-size: 14px;
+  font-weight: 500;
+  border: 1px solid var(--tg-sep);
+  background: var(--tg-bg);
+  color: var(--tg-subtitle);
+  cursor: pointer;
+  white-space: nowrap;
+  transition: all .12s;
+  font-family: var(--ff);
+}
+
+.chip.is-on,
+.chip--active {
+  background: var(--co);
+  border-color: var(--co);
+  color: #fff;
+}
+
+.chip svg { width: 15px; height: 15px; }
+
+.chip:focus-visible {
+  outline: 2px solid var(--co);
+  outline-offset: 2px;
+}
+
+/* Count badge inside a filter chip */
+.chip__badge {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 18px;
+  height: 18px;
+  padding: 0 5px;
+  border-radius: 9px;
+  font-size: 12px;
+  font-weight: 600;
+  background: rgba(255,255,255,0.9);
+  color: var(--co);
+}
+
+.chiprow {
+  display: flex;
+  gap: 8px;
+  overflow-x: auto;
+  padding: 0 16px 2px;
+  scrollbar-width: none;
+}
+
+.chiprow::-webkit-scrollbar { display: none; }
+
+/* Legacy chip-bar alias (used by ChipBar wrapper) */
+.chip-bar {
+  display: flex;
+  gap: var(--beosand-gap-xs);
+  overflow-x: auto;
+  padding: 2px var(--beosand-gap-xs);
+  margin: 0 calc(-1 * var(--beosand-gap-xs));
+  scrollbar-width: none;
+  -webkit-overflow-scrolling: touch;
+}
+
+.chip-bar::-webkit-scrollbar { display: none; }
+
+/* =========================================================
+ * Status chip (mini) — .schip
+ * ========================================================= */
+.schip {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  border-radius: 8px;
+  padding: 3px 9px;
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.schip .dot { width: 6px; height: 6px; border-radius: 50%; }
+
+/* booked = coral (upcoming, "you're in") */
+.schip--co { background: var(--co-soft); color: var(--co-ink); }
+.schip--co .dot { background: var(--co); }
+
+/* attended = teal/ok */
+.schip--ok { background: var(--teal-soft); color: #126B62; }
+.schip--ok .dot { background: var(--teal); }
+
+/* no_show = amber/warn */
+.schip--warn { background: var(--amber-soft); color: #93630A; }
+.schip--warn .dot { background: var(--amber); }
+
+/* cancelled = muted */
+.schip--muted { background: rgba(120, 120, 128, 0.12); color: var(--tg-hint); }
+.schip--muted .dot { background: var(--tg-hint); }
+
+/* =========================================================
+ * Segmented control — .seg
+ * ========================================================= */
+.seg {
+  display: flex;
+  background: rgba(120, 120, 128, 0.12);
+  border-radius: 9px;
+  padding: 2px;
+  margin: 0 16px 14px;
+}
+
+.seg button {
+  flex: 1;
+  border: none;
+  background: none;
+  cursor: pointer;
+  font-family: var(--ff);
+  font-size: 14px;
+  font-weight: 600;
+  padding: 7px 0;
+  border-radius: 7px;
+  color: var(--tg-subtitle);
+  transition: all .12s;
+}
+
+.seg button.is-on {
+  background: var(--tg-bg);
+  color: var(--tg-text);
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.12);
+}
+
+.seg button:focus-visible {
+  outline: 2px solid var(--co);
+  outline-offset: 2px;
+  border-radius: 7px;
+}
+
+/* =========================================================
+ * Option list rows — .optrow
+ * ========================================================= */
+.optrow {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 14px 16px;
+  cursor: pointer;
+  background: var(--tg-bg);
+}
+
+.optrow + .optrow { border-top: 0.5px solid var(--tg-sep); }
+
+.optrow__radio {
+  width: 22px;
+  height: 22px;
+  border-radius: 50%;
+  border: 2px solid var(--tg-sep);
+  flex: none;
+  display: grid;
+  place-items: center;
+}
+
+.optrow.is-on .optrow__radio { border-color: var(--co); }
+
+.optrow.is-on .optrow__radio::after {
+  content: "";
+  width: 12px;
+  height: 12px;
+  border-radius: 50%;
+  background: var(--co);
+}
+
+.optrow__main { flex: 1; }
+.optrow__title { font-size: 16px; font-weight: 500; }
+.optrow__sub { font-size: 13px; color: var(--tg-hint); margin-top: 1px; }
+.optrow__detail { font-size: 15px; color: var(--tg-hint); font-weight: 500; }
+
+.optrow:focus-visible {
+  outline: 2px solid var(--co);
+  outline-offset: -2px;
+  border-radius: 8px;
+}
+
+/* =========================================================
+ * Home tile grid — .tilegrid / .tile
+ * ========================================================= */
+.tilegrid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 12px;
+}
+
+.tile {
+  background: var(--tg-bg);
+  border-radius: var(--r-lg);
+  padding: 16px;
+  cursor: pointer;
+  transition: transform .08s;
+  text-align: left;
+  border: none;
+  font-family: var(--ff);
+  width: 100%;
+}
+
+.tile:active { transform: scale(0.97); }
+
+.tile__ic {
+  width: 44px;
+  height: 44px;
+  border-radius: 12px;
+  background: var(--co-soft);
+  display: grid;
+  place-items: center;
+  margin-bottom: 12px;
+  color: var(--co);
+}
+
+.tile__ic svg { width: 24px; height: 24px; }
+
+.tile__title { font-size: 16px; font-weight: 600; letter-spacing: -0.3px; color: var(--tg-text); }
+.tile__sub { font-size: 13px; color: var(--tg-hint); margin-top: 2px; line-height: 1.3; }
+
+.tile:focus-visible {
+  outline: 2px solid var(--co);
+  outline-offset: -2px;
+  border-radius: var(--r-lg);
+}
+
+/* =========================================================
+ * State view — .stateview / .spinner
+ * ========================================================= */
+.stateview {
+  padding: 60px 32px;
+  text-align: center;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+}
+
+.stateview__ic {
+  width: 56px;
+  height: 56px;
+  border-radius: 16px;
+  margin: 0 auto 16px;
+  display: grid;
+  place-items: center;
+  background: var(--co-soft);
+}
+
+.stateview__ic svg { width: 28px; height: 28px; color: var(--co); }
+
+/* Calm (non-error) variant: amber/neutral instead of coral */
+.stateview__ic--calm {
+  background: var(--amber-soft);
+}
+
+.stateview__ic--calm svg { color: var(--amber); }
+
+/* Muted (unavailable) variant */
+.stateview__ic--muted {
+  background: rgba(120, 120, 128, 0.12);
+}
+
+.stateview__ic--muted svg { color: var(--tg-hint); }
+
+.stateview__title { font-size: 18px; font-weight: 600; margin-bottom: 6px; color: var(--tg-text); }
+.stateview__sub { font-size: 14px; color: var(--tg-hint); line-height: 1.45; max-width: 30ch; margin: 0 auto; }
+
+.spinner {
+  width: 30px;
+  height: 30px;
+  border: 3px solid var(--co-soft);
+  border-top-color: var(--co);
+  border-radius: 50%;
+  animation: spin 0.8s linear infinite;
+  margin: 0 auto 18px;
+}
+
+@keyframes spin { to { transform: rotate(360deg); } }
+
+/* Legacy .state-view alias (retained for existing callers) */
+.state-view {
+  min-height: 40vh;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  text-align: center;
+  gap: var(--beosand-gap-sm);
+}
+
+/* =========================================================
+ * Date strip (court) — .datestrip / .dchip
+ * ========================================================= */
+.datestrip {
+  display: flex;
+  gap: 9px;
+  overflow-x: auto;
+  padding: 0 16px 4px;
+  scrollbar-width: none;
+}
+
+.datestrip::-webkit-scrollbar { display: none; }
+
+.dchip {
+  flex: none;
+  width: 52px;
+  border-radius: 14px;
+  border: 1px solid var(--tg-sep);
+  background: var(--tg-bg);
+  cursor: pointer;
+  padding: 9px 0;
+  text-align: center;
+  transition: all .12s;
+  font-family: var(--ff);
+}
+
+.dchip.is-on { background: var(--co); border-color: var(--co); }
+
+.dchip__dow { font-size: 11px; color: var(--tg-hint); text-transform: uppercase; }
+.dchip__day { font-size: 19px; font-weight: 700; margin-top: 2px; color: var(--tg-text); }
+
+.dchip.is-on .dchip__dow,
+.dchip.is-on .dchip__day { color: #fff; }
+
+.dchip:focus-visible {
+  outline: 2px solid var(--co);
+  outline-offset: 2px;
+}
+
+/* =========================================================
+ * Time grid (court) — .timegrid / .tcell
+ * ========================================================= */
+.timegrid {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 9px;
+  padding: 0 16px;
+}
+
+.tcell {
+  border-radius: 13px;
+  border: 1px solid var(--tg-sep);
+  background: var(--tg-bg);
+  cursor: pointer;
+  padding: 11px 0 9px;
+  text-align: center;
+  transition: all .12s;
+  font-family: var(--ff);
+}
+
+.tcell.is-on { background: var(--co); border-color: var(--co); }
+
+.tcell__t { font-size: 16px; font-weight: 700; color: var(--tg-text); }
+.tcell__free { font-size: 11px; color: var(--teal); margin-top: 2px; font-weight: 600; }
+
+.tcell.is-on .tcell__t,
+.tcell.is-on .tcell__free { color: #fff; }
+
+.tcell:focus-visible {
+  outline: 2px solid var(--co);
+  outline-offset: 2px;
+}
+
+/* =========================================================
+ * Confirm summary rows — .sumrow / .note
+ * ========================================================= */
+.sumrow {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 13px 16px;
+  background: var(--tg-bg);
+  font-size: 16px;
+}
+
+.sumrow + .sumrow { border-top: 0.5px solid var(--tg-sep); }
+
+.sumrow__k { color: var(--tg-subtitle); }
+.sumrow__v { font-weight: 600; color: var(--tg-text); }
+.sumrow__v--big { font-size: 19px; }
+
+.note {
+  font-size: 13px;
+  color: var(--tg-hint);
+  padding: 10px 16px 0;
+  line-height: 1.4;
+  display: flex;
+  gap: 7px;
+}
+
+.note svg { width: 15px; height: 15px; flex: none; margin-top: 1px; color: var(--co); }
+
+/* =========================================================
+ * Onboarding wizard progress
+ * ========================================================= */
 .wizard-progress {
   display: flex;
   flex-direction: column;
   gap: var(--beosand-gap-xs);
 }
 
-/*
- * A single-select row inside a <Section> (language / level pickers). The chosen
- * row gets a subtle coral tint + a coral leading marker so selection is obvious
- * at a glance and survives light/dark. telegram-ui owns the row chrome; we only
- * tint the active one. The selection marker is conveyed to AT via aria-selected /
- * a Radio input on the row, not by color alone.
- */
+/* =========================================================
+ * Pick-row (language / level pickers in onboarding)
+ * Kept for backward compat — OptionList now uses .optrow
+ * ========================================================= */
 .pick-row--selected {
   background: var(--beosand-coral-tint);
 }
 
-/*
- * Keyboard focus ring for our custom tappable rows (telegram-ui Cells used as
- * options). Contrast-safe coral outline; only shows for keyboard users.
- */
 .pick-row:focus-visible {
-  outline: 2px solid var(--beosand-coral);
+  outline: 2px solid var(--co);
   outline-offset: -2px;
   border-radius: 8px;
 }
 
-/* The coral leading dot marking the selected option in a picker list. */
 .pick-marker {
   display: inline-block;
   width: 10px;
   height: 10px;
   border-radius: 50%;
-  background: var(--beosand-coral);
+  background: var(--co);
 }
 
-/* Helper caption under a wizard field (e.g. the name hint). */
 .screen-hint {
   padding: var(--beosand-gap-xs) var(--beosand-screen-pad) 0;
 }
 
-/* Trailing chevron on an interactive profile row (opens the language sheet). */
+/* =========================================================
+ * Trailing chevron on interactive rows
+ * ========================================================= */
 .chevron {
-  color: var(--tgui--hint_color, #999);
+  color: var(--tg-hint);
   font-size: 20px;
   line-height: 1;
 }
 
-/*
- * Home menu (S2). The brand header above the section-list: app name + tagline,
- * sitting on the screen's secondary background so the white List sections read
- * as cards beneath it. No MainButton on Home, so no bottom reservation (the
- * .screen--no-mainbutton modifier handles that on the screen element).
- */
+/* =========================================================
+ * Home header (legacy list-based Home uses this)
+ * ========================================================= */
 .home-header {
   display: flex;
   flex-direction: column;
@@ -160,11 +700,20 @@ body {
   padding: var(--beosand-gap-xs) var(--beosand-gap-xs) 0;
 }
 
-/*
- * The coral leading "chip" behind each menu icon: a soft tinted square so the
- * brand accent is present on every row without flooding the list. The icon itself
- * is coral (currentColor). The tint uses alpha, so it adapts to light & dark.
- */
+/* Coral welcome banner (tile-grid Home) */
+.home-banner {
+  background: linear-gradient(135deg, var(--co) 0%, #d44a32 100%);
+  border-radius: var(--r-lg);
+  padding: 16px;
+  color: #fff;
+}
+
+.home-banner__title { font-size: 18px; font-weight: 700; letter-spacing: -0.3px; margin-bottom: 2px; }
+.home-banner__sub { font-size: 13px; opacity: 0.85; }
+
+/* =========================================================
+ * Menu icon chip (used on Home list rows + individual screen)
+ * ========================================================= */
 .menu-icon {
   display: inline-flex;
   align-items: center;
@@ -173,7 +722,7 @@ body {
   height: 32px;
   border-radius: 8px;
   background: var(--beosand-coral-tint);
-  color: var(--beosand-coral);
+  color: var(--co);
   flex: none;
 }
 
@@ -183,24 +732,15 @@ body {
   display: block;
 }
 
-/*
- * Keyboard focus ring for tappable menu cells (telegram-ui Cells used as nav
- * rows). Contrast-safe coral outline; only shows for keyboard users.
- */
 .menu-row:focus-visible {
-  outline: 2px solid var(--beosand-coral);
+  outline: 2px solid var(--co);
   outline-offset: -2px;
   border-radius: 8px;
 }
 
-/* =====================================================================
- * Browse + book (S3/S4): slot cards, filter chips, filter sheet, states.
- * Coral is reserved for engaged state (active chip, the seat-free badge,
- * the success tick) — never the default surface. Free/full is conveyed by
- * text + structure, never by color alone (a11y).
- * ===================================================================== */
-
-/* Bare browse-flow glyph (no coral chip), inherits the surrounding color. */
+/* =========================================================
+ * Browse / browse-flow glyphs
+ * ========================================================= */
 .glyph {
   display: inline-flex;
   align-items: center;
@@ -214,70 +754,12 @@ body {
   display: block;
 }
 
-/* ---- Filter bar: a horizontally scrollable row of pills. ---- */
-.chip-bar {
-  display: flex;
-  gap: var(--beosand-gap-xs);
-  overflow-x: auto;
-  padding: 2px var(--beosand-gap-xs);
-  margin: 0 calc(-1 * var(--beosand-gap-xs));
-  /* Hide the scrollbar but keep horizontal scrolling on touch. */
-  scrollbar-width: none;
-  -webkit-overflow-scrolling: touch;
-}
-
-.chip-bar::-webkit-scrollbar {
-  display: none;
-}
-
-.chip {
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-  flex: none;
-  height: 34px;
-  padding: 0 14px;
-  border: 0;
-  border-radius: 17px;
-  font: inherit;
-  font-size: 14px;
-  line-height: 1;
-  cursor: pointer;
-  white-space: nowrap;
-  /* Inactive: native bezeled surface that adapts to light/dark. */
-  background: var(--tgui--secondary_fill, rgba(127, 127, 127, 0.12));
-  color: var(--tgui--text_color, #000);
-}
-
-/* Active filter / engaged Today toggle: the single coral accent in the bar. */
-.chip--active {
-  background: var(--beosand-coral);
-  color: var(--tgui--button_text_color, #fff);
-}
-
-.chip:focus-visible {
-  outline: 2px solid var(--beosand-coral);
-  outline-offset: 2px;
-}
-
-/* Count badge on the filter trigger (number of active filters). */
-.chip__badge {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  min-width: 18px;
-  height: 18px;
-  padding: 0 5px;
-  border-radius: 9px;
-  font-size: 12px;
-  font-weight: 600;
-  background: var(--tgui--button_text_color, #fff);
-  color: var(--beosand-coral);
-}
-
-/* ---- Slot card meta row: seat badge + price chip. ---- */
+/* =========================================================
+ * Slot card (legacy .slot-card classes retained for
+ * BrowseView / WaitlistJoinView that still reference them)
+ * ========================================================= */
 .slot-card:focus-visible {
-  outline: 2px solid var(--beosand-coral);
+  outline: 2px solid var(--co);
   outline-offset: -2px;
   border-radius: 10px;
 }
@@ -289,11 +771,6 @@ body {
   margin-top: 4px;
 }
 
-/*
- * Seat badge. Free vs. full differ in BOTH color and text ("3 места" vs "Нет
- * мест"), so state never rides on color alone. Free = coral tint; full = a neutral
- * hint surface so it reads as unavailable without relying on red/green.
- */
 .slot-badge {
   display: inline-flex;
   align-items: center;
@@ -307,15 +784,14 @@ body {
 
 .slot-badge--free {
   background: var(--beosand-coral-tint);
-  color: var(--beosand-coral-ink);
+  color: var(--co-ink);
 }
 
 .slot-badge--full {
-  background: var(--tgui--secondary_fill, rgba(127, 127, 127, 0.14));
-  color: var(--tgui--hint_color, #999);
+  background: rgba(127, 127, 127, 0.14);
+  color: var(--tg-hint);
 }
 
-/* Price chip — neutral outline so the coral stays on availability, not money. */
 .slot-price-chip {
   display: inline-flex;
   align-items: center;
@@ -325,21 +801,22 @@ body {
   font-size: 13px;
   font-weight: 600;
   line-height: 1;
-  color: var(--tgui--text_color, #000);
-  background: var(--tgui--secondary_fill, rgba(127, 127, 127, 0.1));
+  color: var(--tg-text);
+  background: rgba(127, 127, 127, 0.1);
 }
 
-/* Waitlist pill on a full card — the S6 seam; an outline, not a coral fill. */
 .slot-card__waitlist-pill {
   display: inline-flex;
   align-items: center;
   gap: 5px;
   font-size: 13px;
   font-weight: 600;
-  color: var(--beosand-coral-ink);
+  color: var(--co-ink);
 }
 
-/* ---- Filter sheet (bottom-sheet Modal). ---- */
+/* =========================================================
+ * Filter sheet
+ * ========================================================= */
 .filter-sheet {
   padding-bottom: var(--beosand-gap-sm);
 }
@@ -350,18 +827,9 @@ body {
   padding: var(--beosand-gap-sm) var(--beosand-screen-pad);
 }
 
-/* ---- Shared list states: loading / empty / error. ---- */
-.state-view {
-  min-height: 40vh;
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  justify-content: center;
-  text-align: center;
-  gap: var(--beosand-gap-sm);
-}
-
-/* ---- Confirm step. ---- */
+/* =========================================================
+ * Confirm step (legacy classes retained for ConfirmView/CourtPreview)
+ * ========================================================= */
 .confirm-price {
   font-weight: 600;
 }
@@ -370,11 +838,13 @@ body {
   padding: var(--beosand-gap-sm) var(--beosand-screen-pad);
   border-radius: 10px;
   background: var(--beosand-coral-tint);
-  color: var(--beosand-coral-ink);
+  color: var(--co-ink);
   font-size: 14px;
 }
 
-/* The success tick on the booked-state Placeholder. */
+/* =========================================================
+ * Success / waitlist badges
+ * ========================================================= */
 .success-badge {
   display: inline-flex;
   align-items: center;
@@ -382,26 +852,12 @@ body {
   width: 56px;
   height: 56px;
   border-radius: 50%;
-  background: var(--beosand-coral);
-  color: var(--tgui--button_text_color, #fff);
+  background: var(--co);
+  color: #fff;
   font-size: 28px;
   line-height: 1;
 }
 
-/* =====================================================================
- * Waitlist (S6): join confirm/result + the deep-link accept screen.
- * Coral stays on the native MainButton and the success tick only; the
- * waiting/accept glyph sits on a soft coral-tint chip (an "in progress",
- * not "done", signal — visually distinct from the solid success tick).
- * Every state is conveyed by structure + text, never color alone.
- * ===================================================================== */
-
-/*
- * The leading glyph on a waitlist Placeholder (joined / accept prompt): a tinted
- * coral chip with the coral glyph, echoing the Home `.menu-icon` chip so it reads
- * as the same brand family. Tint (not fill) keeps it distinct from the solid
- * `.success-badge` tick — "you're queued / a seat is open", not "done".
- */
 .waitlist-badge {
   display: inline-flex;
   align-items: center;
@@ -410,7 +866,7 @@ body {
   height: 56px;
   border-radius: 50%;
   background: var(--beosand-coral-tint);
-  color: var(--beosand-coral);
+  color: var(--co);
 }
 
 .waitlist-badge svg {
@@ -419,77 +875,32 @@ body {
   display: block;
 }
 
-/*
- * The closed-window / seat-re-taken state: the same chip on a neutral hint surface
- * (not red), so "the window closed" reads as calm and unavailable rather than as an
- * error — matching the `.slot-badge--full` "unavailable without alarm" treatment.
- */
 .waitlist-badge--muted {
-  background: var(--tgui--secondary_fill, rgba(127, 127, 127, 0.14));
-  color: var(--tgui--hint_color, #999);
+  background: rgba(127, 127, 127, 0.14);
+  color: var(--tg-hint);
 }
 
-/*
- * The returned waitlist position under the joined-success Placeholder: a centered
- * coral-tint pill so the reassuring "you're #N in line" detail is legible without a
- * second coral accent competing with the MainButton.
- */
 .waitlist-position {
   align-self: center;
   padding: var(--beosand-gap-xs) var(--beosand-gap-sm);
   border-radius: 14px;
   background: var(--beosand-coral-tint);
-  color: var(--beosand-coral-ink);
+  color: var(--co-ink);
   font-size: 14px;
   font-weight: 600;
 }
 
-/* =====================================================================
- * My bookings (S5): segmented Upcoming|Past, booking-item status chips,
- * the Cancel affordance (shown only on canCancel), and the cancel confirm.
- *
- * Palette discipline: coral is reserved for the ACTIVE segment, the native
- * MainButton, and the success tick — never the default surfaces. Every
- * booking status is conveyed by a TEXT chip + icon + structure, never color
- * alone; the destructive cancel uses Telegram's own danger color (text), not
- * the brand coral, so "destructive" reads distinctly from "brand".
- *
- * Neutral tokens reused: --tgui--hint_color (muted), --tgui--secondary_fill
- * (calm chip surface), --tgui--destructive_text_color (the cancel verb).
- * ===================================================================== */
-
-/* ---- Segmented Upcoming|Past control (TGUI SegmentedControl shell). ---- */
-/*
- * The control sits at the top of the screen above the List. We tint only the
- * ACTIVE segment with coral so the chosen scope is unmistakable in light/dark.
- * Selection is announced via role="tablist"/aria-selected on the segments, so
- * the active state is never color-only.
- */
+/* =========================================================
+ * My bookings (legacy booking-chip classes — retained since
+ * BookingItemCard now uses .schip but CancelSheet / other
+ * code may still reference these)
+ * ========================================================= */
 .segmented {
   margin-bottom: var(--beosand-gap-sm);
 }
 
-.segmented .tgui-segmented-control-item--selected,
-.segmented [data-selected="true"] {
-  color: var(--beosand-coral-ink);
-}
-
-/* The sliding pill behind the active segment picks up the brand tint. */
-.segmented .tgui-segmented-control__slider,
-.segmented .segmented__slider {
-  background: var(--beosand-coral-tint);
-}
-
-/* Keyboard focus ring for the segment tabs. */
-.segmented [role="tab"]:focus-visible {
-  outline: 2px solid var(--beosand-coral);
-  outline-offset: 2px;
-  border-radius: 14px;
-}
-
-/* ---- Booking item card meta row (status chip + cancel affordance). ---- */
 .booking-card:focus-visible {
-  outline: 2px solid var(--beosand-coral);
+  outline: 2px solid var(--co);
   outline-offset: -2px;
   border-radius: 10px;
 }
@@ -501,12 +912,6 @@ body {
   margin-top: 4px;
 }
 
-/*
- * Status / outcome chip. One pill shape; the variant differs in BOTH color and
- * text + a leading glyph, so state never rides on color alone. Tone is calm:
- * past outcomes are visually distinct but not alarming (no red fills, no
- * green "good job" — these are neutral facts about a finished session).
- */
 .booking-chip {
   display: inline-flex;
   align-items: center;
@@ -519,49 +924,24 @@ body {
   line-height: 1;
 }
 
-.booking-chip svg {
-  width: 13px;
-  height: 13px;
-  display: block;
-}
+.booking-chip svg { width: 13px; height: 13px; display: block; }
 
-/*
- * Upcoming / booked: the active, "you're in" state — soft coral tint, the one
- * place the booking list carries brand color. Matches the slot-badge--free
- * "engaged" treatment so the two list surfaces read as one family.
- */
 .booking-chip--booked {
   background: var(--beosand-coral-tint);
-  color: var(--beosand-coral-ink);
+  color: var(--co-ink);
 }
 
-/*
- * Attended: a finished, accounted-for session. Neutral-positive — a quiet ink
- * chip on a calm surface, NOT a celebratory green, so the Past list stays a
- * calm log rather than a scoreboard.
- */
 .booking-chip--attended {
-  background: var(--tgui--secondary_fill, rgba(127, 127, 127, 0.12));
-  color: var(--tgui--text_color, #000);
+  background: rgba(127, 127, 127, 0.12);
+  color: var(--tg-text);
 }
 
-/*
- * No-show and cancelled: a muted hint chip — "this didn't happen" — reusing the
- * exact slot-badge--full / waitlist-badge--muted "unavailable without alarm"
- * treatment. Distinguished from attended by text + glyph, never by red.
- */
 .booking-chip--noShow,
 .booking-chip--cancelled {
-  background: var(--tgui--secondary_fill, rgba(127, 127, 127, 0.14));
-  color: var(--tgui--hint_color, #999);
+  background: rgba(127, 127, 127, 0.14);
+  color: var(--tg-hint);
 }
 
-/*
- * The Cancel affordance on an upcoming, cancellable row. Subtle text button in
- * Telegram's native destructive color (not the brand coral) so "remove" reads
- * distinctly from "brand action". It is the row's trailing `after` control;
- * tapping opens the confirm sheet (the destructive write itself is gated there).
- */
 .booking-cancel {
   appearance: none;
   border: 0;
@@ -582,53 +962,23 @@ body {
   outline-offset: 1px;
 }
 
-/* ---- Cancel confirm (bottom-sheet Modal over the list). ---- */
-.cancel-sheet {
-  padding-bottom: var(--beosand-gap-sm);
-}
+.cancel-sheet { padding-bottom: var(--beosand-gap-sm); }
 
-/*
- * The slot summary inside the confirm sheet sits in a plain Section; the warning
- * framing is carried by copy + the warning haptic, not a red panel — the actual
- * destructive commit is the sheet's primary button.
- */
 .cancel-sheet__actions {
   display: flex;
   gap: var(--beosand-gap-sm);
   padding: var(--beosand-gap-sm) var(--beosand-screen-pad);
 }
 
-/* =====================================================================
- * Group monthly subscription (S7): group list, group detail + two-option
- * month picker, confirm sub-state, and the result screen (created count +
- * skipped dates).
- *
- * Palette discipline (same as the rest of the app): coral is reserved for the
- * native MainButton, the ACTIVE month row (reusing the picker tint), and the
- * solid success tick on the result. Money (the monthly price) is a NEUTRAL
- * chip — coral never rides on price. The skipped-dates block is conveyed by a
- * header + text + a neutral muted surface, NEVER by color (no red "error"
- * panel): a skipped date is calm, informational, not a failure.
- *
- * Reuses without new tokens: `.pick-row`/`.pick-row--selected`/`.pick-marker`
- * (the month picker is an OptionList), `.menu-icon`/`Glyph` (the group glyph),
- * `.success-badge` (the result tick), `.confirm-price` (the price emphasis),
- * `.confirm-error` (the verbatim server error on a failed confirm), and the
- * shared StateView loading/empty/error surfaces.
- * ===================================================================== */
-
-/* ---- Group list row meta (weekdays · time, trainer, monthly price chip). ---- */
+/* =========================================================
+ * Group monthly subscription
+ * ========================================================= */
 .group-card:focus-visible {
-  outline: 2px solid var(--beosand-coral);
+  outline: 2px solid var(--co);
   outline-offset: -2px;
   border-radius: 10px;
 }
 
-/*
- * The group-card meta line under the title: the weekday/time facts plus the
- * monthly-price chip. Mirrors `.slot-card__meta` so the two list surfaces read
- * as one family.
- */
 .group-card__meta {
   display: inline-flex;
   align-items: center;
@@ -637,11 +987,6 @@ body {
   margin-top: 4px;
 }
 
-/*
- * Monthly-price chip — the "абонемент на месяц" amount. NEUTRAL by design: the
- * same outline treatment as the browse `.slot-price-chip` so money never wears
- * the brand coral. Display-only; the value is the API's `priceMonthRsd`.
- */
 .group-price-chip {
   display: inline-flex;
   align-items: center;
@@ -651,22 +996,13 @@ body {
   font-size: 13px;
   font-weight: 600;
   line-height: 1;
-  color: var(--tgui--text_color, #000);
-  background: var(--tgui--secondary_fill, rgba(127, 127, 127, 0.1));
+  color: var(--tg-text);
+  background: rgba(127, 127, 127, 0.1);
 }
 
-/* ---- Result screen: skipped-dates block (informational, never an error). ---- */
-/*
- * The "Пропущенные даты (нет мест)" block beneath the success tick. It sits on
- * the neutral hint surface — the SAME calm "unavailable without alarm"
- * treatment as `.slot-badge--full` / `.booking-chip--cancelled` — so a skipped
- * date reads as a quiet fact, not a red failure. State is carried by the header
- * text + the per-date rows, never by color. Announced as a `role="note"`
- * region by the screen.
- */
 .skipped-block {
   border-radius: 10px;
-  background: var(--tgui--secondary_fill, rgba(127, 127, 127, 0.12));
+  background: rgba(127, 127, 127, 0.12);
   padding: var(--beosand-gap-sm);
   display: flex;
   flex-direction: column;
@@ -676,197 +1012,33 @@ body {
 .skipped-block__header {
   font-size: 14px;
   font-weight: 600;
-  color: var(--tgui--text_color, #000);
+  color: var(--tg-text);
 }
 
-/* A single skipped date, listed as a calm muted line (date + the "no seats" reason). */
 .skipped-block__item {
   font-size: 14px;
-  color: var(--tgui--hint_color, #999);
+  color: var(--tg-hint);
 }
 
-/*
- * The created-trainings count beneath the success tick: a centered coral-tint
- * pill echoing `.waitlist-position`, so the reassuring "Создано тренировок: N"
- * detail is legible without a second solid-coral accent competing with the
- * MainButton. Display-only — the count is `GroupBookingResult.created.length`.
- */
 .created-count {
   align-self: center;
   padding: var(--beosand-gap-xs) var(--beosand-gap-sm);
   border-radius: 14px;
   background: var(--beosand-coral-tint);
-  color: var(--beosand-coral-ink);
+  color: var(--co-ink);
   font-size: 14px;
   font-weight: 600;
 }
 
-/* =====================================================================
- * Individual training request (S8): trainer list, confirm sub-state, the
- * delivered-success state, and the calm soft "trainer-unavailable" state.
- *
- * Palette discipline (same as the rest of the app): coral is reserved for the
- * native MainButton ("Запросить тренировку"), the leading trainer chip (the
- * same `.menu-icon` brand chip used on Home), and the solid `.success-badge`
- * tick on the delivered state. The trainer-TYPE label (main/guest) is NEUTRAL
- * reference text — never coral, never a court/identity leak (telegramId is
- * never rendered). The soft `delivered:false` state is conveyed by a MUTED
- * chip + header + body on a calm hint surface — NEVER a red error panel: a
- * busy trainer is an informational fact, not a failure, and is announced as a
- * `role="status"` region, not a `role="alert"`.
- *
- * Reuses without new tokens: `.menu-icon` (the coral leading trainer chip,
- * with the existing `individual` glyph), `.chevron` (the trailing row
- * affordance), `.success-badge` (the delivered tick), `.waitlist-badge--muted`
- * (the soft-state chip surface), and the shared StateView loading/empty/error
- * surfaces (`LoadingState` / `EmptyState` / `ErrorState`).
- * ===================================================================== */
-
-/* The trainer-list row: same focus ring as the other tappable list cards. */
+/* =========================================================
+ * Individual training request
+ * ========================================================= */
 .trainer-card:focus-visible {
-  outline: 2px solid var(--beosand-coral);
+  outline: 2px solid var(--co);
   outline-offset: -2px;
   border-radius: 10px;
 }
 
-/* =====================================================================
- * Court rental request (S9): date picker → start-time picker →
- * duration → server price preview → calm pending state.
- *
- * Palette discipline (unchanged from the rest of the app): coral is
- * reserved for the SELECTED date pill, the SELECTED time pill, the
- * active duration row (the OptionList tint), the native MainButton
- * ("Отправить заявку"), and the solid `.success-badge` tick on the
- * pending state. The free-courts COUNT chip uses the existing
- * `.slot-badge--free` "engaged" tint (it is a count, NEVER a court
- * number/id — a court id is never rendered anywhere in this flow). The
- * price is a NEUTRAL chip/row — coral never rides on money. The
- * "this time is taken" availability note reuses the calm muted
- * "unavailable without alarm" surface — NOT a red error.
- *
- * Reuses without new tokens: `.pick-row`/`.pick-row--selected`/
- * `.pick-marker` (the duration OptionList), `.slot-badge--free` (the
- * free-courts count chip), `.confirm-price` (the price emphasis),
- * `.confirm-error` (a verbatim 409 on submit), `.success-badge` (the
- * pending tick), `.waitlist-badge--muted` (the calm "taken" chip), the
- * shared StateView surfaces, and the screen / screen__center layout.
- *
- * New surfaces below: the horizontal date/time PILL grids and the
- * selected pill state. These differ from the existing `.chip` filter
- * bar (single-select, larger tap target, 2-line date pill) so they get
- * their own classes rather than overloading the filter chip.
- * ===================================================================== */
-
-/*
- * A horizontally scrollable rail of single-select pills — used for BOTH
- * the date window and the start-time list. Mirrors `.chip-bar` scroll
- * behaviour (hidden scrollbar, touch momentum) so the two rails read as
- * one family, but with a roomier gap for the taller date pills.
- */
-.court-rail {
-  display: flex;
-  gap: var(--beosand-gap-xs);
-  overflow-x: auto;
-  padding: 2px var(--beosand-gap-xs);
-  margin: 0 calc(-1 * var(--beosand-gap-xs));
-  scrollbar-width: none;
-  -webkit-overflow-scrolling: touch;
-}
-
-.court-rail::-webkit-scrollbar {
-  display: none;
-}
-
-/*
- * One selectable pill in a date/time rail. Inactive = the native
- * bezeled surface (adapts light/dark); selected = the coral fill, the
- * single accent that marks the current choice. Selection is announced
- * via `aria-pressed`/`aria-current` on the button, NEVER by color
- * alone (the weekday + day text and the time text carry the meaning).
- */
-.court-pill {
-  display: inline-flex;
-  flex-direction: column;
-  align-items: center;
-  justify-content: center;
-  gap: 2px;
-  flex: none;
-  min-width: 56px;
-  min-height: 56px;
-  padding: 8px 12px;
-  border: 0;
-  border-radius: 14px;
-  font: inherit;
-  line-height: 1.1;
-  cursor: pointer;
-  white-space: nowrap;
-  background: var(--tgui--secondary_fill, rgba(127, 127, 127, 0.12));
-  color: var(--tgui--text_color, #000);
-}
-
-/* A single-line (time) pill is a touch shorter than the 2-line date pill. */
-.court-pill--time {
-  flex-direction: row;
-  gap: 6px;
-  min-height: 48px;
-}
-
-/* The chosen date/time pill: the one coral accent in the rail. */
-.court-pill--selected {
-  background: var(--beosand-coral);
-  color: var(--tgui--button_text_color, #fff);
-}
-
-.court-pill:focus-visible {
-  outline: 2px solid var(--beosand-coral);
-  outline-offset: 2px;
-}
-
-/* The small weekday caption above the day number inside a date pill. */
-.court-pill__weekday {
-  font-size: 12px;
-  font-weight: 600;
-  opacity: 0.85;
-}
-
-/* The day·month line inside a date pill. */
-.court-pill__day {
-  font-size: 15px;
-  font-weight: 600;
-}
-
-/*
- * The free-courts COUNT chip trailing a start-time pill (e.g. "4
- * свободно"). It is a COUNT of free courts, NEVER a court number/id.
- * On an unselected pill it uses the calm coral-tint `.slot-badge--free`
- * treatment; on the selected (coral-filled) pill it switches to a
- * translucent-on-fill surface so it stays legible against the coral.
- */
-.court-count {
-  display: inline-flex;
-  align-items: center;
-  height: 20px;
-  padding: 0 8px;
-  border-radius: 10px;
-  font-size: 12px;
-  font-weight: 600;
-  line-height: 1;
-  background: var(--beosand-coral-tint);
-  color: var(--beosand-coral-ink);
-}
-
-.court-pill--selected .court-count {
-  background: rgba(255, 255, 255, 0.22);
-  color: var(--tgui--button_text_color, #fff);
-}
-
-/*
- * The trainer-TYPE label (main/guest) shown as the row subtitle and on the
- * confirm summary. A NEUTRAL muted hint pill — the calm "secondary fact"
- * treatment (mirrors `.slot-badge--full` / `.booking-chip--attended`), so the
- * type reads as quiet reference data and never competes with the coral chip or
- * the MainButton. Non-sensitive; the trainer's telegramId is never rendered.
- */
 .trainer-type {
   display: inline-flex;
   align-items: center;
@@ -876,6 +1048,6 @@ body {
   font-size: 13px;
   font-weight: 600;
   line-height: 1;
-  color: var(--tgui--hint_color, #999);
-  background: var(--tgui--secondary_fill, rgba(127, 127, 127, 0.12));
+  color: var(--tg-hint);
+  background: rgba(127, 127, 127, 0.12);
 }

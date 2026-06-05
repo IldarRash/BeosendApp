@@ -1,11 +1,12 @@
-import { Cell, Radio, Section } from "@telegram-apps/telegram-ui";
-import type { ReactNode } from "react";
-
 export interface Option<T> {
   /** A stable value identifying the option. */
   value: T;
   /** The visible label. */
   label: string;
+  /** Optional secondary line shown below the label. */
+  sub?: string;
+  /** Optional trailing detail (e.g. price). */
+  detail?: string;
 }
 
 interface OptionListProps<T> {
@@ -24,15 +25,15 @@ interface OptionListProps<T> {
 }
 
 /**
- * A single-select list of telegram-ui Cells with real <Radio> inputs, used by the
- * language and level pickers. Selection is announced to assistive tech via the
- * Radio + `aria-current`, never by color alone; the chosen row also carries a coral
- * tint + marker (ui/theme.css `.pick-row--selected`). The row is keyboard-focusable
- * and Enter/Space activates it.
+ * A single-select list of option rows using the handoff `.optrow` structure.
  *
- * Selection is driven by a SINGLE handler on the Cell (`onClick`); the Radio is
- * presentational/aria-only (`readOnly`, no `onChange`) so a tap can't fire onSelect
- * twice. Each list passes a distinct `name` so its radios form their own group.
+ * Each row contains a visually hidden `<input type="radio">` that carries the native
+ * radio semantics (role="radio", checked, name, aria-label) for assistive tech and
+ * the test suite, while the custom `.optrow__radio` ring drives the visual affordance.
+ * Selection is driven by a single `onClick` on the row (label element) so a tap fires
+ * `onSelect` exactly once; the input is `readOnly` to prevent a second `onChange`.
+ *
+ * The coral radio ring is shown via CSS `.optrow.is-on .optrow__radio::after`.
  */
 export function OptionList<T extends string | number | undefined>({
   name,
@@ -43,32 +44,51 @@ export function OptionList<T extends string | number | undefined>({
   onSelect
 }: OptionListProps<T>): JSX.Element {
   return (
-    <Section header={header} footer={footer}>
-      {options.map((option) => {
-        const isSelected = option.value === selected;
-        return (
-          <Cell
-            key={String(option.value)}
-            Component="label"
-            className={isSelected ? "pick-row pick-row--selected" : "pick-row"}
-            aria-current={isSelected || undefined}
-            before={
-              <Radio
+    <div>
+      {header && <div className="tg-sech">{header}</div>}
+      <div className="card">
+        {options.map((option) => {
+          const isSelected = option.value === selected;
+          const id = `${name}-${String(option.value)}`;
+          return (
+            <label
+              key={String(option.value)}
+              htmlFor={id}
+              className={isSelected ? "optrow is-on" : "optrow"}
+              aria-current={isSelected || undefined}
+              onClick={() => onSelect(option.value)}
+              onKeyDown={(e) => {
+                if (e.key === "Enter" || e.key === " ") {
+                  e.preventDefault();
+                  onSelect(option.value);
+                }
+              }}
+              tabIndex={0}
+            >
+              {/* Visually hidden real radio input — carries role="radio", .checked, .name, aria-label */}
+              <input
+                id={id}
+                type="radio"
                 name={name}
                 checked={isSelected}
                 readOnly
                 aria-label={option.label}
+                style={{ position: "absolute", opacity: 0, width: 0, height: 0, pointerEvents: "none" }}
               />
-            }
-            after={isSelected ? marker : undefined}
-            onClick={() => onSelect(option.value)}
-          >
-            {option.label}
-          </Cell>
-        );
-      })}
-    </Section>
+              {/* Visual coral ring (CSS drives the fill via .is-on) */}
+              <span className="optrow__radio" aria-hidden="true" />
+              <span className="optrow__main">
+                <span className="optrow__title">{option.label}</span>
+                {option.sub && <span className="optrow__sub">{option.sub}</span>}
+              </span>
+              {option.detail && (
+                <span className="optrow__detail">{option.detail}</span>
+              )}
+            </label>
+          );
+        })}
+      </div>
+      {footer && <div className="tg-sech" style={{ paddingTop: 8 }}>{footer}</div>}
+    </div>
   );
 }
-
-const marker: ReactNode = <span className="pick-marker" aria-hidden="true" />;

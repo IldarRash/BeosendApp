@@ -21,6 +21,9 @@ export const adminSr: Record<string, string> = {
   "admin.nav.labels": "Tekstovi",
   "admin.nav.sectionsLabel": "Sekcije",
   "admin.nav.soon": "uskoro",
+  "admin.nav.groupSchedule": "Raspored",
+  "admin.nav.groupCourts": "Tereni",
+  "admin.nav.groupComms": "Komunikacije",
 
   // ── Brand / shell ───────────────────────────────────────────────────────
   "admin.brand.sub": "Admin konzola",

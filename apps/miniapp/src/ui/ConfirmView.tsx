@@ -1,4 +1,3 @@
-import { Cell, List, Placeholder, Section } from "@telegram-apps/telegram-ui";
 import type { SlotCard as SlotCardData } from "@beosand/types";
 import { useT } from "../i18n/LanguageProvider";
 import { useMainButton } from "../tg/buttons";
@@ -31,15 +30,13 @@ interface ConfirmViewProps {
 }
 
 /**
- * The single-booking confirm step: a read-only summary of the chosen slot (date,
- * time, trainer, level, free seats, server-computed RSD price) with the native
- * MainButton "Записаться" as the one primary action. No money or availability math
- * — every value is the API's. On success it swaps to a success Placeholder with a
- * path back to Browse; the haptic + list refetch are fired by the screen.
+ * The single-booking confirm step. Uses the handoff `.sumrow` / `.note` structure
+ * for the summary rows and a note hint. No money or availability math — every value
+ * is the API's.
  *
- * A 409 ("slot filled meanwhile") arrives as `errorMessage` and is shown verbatim;
- * the screen refetches the list so the now-full slot drops out. The summary stays
- * visible so the user understands what happened.
+ * On success it shows a success state with a path back to Browse; the haptic + list
+ * refetch are fired by the screen. A 409 ("slot filled meanwhile") arrives as
+ * `errorMessage` and is shown verbatim; the primary action becomes "join waitlist".
  */
 export function ConfirmView({
   slot,
@@ -61,9 +58,6 @@ export function ConfirmView({
   // waitlist" for this slot rather than a retry that would 409 again.
   const offerWaitlist = onJoinWaitlist !== undefined;
 
-  // The MainButton is the booking action while unbooked; after success it becomes a
-  // "back to schedule" action, and after a 409 it becomes "join the waitlist" — always
-  // exactly one primary affordance.
   useMainButton({
     text: succeeded
       ? t("miniapp.booking.backToList")
@@ -77,11 +71,11 @@ export function ConfirmView({
   if (succeeded) {
     return (
       <div className="screen" role="status" aria-live="polite">
-        <Placeholder header={t("miniapp.booking.successTitle")} description={`${dateLine} · ${timeLine}`}>
-          <span className="success-badge" aria-hidden="true">
-            ✓
-          </span>
-        </Placeholder>
+        <div className="stateview">
+          <span className="success-badge" aria-hidden="true">✓</span>
+          <div className="stateview__title">{t("miniapp.booking.successTitle")}</div>
+          <div className="stateview__sub">{dateLine} · {timeLine}</div>
+        </div>
         <FallbackButton text={t("miniapp.booking.backToList")} onClick={onBackToList} />
       </div>
     );
@@ -89,18 +83,38 @@ export function ConfirmView({
 
   return (
     <div className="screen" aria-busy={submitting || undefined}>
-      <List>
-        <Section header={t("miniapp.booking.confirmHeader")}>
-          <Cell subhead={t("miniapp.booking.dateLabel")}>{dateLine}</Cell>
-          <Cell subhead={t("miniapp.booking.timeLabel")}>{timeLine}</Cell>
-          <Cell subhead={t("miniapp.booking.trainerLabel")}>{slot.trainerName}</Cell>
-          <Cell subhead={t("miniapp.booking.levelLabel")}>{slot.levelName}</Cell>
-          <Cell subhead={t("miniapp.booking.seatsLabel")}>{seatsLine}</Cell>
-          <Cell subhead={t("miniapp.booking.priceLabel")} className="confirm-price">
-            {priceLine}
-          </Cell>
-        </Section>
-      </List>
+      {/* Section header */}
+      <div className="tg-sech" style={{ padding: "0 0 7px" }}>
+        {t("miniapp.booking.confirmHeader")}
+      </div>
+
+      {/* Summary rows */}
+      <div className="card">
+        <div className="sumrow">
+          <span className="sumrow__k">{t("miniapp.booking.dateLabel")}</span>
+          <span className="sumrow__v">{dateLine}</span>
+        </div>
+        <div className="sumrow">
+          <span className="sumrow__k">{t("miniapp.booking.timeLabel")}</span>
+          <span className="sumrow__v">{timeLine}</span>
+        </div>
+        <div className="sumrow">
+          <span className="sumrow__k">{t("miniapp.booking.trainerLabel")}</span>
+          <span className="sumrow__v">{slot.trainerName}</span>
+        </div>
+        <div className="sumrow">
+          <span className="sumrow__k">{t("miniapp.booking.levelLabel")}</span>
+          <span className="sumrow__v">{slot.levelName}</span>
+        </div>
+        <div className="sumrow">
+          <span className="sumrow__k">{t("miniapp.booking.seatsLabel")}</span>
+          <span className="sumrow__v">{seatsLine}</span>
+        </div>
+        <div className="sumrow">
+          <span className="sumrow__k">{t("miniapp.booking.priceLabel")}</span>
+          <span className="sumrow__v sumrow__v--big">{priceLine}</span>
+        </div>
+      </div>
 
       {errorMessage && (
         <div className="confirm-error" role="alert">

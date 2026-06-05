@@ -1,4 +1,3 @@
-import { Cell } from "@telegram-apps/telegram-ui";
 import type { SlotCard as SlotCardData } from "@beosand/types";
 import { useT } from "../i18n/LanguageProvider";
 import { Glyph } from "./icons";
@@ -24,69 +23,77 @@ interface SlotCardProps {
 }
 
 /**
- * One bookable training slot, rendered as a native telegram-ui Cell so it reads as
- * a tappable list row in either theme. The card displays ONLY values the API
- * decided — weekday + date, time range, trainer, level, free seats, and the
+ * One bookable training slot. Uses the handoff `.slot` structure so the card
+ * matches the design prototype exactly. Displays ONLY values the API decided —
+ * weekday + date, time range, group, trainer, level, free seats, and the
  * server-computed RSD price — with no client-side math.
  *
- * Free/full state is never conveyed by color alone: the seat badge carries a text
- * count ("3 места" / "Нет мест") and the card's action (Book vs. Waitlist) differs,
- * so assistive tech and color-blind users get the state from text + structure. A
- * full card (`freeSeats === 0`, defensive — the endpoint returns only bookable
- * slots) shows the waitlist pill, never the coral Book chevron.
+ * Free/full state is never conveyed by color alone: the `.avail` badge carries
+ * a text count ("3 места" / "Нет мест") and the card's action (Book vs. Waitlist)
+ * differs, so assistive tech and color-blind users get the state from text + structure.
  */
 export function SlotCard({ slot, onBook, onWaitlist }: SlotCardProps): JSX.Element {
   const t = useT();
   const bookable = slot.freeSeats > 0;
 
-  const title = `${t(weekdayShortKey(slot.dayOfWeek))}, ${formatDayMonth(slot.date)} · ${formatTimeRange(
-    slot.startTime,
-    slot.endTime
-  )}`;
-  const subtitle = `${slot.trainerName} · ${slot.levelName}`;
+  const weekday = t(weekdayShortKey(slot.dayOfWeek));
+  const dayMonth = formatDayMonth(slot.date);
+  const timeRange = formatTimeRange(slot.startTime, slot.endTime);
+  const priceLabel = t("miniapp.browse.price", { price: formatRsd(slot.priceSingleRsd) });
 
   const seatLabel = bookable
     ? t("miniapp.browse.seats", { count: slot.freeSeats })
     : t("miniapp.browse.seatsNone");
-  const priceLabel = t("miniapp.browse.price", { price: formatRsd(slot.priceSingleRsd) });
 
-  // The card label is the accessible name; the action verb is appended so the
-  // tap target announces what it does (book vs. join the waitlist), not just the time.
+  // Accessible name includes all key facts + the action verb so screen readers
+  // announce what the tap does, not just the content.
   const ariaAction = bookable ? t("miniapp.browse.bookAria") : t("miniapp.browse.waitlistAria");
+  const ariaLabel = `${weekday}, ${dayMonth} · ${timeRange}. ${slot.trainerName} · ${slot.levelName}. ${seatLabel}. ${priceLabel}. ${ariaAction}`;
+
+  // Availability class: free (≤2 = low, else normal), or none.
+  let availClass = "avail";
+  if (!bookable) {
+    availClass = "avail avail--none";
+  } else if (slot.freeSeats <= 2) {
+    availClass = "avail avail--low";
+  }
 
   return (
-    <Cell
-      Component="button"
+    <button
       type="button"
-      className="slot-card"
-      multiline
+      className="slot"
       onClick={bookable ? onBook : onWaitlist}
-      aria-label={`${title}. ${subtitle}. ${seatLabel}. ${priceLabel}. ${ariaAction}`}
-      subtitle={subtitle}
-      after={
-        bookable ? (
-          <span className="chevron" aria-hidden="true">
-            ›
+      aria-label={ariaLabel}
+    >
+      <div className="slot__top">
+        <div className="slot__when">
+          <span className="slot__time">{timeRange}</span>
+          <span className="slot__date">
+            {weekday}, {dayMonth}
           </span>
+        </div>
+        <span className={availClass}>{seatLabel}</span>
+      </div>
+
+      <div className="slot__group">{slot.trainerName}</div>
+
+      <div className="slot__meta">
+        <span>{slot.levelName}</span>
+      </div>
+
+      <div className="slot__foot">
+        <div className="slot__price">
+          {priceLabel}
+        </div>
+        {bookable ? (
+          <span className="chevron" aria-hidden="true">›</span>
         ) : (
           <span className="slot-card__waitlist-pill">
             <Glyph name="waitlist" />
             {t("miniapp.browse.waitlist")}
           </span>
-        )
-      }
-      description={
-        <span className="slot-card__meta">
-          <span
-            className={bookable ? "slot-badge slot-badge--free" : "slot-badge slot-badge--full"}
-          >
-            {seatLabel}
-          </span>
-          <span className="slot-price-chip">{priceLabel}</span>
-        </span>
-      }
-    >
-      {title}
-    </Cell>
+        )}
+      </div>
+    </button>
   );
 }

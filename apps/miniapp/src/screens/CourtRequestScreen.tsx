@@ -1,5 +1,4 @@
 import { useEffect, useMemo, useState } from "react";
-import { Cell, List, Placeholder, Section } from "@telegram-apps/telegram-ui";
 import type {
   CourtAvailability,
   CourtDurationHours,
@@ -29,29 +28,23 @@ import {
 /**
  * The court-rental request journey (S9). One screen, five derived steps:
  *
- *   date     → pick a day from the offered window
- *   time     → pick an offerable start (server availability; each shows a free-court COUNT)
- *   duration → pick 1 / 1.5 / 2 hours
- *   preview  → review the SERVER's price + availability, then submit
- *   pending  → the created request (pending; NO court assigned)
+ *   date     → pick a day from the offered window (.datestrip / .dchip)
+ *   time     → pick an offerable start (.timegrid / .tcell; each shows a free COUNT)
+ *   duration → pick 1 / 1.5 / 2 hours (OptionList)
+ *   preview  → review the SERVER's price + availability, then submit (.sumrow)
+ *   pending  → the created request (pending; NO court assigned, role="status")
  *
  * Interaction layer only: the client requests a TIME + DURATION and NEVER sees or
  * chooses a court number — the contracts carry no court id, and none is rendered at
  * any step. The 6-courts-per-hour limit is server-enforced and already reflected in
  * the offered times. The price is the server's `preview.priceRsd`, shown read-only;
- * the client never sends or computes a price. The caller's identity is supplied by
- * the ApiClient from the verified session, never user input.
- *
- * The native BackButton is owned by the shell and pops the WHOLE route; in-screen
- * "back" between steps is local state. There is exactly one native MainButton per
- * actionable step (none on the bare date/time/duration pickers).
+ * the client never sends or computes a price.
  */
 export function CourtRequestScreen(): JSX.Element {
   const [date, setDate] = useState<string | undefined>(undefined);
   const [startTime, setStartTime] = useState<string | undefined>(undefined);
   const [durationHours, setDurationHours] = useState<CourtDurationHours | undefined>(undefined);
 
-  // The slot is complete once all three are chosen; the preview/submit step owns it.
   if (date && startTime && durationHours) {
     return (
       <CourtPreviewFlow
@@ -106,29 +99,26 @@ function DateStep({ onPick }: { onPick: (date: string) => void }): JSX.Element {
 
   return (
     <div className="screen">
-      <List>
-        <Section header={t("miniapp.court.pickDate")}>
-          <div className="court-rail" role="group" aria-label={t("miniapp.court.pickDate")}>
-            {dates.map((date) => {
-              const dow = dayOfWeekFromDate(date);
-              const weekday = t(weekdayShortKey(dow));
-              const dayMonth = formatDayMonth(date);
-              return (
-                <button
-                  key={date}
-                  type="button"
-                  className="court-pill"
-                  onClick={() => onPick(date)}
-                  aria-label={`${t(weekdayFullKey(dow))} ${dayMonth}`}
-                >
-                  <span className="court-pill__weekday">{weekday}</span>
-                  <span className="court-pill__day">{dayMonth}</span>
-                </button>
-              );
-            })}
-          </div>
-        </Section>
-      </List>
+      <div className="tg-sech">{t("miniapp.court.pickDate")}</div>
+      <div className="datestrip" role="group" aria-label={t("miniapp.court.pickDate")}>
+        {dates.map((date) => {
+          const dow = dayOfWeekFromDate(date);
+          const weekday = t(weekdayShortKey(dow));
+          const dayMonth = formatDayMonth(date);
+          return (
+            <button
+              key={date}
+              type="button"
+              className="dchip"
+              onClick={() => onPick(date)}
+              aria-label={`${t(weekdayFullKey(dow))} ${dayMonth}`}
+            >
+              <div className="dchip__dow">{weekday}</div>
+              <div className="dchip__day">{dayMonth.slice(0, 2)}</div>
+            </button>
+          );
+        })}
+      </div>
     </div>
   );
 }
@@ -136,7 +126,8 @@ function DateStep({ onPick }: { onPick: (date: string) => void }): JSX.Element {
 /**
  * Step 2 — pick an offerable start time for the chosen date. The server returns ONLY
  * offerable starts (the 6-per-hour limit already applied), each with a free-court
- * COUNT; the screen renders them verbatim and never computes availability. No MainButton.
+ * COUNT; the screen renders them verbatim and never computes availability.
+ * Uses `.timegrid` / `.tcell` structure. No MainButton.
  */
 function TimeStep({
   date,
@@ -155,8 +146,6 @@ function TimeStep({
       </div>
     );
   }
-  // A malformed availability response is rejected by the contract in the ApiClient and
-  // surfaces here as an error — never silently rendered, and never as a court id.
   if (availability.error || availability.data === undefined) {
     const message =
       availability.error instanceof Error ? availability.error.message : undefined;
@@ -178,39 +167,36 @@ function TimeStep({
 
   return (
     <div className="screen">
-      <List>
-        <Section header={t("miniapp.court.pickTime")}>
-          <div className="court-rail" role="group" aria-label={t("miniapp.court.pickTime")}>
-            {slots.map((slot) => (
-              <TimePill key={slot.startTime} slot={slot} onPick={() => onPick(slot.startTime)} />
-            ))}
-          </div>
-        </Section>
-      </List>
+      <div className="tg-sech">{t("miniapp.court.pickTime")}</div>
+      <div className="timegrid" role="group" aria-label={t("miniapp.court.pickTime")}>
+        {slots.map((slot) => (
+          <TimeCell key={slot.startTime} slot={slot} onPick={() => onPick(slot.startTime)} />
+        ))}
+      </div>
     </div>
   );
 }
 
-/** One offerable start time with its free-court COUNT chip (never a court number). */
-function TimePill({ slot, onPick }: { slot: SlotAvailability; onPick: () => void }): JSX.Element {
+/** One offerable start time with its free-court COUNT badge (never a court number). */
+function TimeCell({ slot, onPick }: { slot: SlotAvailability; onPick: () => void }): JSX.Element {
   const t = useT();
   const countLabel = t("miniapp.court.freeCount", { count: slot.freeCourts });
   return (
     <button
       type="button"
-      className="court-pill court-pill--time"
+      className="tcell"
       onClick={onPick}
       aria-label={`${slot.startTime}, ${countLabel}`}
     >
-      <span>{slot.startTime}</span>
-      <span className="court-count">{countLabel}</span>
+      <div className="tcell__t">{slot.startTime}</div>
+      <div className="tcell__free">{countLabel}</div>
     </button>
   );
 }
 
 /**
- * Step 3 — pick a duration (1 / 1.5 / 2 hours). The chosen date + start time are echoed
- * as a summary; the OptionList selection IS the action (no MainButton).
+ * Step 3 — pick a duration (1 / 1.5 / 2 hours). The chosen date + start time are
+ * echoed as summary rows; the OptionList selection IS the action (no MainButton).
  */
 function DurationStep({
   date,
@@ -231,34 +217,37 @@ function DurationStep({
 
   return (
     <div className="screen">
-      <List>
-        <Section header={t("miniapp.court.pickDuration")}>
-          <Cell subhead={t("miniapp.booking.dateLabel")}>
-            {`${t(weekdayFullKey(dow))}, ${formatDayMonth(date)}`}
-          </Cell>
-          <Cell subhead={t("miniapp.booking.timeLabel")}>{startTime}</Cell>
-        </Section>
-        <OptionList
-          name="court-duration"
-          header={t("miniapp.court.pickDuration")}
-          options={options}
-          selected={undefined}
-          onSelect={(value) => {
-            if (value != null) {
-              onPick(value as CourtDurationHours);
-            }
-          }}
-        />
-      </List>
+      {/* Echo of chosen date + time */}
+      <div className="card">
+        <div className="sumrow">
+          <span className="sumrow__k">{t("miniapp.booking.dateLabel")}</span>
+          <span className="sumrow__v">{`${t(weekdayFullKey(dow))}, ${formatDayMonth(date)}`}</span>
+        </div>
+        <div className="sumrow">
+          <span className="sumrow__k">{t("miniapp.booking.timeLabel")}</span>
+          <span className="sumrow__v">{startTime}</span>
+        </div>
+      </div>
+
+      <OptionList
+        name="court-duration"
+        header={t("miniapp.court.pickDuration")}
+        options={options}
+        selected={undefined}
+        onSelect={(value) => {
+          if (value != null) {
+            onPick(value as CourtDurationHours);
+          }
+        }}
+      />
     </div>
   );
 }
 
 /**
- * Step 4/5 — fetch the server preview for the chosen slot, then submit. The preview
- * runs once per slot (re-run when the slot changes via the key). The price shown is the
- * server's; the client computes nothing. On success the request is created (pending),
- * and the pending state shows NO court number.
+ * Steps 4/5 — fetch the server preview for the chosen slot, then submit. The price
+ * shown is the server's; the client computes nothing. On success the request is
+ * created (pending), and the pending state shows NO court number.
  */
 function CourtPreviewFlow({
   slot,
@@ -272,9 +261,6 @@ function CourtPreviewFlow({
   const preview = useCourtPreview();
   const create = useCreateCourtRequest();
 
-  // Fetch the preview once per slot as a side effect (never in render): re-run only
-  // when the slot changes via its key. `reset()`/`mutate()` are stable react-query
-  // handles, so the effect is keyed solely by the slot identity.
   const slotKey = `${slot.date}|${slot.startTime}|${slot.durationHours}`;
   useEffect(() => {
     preview.reset();
@@ -301,13 +287,12 @@ function CourtPreviewFlow({
     );
   }
 
-  // The slot filled meanwhile: a calm "pick another time" state, never a red error.
+  // The slot filled meanwhile: calm "pick another time" state, never a red error.
   if (!preview.data.available) {
     return <CourtUnavailable onPickAnotherTime={onPickAnotherTime} />;
   }
 
-  // A 409 on submit means the slot was just taken: reuse the calm "pick another time"
-  // state rather than treating it as a generic failure.
+  // A 409 on submit: reuse the calm "pick another time" state.
   if (create.error instanceof ConflictError) {
     return <CourtUnavailable onPickAnotherTime={onPickAnotherTime} message={create.error.message} />;
   }
@@ -325,7 +310,7 @@ function CourtPreviewFlow({
   );
 }
 
-/** The price-preview confirm step, rendered straight from the server's CourtRequestPreview. */
+/** The price-preview confirm step using `.sumrow` / `.note` structure. */
 function CourtPreview({
   preview,
   submitting,
@@ -348,20 +333,39 @@ function CourtPreview({
 
   return (
     <div className="screen" aria-busy={submitting || undefined}>
-      <List>
-        <Section header={t("miniapp.court.previewTitle")} footer={t("miniapp.court.previewBody")}>
-          <Cell subhead={t("miniapp.booking.dateLabel")}>
-            {`${t(weekdayFullKey(dow))}, ${formatDayMonth(preview.date)}`}
-          </Cell>
-          <Cell subhead={t("miniapp.booking.timeLabel")}>
-            {formatTimeRange(preview.startTime, preview.endTime)}
-          </Cell>
-          <Cell subhead={t("miniapp.court.durationLabel")}>{durationLabel(preview.durationHours, t)}</Cell>
-          <Cell subhead={t("miniapp.booking.priceLabel")} className="confirm-price">
+      <div className="tg-sech" style={{ padding: "0 0 7px" }}>
+        {t("miniapp.court.previewTitle")}
+      </div>
+
+      <div className="card">
+        <div className="sumrow">
+          <span className="sumrow__k">{t("miniapp.booking.dateLabel")}</span>
+          <span className="sumrow__v">{`${t(weekdayFullKey(dow))}, ${formatDayMonth(preview.date)}`}</span>
+        </div>
+        <div className="sumrow">
+          <span className="sumrow__k">{t("miniapp.booking.timeLabel")}</span>
+          <span className="sumrow__v">{formatTimeRange(preview.startTime, preview.endTime)}</span>
+        </div>
+        <div className="sumrow">
+          <span className="sumrow__k">{t("miniapp.court.durationLabel")}</span>
+          <span className="sumrow__v">{durationLabel(preview.durationHours, t)}</span>
+        </div>
+        <div className="sumrow">
+          <span className="sumrow__k">{t("miniapp.booking.priceLabel")}</span>
+          <span className="sumrow__v sumrow__v--big">
             {t("miniapp.browse.price", { price: formatRsd(preview.priceRsd) })}
-          </Cell>
-        </Section>
-      </List>
+          </span>
+        </div>
+      </div>
+
+      {/* Hint note */}
+      <div className="note">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={1.8} strokeLinecap="round" strokeLinejoin="round" aria-hidden="true" focusable="false">
+          <circle cx="12" cy="12" r="8.5" />
+          <path d="M12 8v4M12 16h.01" />
+        </svg>
+        {t("miniapp.court.previewBody")}
+      </div>
 
       {errorMessage && (
         <div className="confirm-error" role="alert">
@@ -376,7 +380,7 @@ function CourtPreview({
 
 /**
  * The pending-success state: the request reached the admin queue. NO court number is
- * shown (none is assigned — `courtId` is null and is never rendered). Calm `role=status`.
+ * shown (none is assigned). Calm `role="status"`.
  */
 function CourtPending({ onHome }: { onHome: () => void }): JSX.Element {
   const t = useT();
@@ -388,14 +392,11 @@ function CourtPending({ onHome }: { onHome: () => void }): JSX.Element {
 
   return (
     <div className="screen" role="status" aria-live="polite">
-      <Placeholder
-        header={t("miniapp.court.sentTitle")}
-        description={t("miniapp.court.sentBody")}
-      >
-        <span className="success-badge" aria-hidden="true">
-          ✓
-        </span>
-      </Placeholder>
+      <div className="stateview">
+        <span className="success-badge" aria-hidden="true">✓</span>
+        <div className="stateview__title">{t("miniapp.court.sentTitle")}</div>
+        <div className="stateview__sub">{t("miniapp.court.sentBody")}</div>
+      </div>
       <FallbackButton text={t("miniapp.court.toHome")} onClick={onHome} />
     </div>
   );
@@ -403,7 +404,7 @@ function CourtPending({ onHome }: { onHome: () => void }): JSX.Element {
 
 /**
  * The calm "slot taken meanwhile" state (preview unavailable, or a submit 409): an
- * informational status, never a red error. The primary action returns to the time step.
+ * informational status, never a red error. `role="status"` (not "alert").
  */
 function CourtUnavailable({
   onPickAnotherTime,
@@ -421,14 +422,13 @@ function CourtUnavailable({
 
   return (
     <div className="screen" role="status" aria-live="polite">
-      <Placeholder
-        header={t("miniapp.court.unavailableTitle")}
-        description={message || t("miniapp.court.unavailableBody")}
-      >
-        <span className="waitlist-badge waitlist-badge--muted" aria-hidden="true">
+      <div className="stateview">
+        <div className="stateview__ic stateview__ic--muted" aria-hidden="true">
           <Glyph name="court" />
-        </span>
-      </Placeholder>
+        </div>
+        <div className="stateview__title">{t("miniapp.court.unavailableTitle")}</div>
+        <div className="stateview__sub">{message || t("miniapp.court.unavailableBody")}</div>
+      </div>
       <FallbackButton text={t("miniapp.court.pickAnotherTime")} onClick={onPickAnotherTime} />
     </div>
   );
@@ -437,18 +437,12 @@ function CourtUnavailable({
 /** The three offerable court durations, in display order. */
 const DURATION_CHOICES: readonly CourtDurationHours[] = [1, 1.5, 2];
 
-/** The catalog key for a court duration label — the single 1/1.5/2 → key mapping. */
 function durationKey(duration: CourtDurationHours): string {
-  if (duration === 1) {
-    return "miniapp.court.duration1";
-  }
-  if (duration === 1.5) {
-    return "miniapp.court.duration1_5";
-  }
+  if (duration === 1) return "miniapp.court.duration1";
+  if (duration === 1.5) return "miniapp.court.duration1_5";
   return "miniapp.court.duration2";
 }
 
-/** The localized label for a court duration; display only, the value comes from the API. */
 function durationLabel(duration: CourtDurationHours, t: TranslateFn): string {
   return t(durationKey(duration));
 }
