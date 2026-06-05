@@ -263,7 +263,6 @@ export const miniappRu: Record<string, string> = {
   "miniapp.myBookings.status.noShow": "Пропуск",
   "miniapp.myBookings.status.cancelled": "Отменено",
   // The Cancel affordance (shown only when the server says canCancel).
-  "miniapp.myBookings.cancel": "Отменить",
   "miniapp.myBookings.cancelAria": "Отменить запись",
   // Cancel confirm step (bottom-sheet) + warning haptic.
   "miniapp.myBookings.cancelConfirmTitle": "Отменить запись?",

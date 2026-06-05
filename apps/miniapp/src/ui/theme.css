@@ -433,19 +433,6 @@ button.slot { display: block; }
 
 .chiprow::-webkit-scrollbar { display: none; }
 
-/* Legacy chip-bar alias (used by ChipBar wrapper) */
-.chip-bar {
-  display: flex;
-  gap: var(--beosand-gap-xs);
-  overflow-x: auto;
-  padding: 2px var(--beosand-gap-xs);
-  margin: 0 calc(-1 * var(--beosand-gap-xs));
-  scrollbar-width: none;
-  -webkit-overflow-scrolling: touch;
-}
-
-.chip-bar::-webkit-scrollbar { display: none; }
-
 /* =========================================================
  * Status chip (mini) — .schip
  * ========================================================= */
@@ -656,17 +643,6 @@ button.slot { display: block; }
 
 @keyframes spin { to { transform: rotate(360deg); } }
 
-/* Legacy .state-view alias (retained for existing callers) */
-.state-view {
-  min-height: 40vh;
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  justify-content: center;
-  text-align: center;
-  gap: var(--beosand-gap-sm);
-}
-
 /* =========================================================
  * Date strip (court) — .datestrip / .dchip
  * ========================================================= */
@@ -770,32 +746,6 @@ button.slot { display: block; }
 .note svg { width: 15px; height: 15px; flex: none; margin-top: 1px; color: var(--co); }
 
 /* =========================================================
- * Pick-row (language / level pickers in onboarding)
- * Kept for backward compat — OptionList now uses .optrow
- * ========================================================= */
-.pick-row--selected {
-  background: var(--beosand-coral-tint);
-}
-
-.pick-row:focus-visible {
-  outline: 2px solid var(--co);
-  outline-offset: -2px;
-  border-radius: 8px;
-}
-
-.pick-marker {
-  display: inline-block;
-  width: 10px;
-  height: 10px;
-  border-radius: 50%;
-  background: var(--co);
-}
-
-.screen-hint {
-  padding: var(--beosand-gap-xs) var(--beosand-screen-pad) 0;
-}
-
-/* =========================================================
  * Trailing chevron on interactive rows
  * ========================================================= */
 .chevron {
@@ -846,12 +796,6 @@ button.slot { display: block; }
   display: block;
 }
 
-.menu-row:focus-visible {
-  outline: 2px solid var(--co);
-  outline-offset: -2px;
-  border-radius: 8px;
-}
-
 /* =========================================================
  * Browse / browse-flow glyphs
  * ========================================================= */
@@ -869,22 +813,8 @@ button.slot { display: block; }
 }
 
 /* =========================================================
- * Slot card (legacy .slot-card classes retained for
- * BrowseView / WaitlistJoinView that still reference them)
+ * Slot badges
  * ========================================================= */
-.slot-card:focus-visible {
-  outline: 2px solid var(--co);
-  outline-offset: -2px;
-  border-radius: 10px;
-}
-
-.slot-card__meta {
-  display: inline-flex;
-  align-items: center;
-  gap: var(--beosand-gap-xs);
-  margin-top: 4px;
-}
-
 .slot-badge {
   display: inline-flex;
   align-items: center;
@@ -933,12 +863,8 @@ button.slot { display: block; }
 }
 
 /* =========================================================
- * Confirm step (legacy classes retained for ConfirmView/CourtPreview)
+ * Confirm step
  * ========================================================= */
-.confirm-price {
-  font-weight: 600;
-}
-
 .confirm-error {
   padding: var(--beosand-gap-sm) var(--beosand-screen-pad);
   border-radius: 10px;
@@ -985,69 +911,9 @@ button.slot { display: block; }
   color: var(--tg-hint);
 }
 
-.waitlist-position {
-  align-self: center;
-  padding: var(--beosand-gap-xs) var(--beosand-gap-sm);
-  border-radius: 14px;
-  background: var(--beosand-coral-tint);
-  color: var(--co-ink);
-  font-size: 14px;
-  font-weight: 600;
-}
-
 /* =========================================================
- * My bookings (legacy booking-chip classes — retained since
- * BookingItemCard now uses .schip but CancelSheet / other
- * code may still reference these)
+ * My bookings — cancel sheet
  * ========================================================= */
-.segmented {
-  margin-bottom: var(--beosand-gap-sm);
-}
-
-.booking-card:focus-visible {
-  outline: 2px solid var(--co);
-  outline-offset: -2px;
-  border-radius: 10px;
-}
-
-.booking-card__meta {
-  display: inline-flex;
-  align-items: center;
-  gap: var(--beosand-gap-xs);
-  margin-top: 4px;
-}
-
-.booking-chip {
-  display: inline-flex;
-  align-items: center;
-  gap: 5px;
-  height: 22px;
-  padding: 0 9px;
-  border-radius: 11px;
-  font-size: 13px;
-  font-weight: 600;
-  line-height: 1;
-}
-
-.booking-chip svg { width: 13px; height: 13px; display: block; }
-
-.booking-chip--booked {
-  background: var(--beosand-coral-tint);
-  color: var(--co-ink);
-}
-
-.booking-chip--attended {
-  background: rgba(127, 127, 127, 0.12);
-  color: var(--tg-text);
-}
-
-.booking-chip--noShow,
-.booking-chip--cancelled {
-  background: rgba(127, 127, 127, 0.14);
-  color: var(--tg-hint);
-}
-
-
 .cancel-sheet { padding-bottom: var(--beosand-gap-sm); }
 
 .cancel-sheet__actions {
@@ -1059,12 +925,6 @@ button.slot { display: block; }
 /* =========================================================
  * Group monthly subscription
  * ========================================================= */
-.group-card:focus-visible {
-  outline: 2px solid var(--co);
-  outline-offset: -2px;
-  border-radius: 10px;
-}
-
 .group-card__meta {
   display: inline-flex;
   align-items: center;
@@ -1119,12 +979,6 @@ button.slot { display: block; }
 /* =========================================================
  * Individual training request
  * ========================================================= */
-.trainer-card:focus-visible {
-  outline: 2px solid var(--co);
-  outline-offset: -2px;
-  border-radius: 10px;
-}
-
 .trainer-type {
   display: inline-flex;
   align-items: center;
