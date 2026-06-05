@@ -1,13 +1,21 @@
 import { createContext, useContext, useEffect, useState, type ReactNode } from "react";
 import {
+  bindThemeParamsCssVars,
+  expandViewport,
   init,
+  isMiniAppMounted,
+  isMiniAppMounting,
   isTMA,
+  isThemeParamsCssVarsBound,
+  isThemeParamsMounted,
+  isThemeParamsMounting,
+  isViewportMounted,
+  isViewportMounting,
+  miniAppReady,
   mountMiniApp,
   mountThemeParams,
-  bindThemeParamsCssVars,
+  mountThemeParamsSync,
   mountViewport,
-  expandViewport,
-  miniAppReady,
   retrieveRawInitData,
   retrieveLaunchParams
 } from "@telegram-apps/sdk-react";
@@ -29,6 +37,8 @@ export interface TgContextValue {
 }
 
 const TgContext = createContext<TgContextValue | null>(null);
+
+let telegramBoot: Promise<TgContextValue> | null = null;
 
 /**
  * Initializes the Telegram Mini Apps SDK once and exposes the launch environment.
@@ -53,29 +63,97 @@ export function TgSdkProvider({ children }: { children: ReactNode }): JSX.Elemen
       return;
     }
 
-    init();
+    let cancelled = false;
+    bootTelegramSdk()
+      .then((nextValue) => {
+        if (!cancelled) {
+          setValue(nextValue);
+        }
+      })
+      .catch(() => {
+        if (!cancelled) {
+          setValue({
+            isTelegram: true,
+            initDataRaw: retrieveRawInitData() ?? null,
+            startParam: retrieveLaunchParams().tgWebAppStartParam ?? null
+          });
+        }
+      });
 
-    if (mountMiniApp.isAvailable()) {
-      mountMiniApp();
-      miniAppReady();
-    }
-    if (mountThemeParams.isAvailable()) {
-      mountThemeParams();
-      bindThemeParamsCssVars();
-    }
-    if (mountViewport.isAvailable()) {
-      mountViewport();
-      if (expandViewport.isAvailable()) {
-        expandViewport();
-      }
-    }
-
-    const initDataRaw = retrieveRawInitData() ?? null;
-    const startParam = retrieveLaunchParams().tgWebAppStartParam ?? null;
-    setValue({ isTelegram: true, initDataRaw, startParam });
+    return () => {
+      cancelled = true;
+    };
   }, []);
 
   return <TgContext.Provider value={value}>{children}</TgContext.Provider>;
+}
+
+async function bootTelegramSdk(): Promise<TgContextValue> {
+  telegramBoot ??= bootTelegramSdkOnce();
+  return telegramBoot;
+}
+
+async function bootTelegramSdkOnce(): Promise<TgContextValue> {
+  init();
+
+  await ensureThemeParamsMounted();
+  bindThemeParamsCssVarsIfNeeded();
+  await ensureMiniAppMounted();
+  callIfAvailable(miniAppReady);
+  await ensureViewportMounted();
+  callIfAvailable(expandViewport);
+
+  return {
+    isTelegram: true,
+    initDataRaw: retrieveRawInitData() ?? null,
+    startParam: retrieveLaunchParams().tgWebAppStartParam ?? null
+  };
+}
+
+async function ensureThemeParamsMounted(): Promise<void> {
+  await waitUntilNotMounting(isThemeParamsMounting);
+  if (isThemeParamsMounted()) {
+    return;
+  }
+  if (mountThemeParamsSync.isAvailable()) {
+    mountThemeParamsSync();
+    return;
+  }
+  if (mountThemeParams.isAvailable()) {
+    await mountThemeParams();
+  }
+}
+
+async function ensureMiniAppMounted(): Promise<void> {
+  await waitUntilNotMounting(isMiniAppMounting);
+  if (!isMiniAppMounted() && mountMiniApp.isAvailable()) {
+    await mountMiniApp();
+  }
+}
+
+async function ensureViewportMounted(): Promise<void> {
+  await waitUntilNotMounting(isViewportMounting);
+  if (!isViewportMounted() && mountViewport.isAvailable()) {
+    await mountViewport();
+  }
+}
+
+function bindThemeParamsCssVarsIfNeeded(): void {
+  if (!isThemeParamsCssVarsBound() && bindThemeParamsCssVars.isAvailable()) {
+    bindThemeParamsCssVars();
+  }
+}
+
+async function waitUntilNotMounting(isMounting: () => boolean): Promise<void> {
+  for (let attempt = 0; attempt < 20 && isMounting(); attempt += 1) {
+    await new Promise((resolve) => window.setTimeout(resolve, 50));
+  }
+}
+
+function callIfAvailable(fn: (() => void) & { isAvailable?: () => boolean }): void {
+  if (!fn.isAvailable || fn.isAvailable()) {
+    fn();
+  }
 }
 
 /** Access the Telegram launch environment. Throws if used outside <TgSdkProvider>. */
