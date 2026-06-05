@@ -2,7 +2,12 @@ import { Injectable, Logger } from "@nestjs/common";
 import type { Client, NotificationType, Trainer } from "@beosand/types";
 import {
   bookingConfirmedMessage,
+  bookingDeclinedMessage,
+  bookingPendingMessage,
+  bookingPendingTrainerMessage,
   groupBookingConfirmedMessage,
+  groupBookingDeclinedMessage,
+  groupPendingTrainerMessage,
   individualSessionRequestMessage,
   reminderMessage,
   reminderWindow,
@@ -83,6 +88,135 @@ export class NotificationsService {
       "booking-confirmed",
       groupBookingConfirmedMessage(recipients)
     );
+  }
+
+  /**
+   * Acknowledge a client's booking request that is awaiting the trainer's
+   * confirmation (the seat is held meanwhile). Idempotent per (clientId,
+   * trainingId, 'booking-pending'); status-agnostic render lookup since the
+   * booking is `pending` (not `booked`) at send time. Tolerates a send failure.
+   */
+  async sendBookingPending(clientId: string, trainingId: string): Promise<void> {
+    if (await this.repo.hasBeenSent(clientId, trainingId, "booking-pending")) {
+      return;
+    }
+    const recipient = await this.repo.findWaitlistRecipient(clientId, trainingId);
+    if (!recipient) {
+      this.logger.warn(`No training ${trainingId} render fields for client ${clientId}; skipping pending ack`);
+      return;
+    }
+    await this.sendAndLog(recipient, "booking-pending", bookingPendingMessage(recipient));
+  }
+
+  /**
+   * Notify a client that the trainer declined their request (the held seat was
+   * freed). Idempotent per (clientId, trainingId, 'booking-declined'); the booking
+   * is `cancelled` by send time, so the lookup is status-agnostic (mirrors
+   * findWaitlistRecipient). Tolerates a send failure.
+   */
+  async sendBookingDeclined(clientId: string, trainingId: string): Promise<void> {
+    if (await this.repo.hasBeenSent(clientId, trainingId, "booking-declined")) {
+      return;
+    }
+    const recipient = await this.repo.findWaitlistRecipient(clientId, trainingId);
+    if (!recipient) {
+      this.logger.warn(`No training ${trainingId} render fields for client ${clientId}; skipping decline DM`);
+      return;
+    }
+    await this.sendAndLog(recipient, "booking-declined", bookingDeclinedMessage(recipient));
+  }
+
+  /**
+   * Notify a client that a monthly-subscription batch was declined with ONE summary
+   * message, logged once against the earliest training with type 'booking-declined'.
+   * Status-agnostic render (the rows are `cancelled` by send time). Idempotent on
+   * that earliest training; tolerates a send failure.
+   */
+  async sendGroupBookingDeclined(clientId: string, trainingIds: string[]): Promise<void> {
+    if (trainingIds.length === 0) {
+      return;
+    }
+    const recipients = await this.repo.findClientTrainingRenderFields(clientId, trainingIds);
+    if (recipients.length === 0) {
+      return;
+    }
+    // recipients are ordered by date; the earliest carries the dedupe key.
+    const anchor = recipients[0];
+    if (await this.repo.hasBeenSent(clientId, anchor.trainingId, "booking-declined")) {
+      return;
+    }
+    await this.sendAndLog(anchor, "booking-declined", groupBookingDeclinedMessage(recipients));
+  }
+
+  /**
+   * DM the training's trainer that a single booking request awaits their decision
+   * (T trainer-confirm). Notification-only: no send-log row (modeled on
+   * requestIndividualSession). Carries an inline confirm/decline keyboard whose
+   * callback data the bot routes on. The caller resolves the trainer telegram id
+   * (skips entirely when the trainer has none — that path auto-confirms instead).
+   * Returns whether the DM was sent; a failure is logged and swallowed.
+   */
+  async sendBookingPendingToTrainer(
+    trainerTelegramId: number,
+    clientId: string,
+    trainingId: string,
+    clientName: string,
+    replyMarkup: InlineKeyboardMarkup
+  ): Promise<boolean> {
+    const recipient = await this.repo.findWaitlistRecipient(clientId, trainingId);
+    if (!recipient) {
+      this.logger.warn(`No training ${trainingId} render fields; skipping trainer pending DM`);
+      return false;
+    }
+    try {
+      await this.sender.sendMessage(
+        trainerTelegramId,
+        bookingPendingTrainerMessage(recipient, clientName),
+        replyMarkup
+      );
+      return true;
+    } catch (error) {
+      this.logger.error(
+        `Trainer pending DM (training ${trainingId}) failed: ` +
+          (error instanceof Error ? error.message : String(error))
+      );
+      return false;
+    }
+  }
+
+  /**
+   * DM the trainer ONE summary of a monthly-subscription batch of pending requests
+   * with a single confirm/decline keyboard (keyed on the groupSubscriptionId).
+   * Notification-only: no send-log row. The caller resolves the trainer telegram id
+   * (skips when the trainer has none — that path auto-confirms). Returns whether the
+   * DM was sent; a failure is logged and swallowed.
+   */
+  async sendGroupPendingToTrainer(
+    trainerTelegramId: number,
+    clientId: string,
+    trainingIds: string[],
+    clientName: string,
+    replyMarkup: InlineKeyboardMarkup
+  ): Promise<boolean> {
+    const recipients = await this.repo.findClientTrainingRenderFields(clientId, trainingIds);
+    if (recipients.length === 0) {
+      this.logger.warn(`No render fields for subscription batch; skipping trainer pending DM`);
+      return false;
+    }
+    try {
+      await this.sender.sendMessage(
+        trainerTelegramId,
+        groupPendingTrainerMessage(recipients, clientName),
+        replyMarkup
+      );
+      return true;
+    } catch (error) {
+      this.logger.error(
+        `Trainer group-pending DM failed: ` +
+          (error instanceof Error ? error.message : String(error))
+      );
+      return false;
+    }
   }
 
   /**

@@ -6,6 +6,7 @@ import { formatDayMonth, formatTimeRange, weekdayFullKey } from "./format";
 /**
  * The visual treatment of one booking-status chip: which glyph, which i18n label
  * key, and the `.schip--*` CSS variant defined in theme.css.
+ * pending → amber/warn (.schip--warn, hourglass: awaiting trainer confirmation),
  * booked → coral (.schip--co), attended → teal/ok (.schip--ok),
  * no_show → amber/warn (.schip--warn), cancelled → muted (.schip--muted).
  * Status is conveyed by glyph + text + tone, never color alone.
@@ -19,6 +20,8 @@ interface ChipStyle {
 
 function chipStyle(status: BookingStatus): ChipStyle {
   switch (status) {
+    case "pending":
+      return { glyph: "waitlist", labelKey: "miniapp.myBookings.status.pending", variant: "warn" };
     case "attended":
       return { glyph: "attended", labelKey: "miniapp.myBookings.status.attended", variant: "ok" };
     case "no_show":

@@ -8,10 +8,12 @@ import {
   handleMarkAttendance,
   handleTrainerRoster,
   handleTrainerToday,
+  handleTrainerUpcoming,
   parseAttend,
   parseRoster,
   renderRosterText,
   renderTodayText,
+  renderUpcomingText,
   rosterData,
   rosterKeyboard,
   todayKeyboard,
@@ -21,6 +23,8 @@ import {
 
 const ru = getStaticCatalog("ru");
 const TODAY_HEADER = ru["bot.trainer.todayHeader"];
+const UPCOMING_HEADER = ru["bot.trainer.upcomingHeader"];
+const NO_UPCOMING_TEXT = ru["bot.trainer.noUpcoming"];
 const NO_TODAY_TRAININGS_TEXT = ru["bot.trainer.noToday"];
 const NOT_TRAINER_TEXT = ru["bot.trainer.notTrainer"];
 const EMPTY_ROSTER_TEXT = ru["bot.trainer.emptyRoster"];
@@ -66,7 +70,10 @@ const booking: Booking = {
   groupSubscriptionId: null,
   createdAt: "2026-06-03T10:00:00.000Z",
   status: "attended",
-  source: "telegram"
+  source: "telegram",
+  paymentStatus: "unpaid",
+  paidAt: null,
+  paidBy: null
 };
 
 function callbacksOf(keyboard: { inline_keyboard: unknown[][] }): (string | undefined)[] {
@@ -172,6 +179,7 @@ describe("handleTrainerToday", () => {
   it("lists the trainer's today trainings", async () => {
     const api: TrainerTodayApi = {
       getTrainerToday: vi.fn().mockResolvedValue([todayItem()]),
+      getTrainerUpcoming: vi.fn(),
       getTrainingRoster: vi.fn(),
       markAttendance: vi.fn()
     };
@@ -184,6 +192,7 @@ describe("handleTrainerToday", () => {
   it("shows the trainers-only message when the caller is not a trainer (API null)", async () => {
     const api: TrainerTodayApi = {
       getTrainerToday: vi.fn().mockResolvedValue(null),
+      getTrainerUpcoming: vi.fn(),
       getTrainingRoster: vi.fn(),
       markAttendance: vi.fn()
     };
@@ -195,6 +204,7 @@ describe("handleTrainerToday", () => {
   it("never calls the API without a telegram id", async () => {
     const api: TrainerTodayApi = {
       getTrainerToday: vi.fn(),
+      getTrainerUpcoming: vi.fn(),
       getTrainingRoster: vi.fn(),
       markAttendance: vi.fn()
     };
@@ -204,10 +214,62 @@ describe("handleTrainerToday", () => {
   });
 });
 
+describe("renderUpcomingText", () => {
+  it("uses the upcoming header and a block per training", () => {
+    const text = renderUpcomingText(ru, [todayItem()]);
+    expect(text).toContain(UPCOMING_HEADER);
+    expect(text).toContain("Начинающий");
+  });
+
+  it("shows the empty-state line when there are no upcoming trainings", () => {
+    expect(renderUpcomingText(ru, [])).toBe(NO_UPCOMING_TEXT);
+  });
+});
+
+describe("handleTrainerUpcoming", () => {
+  it("lists the trainer's upcoming trainings", async () => {
+    const api: TrainerTodayApi = {
+      getTrainerToday: vi.fn(),
+      getTrainerUpcoming: vi.fn().mockResolvedValue([todayItem()]),
+      getTrainingRoster: vi.fn(),
+      markAttendance: vi.fn()
+    };
+    const reply = vi.fn().mockResolvedValue(undefined);
+    await handleTrainerUpcoming({ reply, from: { id: 777 } }, api, ru, 777);
+    expect(api.getTrainerUpcoming).toHaveBeenCalledWith(777);
+    expect(reply.mock.calls[0][0]).toContain(UPCOMING_HEADER);
+  });
+
+  it("shows the trainers-only message when the caller is not a trainer (API null)", async () => {
+    const api: TrainerTodayApi = {
+      getTrainerToday: vi.fn(),
+      getTrainerUpcoming: vi.fn().mockResolvedValue(null),
+      getTrainingRoster: vi.fn(),
+      markAttendance: vi.fn()
+    };
+    const reply = vi.fn().mockResolvedValue(undefined);
+    await handleTrainerUpcoming({ reply, from: { id: 777 } }, api, ru, 777);
+    expect(reply.mock.calls[0][0]).toBe(NOT_TRAINER_TEXT);
+  });
+
+  it("never calls the API without a telegram id", async () => {
+    const api: TrainerTodayApi = {
+      getTrainerToday: vi.fn(),
+      getTrainerUpcoming: vi.fn(),
+      getTrainingRoster: vi.fn(),
+      markAttendance: vi.fn()
+    };
+    const reply = vi.fn().mockResolvedValue(undefined);
+    await handleTrainerUpcoming({ reply }, api, ru, undefined);
+    expect(api.getTrainerUpcoming).not.toHaveBeenCalled();
+  });
+});
+
 describe("handleTrainerRoster", () => {
   it("fetches and renders the roster for the trainingId + caller id", async () => {
     const api: TrainerTodayApi = {
       getTrainerToday: vi.fn(),
+      getTrainerUpcoming: vi.fn(),
       getTrainingRoster: vi.fn().mockResolvedValue(roster()),
       markAttendance: vi.fn()
     };
@@ -235,6 +297,7 @@ describe("handleMarkAttendance", () => {
     );
     const api: TrainerTodayApi = {
       getTrainerToday: vi.fn(),
+      getTrainerUpcoming: vi.fn(),
       getTrainingRoster,
       markAttendance
     };
@@ -251,6 +314,7 @@ describe("handleMarkAttendance", () => {
   it("never calls the API without a telegram id", async () => {
     const api: TrainerTodayApi = {
       getTrainerToday: vi.fn(),
+      getTrainerUpcoming: vi.fn(),
       getTrainingRoster: vi.fn(),
       markAttendance: vi.fn()
     };

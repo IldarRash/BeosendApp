@@ -163,6 +163,7 @@ export function BrowseScreen(): JSX.Element {
         onConfirm={confirmBooking}
         submitting={booking.isPending}
         succeeded={booking.isSuccess}
+        bookingStatus={booking.data?.status}
         errorMessage={errorMessage}
         onBackToList={backToList}
         onJoinWaitlist={isConflict ? offerWaitlistFromConflict : undefined}

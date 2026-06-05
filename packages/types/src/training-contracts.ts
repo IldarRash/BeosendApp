@@ -241,12 +241,16 @@ export type AvailableSlotsQuery = z.infer<typeof availableSlotsQuerySchema>;
 export const bookingType = z.enum(["single", "group"]);
 export const bookingStatus = z.enum([
   "booked",
+  "pending",
   "cancelled",
   "attended",
   "no_show",
   "waitlist"
 ]);
 export type BookingStatus = z.infer<typeof bookingStatus>;
+/** Per-booking subscription payment flag (mirrors the DB payment_status enum). */
+export const paymentStatus = z.enum(["unpaid", "paid"]);
+export type PaymentStatus = z.infer<typeof paymentStatus>;
 export const bookingSchema = z.object({
   id: uuid,
   clientId: uuid,
@@ -255,7 +259,10 @@ export const bookingSchema = z.object({
   groupSubscriptionId: uuid.nullable(),
   createdAt: z.string().datetime(),
   status: bookingStatus,
-  source: bookingSource
+  source: bookingSource,
+  paymentStatus,
+  paidAt: z.string().datetime().nullable(),
+  paidBy: z.number().int().nullable()
 });
 export type Booking = z.infer<typeof bookingSchema>;
 
@@ -287,6 +294,52 @@ export const groupBookingResultSchema = z.object({
   skipped: z.array(dateString)
 });
 export type GroupBookingResult = z.infer<typeof groupBookingResultSchema>;
+
+// --- Subscription payments (admin console only) ---
+
+/**
+ * Aggregate payment state of a monthly subscription (the set of bookings sharing
+ * one groupSubscriptionId). Computed server-side over non-cancelled bookings:
+ * "paid" = all paid, "unpaid" = none paid, "partial" = some paid and some not.
+ */
+export const subscriptionPaymentState = z.enum(["unpaid", "partial", "paid"]);
+export type SubscriptionPaymentState = z.infer<typeof subscriptionPaymentState>;
+
+/**
+ * One subscription row in the admin payments view. Counts and totals are
+ * server-computed over non-cancelled bookings only; `totalRsd` comes from
+ * groups.priceMonthRsd (how the month was sold) and is never summed/trusted
+ * client-side. group fields are null when the subscription's group is gone.
+ */
+export const subscriptionSummarySchema = z.object({
+  groupSubscriptionId: uuid,
+  clientId: uuid,
+  clientName: z.string(),
+  groupId: uuid.nullable(),
+  groupName: z.string().nullable(),
+  year: z.number().int(),
+  month: z.number().int().min(1).max(12),
+  dateCount: z.number().int().nonnegative(),
+  paidCount: z.number().int().nonnegative(),
+  totalRsd: rsd,
+  paymentState: subscriptionPaymentState
+});
+export type SubscriptionSummary = z.infer<typeof subscriptionSummarySchema>;
+
+/** Query for GET /subscriptions (admin). No `.strict()` so query coercion stays lenient. */
+export const listSubscriptionsQuerySchema = z.object({
+  paymentState: subscriptionPaymentState.optional(),
+  clientId: uuid.optional()
+});
+export type ListSubscriptionsQuery = z.infer<typeof listSubscriptionsQuerySchema>;
+
+/**
+ * Body for PATCH /subscriptions/:id/paid (admin). Sets every non-cancelled
+ * booking of the batch paid/unpaid in one transaction; the subscription id is the
+ * path param and the acting admin (paidBy) comes from the x-telegram-id header.
+ */
+export const markSubscriptionPaidSchema = z.object({ paid: z.boolean() }).strict();
+export type MarkSubscriptionPaidInput = z.infer<typeof markSubscriptionPaidSchema>;
 
 // --- My bookings (T1.10): a client's own upcoming / past trainings ---
 
@@ -354,6 +407,17 @@ export const trainerTodayQuerySchema = z
 export type TrainerTodayQuery = z.infer<typeof trainerTodayQuerySchema>;
 
 /**
+ * Query for GET /trainers/me/upcoming (trainer confirmation queue). Extends the
+ * today query with an optional `days` horizon (how many days ahead to include,
+ * defaulting server-side); the response reuses trainerTodayItemSchema[], whose
+ * date/dayOfWeek carry the actual session day.
+ */
+export const trainerUpcomingQuerySchema = trainerTodayQuerySchema.extend({
+  days: z.coerce.number().int().min(1).max(31).optional()
+});
+export type TrainerUpcomingQuery = z.infer<typeof trainerUpcomingQuerySchema>;
+
+/**
  * One roster row of a training (T2.3): the booking joined to its client name,
  * carrying the booking's attendance-relevant status. Rosters exclude
  * cancelled/waitlist bookings.
@@ -384,6 +448,23 @@ export const markAttendanceSchema = z
   })
   .strict();
 export type MarkAttendanceInput = z.infer<typeof markAttendanceSchema>;
+
+/**
+ * Body for POST /bookings/:id/confirm (trainer confirmation): moves a `pending`
+ * booking to `booked`. The booking id is the path param and the trainer identity
+ * comes from the x-telegram-id header, so the body carries nothing — kept as a
+ * `.strict()` empty object so stray fields are rejected. Mirrors cancelTrainingSchema.
+ */
+export const confirmBookingSchema = z.object({}).strict();
+export type ConfirmBookingInput = z.infer<typeof confirmBookingSchema>;
+
+/**
+ * Body for POST /bookings/:id/decline (trainer confirmation): moves a `pending`
+ * booking to `cancelled`, freeing its held seat. Path param + header identity, so
+ * an empty `.strict()` body. Mirrors cancelTrainingSchema.
+ */
+export const declineBookingSchema = z.object({}).strict();
+export type DeclineBookingInput = z.infer<typeof declineBookingSchema>;
 
 // --- Waitlist (section 9) ---
 export const waitlistStatus = z.enum(["waiting", "notified", "promoted", "expired", "cancelled"]);
@@ -472,6 +553,8 @@ export type SendBroadcastInput = z.infer<typeof sendBroadcastSchema>;
 // --- Notifications (section 16) ---
 export const notificationType = z.enum([
   "booking-confirmed",
+  "booking-pending",
+  "booking-declined",
   "reminder-24h",
   "reminder-3h",
   "waitlist-slot",

@@ -12,8 +12,10 @@ import {
   type Booking,
   type GroupBookingResult,
   type MyBookingItem,
+  confirmBookingSchema,
   createGroupBookingSchema,
   createSingleBookingSchema,
+  declineBookingSchema,
   markAttendanceSchema,
   myBookingsQuerySchema,
   uuid
@@ -87,6 +89,66 @@ export class BookingsController {
     const actorTelegramId = parseTelegramId(clientTelegramIdHeader ?? telegramIdHeader);
     const bookingId = validate(uuid, id);
     return this.bookings.cancelBooking(actorTelegramId, bookingId);
+  }
+
+  /**
+   * Trainer/admin: confirm a monthly-subscription batch of pending requests
+   * (booked). The literal "subscription/" prefix disambiguates from `:id/confirm`.
+   * Authorization (admin or the batch's trainer) is enforced in the service.
+   */
+  @Post("subscription/:groupSubscriptionId/confirm")
+  confirmSubscription(
+    @Headers("x-telegram-id") telegramIdHeader: string | undefined,
+    @Param("groupSubscriptionId") groupSubscriptionId: string,
+    @Body() body: unknown
+  ): Promise<GroupBookingResult> {
+    const actorTelegramId = parseTelegramId(telegramIdHeader);
+    const subscriptionId = validate(uuid, groupSubscriptionId);
+    validate(confirmBookingSchema, body ?? {});
+    return this.bookings.confirmSubscription(actorTelegramId, subscriptionId);
+  }
+
+  /**
+   * Trainer/admin: decline a monthly-subscription batch of pending requests
+   * (cancelled, seats freed). The literal "subscription/" prefix disambiguates from
+   * `:id/decline`. Authorization is enforced in the service.
+   */
+  @Post("subscription/:groupSubscriptionId/decline")
+  declineSubscription(
+    @Headers("x-telegram-id") telegramIdHeader: string | undefined,
+    @Param("groupSubscriptionId") groupSubscriptionId: string,
+    @Body() body: unknown
+  ): Promise<GroupBookingResult> {
+    const actorTelegramId = parseTelegramId(telegramIdHeader);
+    const subscriptionId = validate(uuid, groupSubscriptionId);
+    validate(declineBookingSchema, body ?? {});
+    return this.bookings.declineSubscription(actorTelegramId, subscriptionId);
+  }
+
+  /** Trainer/admin: confirm a single pending booking (pending → booked). Ownership in the service. */
+  @Post(":id/confirm")
+  confirm(
+    @Headers("x-telegram-id") telegramIdHeader: string | undefined,
+    @Param("id") id: string,
+    @Body() body: unknown
+  ): Promise<Booking> {
+    const actorTelegramId = parseTelegramId(telegramIdHeader);
+    const bookingId = validate(uuid, id);
+    validate(confirmBookingSchema, body ?? {});
+    return this.bookings.confirmBooking(actorTelegramId, bookingId);
+  }
+
+  /** Trainer/admin: decline a single pending booking (pending → cancelled). Ownership in the service. */
+  @Post(":id/decline")
+  decline(
+    @Headers("x-telegram-id") telegramIdHeader: string | undefined,
+    @Param("id") id: string,
+    @Body() body: unknown
+  ): Promise<Booking> {
+    const actorTelegramId = parseTelegramId(telegramIdHeader);
+    const bookingId = validate(uuid, id);
+    validate(declineBookingSchema, body ?? {});
+    return this.bookings.declineBooking(actorTelegramId, bookingId);
   }
 
   /** Trainer/admin: mark a booking attended / no_show (T2.3). Ownership in the service. */

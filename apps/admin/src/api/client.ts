@@ -24,6 +24,7 @@ import {
   levelSchema,
   noShowStatsSchema,
   popularSlotSchema,
+  subscriptionSummarySchema,
   trainerLoadSchema,
   trainerSchema,
   trainingCalendarItemSchema,
@@ -65,6 +66,7 @@ import {
   type LabelEntry,
   type Level,
   type ListClientsQuery,
+  type ListSubscriptionsQuery,
   type ListTrainingsQuery,
   type Locale,
   type UpdateLabelInput,
@@ -73,6 +75,7 @@ import {
   type OnboardClientInput,
   type PopularSlot,
   type SendBroadcastInput,
+  type SubscriptionSummary,
   type TelegramLoginPayload,
   type Trainer,
   type TrainerLoad,
@@ -98,6 +101,7 @@ const trainingCalendarSchema = z.array(trainingCalendarItemSchema);
 const popularSlotsSchema = z.array(popularSlotSchema);
 const trainerLoadListSchema = z.array(trainerLoadSchema);
 const generationStatusSchema = z.array(generationStatusItemSchema);
+const subscriptionsSchema = z.array(subscriptionSummarySchema);
 
 /** Input for creating a level — just the name (schema is server-validated). */
 export interface CreateLevelInput {
@@ -576,6 +580,39 @@ export class ApiClient {
     return this.request("/bookings/manual", bookingSchema, {
       method: "POST",
       body: JSON.stringify(input)
+    });
+  }
+
+  // ── Subscription payments (admin) ──────────────────────────────────────────
+
+  /**
+   * Admin list of monthly subscriptions (GET /subscriptions), optionally filtered
+   * by `paymentState` (unpaid/partial/paid) and/or `clientId`. Counts, totals, and
+   * the payment state are all server-decided over non-cancelled bookings; the
+   * console never sums money or derives state — it only renders the validated rows.
+   */
+  listSubscriptions(query: ListSubscriptionsQuery): Promise<SubscriptionSummary[]> {
+    const params = new URLSearchParams();
+    if (query.paymentState) {
+      params.set("paymentState", query.paymentState);
+    }
+    if (query.clientId) {
+      params.set("clientId", query.clientId);
+    }
+    const qs = params.toString();
+    return this.request(`/subscriptions${qs ? `?${qs}` : ""}`, subscriptionsSchema);
+  }
+
+  /**
+   * Mark every non-cancelled booking of one subscription paid/unpaid (PATCH
+   * /subscriptions/:id/paid). The server flips the whole batch in one transaction,
+   * stamps the acting admin, and returns the re-aggregated summary; a 404 (no
+   * matching booking) surfaces as {@link NotFoundError}.
+   */
+  markSubscriptionPaid(id: string, paid: boolean): Promise<SubscriptionSummary> {
+    return this.request(`/subscriptions/${id}/paid`, subscriptionSummarySchema, {
+      method: "PATCH",
+      body: JSON.stringify({ paid })
     });
   }
 

@@ -90,18 +90,37 @@ export function formatTodayLine(catalog: Catalog, item: TrainerTodayItem): strin
   ].join("\n");
 }
 
-/** Body text for the today list: header + a block per training. */
-export function renderTodayText(catalog: Catalog, items: TrainerTodayItem[]): string {
+/**
+ * Body text for a trainer training list: a header + a block per training. Shared
+ * by the today list and the upcoming-confirmation list, which differ only in the
+ * header and the empty-state line.
+ */
+function renderTrainingList(
+  catalog: Catalog,
+  items: TrainerTodayItem[],
+  headerKey: "bot.trainer.todayHeader" | "bot.trainer.upcomingHeader",
+  emptyKey: "bot.trainer.noToday" | "bot.trainer.noUpcoming"
+): string {
   if (items.length === 0) {
-    return t(catalog, "bot.trainer.noToday");
+    return t(catalog, emptyKey);
   }
   return [
-    t(catalog, "bot.trainer.todayHeader"),
+    t(catalog, headerKey),
     "",
     ...items.map((i) => formatTodayLine(catalog, i)).flatMap((line) => [line, ""])
   ]
     .join("\n")
     .trimEnd();
+}
+
+/** Body text for the today list: header + a block per training. */
+export function renderTodayText(catalog: Catalog, items: TrainerTodayItem[]): string {
+  return renderTrainingList(catalog, items, "bot.trainer.todayHeader", "bot.trainer.noToday");
+}
+
+/** Body text for the upcoming-confirmation list: header + a block per training. */
+export function renderUpcomingText(catalog: Catalog, items: TrainerTodayItem[]): string {
+  return renderTrainingList(catalog, items, "bot.trainer.upcomingHeader", "bot.trainer.noUpcoming");
 }
 
 /** Copy another keyboard's text buttons onto `target` as fresh rows. */
@@ -167,7 +186,7 @@ export function rosterKeyboard(catalog: Catalog, roster: TrainingRoster): Inline
 /** The slice of ApiClient the trainer-today handlers need. */
 export type TrainerTodayApi = Pick<
   ApiClient,
-  "getTrainerToday" | "getTrainingRoster" | "markAttendance"
+  "getTrainerToday" | "getTrainerUpcoming" | "getTrainingRoster" | "markAttendance"
 >;
 
 /**
@@ -193,6 +212,36 @@ export async function handleTrainerToday(
     return;
   }
   await ctx.reply(renderTodayText(catalog, items), {
+    reply_markup: todayKeyboard(catalog, items)
+  });
+}
+
+/**
+ * Entry: list the trainer's upcoming trainings (trainer-confirmation queue).
+ * Same gating as the today list — a non-trainer's call resolves to null and the
+ * bot shows the "trainers only" message. Each item still opens the existing
+ * roster flow (which now includes pending participants), so the trainer can
+ * review who is waiting on confirmation. The DMs the API sends carry the
+ * per-booking confirm/decline keyboard; this list is the at-a-glance overview.
+ */
+export async function handleTrainerUpcoming(
+  ctx: MenuReplyCtx,
+  api: TrainerTodayApi,
+  catalog: Catalog,
+  telegramId: number | undefined
+): Promise<void> {
+  if (telegramId === undefined) {
+    await showMainMenu(ctx, catalog);
+    return;
+  }
+  const items = await api.getTrainerUpcoming(telegramId);
+  if (items === null) {
+    await ctx.reply(t(catalog, "bot.trainer.notTrainer"), {
+      reply_markup: backHomeKeyboard(catalog)
+    });
+    return;
+  }
+  await ctx.reply(renderUpcomingText(catalog, items), {
     reply_markup: todayKeyboard(catalog, items)
   });
 }

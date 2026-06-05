@@ -1,4 +1,4 @@
-import type { SlotCard as SlotCardData } from "@beosand/types";
+import type { BookingStatus, SlotCard as SlotCardData } from "@beosand/types";
 import { useT } from "../i18n/LanguageProvider";
 import { useMainButton } from "../tg/buttons";
 import { FallbackButton } from "./FallbackButton";
@@ -17,6 +17,13 @@ interface ConfirmViewProps {
   submitting: boolean;
   /** True once the booking succeeded — shows the success state instead of the summary. */
   succeeded: boolean;
+  /**
+   * The server-decided status of the created booking, when it succeeded. `pending`
+   * means the training's trainer must confirm the request, so the success copy
+   * becomes "request sent, awaiting trainer confirmation"; `booked` is an immediate
+   * confirmation. The Mini App never decides this — it reflects the API's status.
+   */
+  bookingStatus?: BookingStatus;
   /** A 409/error message to surface verbatim above the summary, if any. */
   errorMessage?: string;
   /** Return to the browse list (also the BackButton target, wired by the screen). */
@@ -43,11 +50,17 @@ export function ConfirmView({
   onConfirm,
   submitting,
   succeeded,
+  bookingStatus,
   errorMessage,
   onBackToList,
   onJoinWaitlist
 }: ConfirmViewProps): JSX.Element {
   const t = useT();
+
+  // A pending booking is a request awaiting the trainer's confirmation; the server
+  // decides this (auto-confirmed to `booked` when the trainer has no Telegram). The
+  // Mini App only reflects it in the success copy.
+  const isPending = bookingStatus === "pending";
 
   const dateLine = `${t(weekdayFullKey(slot.dayOfWeek))}, ${formatDayMonth(slot.date)}`;
   const timeLine = formatTimeRange(slot.startTime, slot.endTime);
@@ -73,7 +86,12 @@ export function ConfirmView({
       <div className="screen" role="status" aria-live="polite">
         <div className="stateview">
           <span className="success-badge" aria-hidden="true">✓</span>
-          <div className="stateview__title">{t("miniapp.booking.successTitle")}</div>
+          <div className="stateview__title">
+            {t(isPending ? "miniapp.booking.pendingTitle" : "miniapp.booking.successTitle")}
+          </div>
+          {isPending && (
+            <div className="stateview__sub">{t("miniapp.booking.pendingBody")}</div>
+          )}
           <div className="stateview__sub">{dateLine} · {timeLine}</div>
         </div>
         <FallbackButton text={t("miniapp.booking.backToList")} onClick={onBackToList} />

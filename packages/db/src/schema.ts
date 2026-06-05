@@ -28,11 +28,13 @@ export const trainingStatus = pgEnum("training_status", [
 export const bookingType = pgEnum("booking_type", ["single", "group"]);
 export const bookingStatus = pgEnum("booking_status", [
   "booked",
+  "pending",
   "cancelled",
   "attended",
   "no_show",
   "waitlist"
 ]);
+export const paymentStatus = pgEnum("payment_status", ["unpaid", "paid"]);
 export const waitlistStatus = pgEnum("waitlist_status", [
   "waiting",
   "notified",
@@ -43,6 +45,8 @@ export const waitlistStatus = pgEnum("waitlist_status", [
 export const broadcastType = pgEnum("broadcast_type", ["today", "tomorrow", "week", "freed-up"]);
 export const notificationType = pgEnum("notification_type", [
   "booking-confirmed",
+  "booking-pending",
+  "booking-declined",
   "reminder-24h",
   "reminder-3h",
   "waitlist-slot",
@@ -150,7 +154,16 @@ export const bookings = pgTable("bookings", {
   groupSubscriptionId: uuid("group_subscription_id"),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
   status: bookingStatus("status").notNull().default("booked"),
-  source: text("source").notNull().default("telegram")
+  source: text("source").notNull().default("telegram"),
+  /**
+   * Subscription payment flag per booking. A monthly subscription is the set of
+   * bookings sharing one groupSubscriptionId; "paid"/"unpaid" is set for all its
+   * non-cancelled bookings at once by an admin. paidAt/paidBy mirror
+   * courtRequests.decidedAt/decidedBy (acting admin's telegram id).
+   */
+  paymentStatus: paymentStatus("payment_status").notNull().default("unpaid"),
+  paidAt: timestamp("paid_at", { withTimezone: true }),
+  paidBy: integer("paid_by")
 });
 
 export const waitlist = pgTable("waitlist", {

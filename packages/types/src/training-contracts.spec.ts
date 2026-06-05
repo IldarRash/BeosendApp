@@ -2,17 +2,24 @@ import { describe, expect, it } from "vitest";
 import { bookingSource } from "./common";
 import {
   availableSlotsQuerySchema,
+  bookingSchema,
+  bookingStatus,
   cancelTrainingSchema,
   changeCapacitySchema,
+  confirmBookingSchema,
   createGroupBookingSchema,
   createGroupSchema,
   createSingleBookingSchema,
+  declineBookingSchema,
   generateAllMonthSchema,
   generateAllResultSchema,
   generateGroupResultSchema,
   generateMonthSchema,
   groupBookingResultSchema,
   groupSchema,
+  listSubscriptionsQuerySchema,
+  markSubscriptionPaidSchema,
+  subscriptionSummarySchema,
   individualRequestResultSchema,
   individualRequestSchema,
   listTrainingsQuerySchema,
@@ -422,7 +429,10 @@ describe("groupBookingResultSchema", () => {
     groupSubscriptionId: "44444444-4444-4444-4444-444444444444",
     createdAt: new Date().toISOString(),
     status: "booked",
-    source: "telegram"
+    source: "telegram",
+    paymentStatus: "unpaid",
+    paidAt: null,
+    paidBy: null
   };
 
   it("accepts a result with created bookings and skipped dates", () => {
@@ -515,6 +525,55 @@ describe("myBookingItemSchema", () => {
 
   it("rejects a non-boolean canCancel", () => {
     expect(myBookingItemSchema.safeParse({ ...validItem, canCancel: "yes" }).success).toBe(false);
+  });
+
+  it("accepts a pending booking status (trainer-confirmation hold)", () => {
+    expect(myBookingItemSchema.safeParse({ ...validItem, bookingStatus: "pending" }).success).toBe(
+      true
+    );
+  });
+});
+
+describe("bookingStatus (trainer-confirmation)", () => {
+  it("includes 'pending' as a first-class seat-holding status", () => {
+    expect(bookingStatus.safeParse("pending").success).toBe(true);
+  });
+
+  it("still accepts the established statuses and rejects unknowns", () => {
+    for (const status of ["booked", "cancelled", "attended", "no_show", "waitlist"]) {
+      expect(bookingStatus.safeParse(status).success).toBe(true);
+    }
+    expect(bookingStatus.safeParse("confirmed").success).toBe(false);
+  });
+
+  it("round-trips a pending booking through bookingSchema", () => {
+    const pendingBooking = {
+      id: "11111111-1111-1111-1111-111111111111",
+      clientId: "22222222-2222-2222-2222-222222222222",
+      trainingId: "33333333-3333-3333-3333-333333333333",
+      type: "single",
+      groupSubscriptionId: null,
+      createdAt: "2099-06-08T18:00:00.000Z",
+      status: "pending",
+      source: "telegram",
+      paymentStatus: "unpaid",
+      paidAt: null,
+      paidBy: null
+    };
+    expect(bookingSchema.safeParse(pendingBooking).success).toBe(true);
+  });
+});
+
+describe("confirmBookingSchema / declineBookingSchema (trainer-confirmation)", () => {
+  it("accept an empty body (identity is the path param + header, not the body)", () => {
+    expect(confirmBookingSchema.safeParse({}).success).toBe(true);
+    expect(declineBookingSchema.safeParse({}).success).toBe(true);
+  });
+
+  it("reject any unknown field (strict — no smuggled bookingId/clientId)", () => {
+    expect(confirmBookingSchema.safeParse({ bookingId: "x" }).success).toBe(false);
+    expect(declineBookingSchema.safeParse({ clientId: "x" }).success).toBe(false);
+    expect(confirmBookingSchema.safeParse({ status: "booked" }).success).toBe(false);
   });
 });
 
@@ -652,5 +711,136 @@ describe("waitlistEntrySchema", () => {
   it("rejects a missing notifiedAt key", () => {
     const { notifiedAt: _omitted, ...withoutNotifiedAt } = validEntry;
     expect(waitlistEntrySchema.safeParse(withoutNotifiedAt).success).toBe(false);
+  });
+});
+
+describe("bookingSchema (subscription payment fields)", () => {
+  const paidBooking = {
+    id: "11111111-1111-1111-1111-111111111111",
+    clientId: "22222222-2222-2222-2222-222222222222",
+    trainingId: "33333333-3333-3333-3333-333333333333",
+    type: "group",
+    groupSubscriptionId: "44444444-4444-4444-4444-444444444444",
+    createdAt: "2099-06-08T18:00:00.000Z",
+    status: "booked",
+    source: "telegram",
+    paymentStatus: "paid",
+    paidAt: "2099-06-09T10:00:00.000Z",
+    paidBy: 4242
+  };
+
+  it("accepts a paid booking carrying paidAt + paidBy", () => {
+    expect(bookingSchema.safeParse(paidBooking).success).toBe(true);
+  });
+
+  it("accepts an unpaid booking with null paidAt/paidBy", () => {
+    expect(
+      bookingSchema.safeParse({
+        ...paidBooking,
+        paymentStatus: "unpaid",
+        paidAt: null,
+        paidBy: null
+      }).success
+    ).toBe(true);
+  });
+
+  it("rejects an unknown paymentStatus", () => {
+    expect(bookingSchema.safeParse({ ...paidBooking, paymentStatus: "refunded" }).success).toBe(
+      false
+    );
+  });
+
+  it("rejects a non-datetime paidAt and a non-integer paidBy", () => {
+    expect(bookingSchema.safeParse({ ...paidBooking, paidAt: "2099-06-09" }).success).toBe(false);
+    expect(bookingSchema.safeParse({ ...paidBooking, paidBy: 4242.5 }).success).toBe(false);
+  });
+
+  it("rejects a booking missing the payment fields entirely", () => {
+    const { paymentStatus: _ps, paidAt: _pa, paidBy: _pb, ...withoutPayment } = paidBooking;
+    expect(bookingSchema.safeParse(withoutPayment).success).toBe(false);
+  });
+});
+
+describe("subscriptionSummarySchema (admin payments view)", () => {
+  const summary = {
+    groupSubscriptionId: "11111111-1111-1111-1111-111111111111",
+    clientId: "22222222-2222-2222-2222-222222222222",
+    clientName: "Ана",
+    groupId: "33333333-3333-3333-3333-333333333333",
+    groupName: "Утренняя",
+    year: 2026,
+    month: 6,
+    dateCount: 8,
+    paidCount: 3,
+    totalRsd: 12000,
+    paymentState: "partial"
+  };
+
+  it("round-trips a structurally valid summary", () => {
+    expect(subscriptionSummarySchema.safeParse(summary).success).toBe(true);
+  });
+
+  it("accepts null group fields (the subscription's group is gone)", () => {
+    expect(
+      subscriptionSummarySchema.safeParse({ ...summary, groupId: null, groupName: null }).success
+    ).toBe(true);
+  });
+
+  it("rejects a fractional or negative totalRsd (money is whole RSD)", () => {
+    expect(subscriptionSummarySchema.safeParse({ ...summary, totalRsd: 12000.5 }).success).toBe(
+      false
+    );
+    expect(subscriptionSummarySchema.safeParse({ ...summary, totalRsd: -1 }).success).toBe(false);
+  });
+
+  it("rejects an unknown paymentState", () => {
+    expect(subscriptionSummarySchema.safeParse({ ...summary, paymentState: "overdue" }).success).toBe(
+      false
+    );
+  });
+
+  it("rejects a fractional/negative count or out-of-range month", () => {
+    expect(subscriptionSummarySchema.safeParse({ ...summary, paidCount: -1 }).success).toBe(false);
+    expect(subscriptionSummarySchema.safeParse({ ...summary, dateCount: 1.5 }).success).toBe(false);
+    expect(subscriptionSummarySchema.safeParse({ ...summary, month: 13 }).success).toBe(false);
+  });
+});
+
+describe("listSubscriptionsQuerySchema", () => {
+  it("accepts an empty query (all filters optional)", () => {
+    expect(listSubscriptionsQuerySchema.safeParse({}).success).toBe(true);
+  });
+
+  it("accepts a paymentState + clientId filter", () => {
+    expect(
+      listSubscriptionsQuerySchema.safeParse({
+        paymentState: "unpaid",
+        clientId: "11111111-1111-1111-1111-111111111111"
+      }).success
+    ).toBe(true);
+  });
+
+  it("rejects an unknown paymentState or non-uuid clientId", () => {
+    expect(listSubscriptionsQuerySchema.safeParse({ paymentState: "overdue" }).success).toBe(false);
+    expect(listSubscriptionsQuerySchema.safeParse({ clientId: "nope" }).success).toBe(false);
+  });
+});
+
+describe("markSubscriptionPaidSchema", () => {
+  it("accepts { paid: true } and { paid: false }", () => {
+    expect(markSubscriptionPaidSchema.safeParse({ paid: true }).success).toBe(true);
+    expect(markSubscriptionPaidSchema.safeParse({ paid: false }).success).toBe(true);
+  });
+
+  it("rejects a non-boolean or missing paid", () => {
+    expect(markSubscriptionPaidSchema.safeParse({ paid: "yes" }).success).toBe(false);
+    expect(markSubscriptionPaidSchema.safeParse({}).success).toBe(false);
+  });
+
+  it("rejects unknown fields (strict — no smuggled id/paidBy)", () => {
+    expect(markSubscriptionPaidSchema.safeParse({ paid: true, paidBy: 1 }).success).toBe(false);
+    expect(
+      markSubscriptionPaidSchema.safeParse({ paid: true, groupSubscriptionId: "x" }).success
+    ).toBe(false);
   });
 });
