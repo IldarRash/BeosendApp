@@ -1,12 +1,14 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { cleanup, fireEvent, render, screen, within } from "@testing-library/react";
 import type { Group, Trainer, TrainingCalendarItem } from "@beosand/types";
+import { ToastProvider } from "../ui/Toast";
 
 // Hooks are mocked so the page can be unit-tested without the ApiClient/network.
 const useTrainingsCalendar = vi.fn();
 const useTrainingDetail = vi.fn();
 const useGroups = vi.fn();
 const useTrainers = vi.fn();
+const useCancelTraining = vi.fn();
 
 vi.mock("../hooks/useTrainingsCalendar", () => ({
   useTrainingsCalendar: (...args: unknown[]) => useTrainingsCalendar(...args)
@@ -16,10 +18,27 @@ vi.mock("../hooks/useTrainingDetail", () => ({
 }));
 vi.mock("../hooks/useGroups", () => ({ useGroups: () => useGroups() }));
 vi.mock("../hooks/useTrainers", () => ({ useTrainers: () => useTrainers() }));
+vi.mock("../hooks/useTrainings", () => ({
+  useCancelTraining: () => useCancelTraining()
+}));
 
 vi.mock("../i18n/LanguageProvider", async () => import("../i18n/test-utils"));
 
 import { TrainingsCalendar } from "./TrainingsCalendar";
+
+/** A react-query mutation stub with the fields the modal reads. */
+function mutation(over: Record<string, unknown> = {}) {
+  return { mutate: vi.fn(), reset: vi.fn(), isPending: false, isError: false, error: null, ...over };
+}
+
+/** Render inside a ToastProvider (the delete flow notifies on success/error). */
+function renderPage(): void {
+  render(
+    <ToastProvider>
+      <TrainingsCalendar />
+    </ToastProvider>
+  );
+}
 
 const GROUP: Group = {
   id: "11111111-1111-1111-1111-111111111111",
@@ -73,6 +92,7 @@ beforeEach(() => {
   useTrainers.mockReturnValue({ data: [TRAINER] });
   useTrainingsCalendar.mockReturnValue(idleQuery([ITEM]));
   useTrainingDetail.mockReturnValue({ isPending: false, isError: false, error: null, data: null });
+  useCancelTraining.mockReturnValue(mutation());
 });
 
 afterEach(() => {
@@ -82,7 +102,7 @@ afterEach(() => {
 
 describe("TrainingsCalendar", () => {
   it("renders an event chip with its time and group name in the month grid", () => {
-    render(<TrainingsCalendar />);
+    renderPage();
     const event = screen.getByRole("button", { name: /2026-07-06 08:00–09:30/ });
     // The visible label is time + group, not colour alone.
     expect(event.textContent).toContain("08:00");
@@ -90,7 +110,7 @@ describe("TrainingsCalendar", () => {
   });
 
   it("passes the selected month bounds and trainer filter to the API query", () => {
-    render(<TrainingsCalendar />);
+    renderPage();
     // Initial call: July 2026 bounds, no filters.
     expect(useTrainingsCalendar).toHaveBeenLastCalledWith({
       from: "2026-07-01",
@@ -106,7 +126,7 @@ describe("TrainingsCalendar", () => {
   });
 
   it("steps to the previous month and re-queries its bounds", () => {
-    render(<TrainingsCalendar />);
+    renderPage();
     fireEvent.click(screen.getByRole("button", { name: "Предыдущий месяц" }));
     expect(useTrainingsCalendar).toHaveBeenLastCalledWith({
       from: "2026-06-01",
@@ -116,7 +136,7 @@ describe("TrainingsCalendar", () => {
 
   it("opens the detail popup with the API's occupancy, status and court", () => {
     useTrainingDetail.mockReturnValue(idleQuery(ITEM));
-    render(<TrainingsCalendar />);
+    renderPage();
 
     fireEvent.click(screen.getByRole("button", { name: /2026-07-06 08:00–09:30/ }));
     const dialog = screen.getByRole("dialog", { name: "Тренировка" });
@@ -131,11 +151,39 @@ describe("TrainingsCalendar", () => {
     useTrainingDetail.mockReturnValue(
       idleQuery({ ...ITEM, groupId: null, groupName: null, courtNumber: null })
     );
-    render(<TrainingsCalendar />);
+    renderPage();
     fireEvent.click(screen.getByRole("button", { name: /2026-07-06 08:00–09:30/ }));
     const dialog = screen.getByRole("dialog", { name: "Тренировка" });
     expect(within(dialog).getByText("—")).toBeTruthy();
     // No group → the shared "one-off" label, never a recomputed value.
     expect(within(dialog).getByText("Разовая")).toBeTruthy();
+  });
+
+  it("deletes (soft-cancels) a training from the detail modal after confirm", () => {
+    const mutate = vi.fn();
+    useCancelTraining.mockReturnValue(mutation({ mutate }));
+    useTrainingDetail.mockReturnValue(idleQuery(ITEM));
+    renderPage();
+
+    fireEvent.click(screen.getByRole("button", { name: /2026-07-06 08:00–09:30/ }));
+    const dialog = screen.getByRole("dialog", { name: "Тренировка" });
+
+    // First click reveals the confirm step (no mutation yet).
+    fireEvent.click(within(dialog).getByRole("button", { name: "Удалить тренировку" }));
+    expect(within(dialog).getByText(/получат уведомление об отмене/)).toBeTruthy();
+    expect(mutate).not.toHaveBeenCalled();
+
+    // The confirm button fires the cancel mutation with the training id.
+    fireEvent.click(within(dialog).getByRole("button", { name: "Удалить тренировку" }));
+    expect(mutate).toHaveBeenCalledTimes(1);
+    expect(mutate.mock.calls[0][0]).toBe(ITEM.id);
+  });
+
+  it("hides the delete action for an already-cancelled training", () => {
+    useTrainingDetail.mockReturnValue(idleQuery({ ...ITEM, status: "cancelled" }));
+    renderPage();
+    fireEvent.click(screen.getByRole("button", { name: /2026-07-06 08:00–09:30/ }));
+    const dialog = screen.getByRole("dialog", { name: "Тренировка" });
+    expect(within(dialog).queryByRole("button", { name: "Удалить тренировку" })).toBeNull();
   });
 });

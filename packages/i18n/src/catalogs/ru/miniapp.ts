@@ -37,8 +37,12 @@ export const miniappRu: Record<string, string> = {
   "miniapp.home.groupHint": "Месячная подписка на группу",
   "miniapp.home.individual": "Индивидуальная тренировка",
   "miniapp.home.individualHint": "Запрос тренеру один на один",
+  "miniapp.home.schedule": "Расписание тренировок",
+  "miniapp.home.scheduleHint": "Все занятия на ближайший месяц",
   "miniapp.home.court": "Аренда корта",
   "miniapp.home.courtHint": "Заявка на свободный корт",
+  "miniapp.home.calendar": "Мой календарь",
+  "miniapp.home.calendarHint": "Записи и заявки на корт по дням",
   "miniapp.home.profile": "Профиль и язык",
   "miniapp.home.profileHint": "Ваши данные и язык интерфейса",
   "miniapp.home.placeholderTitle": "Скоро",
@@ -180,6 +184,11 @@ export const miniappRu: Record<string, string> = {
   // Roster block ("who signed up") on the group detail / month preview.
   "miniapp.group.roster.title": "Кто записан",
   "miniapp.group.roster.empty": "Пока никто не записан",
+  // Group-list filter (level / trainer / weekday).
+  "miniapp.group.filtersAria": "Фильтры групп",
+  "miniapp.group.filter.title": "Фильтры",
+  "miniapp.group.filterEmpty": "Нет подходящих групп",
+  "miniapp.group.filterEmptyBody": "Измените фильтры, чтобы увидеть другие группы.",
   // Conflict fallback (used only when a ConflictError carries no message).
   "miniapp.group.conflict":
     "Не удалось оформить подписку. Возможно, группа недоступна или месяц закрыт.",
@@ -286,5 +295,31 @@ export const miniappRu: Record<string, string> = {
   "miniapp.myBookings.cancelConflict":
     "Не удалось отменить запись. Возможно, она уже отменена или больше недоступна для отмены.",
   // Error loading the list.
-  "miniapp.myBookings.errorBody": "Не удалось загрузить ваши записи. Попробуйте ещё раз."
+  "miniapp.myBookings.errorBody": "Не удалось загрузить ваши записи. Попробуйте ещё раз.",
+
+  // --- Training schedule (расписание) ---
+  "miniapp.schedule.title": "Расписание",
+  "miniapp.schedule.hint": "Тренировки на ближайший месяц. Нажмите, чтобы записаться.",
+  "miniapp.schedule.filtersAria": "Фильтры расписания",
+  "miniapp.schedule.emptyTitle": "Нет подходящих тренировок",
+  "miniapp.schedule.emptyBody": "Измените фильтры или загляните позже.",
+  "miniapp.schedule.errorBody": "Не удалось загрузить расписание. Попробуйте ещё раз.",
+
+  // --- My calendar (court + training) ---
+  "miniapp.calendar.title": "Мой календарь",
+  "miniapp.calendar.navAria": "Переключение месяца",
+  "miniapp.calendar.prevMonth": "Предыдущий месяц",
+  "miniapp.calendar.nextMonth": "Следующий месяц",
+  "miniapp.calendar.gridAria": "Календарь на {month}",
+  "miniapp.calendar.dayAria": "{day} число, событий: {count}",
+  "miniapp.calendar.agendaAria": "События выбранного дня",
+  "miniapp.calendar.emptyDay": "В этот день нет записей и заявок.",
+  "miniapp.calendar.kindTraining": "Тренировка",
+  "miniapp.calendar.kindCourt": "Корт",
+  "miniapp.calendar.errorBody": "Не удалось загрузить календарь. Попробуйте ещё раз.",
+  // Court-request status chips (a client never sees a court number).
+  "miniapp.calendar.courtStatus.pending": "Ожидает подтверждения",
+  "miniapp.calendar.courtStatus.confirmed": "Подтверждено",
+  "miniapp.calendar.courtStatus.rejected": "Отклонено",
+  "miniapp.calendar.courtStatus.cancelled": "Отменено"
 };

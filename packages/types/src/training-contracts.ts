@@ -199,6 +199,15 @@ export type CancelTrainingInput = z.infer<typeof cancelTrainingSchema>;
 export const changeCapacitySchema = z.object({ capacity: z.number().int().positive() }).strict();
 export type ChangeCapacityInput = z.infer<typeof changeCapacitySchema>;
 
+/**
+ * Body for POST /trainings/:id/assign-court (admin manager console). The training
+ * id is the path param; the body names the court to reserve. The service re-checks
+ * the 6-per-slot limit and chosen-court freeness before inserting the auto-block.
+ * Strict so stray fields are rejected.
+ */
+export const assignCourtSchema = z.object({ courtId: uuid }).strict();
+export type AssignCourtInput = z.infer<typeof assignCourtSchema>;
+
 /** Admin range query for trainings (GET /trainings). */
 export const listTrainingsQuerySchema = z.object({
   from: dateString,

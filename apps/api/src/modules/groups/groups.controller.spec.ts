@@ -6,11 +6,17 @@ import { GroupsController } from "./groups.controller";
 import { GroupsService } from "./groups.service";
 import type { GroupsRepository } from "./groups.repository";
 import type { ClientsRepository } from "../clients/clients.repository";
+import type { TrainingsService } from "../trainings/trainings.service";
 
 /** Roster reads are not exercised here; a no-op clients repo satisfies the ctor. */
 const fakeClientsRepo = {
   findByTelegramId: async () => undefined
 } as unknown as ClientsRepository;
+
+/** Delete cascade is not exercised here; a no-op trainings service satisfies the ctor. */
+const fakeTrainingsService = {
+  cancelFutureTrainingsForGroup: async () => 0
+} as unknown as TrainingsService;
 
 const ADMIN_ID = 111;
 const NON_ADMIN_ID = 999;
@@ -74,7 +80,9 @@ describe("GroupsController", () => {
 
   beforeEach(() => {
     repo = makeRepo();
-    controller = new GroupsController(new GroupsService(repo, fakeClientsRepo, env));
+    controller = new GroupsController(
+      new GroupsService(repo, fakeClientsRepo, fakeTrainingsService, env)
+    );
   });
 
   it("GET /groups returns active groups without requiring a header", async () => {

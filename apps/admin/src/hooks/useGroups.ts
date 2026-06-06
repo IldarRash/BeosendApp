@@ -40,3 +40,17 @@ export function useUpdateGroup(): UseMutationResult<
     onSuccess: () => queryClient.invalidateQueries({ queryKey: GROUPS_KEY })
   });
 }
+
+/**
+ * Soft-delete a group (DELETE /groups/:id); the server cancels its future
+ * trainings and notifies members. Invalidates the (active-only) list on success so
+ * the group vanishes from the table.
+ */
+export function useDeleteGroup(): UseMutationResult<Group, Error, string> {
+  const api = useApiClient();
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (id: string) => api.deleteGroup(id),
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: GROUPS_KEY })
+  });
+}

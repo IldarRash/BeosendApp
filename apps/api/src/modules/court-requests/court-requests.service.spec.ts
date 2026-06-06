@@ -6,7 +6,7 @@ import {
 } from "@nestjs/common";
 import { describe, expect, it, vi } from "vitest";
 import type { Env } from "@beosand/config";
-import { COURT_CLOSE_HOUR, COURT_OPEN_HOUR } from "@beosand/types";
+import { COURT_CLOSE_HOUR, COURT_OPEN_HOUR, myCourtRequestItemSchema } from "@beosand/types";
 import type { CourtNotifier } from "./court-notifier";
 import {
   CourtModerationTx,
@@ -14,6 +14,7 @@ import {
   type CourtOccupancyRow,
   type CourtRequestAdminRow,
   type CourtRequestRow,
+  type MyCourtRequestRow,
   type OccupantRow
 } from "./court-requests.repository";
 import { CourtRequestsService, freeForDuration } from "./court-requests.service";
@@ -797,5 +798,64 @@ describe("CourtRequestsService.rejectRequest (C4 admin)", () => {
     await expect(
       service.rejectRequest(adminId, { requestId, decidedBy: adminId })
     ).rejects.toBeInstanceOf(ConflictException);
+  });
+});
+
+describe("CourtRequestsService.listMine (client's own requests)", () => {
+  const clientTg = 4242;
+
+  function mineRow(over: Partial<MyCourtRequestRow> = {}): MyCourtRequestRow {
+    return {
+      id: requestId,
+      date,
+      startTime: "14:00",
+      endTime: "16:00",
+      durationHours: 2,
+      priceRsd: 4000,
+      status: "confirmed",
+      ...over
+    };
+  }
+
+  function makeMineRepo(input: {
+    client?: { id: string } | null;
+    mine?: MyCourtRequestRow[];
+  }): { repo: CourtRequestsRepository; listMineForClient: ReturnType<typeof vi.fn> } {
+    const listMineForClient = vi.fn().mockResolvedValue(input.mine ?? []);
+    const repo = {
+      findActiveClientByTelegramId: vi
+        .fn()
+        .mockResolvedValue(input.client === undefined ? { id: clientId } : input.client),
+      listMineForClient
+    } as unknown as CourtRequestsRepository;
+    return { repo, listMineForClient };
+  }
+
+  it("returns the caller's own requests, resolved by telegram id, contract-valid", async () => {
+    const { repo, listMineForClient } = makeMineRepo({ mine: [mineRow()] });
+    const service = makeService(repo);
+
+    const result = await service.listMine(clientTg);
+
+    expect(listMineForClient).toHaveBeenCalledWith(clientId);
+    expect(result).toHaveLength(1);
+    expect(result[0]).toMatchObject({ id: requestId, status: "confirmed", priceRsd: 4000 });
+  });
+
+  it("rejects a caller with no client record (403) and never reads rows", async () => {
+    const { repo, listMineForClient } = makeMineRepo({ client: null });
+    const service = makeService(repo);
+
+    await expect(service.listMine(clientTg)).rejects.toBeInstanceOf(ForbiddenException);
+    expect(listMineForClient).not.toHaveBeenCalled();
+  });
+
+  it("the client-facing contract carries NO court id/number (invariant)", () => {
+    // The schema must not even declare a court field; an object carrying one is rejected.
+    expect(Object.keys(myCourtRequestItemSchema.shape)).not.toContain("courtId");
+    expect(Object.keys(myCourtRequestItemSchema.shape)).not.toContain("courtNumber");
+    const withCourt = { ...mineRow(), courtId: courtIdA };
+    const parsed = myCourtRequestItemSchema.parse(withCourt) as Record<string, unknown>;
+    expect(parsed.courtId).toBeUndefined();
   });
 });

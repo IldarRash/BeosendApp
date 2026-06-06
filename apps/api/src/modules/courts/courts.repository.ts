@@ -1,5 +1,5 @@
 import { Injectable } from "@nestjs/common";
-import { and, asc, eq, tables } from "@beosand/db";
+import { and, asc, eq, inArray, isNull, tables } from "@beosand/db";
 import { DatabaseService } from "../../db/database.service";
 
 /** A court occupant (confirmed request or block) on a date: court id + minute span. */
@@ -11,6 +11,16 @@ export interface CourtOccupancyRow {
   requestId?: string;
   /** Covering auto-block's group_training_id, so a `training` cell can link to its training detail. */
   trainingId?: string;
+}
+
+/** A training on a date with no auto-block (no court reserved), joined to group/level names. */
+export interface UnassignedTrainingRow {
+  trainingId: string;
+  date: string;
+  startTime: string;
+  endTime: string;
+  groupName: string;
+  levelName: string;
 }
 
 /** Only place that touches Drizzle for courts. No business rules. */
@@ -76,6 +86,43 @@ export class CourtsRepository {
       startTime: row.startTime.slice(0, 5),
       durationMinutes: minuteSpan(row.startTime, row.endTime),
       trainingId: row.groupTrainingId ?? undefined
+    }));
+  }
+
+  /**
+   * Trainings on a date that have NO auto-block (no court reserved) — the "orphans"
+   * the generator left when every court was busy. Active groups only; non-terminal
+   * trainings only (open/full). Joined to group/level names for the grid's
+   * "unassigned" list; ordered by start time. Times normalized "HH:MM:SS" -> "HH:MM".
+   */
+  async unassignedTrainingsForDate(date: string): Promise<UnassignedTrainingRow[]> {
+    const rows = await this.database.db
+      .select({
+        trainingId: tables.trainings.id,
+        date: tables.trainings.date,
+        startTime: tables.trainings.startTime,
+        endTime: tables.trainings.endTime,
+        groupName: tables.groups.name,
+        levelName: tables.levels.name
+      })
+      .from(tables.trainings)
+      .innerJoin(tables.groups, eq(tables.trainings.groupId, tables.groups.id))
+      .innerJoin(tables.levels, eq(tables.groups.levelId, tables.levels.id))
+      .leftJoin(tables.courtBlocks, eq(tables.courtBlocks.groupTrainingId, tables.trainings.id))
+      .where(
+        and(
+          eq(tables.trainings.date, date),
+          eq(tables.groups.status, "active"),
+          inArray(tables.trainings.status, ["open", "full"]),
+          isNull(tables.courtBlocks.id)
+        )
+      )
+      .orderBy(asc(tables.trainings.startTime));
+
+    return rows.map((row) => ({
+      ...row,
+      startTime: row.startTime.slice(0, 5),
+      endTime: row.endTime.slice(0, 5)
     }));
   }
 }

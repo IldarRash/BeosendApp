@@ -79,6 +79,64 @@ export function monthBounds(year: number, month: number): [string, string] {
   return [first.toISOString().slice(0, 10), last.toISOString().slice(0, 10)];
 }
 
+// --- Pure month-grid layout (calendar UIs: admin + Mini App) ---
+
+/** Zero-padded "YYYY-MM-DD" for a year / month (1-12) / day — the contract date shape. */
+export function isoDate(year: number, month: number, day: number): string {
+  const mm = String(month).padStart(2, "0");
+  const dd = String(day).padStart(2, "0");
+  return `${year}-${mm}-${dd}`;
+}
+
+/** Number of days in a 1-based month of a year. */
+export function daysInMonth(year: number, month: number): number {
+  return new Date(year, month, 0).getDate();
+}
+
+/** Monday-first weekday index (0 = Mon … 6 = Sun) for a 1-based month's first day. */
+export function firstWeekdayMondayFirst(year: number, month: number): number {
+  const jsDay = new Date(year, month - 1, 1).getDay(); // 0 = Sun … 6 = Sat
+  return (jsDay + 6) % 7;
+}
+
+/**
+ * The weeks (rows) of `null`-padded ISO date strings for a month, Monday-first.
+ * Leading/trailing `null`s pad the first/last week so every row has exactly 7 cells.
+ * Pure layout — no domain logic; shared by the admin calendar and the Mini App calendar.
+ */
+export function monthWeeks(year: number, month: number): (string | null)[][] {
+  const total = daysInMonth(year, month);
+  const lead = firstWeekdayMondayFirst(year, month);
+  const cells: (string | null)[] = Array.from({ length: lead }, () => null);
+  for (let day = 1; day <= total; day += 1) {
+    cells.push(isoDate(year, month, day));
+  }
+  while (cells.length % 7 !== 0) {
+    cells.push(null);
+  }
+  const weeks: (string | null)[][] = [];
+  for (let i = 0; i < cells.length; i += 7) {
+    weeks.push(cells.slice(i, i + 7));
+  }
+  return weeks;
+}
+
+/** The day-of-month number for an ISO date (its day characters, unpadded). */
+export function dayOfMonth(iso: string): number {
+  return Number.parseInt(iso.slice(8, 10), 10);
+}
+
+/** Step a 1-based {year, month} by `delta` months, rolling the year at the boundaries. */
+export function shiftMonth(
+  year: number,
+  month: number,
+  delta: number
+): { year: number; month: number } {
+  // Convert to a 0-based absolute month count, shift, then back to {year, month}.
+  const zeroBased = year * 12 + (month - 1) + delta;
+  return { year: Math.floor(zeroBased / 12), month: (zeroBased % 12) + 1 };
+}
+
 /**
  * Court rental price in RSD (section "Стоимость аренды"). Fractional hours are
  * allowed (1 | 1.5 | 2); 1.5h × 2000 = 3000 stays whole RSD for these durations.

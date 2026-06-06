@@ -48,6 +48,23 @@ export type ReassignCourtBlock = z.infer<typeof reassignCourtBlockSchema>;
 export const courtRequestStatus = z.enum(["pending", "confirmed", "rejected", "cancelled"]);
 export type CourtRequestStatus = z.infer<typeof courtRequestStatus>;
 
+/**
+ * One row in a client's own "My court requests" view, for the Mini App calendar.
+ * Mirrors MyBookingItem in carrying a derived `endTime`. CRITICAL INVARIANT: this
+ * client-facing shape MUST NEVER carry a court id/number — a client must never learn
+ * which court was assigned, even after confirmation. The price is server-computed RSD.
+ */
+export const myCourtRequestItemSchema = z.object({
+  id: uuid,
+  date: dateString,
+  startTime: timeString,
+  endTime: timeString,
+  durationHours: z.number(),
+  priceRsd: rsd,
+  status: courtRequestStatus
+});
+export type MyCourtRequestItem = z.infer<typeof myCourtRequestItemSchema>;
+
 export const courtRequestSchema = z.object({
   id: uuid,
   clientId: uuid,
@@ -183,11 +200,29 @@ export const courtLoadRowSchema = z.object({
 });
 export type CourtLoadRow = z.infer<typeof courtLoadRowSchema>;
 
+/**
+ * A training on the grid's date that has no auto-block (no court reserved) — an
+ * "orphan" the generator could not place when every court was busy. Surfaced
+ * alongside the grid so admin can assign a court manually. Admin-only (carries the
+ * group/level names); never returned on a client path. Carries no court id.
+ */
+export const unassignedTrainingSchema = z.object({
+  trainingId: uuid,
+  date: dateString,
+  startTime: timeString,
+  endTime: timeString,
+  groupName: z.string(),
+  levelName: z.string()
+});
+export type UnassignedTraining = z.infer<typeof unassignedTrainingSchema>;
+
 /** The full grid for a date across the 08:00–21:00 working window. */
 export const courtLoadGridSchema = z.object({
   date: dateString,
   openHour: z.number().int(),
   closeHour: z.number().int(),
-  rows: z.array(courtLoadRowSchema)
+  rows: z.array(courtLoadRowSchema),
+  /** Trainings on this date with no reserved court (need a manual admin assignment). */
+  unassignedTrainings: z.array(unassignedTrainingSchema)
 });
 export type CourtLoadGrid = z.infer<typeof courtLoadGridSchema>;

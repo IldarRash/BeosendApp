@@ -29,6 +29,20 @@ export interface OccupantRow {
   durationHours?: number;
 }
 
+/**
+ * One of a client's own court requests, for the Mini App calendar. Carries the
+ * derived end time and the duration but — by invariant — NEVER the assigned court.
+ */
+export interface MyCourtRequestRow {
+  id: string;
+  date: string;
+  startTime: string;
+  endTime: string;
+  durationHours: number;
+  priceRsd: number;
+  status: "pending" | "confirmed" | "rejected" | "cancelled";
+}
+
 /** Row inserted for a new pending court request (court_id is always null). */
 export interface InsertCourtRequest {
   clientId: string;
@@ -178,6 +192,45 @@ export class CourtRequestsRepository {
       .where(and(eq(tables.courtRequests.status, status), isNotNull(tables.clients.telegramId)))
       .orderBy(asc(tables.courtRequests.date), asc(tables.courtRequests.startTime));
     return rows.map((row) => toAdminRow(row));
+  }
+
+  /**
+   * A client's own court requests (all statuses), newest first, with a derived end
+   * time. By invariant the projection NEVER selects court_id — a client must never
+   * learn the assigned court. The service has already resolved the caller's clientId.
+   */
+  async listMineForClient(clientId: string): Promise<MyCourtRequestRow[]> {
+    const rows = await this.database.db
+      .select({
+        id: tables.courtRequests.id,
+        date: tables.courtRequests.date,
+        startTime: tables.courtRequests.startTime,
+        durationHours: tables.courtRequests.durationHours,
+        priceRsd: tables.courtRequests.priceRsd,
+        status: tables.courtRequests.status
+      })
+      .from(tables.courtRequests)
+      .where(eq(tables.courtRequests.clientId, clientId))
+      .orderBy(asc(tables.courtRequests.date), asc(tables.courtRequests.startTime));
+
+    return rows.map((row) => {
+      const startTime = row.startTime.slice(0, 5);
+      const durationHours = Number(row.durationHours);
+      const endMinutes =
+        Number(startTime.slice(0, 2)) * 60 + Number(startTime.slice(3, 5)) + durationHours * 60;
+      const endTime = `${String(Math.floor(endMinutes / 60)).padStart(2, "0")}:${String(
+        endMinutes % 60
+      ).padStart(2, "0")}`;
+      return {
+        id: row.id,
+        date: row.date,
+        startTime,
+        endTime,
+        durationHours,
+        priceRsd: row.priceRsd,
+        status: row.status
+      };
+    });
   }
 
   /** A single request row by id, or null. */

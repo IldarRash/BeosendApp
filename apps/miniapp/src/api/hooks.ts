@@ -19,6 +19,7 @@ import type {
   Level,
   MyBookingItem,
   MyBookingScope,
+  MyCourtRequestItem,
   OnboardClientInput,
   SlotCard,
   Trainer,
@@ -264,6 +265,29 @@ export function useMyBookings(scope: MyBookingScope): UseQueryResult<MyBookingIt
     queryKey: myBookingsQueryKey(clientId ?? "", scope),
     enabled: clientId != null,
     queryFn: () => apiClient.listMyBookings(clientId!, scope)
+  });
+}
+
+/** The query key for the caller's own court requests (the in-app calendar feed). */
+export function myCourtRequestsQueryKey(clientId: string): readonly [string, string] {
+  return ["my-court-requests", clientId] as const;
+}
+
+/**
+ * The caller's own court requests (GET /court-requests/mine) for the calendar. The
+ * server resolves the requester from the verified session (bridged Bearer →
+ * `x-client-telegram-id`) and returns only their own requests — the Mini App sends no
+ * identity in the call. Keyed by the resolved clientId so it caches per user and is
+ * disabled until the client resolves. The contract carries NO court id, so a court
+ * number can never reach the calendar.
+ */
+export function useMyCourtRequests(): UseQueryResult<MyCourtRequestItem[]> {
+  const apiClient = useApiClient();
+  const clientId = useResolvedClientId();
+  return useQuery<MyCourtRequestItem[]>({
+    queryKey: myCourtRequestsQueryKey(clientId ?? ""),
+    enabled: clientId != null,
+    queryFn: () => apiClient.listMyCourtRequests()
   });
 }
 

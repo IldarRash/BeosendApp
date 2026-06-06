@@ -41,6 +41,13 @@ function TileIcon({ name }: { name: IconName }): JSX.Element {
         <path d="M7.5 13h2M11 13h2M14.5 13h2M7.5 16.5h2M11 16.5h2" />
       </svg>
     ),
+    schedule: (
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={1.8} strokeLinecap="round" strokeLinejoin="round" aria-hidden="true" focusable="false">
+        <rect x="3.5" y="5" width="17" height="15" rx="2.5" />
+        <path d="M3.5 9.5h17M8 3.5v3M16 3.5v3" />
+        <path d="M7 13h2M7 16.5h2M11.5 13h5.5M11.5 16.5h5.5" />
+      </svg>
+    ),
     myBookings: (
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={1.8} strokeLinecap="round" strokeLinejoin="round" aria-hidden="true" focusable="false">
         <rect x="5" y="4.5" width="14" height="16" rx="2.5" />
@@ -69,6 +76,13 @@ function TileIcon({ name }: { name: IconName }): JSX.Element {
         <rect x="3.5" y="6" width="17" height="12" rx="1.5" />
         <path d="M12 6v12" />
         <path d="M3.5 12h17" strokeDasharray="2 2.4" />
+      </svg>
+    ),
+    calendar: (
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={1.8} strokeLinecap="round" strokeLinejoin="round" aria-hidden="true" focusable="false">
+        <rect x="3.5" y="5" width="17" height="15" rx="2.5" />
+        <path d="M3.5 9.5h17M8 3.5v3M16 3.5v3" />
+        <path d="M7.5 13h0.01M12 13h0.01M16.5 13h0.01M7.5 16.5h0.01M12 16.5h0.01M16.5 16.5h0.01" />
       </svg>
     ),
     profile: (

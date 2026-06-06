@@ -14,10 +14,12 @@ import type { IconName } from "../ui/icons";
 export type RouteId =
   | "home"
   | "browse"
+  | "schedule"
   | "my-bookings"
   | "group"
   | "individual"
   | "court"
+  | "calendar"
   | "profile"
   | "waitlist-accept";
 
@@ -50,6 +52,12 @@ const MENU_GROUPS: ReadonlyArray<{ headerKey: string; items: ReadonlyArray<MenuE
     items: [
       { id: "browse", icon: "browse", labelKey: "miniapp.home.browse", hintKey: "miniapp.home.browseHint" },
       {
+        id: "schedule",
+        icon: "schedule",
+        labelKey: "miniapp.home.schedule",
+        hintKey: "miniapp.home.scheduleHint"
+      },
+      {
         id: "my-bookings",
         icon: "myBookings",
         labelKey: "miniapp.home.myBookings",
@@ -66,7 +74,15 @@ const MENU_GROUPS: ReadonlyArray<{ headerKey: string; items: ReadonlyArray<MenuE
   },
   {
     headerKey: "miniapp.home.sectionCourts",
-    items: [{ id: "court", icon: "court", labelKey: "miniapp.home.court", hintKey: "miniapp.home.courtHint" }]
+    items: [
+      { id: "court", icon: "court", labelKey: "miniapp.home.court", hintKey: "miniapp.home.courtHint" },
+      {
+        id: "calendar",
+        icon: "calendar",
+        labelKey: "miniapp.home.calendar",
+        hintKey: "miniapp.home.calendarHint"
+      }
+    ]
   },
   {
     headerKey: "miniapp.home.sectionAccount",
@@ -96,10 +112,12 @@ export const HOME_SECTIONS: ReadonlyArray<HomeMenuSection> = MENU_GROUPS.map((gr
 const ROUTE_IDS: ReadonlySet<RouteId> = new Set<RouteId>([
   "home",
   "browse",
+  "schedule",
   "my-bookings",
   "group",
   "individual",
   "court",
+  "calendar",
   "profile",
   "waitlist-accept"
 ]);
@@ -137,10 +155,12 @@ export function toRouteId(value: string): RouteId | null {
 const DEEP_LINK_ROUTES: Readonly<Record<string, Exclude<RouteId, "waitlist-accept">>> = {
   home: "home",
   browse: "browse",
+  schedule: "schedule",
   mybookings: "my-bookings",
   group: "group",
   individual: "individual",
   court: "court",
+  calendar: "calendar",
   profile: "profile"
 };
 

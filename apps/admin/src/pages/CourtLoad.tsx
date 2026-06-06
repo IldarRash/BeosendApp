@@ -1,16 +1,22 @@
 import { useState } from "react";
 import type {
+  Court,
   CourtLoadCell,
   CourtLoadCellState,
   CourtLoadRow,
   CourtRequestAdminView,
-  CourtRequestStatus
+  CourtRequestStatus,
+  UnassignedTraining
 } from "@beosand/types";
 import { AppShell } from "../ui/AppShell";
+import { Button } from "../ui/Button";
+import { DataTable, type Column } from "../ui/DataTable";
 import { TextField } from "../ui/Field";
 import { Modal } from "../ui/Modal";
+import { useToast } from "../ui/Toast";
 import { useT } from "../i18n/LanguageProvider";
-import { useCourtLoad } from "../hooks/useCourtLoad";
+import { useAssignCourt, useCourtLoad } from "../hooks/useCourtLoad";
+import { useCourts } from "../hooks/useCourts";
 import { useCourtRequestDetail } from "../hooks/useCourtRequests";
 import { useTrainingDetail } from "../hooks/useTrainingDetail";
 import { TrainingDetailBody } from "./TrainingsCalendar";
@@ -149,9 +155,11 @@ export function CourtLoad(): JSX.Element {
   const [date, setDate] = useState(todayIso());
   const [openRequestId, setOpenRequestId] = useState<string | null>(null);
   const [openTrainingId, setOpenTrainingId] = useState<string | null>(null);
+  const [assignTarget, setAssignTarget] = useState<UnassignedTraining | null>(null);
   const load = useCourtLoad(date || null);
 
   const grid = load.data;
+  const unassigned = grid?.unassignedTrainings ?? [];
   // The 2-hour column order is derived from the first row's cells (every row spans
   // the same working window per the contract); the bucketing is purely visual.
   const headerColumns = groupColumns(grid?.rows[0]?.cells ?? []);
@@ -238,9 +246,24 @@ export function CourtLoad(): JSX.Element {
         ) : (
           <p className="state">{t("admin.courtLoad.noCourts")}</p>
         )}
+
+        {unassigned.length > 0 ? (
+          <UnassignedSection
+            date={grid?.date ?? date}
+            trainings={unassigned}
+            onAssign={setAssignTarget}
+            t={t}
+          />
+        ) : null}
       </div>
 
       <RequestDetailModal requestId={openRequestId} onClose={() => setOpenRequestId(null)} t={t} />
+
+      <AssignCourtModal
+        target={assignTarget}
+        onClose={() => setAssignTarget(null)}
+        t={t}
+      />
 
       <TrainingDetailModal
         trainingId={openTrainingId}
@@ -462,5 +485,188 @@ function RequestDetailBody({
         </dd>
       </div>
     </dl>
+  );
+}
+
+/**
+ * Slice 4 — the "Без корта" section: trainings on this date the generator could
+ * not place on a court (every court was busy). The API decides which trainings are
+ * orphaned (`grid.unassignedTrainings`); this section only lists them and offers a
+ * manual assign action, flagged with the warning (amber) accent. Rendered only when
+ * the list is non-empty.
+ */
+function UnassignedSection({
+  date,
+  trainings,
+  onAssign,
+  t
+}: {
+  date: string;
+  trainings: UnassignedTraining[];
+  onAssign: (training: UnassignedTraining) => void;
+  t: Translate;
+}): JSX.Element {
+  const columns: Column<UnassignedTraining>[] = [
+    {
+      key: "time",
+      header: t("admin.courtLoad.unassignedColTime"),
+      render: (training) => `${training.startTime}–${training.endTime}`
+    },
+    {
+      key: "group",
+      header: t("admin.courtLoad.unassignedColGroup"),
+      render: (training) => training.groupName
+    },
+    {
+      key: "level",
+      header: t("admin.courtLoad.unassignedColLevel"),
+      render: (training) => training.levelName
+    },
+    {
+      key: "actions",
+      header: "",
+      render: (training) => (
+        <Button
+          variant="primary"
+          onClick={() => onAssign(training)}
+          aria-label={t("admin.courtLoad.assignAria", {
+            group: training.groupName,
+            start: training.startTime,
+            end: training.endTime
+          })}
+        >
+          {t("admin.courtLoad.assign")}
+        </Button>
+      )
+    }
+  ];
+
+  return (
+    <section className="note note--warn" aria-labelledby="court-load-unassigned-heading">
+      <h2 id="court-load-unassigned-heading">{t("admin.courtLoad.unassignedTitle")}</h2>
+      <p>{t("admin.courtLoad.unassignedLead")}</p>
+      <DataTable
+        caption={t("admin.courtLoad.unassignedCaption", { date })}
+        columns={columns}
+        rows={trainings}
+        rowKey={(training) => training.trainingId}
+        emptyLabel={t("admin.courtLoad.unassignedTitle")}
+      />
+    </section>
+  );
+}
+
+/**
+ * Assign one unassigned training onto a chosen active court. The picker offers the
+ * active courts from GET /courts; the server owns the 6-per-slot guard and the
+ * chosen-court freeness check, so a clash returns a 409 surfaced as a toast — the
+ * console never pre-checks availability. On success the court-load query refetches
+ * (the training leaves this section and joins the grid) and the modal closes.
+ */
+function AssignCourtModal({
+  target,
+  onClose,
+  t
+}: {
+  target: UnassignedTraining | null;
+  onClose: () => void;
+  t: Translate;
+}): JSX.Element {
+  const { notify } = useToast();
+  const courts = useCourts();
+  const assign = useAssignCourt();
+  const [pickedCourtId, setPickedCourtId] = useState<string | null>(null);
+
+  // Reset the picked court whenever a new training opens the modal.
+  const [lastTrainingId, setLastTrainingId] = useState<string | null>(null);
+  if (target && target.trainingId !== lastTrainingId) {
+    setLastTrainingId(target.trainingId);
+    setPickedCourtId(null);
+    assign.reset();
+  }
+
+  function submit(): void {
+    if (!target || pickedCourtId === null) return;
+    assign.mutate(
+      { trainingId: target.trainingId, courtId: pickedCourtId },
+      {
+        onSuccess: () => {
+          notify(t("admin.courtLoad.assigned", { group: target.groupName }), "success");
+          onClose();
+        },
+        onError: (error) =>
+          notify(
+            error instanceof Error ? error.message : t("admin.courtLoad.assignFailed"),
+            "error"
+          )
+      }
+    );
+  }
+
+  return (
+    <Modal
+      open={target !== null}
+      onClose={onClose}
+      title={
+        target
+          ? t("admin.courtLoad.assignTitle", { group: target.groupName })
+          : t("admin.courtLoad.assign")
+      }
+      footer={
+        <div className="cluster">
+          <Button variant="ghost" onClick={onClose} disabled={assign.isPending}>
+            {t("admin.action.cancel")}
+          </Button>
+          <Button
+            variant="primary"
+            disabled={pickedCourtId === null || assign.isPending}
+            onClick={submit}
+          >
+            {assign.isPending ? t("admin.courtLoad.assigning") : t("admin.courtLoad.assignSubmit")}
+          </Button>
+        </div>
+      }
+    >
+      {target ? (
+        <div className="stack">
+          <p>
+            {t("admin.courtLoad.assignSummary", {
+              date: target.date,
+              start: target.startTime,
+              end: target.endTime
+            })}
+          </p>
+          {courts.isPending ? (
+            <p className="state">{t("admin.courtLoad.assignCourtsLoading")}</p>
+          ) : courts.isError ? (
+            <p className="state state--error" role="alert">
+              {courts.error instanceof Error
+                ? courts.error.message
+                : t("admin.courtLoad.assignFailed")}
+            </p>
+          ) : (courts.data ?? []).length === 0 ? (
+            <p className="state" role="status">
+              {t("admin.courtLoad.assignNoCourts")}
+            </p>
+          ) : (
+            <fieldset className="stack">
+              <legend>{t("admin.courtLoad.assignPickCourt")}</legend>
+              {(courts.data ?? []).map((court: Court) => (
+                <label key={court.id} className="cluster">
+                  <input
+                    type="radio"
+                    name="assign-court-pick"
+                    value={court.id}
+                    checked={pickedCourtId === court.id}
+                    onChange={() => setPickedCourtId(court.id)}
+                  />
+                  {t("admin.courtLoad.assignCourtOption", { number: court.number })}
+                </label>
+              ))}
+            </fieldset>
+          )}
+        </div>
+      ) : null}
+    </Modal>
   );
 }

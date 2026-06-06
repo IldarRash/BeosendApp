@@ -682,3 +682,80 @@ describe("ApiClient subscription payments", () => {
     expect(result.paymentState).toBe("paid");
   });
 });
+
+describe("ApiClient court assignment & group delete (slices 4+5)", () => {
+  afterEach(() => {
+    vi.unstubAllGlobals();
+  });
+
+  const TRAINING_ID = "11111111-1111-1111-1111-111111111111";
+  const COURT_ID = "22222222-2222-2222-2222-222222222222";
+  const GROUP_ID = "33333333-3333-3333-3333-333333333333";
+  const TRAINER_ID = "44444444-4444-4444-4444-444444444444";
+
+  const training = {
+    id: TRAINING_ID,
+    groupId: GROUP_ID,
+    date: "2026-06-10",
+    startTime: "18:00",
+    endTime: "19:30",
+    trainerId: TRAINER_ID,
+    capacity: 12,
+    bookedCount: 6,
+    status: "open"
+  };
+
+  const group = {
+    id: GROUP_ID,
+    name: "Утренняя группа",
+    levelId: "55555555-5555-5555-5555-555555555555",
+    daysOfWeek: [1, 3],
+    startTime: "08:00",
+    endTime: "09:30",
+    trainerId: TRAINER_ID,
+    trainerName: "Анна",
+    capacity: 12,
+    priceSingleRsd: 1500,
+    priceMonthRsd: 12000,
+    status: "inactive"
+  };
+
+  it("POSTs assign-court to the training path with the chosen courtId", async () => {
+    const calls = mockFetchOnce(training);
+    const result = await new ApiClient("http://api.test").assignCourt(TRAINING_ID, COURT_ID);
+    expect(calls[0]?.url).toBe(`http://api.test/trainings/${TRAINING_ID}/assign-court`);
+    expect(calls[0]?.init?.method).toBe("POST");
+    expect(JSON.parse(calls[0]?.init?.body as string)).toEqual({ courtId: COURT_ID });
+    expect(result.id).toBe(TRAINING_ID);
+  });
+
+  it("surfaces a 409 from assign-court as a typed ConflictError (court not free)", async () => {
+    mockFetchOnce({ statusCode: 409, message: "Корт занят" }, false, 409);
+    await expect(
+      new ApiClient("http://api.test").assignCourt(TRAINING_ID, COURT_ID)
+    ).rejects.toBeInstanceOf(ConflictError);
+  });
+
+  it("rejects a malformed assign-court response (contract enforced)", async () => {
+    // `capacity` must be a positive integer; a string fails the training contract.
+    mockFetchOnce({ ...training, capacity: "twelve" });
+    await expect(
+      new ApiClient("http://api.test").assignCourt(TRAINING_ID, COURT_ID)
+    ).rejects.toThrow();
+  });
+
+  it("DELETEs the group path and validates the returned (now inactive) group", async () => {
+    const calls = mockFetchOnce(group);
+    const result = await new ApiClient("http://api.test").deleteGroup(GROUP_ID);
+    expect(calls[0]?.url).toBe(`http://api.test/groups/${GROUP_ID}`);
+    expect(calls[0]?.init?.method).toBe("DELETE");
+    expect(result.status).toBe("inactive");
+  });
+
+  it("rejects a malformed delete-group response (contract enforced)", async () => {
+    // A missing required `name` fails the group contract.
+    const { name: _omit, ...withoutName } = group;
+    mockFetchOnce(withoutName);
+    await expect(new ApiClient("http://api.test").deleteGroup(GROUP_ID)).rejects.toThrow();
+  });
+});
