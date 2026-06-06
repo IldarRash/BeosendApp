@@ -1105,3 +1105,118 @@ button.slot { display: block; }
   color: var(--tg-hint);
   background: rgba(127, 127, 127, 0.12);
 }
+
+/* =========================================================
+ * Month calendar (per-user court + training) — .cal-*
+ * ========================================================= */
+.cal-nav {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  margin: 2px 0 10px;
+}
+
+.cal-nav__btn {
+  width: 40px;
+  height: 36px;
+  border: none;
+  border-radius: 10px;
+  background: var(--tg-bg);
+  color: var(--co);
+  font-size: 22px;
+  line-height: 1;
+  cursor: pointer;
+}
+
+.cal-nav__btn:active { background: var(--co-soft); }
+
+.cal-nav__label {
+  flex: 1;
+  text-align: center;
+  font-size: 16px;
+  font-weight: 600;
+  color: var(--tg-text);
+  text-transform: capitalize;
+}
+
+.cal-grid {
+  background: var(--tg-bg);
+  border-radius: var(--r-lg);
+  padding: 6px;
+  overflow: hidden;
+}
+
+.cal-grid__head,
+.cal-grid__week {
+  display: grid;
+  grid-template-columns: repeat(7, 1fr);
+}
+
+.cal-grid__wd {
+  text-align: center;
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--tg-hint);
+  text-transform: uppercase;
+  padding: 6px 0;
+}
+
+.cal-cell {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: flex-start;
+  gap: 3px;
+  aspect-ratio: 1 / 1;
+  padding: 6px 0 0;
+  border: none;
+  background: transparent;
+  border-radius: 10px;
+  cursor: pointer;
+  font-family: var(--ff);
+}
+
+.cal-cell--pad { cursor: default; }
+
+.cal-cell__num {
+  font-size: 14px;
+  color: var(--tg-text);
+  line-height: 1;
+}
+
+/* Today's date — coral ring around the number. */
+.cal-cell__num--today {
+  color: var(--co);
+  font-weight: 700;
+}
+
+/* A day carrying any item — the marker dot below the number. */
+.cal-cell__dot {
+  width: 5px;
+  height: 5px;
+  border-radius: 50%;
+  background: var(--co);
+}
+
+/* Selected day — soft coral fill (selection is also announced via aria-selected). */
+.cal-cell--sel { background: var(--co-soft); }
+.cal-cell--sel .cal-cell__num { color: var(--co-ink); font-weight: 600; }
+
+/* Agenda row kind tag (тренировка / корт). */
+.cal-row__top { display: flex; align-items: center; gap: 8px; }
+
+.cal-kind {
+  display: inline-flex;
+  align-items: center;
+  border-radius: 6px;
+  padding: 2px 7px;
+  font-size: 11px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.02em;
+}
+
+.cal-kind--training { background: var(--co-soft); color: var(--co-ink); }
+.cal-kind--court { background: var(--teal-soft); color: #126B62; }

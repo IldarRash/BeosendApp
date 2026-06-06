@@ -208,6 +208,19 @@ export class CourtBlocksRepository {
     return rows.length > 0;
   }
 
+  /** The auto-block linked to a training, or null (guards a double court assignment). Tx-aware. */
+  async findByGroupTrainingId(
+    groupTrainingId: string,
+    db: Database = this.database.db
+  ): Promise<CourtBlockRow | null> {
+    const rows = await db
+      .select(blockColumns)
+      .from(tables.courtBlocks)
+      .where(eq(tables.courtBlocks.groupTrainingId, groupTrainingId))
+      .limit(1);
+    return rows[0] ? normalizeBlock(rows[0]) : null;
+  }
+
   /** Delete the auto-block linked to a training (frees its court on cancel). Tx-aware. */
   async deleteByGroupTrainingId(
     groupTrainingId: string,

@@ -22,7 +22,8 @@ import {
   type CourtAvailability,
   type CourtRequest,
   type CourtRequestAdminView,
-  type CourtRequestPreview
+  type CourtRequestPreview,
+  type MyCourtRequestItem
 } from "@beosand/types";
 import { CourtRequestsService } from "./court-requests.service";
 
@@ -44,6 +45,21 @@ export class CourtRequestsController {
       throw new BadRequestException("Invalid availability query: expected date=YYYY-MM-DD.");
     }
     return this.service.getAvailability(parsed.data.date);
+  }
+
+  /**
+   * The caller's own court requests, for the Mini App calendar. The actor resolves
+   * from the verified session (`x-client-telegram-id ?? x-telegram-id`). Declared
+   * before the `:id` detail route so the literal "mine" segment is never captured as
+   * an id. By invariant the response carries no court id/number.
+   */
+  @Get("mine")
+  async mine(
+    @Headers("x-telegram-id") telegramIdHeader: string | undefined,
+    @Headers("x-client-telegram-id") clientTelegramIdHeader?: string
+  ): Promise<MyCourtRequestItem[]> {
+    const actorTelegramId = parseTelegramId(clientTelegramIdHeader ?? telegramIdHeader);
+    return this.service.listMine(actorTelegramId);
   }
 
   /**

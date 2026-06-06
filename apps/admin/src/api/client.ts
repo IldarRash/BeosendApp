@@ -36,6 +36,7 @@ import {
   type AdminSession,
   type AnalyticsRangeQuery,
   type AnalyticsSummary,
+  type AssignCourtInput,
   type Booking,
   type Broadcast,
   type BroadcastAudience,
@@ -351,6 +352,21 @@ export class ApiClient {
     return this.request(`/courts/load?${query}`, courtLoadGridSchema);
   }
 
+  /**
+   * Assign a court to an unassigned training (POST /trainings/:id/assign-court,
+   * body `{ courtId }`). The server reuses the 6-per-30-min guard and re-checks the
+   * chosen court is free for every slot the training covers — the console offers a
+   * court but computes no availability. A clash surfaces as a thrown Error (409).
+   * Admin-only; returns the updated training the grid then re-renders.
+   */
+  assignCourt(trainingId: string, courtId: string): Promise<Training> {
+    const input: AssignCourtInput = { courtId };
+    return this.request(`/trainings/${trainingId}/assign-court`, trainingSchema, {
+      method: "POST",
+      body: JSON.stringify(input)
+    });
+  }
+
   // ── Levels (M1) ────────────────────────────────────────────────────────
 
   /** Active training levels. */
@@ -418,6 +434,16 @@ export class ApiClient {
       method: "PATCH",
       body: JSON.stringify(input)
     });
+  }
+
+  /**
+   * Soft-delete a group (DELETE /groups/:id): the server sets it inactive, cancels
+   * its future trainings and notifies their booked members — all server-side, the
+   * console computes nothing. Admin-only; returns the now-inactive group. After
+   * success the groups list (active only) no longer carries it.
+   */
+  deleteGroup(id: string): Promise<Group> {
+    return this.request(`/groups/${id}`, groupSchema, { method: "DELETE" });
   }
 
   /**

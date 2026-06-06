@@ -7,10 +7,12 @@ import { useT } from "../i18n/LanguageProvider";
 import { useTg } from "../tg/TgSdkProvider";
 import { useBackButton } from "../tg/buttons";
 import { BrowseScreen } from "../screens/BrowseScreen";
+import { CalendarScreen } from "../screens/CalendarScreen";
 import { CourtRequestScreen } from "../screens/CourtRequestScreen";
 import { GroupBookingScreen } from "../screens/GroupBookingScreen";
 import { HomeScreen } from "../screens/HomeScreen";
 import { MyBookingsScreen } from "../screens/MyBookingsScreen";
+import { ScheduleScreen } from "../screens/ScheduleScreen";
 import { OnboardingWizard } from "../screens/OnboardingWizard";
 import { ProfileScreen } from "../screens/ProfileScreen";
 import { TrainerRequestScreen } from "../screens/TrainerRequestScreen";
@@ -144,6 +146,8 @@ function RouteView({
       return <HomeScreen sections={HOME_SECTIONS} onSelect={onSelect} />;
     case "browse":
       return <BrowseScreen />;
+    case "schedule":
+      return <ScheduleScreen />;
     case "my-bookings":
       return <MyBookingsScreen onBrowse={() => push("browse")} />;
     case "group":
@@ -152,6 +156,8 @@ function RouteView({
       return <TrainerRequestScreen />;
     case "court":
       return <CourtRequestScreen />;
+    case "calendar":
+      return <CalendarScreen />;
     case "profile":
       return <ProfileScreen client={client} />;
     case "waitlist-accept":

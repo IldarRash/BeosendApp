@@ -15,6 +15,7 @@ vi.mock("../i18n/LanguageProvider", async () => import("../i18n/test-utils"));
 const useGroups = vi.fn();
 const useCreateGroup = vi.fn();
 const useUpdateGroup = vi.fn();
+const useDeleteGroup = vi.fn();
 const useLevels = vi.fn();
 const useTrainers = vi.fn();
 const useGroupMembers = vi.fn();
@@ -23,7 +24,8 @@ const useTransferGroupMember = vi.fn();
 vi.mock("../hooks/useGroups", () => ({
   useGroups: () => useGroups(),
   useCreateGroup: () => useCreateGroup(),
-  useUpdateGroup: () => useUpdateGroup()
+  useUpdateGroup: () => useUpdateGroup(),
+  useDeleteGroup: () => useDeleteGroup()
 }));
 vi.mock("../hooks/useGroupMembers", () => ({
   useGroupMembers: () => useGroupMembers(),
@@ -90,6 +92,7 @@ beforeEach(() => {
   useGroups.mockReturnValue(query<Group[]>({ data: [GROUP, GROUP_B] }));
   useCreateGroup.mockReturnValue(mutation());
   useUpdateGroup.mockReturnValue(mutation());
+  useDeleteGroup.mockReturnValue(mutation());
   useLevels.mockReturnValue(query<Level[]>({ data: [LEVEL] }));
   useTrainers.mockReturnValue(query<Trainer[]>({ data: [TRAINER] }));
   useGroupMembers.mockReturnValue(query<GroupMembers>({ data: MEMBERS }));
@@ -217,5 +220,32 @@ describe("Groups", () => {
     });
     expect(typeof input.year).toBe("number");
     expect(typeof input.month).toBe("number");
+  });
+
+  it("deletes a group via the mutation after the confirm dialog", () => {
+    const mutate = vi.fn();
+    useDeleteGroup.mockReturnValue(mutation({ mutate }));
+    renderPage();
+
+    fireEvent.click(screen.getByRole("button", { name: "Удалить группу Утренняя группа" }));
+    const dialog = screen.getByRole("dialog", { name: "Удалить группу" });
+    // The confirm copy warns the group is hidden and its future trainings cancelled.
+    expect(within(dialog).getByText(/будущие тренировки отменены/)).toBeTruthy();
+
+    fireEvent.click(within(dialog).getByRole("button", { name: "Удалить группу" }));
+
+    expect(mutate).toHaveBeenCalledTimes(1);
+    expect(mutate.mock.calls[0][0]).toBe(GROUP.id);
+  });
+
+  it("does not call the delete mutation until the action is confirmed", () => {
+    const mutate = vi.fn();
+    useDeleteGroup.mockReturnValue(mutation({ mutate }));
+    renderPage();
+
+    fireEvent.click(screen.getByRole("button", { name: "Удалить группу Утренняя группа" }));
+    fireEvent.click(screen.getByRole("button", { name: "Не удалять" }));
+
+    expect(mutate).not.toHaveBeenCalled();
   });
 });

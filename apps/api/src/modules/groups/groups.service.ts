@@ -1,6 +1,7 @@
 import {
   BadRequestException,
   ForbiddenException,
+  forwardRef,
   Inject,
   Injectable,
   NotFoundException
@@ -23,6 +24,7 @@ import type {
 } from "@beosand/types";
 import { ENV } from "../../config/config.module";
 import { ClientsRepository } from "../clients/clients.repository";
+import { TrainingsService } from "../trainings/trainings.service";
 import { GroupsRepository } from "./groups.repository";
 
 /**
@@ -37,6 +39,9 @@ export class GroupsService {
   constructor(
     private readonly groups: GroupsRepository,
     private readonly clients: ClientsRepository,
+    // forwardRef: GroupsModule <-> TrainingsModule are mutually dependent.
+    @Inject(forwardRef(() => TrainingsService))
+    private readonly trainings: TrainingsService,
     @Inject(ENV) private readonly env: Env
   ) {}
 
@@ -121,6 +126,34 @@ export class GroupsService {
     if (!updated) {
       throw new NotFoundException(`Group ${id} not found`);
     }
+    return updated;
+  }
+
+  /**
+   * Admin: soft-delete a group. Its future non-cancelled trainings are cancelled (and
+   * their booked clients notified) FIRST via the trainings cascade, THEN the group is
+   * set inactive so it drops out of listActive. The order matters for recovery: the
+   * cascade is atomic (one transaction) and idempotent (a re-run finds no future
+   * non-cancelled trainings), so if either step fails the group stays ACTIVE and the
+   * whole delete can be safely retried — we never leave a group inactive while its
+   * trainings still live (a state the admin couldn't re-trigger from the active list).
+   * The row is kept (never hard-deleted) so history and analytics stay intact.
+   */
+  async deleteGroup(actorTelegramId: number, id: string): Promise<Group> {
+    this.assertAdmin(actorTelegramId);
+
+    const existing = await this.groups.findById(id);
+    if (!existing) {
+      throw new NotFoundException(`Group ${id} not found`);
+    }
+
+    await this.trainings.cancelFutureTrainingsForGroup(actorTelegramId, id);
+
+    const updated = await this.groups.setInactive(id);
+    if (!updated) {
+      throw new NotFoundException(`Group ${id} not found`);
+    }
+
     return updated;
   }
 

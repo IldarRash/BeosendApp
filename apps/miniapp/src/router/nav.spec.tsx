@@ -175,9 +175,18 @@ describe("route table (pure)", () => {
     expect(resolveStartTarget(null)).toEqual({ route: "home" });
   });
 
-  it("exposes exactly the six client journeys — no admin/trainer entry", () => {
+  it("exposes exactly the client journeys — no admin/trainer entry", () => {
     const ids = HOME_SECTIONS.flatMap((s) => s.items.map((i) => i.routeId)).sort();
-    expect(ids).toEqual(["browse", "court", "group", "individual", "my-bookings", "profile"]);
+    expect(ids).toEqual([
+      "browse",
+      "calendar",
+      "court",
+      "group",
+      "individual",
+      "my-bookings",
+      "profile",
+      "schedule"
+    ]);
   });
 });
 
@@ -204,13 +213,13 @@ describe("navigation shell", () => {
     expect(screen.queryByText("Управление")).toBeNull();
     expect(screen.queryByText(/admin/i)).toBeNull();
 
-    // Exactly six journey rows — Home has no MainButton and no BackButton at the root.
-    // The persistent top app bar adds one always-present avatar button ("Профиль"),
-    // which is not a journey row, so it is excluded from the count.
+    // Exactly the client journey rows — Home has no MainButton and no BackButton at
+    // the root. The persistent top app bar adds one always-present avatar button
+    // ("Профиль"), which is not a journey row, so it is excluded from the count.
     const journeyRows = screen
       .getAllByRole("button")
       .filter((el) => el.getAttribute("aria-label") !== "Профиль");
-    expect(journeyRows).toHaveLength(6);
+    expect(journeyRows).toHaveLength(HOME_SECTIONS.flatMap((s) => s.items).length);
   });
 
   it("pushes a journey on tap and shows the BackButton, which pops to Home", async () => {

@@ -214,6 +214,16 @@ export const adminRu: Record<string, string> = {
   "admin.groups.transferTarget": "Целевая группа",
   "admin.groups.transferPickGroup": "Выберите группу",
   "admin.groups.transferred": "Перенесено дат: {moved}, отменено: {cancelled}, пропущено: {skipped}",
+  // Delete group (soft-delete: hidden + future trainings cancelled, members notified).
+  "admin.groups.delete": "Удалить группу",
+  "admin.groups.deleteAria": "Удалить группу {name}",
+  "admin.groups.deleteTitle": "Удалить группу",
+  "admin.groups.deleteKeep": "Не удалять",
+  "admin.groups.deleteConfirm": "Удалить группу",
+  "admin.groups.deleting": "Удаление…",
+  "admin.groups.deletePrompt": "Удалить группу «{name}»? Она будет скрыта, все её будущие тренировки отменены, а записанные клиенты получат уведомление. Действие необратимо.",
+  "admin.groups.deleted": "Группа «{name}» удалена.",
+  "admin.groups.deleteFailed": "Не удалось удалить группу.",
 
   // ── Trainings page ────────────────────────────────────────────────────────
   "admin.trainings.title": "Тренировки",
@@ -324,6 +334,15 @@ export const adminRu: Record<string, string> = {
   "admin.calendar.detailLoading": "Загрузка тренировки…",
   "admin.calendar.detailDate": "Дата",
   "admin.calendar.detailCourt": "Корт",
+  // Delete training from the calendar detail (soft-cancel + notify booked clients).
+  "admin.calendar.delete": "Удалить тренировку",
+  "admin.calendar.deleteTitle": "Удалить тренировку",
+  "admin.calendar.deleteKeep": "Не удалять",
+  "admin.calendar.deleteConfirm": "Удалить тренировку",
+  "admin.calendar.deleting": "Удаление…",
+  "admin.calendar.deletePrompt": "Удалить тренировку {date} {start}–{end}? Записанные клиенты получат уведомление об отмене. Действие необратимо.",
+  "admin.calendar.deleted": "Тренировка удалена. Уведомлено записанных: {count}.",
+  "admin.calendar.deleteFailed": "Не удалось удалить тренировку.",
 
   // ── Attendance page ───────────────────────────────────────────────────────
   "admin.attendance.title": "Посещаемость",
@@ -508,6 +527,25 @@ export const adminRu: Record<string, string> = {
   "admin.courtLoad.detailDurationHours": "{hours} ч",
   "admin.courtLoad.detailLoading": "Загрузка деталей…",
   "admin.courtLoad.detailError": "Не удалось загрузить детали брони.",
+  // Unassigned trainings (no court reserved — need a manual assignment).
+  "admin.courtLoad.unassignedTitle": "Без корта",
+  "admin.courtLoad.unassignedLead": "Тренировки на эту дату, для которых не зарезервирован корт — назначьте его вручную.",
+  "admin.courtLoad.unassignedCaption": "Тренировки без корта на {date}",
+  "admin.courtLoad.unassignedColTime": "Время",
+  "admin.courtLoad.unassignedColGroup": "Группа",
+  "admin.courtLoad.unassignedColLevel": "Уровень",
+  "admin.courtLoad.assign": "Назначить корт",
+  "admin.courtLoad.assignAria": "Назначить корт тренировке {group}, {start}–{end}",
+  "admin.courtLoad.assignTitle": "Назначить корт — {group}",
+  "admin.courtLoad.assignSummary": "{date}, {start}–{end}",
+  "admin.courtLoad.assignPickCourt": "Выберите корт",
+  "admin.courtLoad.assignCourtOption": "Корт № {number}",
+  "admin.courtLoad.assignCourtsLoading": "Загрузка кортов…",
+  "admin.courtLoad.assignNoCourts": "Активных кортов нет.",
+  "admin.courtLoad.assignSubmit": "Назначить",
+  "admin.courtLoad.assigning": "Назначение…",
+  "admin.courtLoad.assigned": "Корт назначен тренировке {group}.",
+  "admin.courtLoad.assignFailed": "Не удалось назначить корт.",
 
   // ── Broadcasts page ───────────────────────────────────────────────────────
   "admin.broadcasts.title": "Рассылки",

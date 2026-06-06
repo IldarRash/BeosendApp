@@ -86,7 +86,8 @@ describe("CourtsService.getLoadGrid", () => {
         .mockResolvedValue([{ courtId: courtA, startTime: "10:00", durationMinutes: 120 }]),
       blocksByCourtForDate: vi
         .fn()
-        .mockResolvedValue([{ courtId: courtB, startTime: "09:00", durationMinutes: 180 }])
+        .mockResolvedValue([{ courtId: courtB, startTime: "09:00", durationMinutes: 180 }]),
+      unassignedTrainingsForDate: vi.fn().mockResolvedValue([])
     } as unknown as CourtsRepository;
   }
 
@@ -135,7 +136,8 @@ describe("CourtsService.getLoadGrid", () => {
         { id: courtB, number: 2, status: "active" }
       ]),
       confirmedCourtOccupancyForDate: vi.fn().mockResolvedValue([]),
-      blocksByCourtForDate: vi.fn().mockResolvedValue([])
+      blocksByCourtForDate: vi.fn().mockResolvedValue([]),
+      unassignedTrainingsForDate: vi.fn().mockResolvedValue([])
     } as unknown as CourtsRepository;
     const service = new CourtsService(adminEnv, repo);
 
@@ -169,7 +171,8 @@ describe("CourtsService.getLoadGrid", () => {
       blocksByCourtForDate: vi.fn().mockResolvedValue([
         { courtId: courtA, startTime: "10:00", durationMinutes: 120, trainingId },
         { courtId: courtB, startTime: "14:00", durationMinutes: 60 }
-      ])
+      ]),
+      unassignedTrainingsForDate: vi.fn().mockResolvedValue([])
     } as unknown as CourtsRepository;
     const service = new CourtsService(adminEnv, repo);
 
@@ -193,6 +196,41 @@ describe("CourtsService.getLoadGrid", () => {
     const free = cellAt(rowA, "12:00");
     expect(free?.state).toBe("free");
     expect(free?.trainingId).toBeNull();
+  });
+
+  it("surfaces unassigned (orphan) trainings from the repo in the grid", async () => {
+    const trainingId = "44444444-4444-4444-8444-444444444444";
+    const repo = {
+      findActive: vi
+        .fn()
+        .mockResolvedValue([{ id: courtA, number: 1, status: "active" }]),
+      confirmedCourtOccupancyForDate: vi.fn().mockResolvedValue([]),
+      blocksByCourtForDate: vi.fn().mockResolvedValue([]),
+      unassignedTrainingsForDate: vi.fn().mockResolvedValue([
+        {
+          trainingId,
+          date: "2026-06-10",
+          startTime: "20:00",
+          endTime: "21:30",
+          groupName: "Intermediate",
+          levelName: "Beginner"
+        }
+      ])
+    } as unknown as CourtsRepository;
+    const service = new CourtsService(adminEnv, repo);
+
+    const grid = await service.getLoadGrid(111, "2026-06-10");
+
+    expect(repo.unassignedTrainingsForDate).toHaveBeenCalledWith("2026-06-10");
+    expect(grid.unassignedTrainings).toHaveLength(1);
+    expect(grid.unassignedTrainings[0]).toMatchObject({
+      trainingId,
+      groupName: "Intermediate",
+      levelName: "Beginner"
+    });
+    // The invariant for an unassigned training: no court id/number is carried.
+    expect(grid.unassignedTrainings[0]).not.toHaveProperty("courtId");
+    expect(grid.unassignedTrainings[0]).not.toHaveProperty("courtNumber");
   });
 
   it("free-cell count per slot equals freeCourtsBySlot for the same data (C3 consistency)", async () => {

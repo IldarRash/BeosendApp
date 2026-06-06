@@ -2,6 +2,7 @@ import {
   BadRequestException,
   Body,
   Controller,
+  Delete,
   Get,
   Headers,
   Param,
@@ -70,6 +71,20 @@ export class GroupsController {
     const groupId = validate(uuid, id);
     const patch = validate(updateGroupSchema, body ?? {});
     return this.groups.update(actorTelegramId, groupId, patch);
+  }
+
+  /**
+   * Admin: soft-delete a group (set inactive + cancel its future trainings, notifying
+   * members). Gated in the service.
+   */
+  @Delete(":id")
+  remove(
+    @Headers("x-telegram-id") telegramIdHeader: string | undefined,
+    @Param("id") id: string
+  ): Promise<Group> {
+    const actorTelegramId = parseTelegramId(telegramIdHeader);
+    const groupId = validate(uuid, id);
+    return this.groups.deleteGroup(actorTelegramId, groupId);
   }
 }
 

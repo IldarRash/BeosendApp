@@ -75,6 +75,20 @@ export class GroupsRepository {
     return row ? this.requireById(row.id) : undefined;
   }
 
+  /**
+   * Soft-delete: set a group inactive so it immediately drops out of listActive
+   * (the row is kept; trainings are cancelled separately by the service cascade).
+   * Returns the updated group in the full bot-facing shape, or undefined if missing.
+   */
+  async setInactive(id: string): Promise<Group | undefined> {
+    const [row] = await this.database.db
+      .update(tables.groups)
+      .set({ status: "inactive" })
+      .where(eq(tables.groups.id, id))
+      .returning();
+    return row ? this.requireById(row.id) : undefined;
+  }
+
   /** Re-read with the trainer join so create/update return the full bot-facing shape. */
   private async requireById(id: string): Promise<Group> {
     const group = await this.findById(id);

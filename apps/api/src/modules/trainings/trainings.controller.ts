@@ -10,6 +10,7 @@ import {
   Query
 } from "@nestjs/common";
 import {
+  assignCourtSchema,
   availableSlotsQuerySchema,
   cancelTrainingSchema,
   changeCapacitySchema,
@@ -139,6 +140,19 @@ export class TrainingsController {
     const trainingId = validate(uuid, id);
     validate(cancelTrainingSchema, body ?? {});
     return this.trainings.cancelTraining(actorTelegramId, trainingId);
+  }
+
+  /** Admin: reserve a court for an unassigned ("orphan") training. Gated in the service. */
+  @Post(":id/assign-court")
+  assignCourt(
+    @Headers("x-telegram-id") telegramIdHeader: string | undefined,
+    @Param("id") id: string,
+    @Body() body: unknown
+  ): Promise<Training> {
+    const actorTelegramId = parseTelegramId(telegramIdHeader);
+    const trainingId = validate(uuid, id);
+    const input = validate(assignCourtSchema, body ?? {});
+    return this.trainings.assignCourt(actorTelegramId, trainingId, input);
   }
 
   /** Admin: change a training's capacity (recomputes open/full). Gated in the service. */

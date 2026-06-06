@@ -32,8 +32,12 @@ export const miniappEn: Record<string, string> = {
   "miniapp.home.groupHint": "Monthly group subscription",
   "miniapp.home.individual": "Individual training",
   "miniapp.home.individualHint": "One-on-one request to a trainer",
+  "miniapp.home.schedule": "Training schedule",
+  "miniapp.home.scheduleHint": "All sessions for the coming month",
   "miniapp.home.court": "Court rental",
   "miniapp.home.courtHint": "Request a free court",
+  "miniapp.home.calendar": "My calendar",
+  "miniapp.home.calendarHint": "Bookings and court requests by day",
   "miniapp.home.profile": "Profile & language",
   "miniapp.home.profileHint": "Your details and interface language",
   "miniapp.home.placeholderTitle": "Coming soon",
@@ -187,6 +191,10 @@ export const miniappEn: Record<string, string> = {
   "miniapp.group.toHome": "Home",
   "miniapp.group.roster.title": "Who's signed up",
   "miniapp.group.roster.empty": "No one signed up yet",
+  "miniapp.group.filtersAria": "Group filters",
+  "miniapp.group.filter.title": "Filters",
+  "miniapp.group.filterEmpty": "No matching groups",
+  "miniapp.group.filterEmptyBody": "Change the filters to see other groups.",
   "miniapp.group.conflict":
     "Couldn't create the subscription. The group may be unavailable or the month closed.",
 
@@ -244,5 +252,30 @@ export const miniappEn: Record<string, string> = {
   "miniapp.month.9": "September",
   "miniapp.month.10": "October",
   "miniapp.month.11": "November",
-  "miniapp.month.12": "December"
+  "miniapp.month.12": "December",
+
+  // --- Training schedule ---
+  "miniapp.schedule.title": "Schedule",
+  "miniapp.schedule.hint": "Trainings for the coming month. Tap to book.",
+  "miniapp.schedule.filtersAria": "Schedule filters",
+  "miniapp.schedule.emptyTitle": "No matching trainings",
+  "miniapp.schedule.emptyBody": "Change the filters or check back later.",
+  "miniapp.schedule.errorBody": "Couldn't load the schedule. Please try again.",
+
+  // --- My calendar (court + training) ---
+  "miniapp.calendar.title": "My calendar",
+  "miniapp.calendar.navAria": "Month navigation",
+  "miniapp.calendar.prevMonth": "Previous month",
+  "miniapp.calendar.nextMonth": "Next month",
+  "miniapp.calendar.gridAria": "Calendar for {month}",
+  "miniapp.calendar.dayAria": "Day {day}, events: {count}",
+  "miniapp.calendar.agendaAria": "Selected day's events",
+  "miniapp.calendar.emptyDay": "No bookings or requests on this day.",
+  "miniapp.calendar.kindTraining": "Training",
+  "miniapp.calendar.kindCourt": "Court",
+  "miniapp.calendar.errorBody": "Couldn't load the calendar. Please try again.",
+  "miniapp.calendar.courtStatus.pending": "Awaiting confirmation",
+  "miniapp.calendar.courtStatus.confirmed": "Confirmed",
+  "miniapp.calendar.courtStatus.rejected": "Rejected",
+  "miniapp.calendar.courtStatus.cancelled": "Cancelled"
 };

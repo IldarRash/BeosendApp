@@ -17,6 +17,7 @@ import {
   levelSchema,
   miniappSessionSchema,
   myBookingItemSchema,
+  myCourtRequestItemSchema,
   previewCourtRequestSchema,
   slotCardSchema,
   trainerSchema,
@@ -40,6 +41,7 @@ import {
   type MiniappSession,
   type MyBookingItem,
   type MyBookingScope,
+  type MyCourtRequestItem,
   type OnboardClientInput,
   type SlotCard,
   type Trainer,
@@ -51,6 +53,7 @@ const levelsSchema = z.array(levelSchema);
 const slotCardsSchema = z.array(slotCardSchema);
 const trainersSchema = z.array(trainerSchema);
 const myBookingItemsSchema = z.array(myBookingItemSchema);
+const myCourtRequestItemsSchema = z.array(myCourtRequestItemSchema);
 const groupsSchema = z.array(groupSchema);
 
 /**
@@ -459,6 +462,18 @@ export class MiniappApiClient {
       method: "POST",
       body: JSON.stringify(createCourtRequestSchema.parse({ telegramId, ...input }))
     });
+  }
+
+  /**
+   * The caller's own court requests (GET /court-requests/mine), for the in-app
+   * calendar. Client-scoped exactly like {@link listMyBookings}: the server resolves
+   * the requester from the verified session and returns only their own requests. The
+   * response is validated against the shared {@link myCourtRequestItemSchema} array
+   * contract before render — and that contract carries NO court id/number, so the
+   * Mini App can never display which court was assigned, even after confirmation.
+   */
+  listMyCourtRequests(): Promise<MyCourtRequestItem[]> {
+    return this.request("/court-requests/mine", myCourtRequestItemsSchema);
   }
 }
 

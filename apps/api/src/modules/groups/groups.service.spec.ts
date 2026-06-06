@@ -5,6 +5,7 @@ import { beforeEach, describe, expect, it } from "vitest";
 import { GroupsService } from "./groups.service";
 import type { GroupMemberRow, GroupsRepository } from "./groups.repository";
 import type { ClientsRepository } from "../clients/clients.repository";
+import type { TrainingsService } from "../trainings/trainings.service";
 
 const ADMIN_ID = 111;
 const NON_ADMIN_ID = 999;
@@ -53,6 +54,16 @@ class FakeGroupsRepository {
     return row;
   }
 
+  async setInactive(id: string): Promise<Group | undefined> {
+    const existing = this.rows.get(id);
+    if (!existing) {
+      return undefined;
+    }
+    const row: Group = { ...existing, status: "inactive" };
+    this.rows.set(id, row);
+    return row;
+  }
+
   /** The month roster (distinct clients) the listMembers test supplies. */
   members: GroupMemberRow[] = [];
   async listMonthMembers(_groupId: string, _from: string, _to: string): Promise<GroupMemberRow[]> {
@@ -67,19 +78,32 @@ class FakeClientsRepository {
   }
 }
 
+/** In-memory stand-in for the trainings cascade the group soft-delete delegates to. */
+class FakeTrainingsService {
+  cancelledFor: { actorTelegramId: number; groupId: string }[] = [];
+  cancelCount = 0;
+  async cancelFutureTrainingsForGroup(actorTelegramId: number, groupId: string): Promise<number> {
+    this.cancelledFor.push({ actorTelegramId, groupId });
+    return this.cancelCount;
+  }
+}
+
 const env = { ADMIN_TELEGRAM_IDS: [String(ADMIN_ID)] } as unknown as Env;
 
 describe("GroupsService", () => {
   let repo: FakeGroupsRepository;
   let clientsRepo: FakeClientsRepository;
+  let trainingsService: FakeTrainingsService;
   let service: GroupsService;
 
   beforeEach(() => {
     repo = new FakeGroupsRepository();
     clientsRepo = new FakeClientsRepository();
+    trainingsService = new FakeTrainingsService();
     service = new GroupsService(
       repo as unknown as GroupsRepository,
       clientsRepo as unknown as ClientsRepository,
+      trainingsService as unknown as TrainingsService,
       env
     );
   });
@@ -164,6 +188,41 @@ describe("GroupsService", () => {
       service.update(ADMIN_ID, "33333333-3333-3333-3333-333333333333", { capacity: 4 })
     ).rejects.toBeInstanceOf(NotFoundException);
   });
+
+  describe("deleteGroup (soft-delete cascade)", () => {
+    it("sets the group inactive, cascades the future-trainings cancel, and returns the inactive group", async () => {
+      const created = await service.create(ADMIN_ID, baseInput);
+      trainingsService.cancelCount = 5;
+
+      const result = await service.deleteGroup(ADMIN_ID, created.id);
+
+      expect(result.status).toBe("inactive");
+      // Cascade ran for this group with the acting admin.
+      expect(trainingsService.cancelledFor).toEqual([
+        { actorTelegramId: ADMIN_ID, groupId: created.id }
+      ]);
+      // The group is gone from the reference-facing active list (immediate disappearance).
+      expect(await service.listActive()).toHaveLength(0);
+    });
+
+    it("rejects a non-admin with ForbiddenException and never touches the group or trainings", async () => {
+      const created = await service.create(ADMIN_ID, baseInput);
+
+      await expect(service.deleteGroup(NON_ADMIN_ID, created.id)).rejects.toBeInstanceOf(
+        ForbiddenException
+      );
+      expect(trainingsService.cancelledFor).toHaveLength(0);
+      // No inactivation happened: the group is still active and listed.
+      expect(await service.listActive()).toContainEqual(created);
+    });
+
+    it("404s a missing group before any inactivation or cascade", async () => {
+      await expect(
+        service.deleteGroup(ADMIN_ID, "33333333-3333-3333-3333-333333333333")
+      ).rejects.toBeInstanceOf(NotFoundException);
+      expect(trainingsService.cancelledFor).toHaveLength(0);
+    });
+  });
 });
 
 describe("GroupsService.listMembers (group monthly roster)", () => {
@@ -188,14 +247,17 @@ describe("GroupsService.listMembers (group monthly roster)", () => {
 
   let repo: FakeGroupsRepository;
   let clientsRepo: FakeClientsRepository;
+  let trainingsService: FakeTrainingsService;
   let service: GroupsService;
 
   beforeEach(async () => {
     repo = new FakeGroupsRepository();
     clientsRepo = new FakeClientsRepository();
+    trainingsService = new FakeTrainingsService();
     service = new GroupsService(
       repo as unknown as GroupsRepository,
       clientsRepo as unknown as ClientsRepository,
+      trainingsService as unknown as TrainingsService,
       env
     );
     // Seed a group at GROUP_ID so listMembers does not 404.

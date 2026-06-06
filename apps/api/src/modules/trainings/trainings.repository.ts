@@ -7,7 +7,7 @@ import type {
   TrainingCalendarItem,
   TrainingStatus
 } from "@beosand/types";
-import { and, asc, eq, gte, inArray, isNotNull, lte, sql } from "drizzle-orm";
+import { and, asc, eq, gte, inArray, isNotNull, lte, ne, sql } from "drizzle-orm";
 import { DatabaseService } from "../../db/database.service";
 
 type TrainingRow = typeof tables.trainings.$inferSelect;
@@ -107,6 +107,28 @@ export class TrainingsRepository {
     return rows.map((row) => row.date);
   }
 
+  /**
+   * Future (date >= fromDate) non-cancelled trainings of a group — the group-delete
+   * cascade's candidate set. Only the id is needed (the service locks + cancels each
+   * inside a tx). Past sessions are excluded so history is never rewritten.
+   */
+  async listFutureNonCancelledForGroup(
+    groupId: string,
+    fromDate: string
+  ): Promise<{ id: string }[]> {
+    return this.database.db
+      .select({ id: tables.trainings.id })
+      .from(tables.trainings)
+      .where(
+        and(
+          eq(tables.trainings.groupId, groupId),
+          gte(tables.trainings.date, fromDate),
+          ne(tables.trainings.status, "cancelled")
+        )
+      )
+      .orderBy(asc(tables.trainings.date), asc(tables.trainings.startTime));
+  }
+
   /** Insert many trainings inside the caller's transaction; returns the created rows. */
   async insertMany(tx: Database, rows: TrainingInsert[]): Promise<Training[]> {
     if (rows.length === 0) {
@@ -140,6 +162,21 @@ export class TrainingsRepository {
       .limit(1)
       .for("update");
     return row;
+  }
+
+  /**
+   * The full training row selected FOR UPDATE — used by the admin assign-court write,
+   * which needs the date/times to insert the auto-block and the whole row to return.
+   * Caller must hold a tx.
+   */
+  async findFullForUpdate(tx: Database, id: string): Promise<Training | undefined> {
+    const [row] = await tx
+      .select()
+      .from(tables.trainings)
+      .where(eq(tables.trainings.id, id))
+      .limit(1)
+      .for("update");
+    return row ? toTraining(row) : undefined;
   }
 
   /** Set a training to cancelled (row kept, never deleted); returns the updated row. */
@@ -213,7 +250,13 @@ export class TrainingsRepository {
     groupId?: string,
     trainerId?: string
   ): Promise<TrainingCalendarRow[]> {
-    const filters = [gte(tables.trainings.date, from), lte(tables.trainings.date, to)];
+    const filters = [
+      gte(tables.trainings.date, from),
+      lte(tables.trainings.date, to),
+      // Cancelled trainings are soft-deleted: kept in the table for history, but
+      // hidden from the admin calendar (they should "disappear" once cancelled).
+      ne(tables.trainings.status, "cancelled")
+    ];
     if (groupId) {
       filters.push(eq(tables.trainings.groupId, groupId));
     }

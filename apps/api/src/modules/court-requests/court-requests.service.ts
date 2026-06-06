@@ -19,6 +19,7 @@ import {
   courtRequestPreviewSchema,
   courtRequestSchema,
   courtSchema,
+  myCourtRequestItemSchema,
   courtSlotsCovered,
   durationMinutesOf,
   freeCourtsBySlot,
@@ -37,6 +38,7 @@ import {
   type CourtRequestStatus,
   type CourtSlotOccupant,
   type CreateCourtRequest,
+  type MyCourtRequestItem,
   type PreviewCourtRequest,
   type RejectCourtRequest
 } from "@beosand/types";
@@ -147,6 +149,22 @@ export class CourtRequestsService {
     });
 
     return this.toEntity(row);
+  }
+
+  /**
+   * The caller's OWN court requests, for the Mini App calendar. The caller is
+   * resolved from telegram_id (a non-client is rejected with 403 — never another
+   * client's rows). Each row is validated against the client-facing contract, which
+   * by invariant carries no court id/number: a client never learns the assigned court.
+   */
+  async listMine(actorTelegramId: number): Promise<MyCourtRequestItem[]> {
+    const client = await this.repository.findActiveClientByTelegramId(actorTelegramId);
+    if (!client) {
+      throw new ForbiddenException("No client is registered for this Telegram account.");
+    }
+
+    const rows = await this.repository.listMineForClient(client.id);
+    return rows.map((row) => myCourtRequestItemSchema.parse(row));
   }
 
   /**

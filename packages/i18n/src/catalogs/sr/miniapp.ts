@@ -32,8 +32,12 @@ export const miniappSr: Record<string, string> = {
   "miniapp.home.groupHint": "Mesečna pretplata na grupu",
   "miniapp.home.individual": "Individualni trening",
   "miniapp.home.individualHint": "Zahtev treneru jedan na jedan",
+  "miniapp.home.schedule": "Raspored treninga",
+  "miniapp.home.scheduleHint": "Svi termini za naredni mesec",
   "miniapp.home.court": "Iznajmljivanje terena",
   "miniapp.home.courtHint": "Zahtev za slobodan teren",
+  "miniapp.home.calendar": "Moj kalendar",
+  "miniapp.home.calendarHint": "Prijave i zahtevi za teren po danima",
   "miniapp.home.profile": "Profil i jezik",
   "miniapp.home.profileHint": "Vaši podaci i jezik interfejsa",
   "miniapp.home.placeholderTitle": "Uskoro",
@@ -187,6 +191,10 @@ export const miniappSr: Record<string, string> = {
   "miniapp.group.toHome": "Na početnu",
   "miniapp.group.roster.title": "Ko je prijavljen",
   "miniapp.group.roster.empty": "Još niko nije prijavljen",
+  "miniapp.group.filtersAria": "Filteri grupa",
+  "miniapp.group.filter.title": "Filteri",
+  "miniapp.group.filterEmpty": "Nema odgovarajućih grupa",
+  "miniapp.group.filterEmptyBody": "Promenite filtere da vidite druge grupe.",
   "miniapp.group.conflict":
     "Pretplata nije uspela. Možda grupa nije dostupna ili je mesec zatvoren.",
 
@@ -244,5 +252,30 @@ export const miniappSr: Record<string, string> = {
   "miniapp.month.9": "Septembar",
   "miniapp.month.10": "Oktobar",
   "miniapp.month.11": "Novembar",
-  "miniapp.month.12": "Decembar"
+  "miniapp.month.12": "Decembar",
+
+  // --- Training schedule (raspored) ---
+  "miniapp.schedule.title": "Raspored",
+  "miniapp.schedule.hint": "Treninzi za naredni mesec. Dodirnite da se prijavite.",
+  "miniapp.schedule.filtersAria": "Filteri rasporeda",
+  "miniapp.schedule.emptyTitle": "Nema odgovarajućih treninga",
+  "miniapp.schedule.emptyBody": "Promenite filtere ili svratite kasnije.",
+  "miniapp.schedule.errorBody": "Učitavanje rasporeda nije uspelo. Pokušajte ponovo.",
+
+  // --- My calendar (court + training) ---
+  "miniapp.calendar.title": "Moj kalendar",
+  "miniapp.calendar.navAria": "Promena meseca",
+  "miniapp.calendar.prevMonth": "Prethodni mesec",
+  "miniapp.calendar.nextMonth": "Sledeći mesec",
+  "miniapp.calendar.gridAria": "Kalendar za {month}",
+  "miniapp.calendar.dayAria": "{day}. dan, događaja: {count}",
+  "miniapp.calendar.agendaAria": "Događaji izabranog dana",
+  "miniapp.calendar.emptyDay": "Tog dana nema prijava ni zahteva.",
+  "miniapp.calendar.kindTraining": "Trening",
+  "miniapp.calendar.kindCourt": "Teren",
+  "miniapp.calendar.errorBody": "Učitavanje kalendara nije uspelo. Pokušajte ponovo.",
+  "miniapp.calendar.courtStatus.pending": "Čeka potvrdu",
+  "miniapp.calendar.courtStatus.confirmed": "Potvrđeno",
+  "miniapp.calendar.courtStatus.rejected": "Odbijeno",
+  "miniapp.calendar.courtStatus.cancelled": "Otkazano"
 };
