@@ -525,6 +525,26 @@ h4 {
   border-radius: 4px;
 }
 
+/* Warning variant: amber accent + soft tint for "needs attention" sections
+ * (e.g. the court-load "без корта" list of trainings with no court assigned). */
+.note--warn {
+  border-color: color-mix(in srgb, var(--amber) 40%, var(--border));
+  border-left-color: var(--amber);
+  background: var(--amber-soft);
+  color: var(--amber-ink);
+}
+
+.note--warn h2,
+.note--warn h3 {
+  font-size: 16px;
+  margin-bottom: 6px;
+  color: var(--amber-ink);
+}
+
+.note--warn p {
+  margin-bottom: 12px;
+}
+
 /* ── Button ────────────────────────────────────────────────────────────── */
 
 .btn {

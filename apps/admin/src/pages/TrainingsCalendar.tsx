@@ -1,17 +1,23 @@
 import { useMemo, useState } from "react";
-import type {
-  ListTrainingsQuery,
-  TrainingCalendarItem,
-  TrainingStatus
+import {
+  dayOfMonth,
+  daysInMonth,
+  isoDate,
+  monthWeeks,
+  type ListTrainingsQuery,
+  type TrainingCalendarItem,
+  type TrainingStatus
 } from "@beosand/types";
 import { Button } from "../ui/Button";
 import { Modal } from "../ui/Modal";
 import { SelectField, type SelectOption } from "../ui/Field";
+import { useToast } from "../ui/Toast";
 import { useT } from "../i18n/LanguageProvider";
 import { useGroups } from "../hooks/useGroups";
 import { useTrainers } from "../hooks/useTrainers";
 import { useTrainingDetail } from "../hooks/useTrainingDetail";
 import { useTrainingsCalendar } from "../hooks/useTrainingsCalendar";
+import { useCancelTraining } from "../hooks/useTrainings";
 
 type Translate = (key: string, params?: Record<string, string | number>) => string;
 
@@ -32,46 +38,7 @@ function errorText(error: unknown, t: Translate): string {
   return error instanceof Error ? error.message : t("admin.trainings.opFailed");
 }
 
-// ── Pure calendar layout (presentation, not domain) ──────────────────────────
-
-/** Zero-padded `yyyy-mm-dd` for a year/month(1-12)/day — the contract date shape. */
-function isoDate(year: number, month: number, day: number): string {
-  const mm = String(month).padStart(2, "0");
-  const dd = String(day).padStart(2, "0");
-  return `${year}-${mm}-${dd}`;
-}
-
-/** Number of days in a 1-based month of a year. */
-function daysInMonth(year: number, month: number): number {
-  return new Date(year, month, 0).getDate();
-}
-
-/** Monday-first weekday index (0 = Mon … 6 = Sun) for a 1-based month's first day. */
-function firstWeekdayMondayFirst(year: number, month: number): number {
-  const jsDay = new Date(year, month - 1, 1).getDay(); // 0 = Sun … 6 = Sat
-  return (jsDay + 6) % 7;
-}
-
-/**
- * The weeks (rows) of `null`-padded ISO date strings for a month, Monday-first.
- * Leading/trailing `null`s pad the first/last week. Pure — no domain logic.
- */
-function monthWeeks(year: number, month: number): (string | null)[][] {
-  const total = daysInMonth(year, month);
-  const lead = firstWeekdayMondayFirst(year, month);
-  const cells: (string | null)[] = Array.from({ length: lead }, () => null);
-  for (let day = 1; day <= total; day += 1) {
-    cells.push(isoDate(year, month, day));
-  }
-  while (cells.length % 7 !== 0) {
-    cells.push(null);
-  }
-  const weeks: (string | null)[][] = [];
-  for (let i = 0; i < cells.length; i += 7) {
-    weeks.push(cells.slice(i, i + 7));
-  }
-  return weeks;
-}
+// ── Calendar query bounds (pure grid math is in @beosand/types) ──────────────
 
 /** The ISO date of the 1st of a year/month — the `from` bound of the query. */
 function monthStart(year: number, month: number): string {
@@ -81,11 +48,6 @@ function monthStart(year: number, month: number): string {
 /** The ISO date of the last day of a year/month — the `to` bound of the query. */
 function monthEnd(year: number, month: number): string {
   return isoDate(year, month, daysInMonth(year, month));
-}
-
-/** The day-of-month number for an ISO date (its last two characters, unpadded). */
-function dayOfMonth(iso: string): number {
-  return Number.parseInt(iso.slice(8, 10), 10);
 }
 
 // ── Event colouring (stable, never the only signal) ──────────────────────────
@@ -335,7 +297,10 @@ export function TrainingsCalendar(): JSX.Element {
 /**
  * Detail popup for one calendar event. Fetches the joined detail (GET
  * /trainings/:id/detail) and renders the server-decided values via the shared
- * {@link TrainingDetailBody}.
+ * {@link TrainingDetailBody}. A destructive "Удалить тренировку" action soft-cancels
+ * the training (POST /trainings/:id/cancel) behind an in-modal confirm; on success
+ * the calendar refetches (the cancelled training is excluded server-side) and the
+ * modal closes. A cancelled/completed training can no longer be deleted.
  */
 function TrainingDetailModal({
   id,
@@ -346,17 +311,86 @@ function TrainingDetailModal({
   onClose: () => void;
   t: Translate;
 }): JSX.Element {
+  const { notify } = useToast();
   const detail = useTrainingDetail(id);
+  const cancel = useCancelTraining();
+  const [confirming, setConfirming] = useState(false);
+
+  // Reset the confirm step + any stale mutation error whenever a new event opens.
+  const [lastId, setLastId] = useState<string | null>(null);
+  if (id !== lastId) {
+    setLastId(id);
+    setConfirming(false);
+    cancel.reset();
+  }
+
+  const item = detail.data ?? null;
+  const deletable =
+    item !== null && item.status !== "cancelled" && item.status !== "completed";
+
+  function close(): void {
+    setConfirming(false);
+    onClose();
+  }
+
+  function submitDelete(): void {
+    if (!item) return;
+    cancel.mutate(item.id, {
+      onSuccess: (updated) => {
+        notify(t("admin.calendar.deleted", { count: updated.bookedCount }), "success");
+        close();
+      },
+      onError: (error) =>
+        notify(
+          error instanceof Error ? error.message : t("admin.calendar.deleteFailed"),
+          "error"
+        )
+    });
+  }
+
   return (
-    <Modal open={id !== null} onClose={onClose} title={t("admin.calendar.detailTitle")}>
+    <Modal
+      open={id !== null}
+      onClose={close}
+      title={t("admin.calendar.detailTitle")}
+      footer={
+        deletable ? (
+          confirming ? (
+            <div className="cluster">
+              <Button variant="ghost" onClick={() => setConfirming(false)} disabled={cancel.isPending}>
+                {t("admin.calendar.deleteKeep")}
+              </Button>
+              <Button variant="danger" onClick={submitDelete} disabled={cancel.isPending}>
+                {cancel.isPending ? t("admin.calendar.deleting") : t("admin.calendar.deleteConfirm")}
+              </Button>
+            </div>
+          ) : (
+            <Button variant="danger" onClick={() => setConfirming(true)}>
+              {t("admin.calendar.delete")}
+            </Button>
+          )
+        ) : undefined
+      }
+    >
       {detail.isPending ? (
         <p className="state">{t("admin.calendar.detailLoading")}</p>
       ) : detail.isError ? (
         <p className="state state--error" role="alert">
           {errorText(detail.error, t)}
         </p>
-      ) : detail.data ? (
-        <TrainingDetailBody item={detail.data} t={t} />
+      ) : item ? (
+        <div className="stack">
+          <TrainingDetailBody item={item} t={t} />
+          {confirming ? (
+            <p role="alert">
+              {t("admin.calendar.deletePrompt", {
+                date: item.date,
+                start: item.startTime,
+                end: item.endTime
+              })}
+            </p>
+          ) : null}
+        </div>
       ) : null}
     </Modal>
   );

@@ -50,10 +50,11 @@ export class CourtsService {
       throw new ForbiddenException("Court load is admin-only.");
     }
 
-    const [courts, confirmed, blocks] = await Promise.all([
+    const [courts, confirmed, blocks, unassignedTrainings] = await Promise.all([
       this.repository.findActive(),
       this.repository.confirmedCourtOccupancyForDate(date),
-      this.repository.blocksByCourtForDate(date)
+      this.repository.blocksByCourtForDate(date),
+      this.repository.unassignedTrainingsForDate(date)
     ]);
 
     const rows = courtLoadGrid({
@@ -77,7 +78,8 @@ export class CourtsService {
           requestId: cell.requestId,
           trainingId: cell.trainingId
         }))
-      }))
+      })),
+      unassignedTrainings
     });
   }
 }

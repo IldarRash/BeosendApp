@@ -2,11 +2,24 @@ import { useMemo, useState } from "react";
 import { Placeholder } from "@telegram-apps/telegram-ui";
 import type { Group, GroupBookingResult, GroupMember } from "@beosand/types";
 import { resolveErrorMessage } from "../api/errors";
-import { useCreateGroupBooking, useGroupMembers, useGroups, useLevels } from "../api/hooks";
+import {
+  useCreateGroupBooking,
+  useGroupMembers,
+  useGroups,
+  useLevels,
+  useTrainers
+} from "../api/hooks";
 import { useT } from "../i18n/LanguageProvider";
 import { useNav } from "../router/NavProvider";
 import { hapticSelection, hapticSuccess, useMainButton } from "../tg/buttons";
+import { Chip, ChipBar } from "../ui/Chips";
 import { FallbackButton } from "../ui/FallbackButton";
+import { GroupFilterSheet } from "../ui/GroupFilterSheet";
+import {
+  activeGroupFilterCount,
+  matchesGroupFilter,
+  type GroupFilters
+} from "../ui/group-filter";
 import { SecondaryButton } from "../ui/SecondaryButton";
 import { OptionList, type Option } from "../ui/OptionList";
 import { EmptyState, ErrorState, LoadingState } from "../ui/StateView";
@@ -74,6 +87,11 @@ function GroupList({
 }): JSX.Element {
   const t = useT();
   const levels = useLevels();
+  const trainers = useTrainers();
+  // The group-list level/trainer/weekday filter, narrowed client-side (the API
+  // returns every active group; filtering is pure presentation, no domain math).
+  const [filters, setFilters] = useState<GroupFilters>({});
+  const [sheetOpen, setSheetOpen] = useState(false);
 
   if (isLoading) {
     return (
@@ -103,19 +121,56 @@ function GroupList({
   const levelName = (levelId: string): string =>
     levels.data?.find((level) => level.id === levelId)?.name ?? "";
 
+  const activeCount = activeGroupFilterCount(filters);
+  const visible = active.filter((group) => matchesGroupFilter(group, filters));
+
+  const applyAndClose = (next: GroupFilters): void => {
+    setFilters(next);
+    setSheetOpen(false);
+  };
+  const resetAndClose = (): void => {
+    setFilters({});
+    setSheetOpen(false);
+  };
+
   return (
     <div className="screen">
       <div className="tg-sech">{t("miniapp.group.listTitle")}</div>
-      <div className="card">
-        {active.map((group) => (
-          <GroupCard
-            key={group.id}
-            group={group}
-            levelName={levelName(group.levelId)}
-            onPick={() => onPick(group)}
-          />
-        ))}
-      </div>
+
+      <ChipBar label={t("miniapp.group.filtersAria")}>
+        <Chip
+          label={t("miniapp.group.filter.title")}
+          glyph="filter"
+          active={activeCount > 0}
+          badge={activeCount}
+          onClick={() => setSheetOpen(true)}
+        />
+      </ChipBar>
+
+      {visible.length === 0 ? (
+        <EmptyState titleKey="miniapp.group.filterEmpty" bodyKey="miniapp.group.filterEmptyBody" />
+      ) : (
+        <div className="card">
+          {visible.map((group) => (
+            <GroupCard
+              key={group.id}
+              group={group}
+              levelName={levelName(group.levelId)}
+              onPick={() => onPick(group)}
+            />
+          ))}
+        </div>
+      )}
+
+      <GroupFilterSheet
+        open={sheetOpen}
+        onOpenChange={setSheetOpen}
+        value={filters}
+        trainers={trainers.data ?? []}
+        levels={levels.data ?? []}
+        onApply={applyAndClose}
+        onReset={resetAndClose}
+      />
     </div>
   );
 }

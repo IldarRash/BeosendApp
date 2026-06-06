@@ -20,7 +20,8 @@ const grid: CourtLoadGrid = {
       courtNumber: 1,
       cells: [{ startTime: "08:00", state: "free", requestId: null, trainingId: null }]
     }
-  ]
+  ],
+  unassignedTrainings: []
 };
 
 function makeService(impl?: Partial<CourtsService>): CourtsService {

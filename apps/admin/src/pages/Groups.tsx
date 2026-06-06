@@ -17,7 +17,7 @@ import { Modal } from "../ui/Modal";
 import { NumberField, SelectField, TextField, TimeField, type SelectOption } from "../ui/Field";
 import { useToast } from "../ui/Toast";
 import { useT } from "../i18n/LanguageProvider";
-import { useGroups, useCreateGroup, useUpdateGroup } from "../hooks/useGroups";
+import { useGroups, useCreateGroup, useDeleteGroup, useUpdateGroup } from "../hooks/useGroups";
 import { useGroupMembers, useTransferGroupMember } from "../hooks/useGroupMembers";
 import { useLevels } from "../hooks/useLevels";
 import { useTrainers } from "../hooks/useTrainers";
@@ -382,11 +382,13 @@ export function Groups(): JSX.Element {
   const trainers = useTrainers();
   const createGroup = useCreateGroup();
   const updateGroup = useUpdateGroup();
+  const deleteGroup = useDeleteGroup();
   const { notify } = useToast();
 
   const [target, setTarget] = useState<EditTarget | null>(null);
   const [form, setForm] = useState<GroupFormState>(emptyForm);
   const [membersGroup, setMembersGroup] = useState<Group | null>(null);
+  const [deleteTarget, setDeleteTarget] = useState<Group | null>(null);
   const { year, month } = useMemo(() => currentYearMonth(), []);
 
   const levelOptions: SelectOption[] = useMemo(
@@ -502,6 +504,16 @@ export function Groups(): JSX.Element {
           >
             {t("admin.action.edit")}
           </Button>
+          <Button
+            variant="danger"
+            onClick={() => {
+              deleteGroup.reset();
+              setDeleteTarget(group);
+            }}
+            aria-label={t("admin.groups.deleteAria", { name: group.name })}
+          >
+            {t("admin.action.delete")}
+          </Button>
         </div>
       )
     }
@@ -572,6 +584,49 @@ export function Groups(): JSX.Element {
           onClose={() => setMembersGroup(null)}
         />
       ) : null}
+
+      <Modal
+        open={deleteTarget !== null}
+        onClose={() => setDeleteTarget(null)}
+        title={t("admin.groups.deleteTitle")}
+        footer={
+          <>
+            <Button
+              variant="ghost"
+              onClick={() => setDeleteTarget(null)}
+              disabled={deleteGroup.isPending}
+            >
+              {t("admin.groups.deleteKeep")}
+            </Button>
+            <Button
+              variant="danger"
+              disabled={deleteGroup.isPending}
+              onClick={() => {
+                if (!deleteTarget) return;
+                const name = deleteTarget.name;
+                deleteGroup.mutate(deleteTarget.id, {
+                  onSuccess: () => {
+                    notify(t("admin.groups.deleted", { name }), "success");
+                    setDeleteTarget(null);
+                  },
+                  onError: (mutationError) => notify(mutationError.message, "error")
+                });
+              }}
+            >
+              {deleteGroup.isPending
+                ? t("admin.groups.deleting")
+                : t("admin.groups.deleteConfirm")}
+            </Button>
+          </>
+        }
+      >
+        {deleteTarget ? <p>{t("admin.groups.deletePrompt", { name: deleteTarget.name })}</p> : null}
+        {deleteGroup.isError ? (
+          <p className="state state--error" role="alert">
+            {deleteGroup.error.message}
+          </p>
+        ) : null}
+      </Modal>
     </AppShell>
   );
 }

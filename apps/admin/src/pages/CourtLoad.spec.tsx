@@ -1,11 +1,25 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { cleanup, fireEvent, render, screen, within } from "@testing-library/react";
-import type { CourtLoadGrid, CourtRequestAdminView, TrainingCalendarItem } from "@beosand/types";
+import { ToastProvider } from "../ui/Toast";
+import type {
+  Court,
+  CourtLoadGrid,
+  CourtRequestAdminView,
+  TrainingCalendarItem,
+  UnassignedTraining
+} from "@beosand/types";
 
 // The data hooks are mocked so the page is unit-tested without the ApiClient/network.
 const useCourtLoad = vi.fn();
+const useAssignCourt = vi.fn();
 vi.mock("../hooks/useCourtLoad", () => ({
-  useCourtLoad: (...args: unknown[]) => useCourtLoad(...args)
+  useCourtLoad: (...args: unknown[]) => useCourtLoad(...args),
+  useAssignCourt: (...args: unknown[]) => useAssignCourt(...args)
+}));
+
+const useCourts = vi.fn();
+vi.mock("../hooks/useCourts", () => ({
+  useCourts: (...args: unknown[]) => useCourts(...args)
 }));
 
 const useCourtRequestDetail = vi.fn();
@@ -47,10 +61,26 @@ function cell(
 // A working window 08:00–12:00 → two 2-hour columns (08–10, 10–12), four 30-min
 // sub-segments each. Court 1's 08–10 column is partly held: a confirmed request
 // then a training-origin block; court 2 holds a training across 10–12.
+const UNASSIGNED: UnassignedTraining = {
+  trainingId: "99999999-9999-9999-9999-999999999999",
+  date: "2026-06-10",
+  startTime: "18:00",
+  endTime: "19:30",
+  groupName: "Взрослые 18:00",
+  levelName: "Продвинутые"
+};
+
+const COURT: Court = {
+  id: "11111111-1111-1111-1111-111111111111",
+  number: 1,
+  status: "active"
+};
+
 const GRID: CourtLoadGrid = {
   date: "2026-06-10",
   openHour: 8,
   closeHour: 12,
+  unassignedTrainings: [],
   rows: [
     {
       courtId: "11111111-1111-1111-1111-111111111111",
@@ -115,9 +145,25 @@ const TRAINING: TrainingCalendarItem = {
   courtNumber: 1
 };
 
+/** A react-query mutation stub with the fields the page reads. */
+function mutation(over: Record<string, unknown> = {}) {
+  return { mutate: vi.fn(), reset: vi.fn(), isPending: false, isError: false, error: null, ...over };
+}
+
+/** Render the page inside a ToastProvider (the assign flow notifies on success/error). */
+function renderPage(): void {
+  render(
+    <ToastProvider>
+      <CourtLoad />
+    </ToastProvider>
+  );
+}
+
 beforeEach(() => {
   vi.clearAllMocks();
   useCourtLoad.mockReturnValue({ isPending: false, isError: false, error: null, data: GRID });
+  useAssignCourt.mockReturnValue(mutation());
+  useCourts.mockReturnValue({ isPending: false, isError: false, error: null, data: [COURT] });
   useCourtRequestDetail.mockReturnValue({
     isPending: false,
     isError: false,
@@ -136,7 +182,7 @@ afterEach(cleanup);
 
 describe("CourtLoad page", () => {
   it("groups the API's 30-min cells into 2-hour column headers", () => {
-    render(<CourtLoad />);
+    renderPage();
 
     const table = screen.getByRole("table", { name: "Загрузка кортов на 2026-06-10" });
     // 2-hour range headers derived from the cell start times, not hard-coded.
@@ -150,7 +196,7 @@ describe("CourtLoad page", () => {
   });
 
   it("tints each 30-min sub-segment by the API's state and names it for screen readers", () => {
-    render(<CourtLoad />);
+    renderPage();
 
     const request = screen.getByLabelText("Корт 1, 08:00 — Заявка. Открыть детали брони.");
     expect(request.tagName).toBe("BUTTON");
@@ -172,13 +218,13 @@ describe("CourtLoad page", () => {
   });
 
   it("makes only request and training segments clickable; free and block are inert", () => {
-    render(<CourtLoad />);
+    renderPage();
     expect(screen.getByLabelText("Корт 1, 09:30 — Свободно").tagName).toBe("SPAN");
     expect(screen.getByLabelText("Корт 2, 08:00 — Блокировка").tagName).toBe("SPAN");
   });
 
   it("opens the booking detail with the API-decided values when a request segment is clicked", () => {
-    render(<CourtLoad />);
+    renderPage();
 
     fireEvent.click(screen.getByLabelText("Корт 1, 08:00 — Заявка. Открыть детали брони."));
 
@@ -190,7 +236,7 @@ describe("CourtLoad page", () => {
   });
 
   it("opens the training detail with the covering training's id when a training segment is clicked", () => {
-    render(<CourtLoad />);
+    renderPage();
 
     fireEvent.click(
       screen.getByLabelText("Корт 1, 09:00 — Тренировка. Открыть детали тренировки.")
@@ -205,7 +251,7 @@ describe("CourtLoad page", () => {
 
   it("shows a loading state while the grid query is pending", () => {
     useCourtLoad.mockReturnValue({ isPending: true, isError: false, error: null, data: undefined });
-    render(<CourtLoad />);
+    renderPage();
     expect(screen.getByText("Загрузка сетки…")).toBeTruthy();
   });
 
@@ -216,7 +262,7 @@ describe("CourtLoad page", () => {
       error: new Error("Доступ запрещён."),
       data: undefined
     });
-    render(<CourtLoad />);
+    renderPage();
     expect(screen.getByRole("alert").textContent).toContain("Доступ запрещён.");
   });
 
@@ -227,13 +273,13 @@ describe("CourtLoad page", () => {
       error: null,
       data: { ...GRID, rows: [] }
     });
-    render(<CourtLoad />);
+    renderPage();
     expect(screen.getByText("На выбранную дату кортов нет.")).toBeTruthy();
     expect(screen.queryByRole("table")).toBeNull();
   });
 
   it("renders the training (Т) segment for a date whose grid has a training cell", () => {
-    render(<CourtLoad />);
+    renderPage();
 
     // The training-origin segment carries the training glyph and tint, proving the
     // grid is not misread as empty when a court is held by a training.
@@ -260,10 +306,77 @@ describe("CourtLoad page", () => {
       error: null,
       data: allFreeGrid
     });
-    render(<CourtLoad />);
+    renderPage();
 
     // The hint is additive — the grid still renders alongside it.
     expect(screen.getByText("На выбранную дату все корты свободны.")).toBeTruthy();
     expect(screen.getByRole("table")).toBeTruthy();
+  });
+
+  it("hides the unassigned section when the API returns no unassigned trainings", () => {
+    renderPage();
+    expect(screen.queryByRole("region", { name: "Без корта" })).toBeNull();
+    expect(screen.queryByText("Без корта")).toBeNull();
+  });
+
+  it("lists each API-returned unassigned training with its time, group and level", () => {
+    useCourtLoad.mockReturnValue({
+      isPending: false,
+      isError: false,
+      error: null,
+      data: { ...GRID, unassignedTrainings: [UNASSIGNED] }
+    });
+    renderPage();
+
+    const section = screen.getByRole("region", { name: "Без корта" });
+    const row = within(section).getByText("Взрослые 18:00").closest("tr") as HTMLElement;
+    const cells = within(row);
+    expect(cells.getByText("18:00–19:30")).toBeTruthy();
+    expect(cells.getByText("Продвинутые")).toBeTruthy();
+    expect(
+      cells.getByRole("button", { name: "Назначить корт тренировке Взрослые 18:00, 18:00–19:30" })
+    ).toBeTruthy();
+  });
+
+  it("assigns the picked court to the training via the mutation when confirmed", () => {
+    const mutate = vi.fn();
+    useAssignCourt.mockReturnValue(mutation({ mutate }));
+    useCourtLoad.mockReturnValue({
+      isPending: false,
+      isError: false,
+      error: null,
+      data: { ...GRID, unassignedTrainings: [UNASSIGNED] }
+    });
+    renderPage();
+
+    fireEvent.click(
+      screen.getByRole("button", { name: "Назначить корт тренировке Взрослые 18:00, 18:00–19:30" })
+    );
+    const dialog = screen.getByRole("dialog", { name: "Назначить корт — Взрослые 18:00" });
+    fireEvent.click(within(dialog).getByLabelText("Корт № 1"));
+    fireEvent.click(within(dialog).getByRole("button", { name: "Назначить" }));
+
+    expect(mutate).toHaveBeenCalledTimes(1);
+    const [vars] = mutate.mock.calls[0];
+    expect(vars).toEqual({ trainingId: UNASSIGNED.trainingId, courtId: COURT.id });
+  });
+
+  it("keeps the assign action disabled until a court is picked", () => {
+    useCourtLoad.mockReturnValue({
+      isPending: false,
+      isError: false,
+      error: null,
+      data: { ...GRID, unassignedTrainings: [UNASSIGNED] }
+    });
+    renderPage();
+
+    fireEvent.click(
+      screen.getByRole("button", { name: "Назначить корт тренировке Взрослые 18:00, 18:00–19:30" })
+    );
+    const dialog = screen.getByRole("dialog", { name: "Назначить корт — Взрослые 18:00" });
+    expect(within(dialog).getByRole("button", { name: "Назначить" })).toHaveProperty(
+      "disabled",
+      true
+    );
   });
 });

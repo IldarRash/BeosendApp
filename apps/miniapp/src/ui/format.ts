@@ -87,6 +87,19 @@ export function todayLocalDate(now: Date = new Date()): string {
   return `${y}-${m}-${d}`;
 }
 
+/**
+ * A date `days` after the given day, as "YYYY-MM-DD" — for a forward date window
+ * (e.g. the schedule screen's today→today+30d query). NOT a domain decision: it is
+ * a display/filter window the server re-validates and owns availability for. Uses
+ * local calendar fields (single-timezone school), never UTC slicing.
+ */
+export function addDays(date: string, days: number): string {
+  const year = Number(date.slice(0, 4));
+  const month = Number(date.slice(5, 7));
+  const day = Number(date.slice(8, 10));
+  return todayLocalDate(new Date(year, month - 1, day + days));
+}
+
 /** How many days the court-request date rail offers (today + the next 13). */
 const COURT_DATE_WINDOW_DAYS = 14;
 

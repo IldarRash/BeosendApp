@@ -11,6 +11,7 @@ import type { Env } from "@beosand/config";
 import { isAdmin } from "@beosand/config";
 import type { Database } from "@beosand/db";
 import type {
+  AssignCourtInput,
   AvailableSlotsQuery,
   ChangeCapacityInput,
   CourtCellOccupant,
@@ -566,17 +567,149 @@ export class TrainingsService {
       if (locked.status === "cancelled") {
         throw new ConflictException("Training is already cancelled");
       }
-      const cancelledClientIds = await this.trainings.cancelBookedBookingsForTraining(tx, id);
+      const cancelledClientIds = await this.cancelOneInTx(tx, id);
       const marked = await this.trainings.markCancelled(tx, id);
-      // Free the court: delete this training's auto-block (no-op if absent; a block is
-      // not active plan state, so delete is correct). Manual blocks (null link) untouched.
-      await this.courtBlocks.deleteByGroupTrainingId(id, tx);
       return { updated: marked, cancelledClientIds };
     });
 
     await this.notifyCancelledSafely(id, cancelledClientIds);
 
     return trainingSchema.parse(updated);
+  }
+
+  /**
+   * Cancel ONE training inside the caller's transaction (the row is assumed already
+   * locked FOR UPDATE and not already cancelled). Flips its seat-occupying bookings
+   * to cancelled, marks the training cancelled, and frees its court by deleting the
+   * auto-block (no-op if absent; manual blocks with a null link are untouched).
+   * Returns the affected clientIds so the caller can notify after commit. Shared by
+   * the single-training cancel and the group-delete cascade.
+   */
+  private async cancelOneInTx(tx: Database, id: string): Promise<string[]> {
+    const cancelledClientIds = await this.trainings.cancelBookedBookingsForTraining(tx, id);
+    await this.trainings.markCancelled(tx, id);
+    // Free the court: delete this training's auto-block (no-op if absent; a block is
+    // not active plan state, so delete is correct). Manual blocks (null link) untouched.
+    await this.courtBlocks.deleteByGroupTrainingId(id, tx);
+    return cancelledClientIds;
+  }
+
+  /**
+   * Admin: cancel every FUTURE non-cancelled training of a group (the group-delete
+   * cascade). Past sessions are untouched (the invariant: history is never rewritten).
+   * In one transaction each future training is locked FOR UPDATE, skipped if already
+   * cancelled, else cancelled via cancelOneInTx; the affected clients per training are
+   * collected. After commit each set is notified (a Telegram failure is logged and
+   * swallowed so it never undoes the committed cancels). Returns the count cancelled.
+   */
+  async cancelFutureTrainingsForGroup(actorTelegramId: number, groupId: string): Promise<number> {
+    this.assertAdmin(actorTelegramId);
+
+    const today = new Date().toISOString().slice(0, 10);
+    const candidates = await this.trainings.listFutureNonCancelledForGroup(groupId, today);
+
+    const cancelled = await this.trainings.transaction(async (tx) => {
+      const results: { trainingId: string; clientIds: string[] }[] = [];
+      for (const candidate of candidates) {
+        const locked = await this.trainings.findForUpdate(tx, candidate.id);
+        if (!locked || locked.status === "cancelled") {
+          continue;
+        }
+        const clientIds = await this.cancelOneInTx(tx, candidate.id);
+        results.push({ trainingId: candidate.id, clientIds });
+      }
+      return results;
+    });
+
+    for (const { trainingId, clientIds } of cancelled) {
+      await this.notifyCancelledSafely(trainingId, clientIds);
+    }
+
+    return cancelled.length;
+  }
+
+  /**
+   * Admin: manually reserve a court for an "orphan" training (one the generator left
+   * without an auto-block when every court was busy). In one transaction the training
+   * is locked FOR UPDATE (404 if missing); a terminal training (cancelled/completed)
+   * is rejected (409), as is a training that already holds a court block (409). The
+   * chosen court is run through the SAME pickCourtForSlots guard the generator uses —
+   * the hard 6-per-slot limit and chosen-court freeness — so an unavailable court is
+   * rejected (409) rather than oversubscribed. The training row itself is unchanged
+   * (only the new block is inserted) and returned.
+   */
+  async assignCourt(
+    actorTelegramId: number,
+    trainingId: string,
+    input: AssignCourtInput
+  ): Promise<Training> {
+    this.assertAdmin(actorTelegramId);
+
+    const training = await this.trainings.transaction(async (tx) => {
+      const locked = await this.trainings.findFullForUpdate(tx, trainingId);
+      if (!locked) {
+        throw new NotFoundException(`Training ${trainingId} not found`);
+      }
+      if (locked.status === "cancelled" || locked.status === "completed") {
+        throw new ConflictException(`Cannot assign a court to a ${locked.status} training`);
+      }
+      const existingBlock = await this.courtBlocks.findByGroupTrainingId(trainingId, tx);
+      if (existingBlock) {
+        throw new ConflictException("Training already has a court assigned");
+      }
+      if (!locked.groupId) {
+        throw new BadRequestException("Training has no group");
+      }
+
+      const group = await this.groups.findById(locked.groupId);
+      if (!group) {
+        throw new NotFoundException(`Group ${locked.groupId} not found`);
+      }
+
+      const durationMinutes = minutesOfDay(locked.endTime) - minutesOfDay(locked.startTime);
+      const slots = courtSlotsCovered(locked.startTime, durationMinutes);
+
+      const activeCourts = await this.courtBlocks.activeCourts(tx);
+      // NOTE: occupancy is read without locking those rows, so under READ COMMITTED a
+      // concurrent assign/confirm/generate to the same slot shares the known
+      // check-then-insert court-occupancy race (tracked separately for the advisory-lock
+      // fix). This path reuses the identical guard and does not widen that surface.
+      const [confirmed, blocks] = await Promise.all([
+        this.courtBlocks.confirmedOccupancyForDate(locked.date, tx),
+        this.courtBlocks.blocksOccupancyForDate(locked.date, tx)
+      ]);
+
+      // Reuse the generator's guard: it returns the picked court only if the
+      // preferred (requested) court is free for every covered slot and within the
+      // 6-per-slot limit. Any other result means the requested court isn't grantable.
+      const picked = this.pickCourtForSlots(
+        slots,
+        activeCourts,
+        activeCourts.length,
+        input.courtId,
+        confirmed,
+        blocks
+      );
+      if (picked !== input.courtId) {
+        throw new ConflictException("Court is not available for this slot.");
+      }
+
+      await this.courtBlocks.insert(
+        {
+          courtId: input.courtId,
+          date: locked.date,
+          startTime: locked.startTime,
+          endTime: locked.endTime,
+          reason: group.name,
+          groupTrainingId: trainingId
+        },
+        tx
+      );
+
+      return locked;
+    });
+
+    return trainingSchema.parse(training);
   }
 
   /**

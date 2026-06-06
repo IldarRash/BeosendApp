@@ -1,10 +1,9 @@
 import { useMemo, useState } from "react";
 import type { Level, SlotCard as SlotCardData, Trainer } from "@beosand/types";
 import { useT } from "../i18n/LanguageProvider";
-import { formatDayMonth, weekdayShortKey } from "./format";
 import { Chip, ChipBar } from "./Chips";
 import { FilterSheet, type SlotFilters } from "./FilterSheet";
-import { SlotCard } from "./SlotCard";
+import { SlotDayList } from "./SlotDayList";
 import { EmptyState, ErrorState, LoadingState } from "./StateView";
 
 interface BrowseViewProps {
@@ -64,7 +63,7 @@ export function BrowseView({
     [filters]
   );
 
-  const groups = useMemo(() => groupByDate(slots ?? []), [slots]);
+  const hasSlots = (slots?.length ?? 0) > 0;
 
   const applyAndClose = (next: SlotFilters): void => {
     onApplyFilters(next);
@@ -99,26 +98,15 @@ export function BrowseView({
         <LoadingState />
       ) : errorMessage ? (
         <ErrorState message={errorMessage} />
-      ) : groups.length === 0 ? (
+      ) : !hasSlots ? (
         <EmptyState titleKey="miniapp.browse.emptyTitle" bodyKey="miniapp.browse.emptyBody" />
       ) : (
-        <div role="list" aria-label={t("miniapp.browse.title")}>
-          {groups.map((group) => (
-            <div key={group.date} role="group">
-              <div className="tg-sech">
-                {`${t(weekdayShortKey(group.dayOfWeek))} · ${formatDayMonth(group.date)}`}
-              </div>
-              {group.slots.map((slot) => (
-                <SlotCard
-                  key={slot.trainingId}
-                  slot={slot}
-                  onBook={() => onBook(slot)}
-                  onWaitlist={() => onWaitlist(slot)}
-                />
-              ))}
-            </div>
-          ))}
-        </div>
+        <SlotDayList
+          slots={slots ?? []}
+          ariaLabel={t("miniapp.browse.title")}
+          onBook={onBook}
+          onWaitlist={onWaitlist}
+        />
       )}
 
       <FilterSheet
@@ -132,28 +120,4 @@ export function BrowseView({
       />
     </div>
   );
-}
-
-interface DateGroup {
-  date: string;
-  dayOfWeek: SlotCardData["dayOfWeek"];
-  slots: SlotCardData[];
-}
-
-/**
- * Group already-sorted slot cards by their `date` for the date-headed sections.
- * Pure presentation grouping (no domain math): it preserves the API's order and
- * only buckets consecutive same-date cards. The API owns sort/availability.
- */
-function groupByDate(slots: ReadonlyArray<SlotCardData>): DateGroup[] {
-  const groups: DateGroup[] = [];
-  for (const slot of slots) {
-    const last = groups[groups.length - 1];
-    if (last && last.date === slot.date) {
-      last.slots.push(slot);
-    } else {
-      groups.push({ date: slot.date, dayOfWeek: slot.dayOfWeek, slots: [slot] });
-    }
-  }
-  return groups;
 }

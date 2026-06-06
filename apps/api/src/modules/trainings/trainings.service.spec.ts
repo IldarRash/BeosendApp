@@ -8,7 +8,7 @@ import type { Env } from "@beosand/config";
 import type { Database } from "@beosand/db";
 import { tables } from "@beosand/db";
 import type { Group, Training } from "@beosand/types";
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { TrainingsService } from "./trainings.service";
 import type {
   AvailableSlotRow,
@@ -158,18 +158,57 @@ class FakeTrainingsRepository {
   cancelledClientIds: string[] = [];
 
   async findForUpdate(_tx: Database, id: string): Promise<TrainingLockRow | undefined> {
-    return this.lock && this.lock.id === id ? this.lock : undefined;
+    // Prefer an explicitly-seeded lock; otherwise fall back to a stored row so the
+    // group-delete cascade (which locks many ids in one tx) can find each one.
+    if (this.lock && this.lock.id === id) {
+      return this.lock;
+    }
+    const row = this.rows.find((r) => r.id === id);
+    return row
+      ? { id: row.id, capacity: row.capacity, bookedCount: row.bookedCount, status: row.status, trainerId: row.trainerId }
+      : undefined;
   }
 
+  // Full-training lock for the admin assign-court write.
+  fullLock: Training | undefined;
+  async findFullForUpdate(_tx: Database, id: string): Promise<Training | undefined> {
+    if (this.fullLock && this.fullLock.id === id) {
+      return this.fullLock;
+    }
+    return this.rows.find((r) => r.id === id);
+  }
+
+  // Future non-cancelled trainings of a group (the cascade candidate set).
+  async listFutureNonCancelledForGroup(
+    groupId: string,
+    fromDate: string
+  ): Promise<{ id: string }[]> {
+    return this.rows
+      .filter((r) => r.groupId === groupId && r.date >= fromDate && r.status !== "cancelled")
+      .map((r) => ({ id: r.id }));
+  }
+
+  markCancelledIds: string[] = [];
   async markCancelled(_tx: Database, id: string): Promise<Training> {
+    this.markCancelledIds.push(id);
+    // A stored row (cascade) is flipped in place; otherwise fall back to the lock.
+    const row = this.rows.find((r) => r.id === id);
+    if (row) {
+      row.status = "cancelled";
+      return row;
+    }
     const lock = this.requireLock(id);
     this.lock = { ...lock, status: "cancelled" };
     return this.lockToTraining(this.lock);
   }
 
-  async cancelBookedBookingsForTraining(_tx: Database, _id: string): Promise<string[]> {
+  cancelBookedIds: string[] = [];
+  /** Per-training cancelled clientIds for the cascade; falls back to the shared list. */
+  cancelledClientIdsByTraining = new Map<string, string[]>();
+  async cancelBookedBookingsForTraining(_tx: Database, id: string): Promise<string[]> {
     this.cancelBookedCalls += 1;
-    return this.cancelledClientIds;
+    this.cancelBookedIds.push(id);
+    return this.cancelledClientIdsByTraining.get(id) ?? this.cancelledClientIds;
   }
 
   async updateCapacity(
@@ -293,6 +332,12 @@ class FakeCourtBlocksRepository {
   async deleteByGroupTrainingId(id: string): Promise<boolean> {
     this.deletedTrainingIds.push(id);
     return true;
+  }
+
+  // Training ids that already hold a court block (guards a double assign-court).
+  blockedTrainingIds = new Set<string>();
+  async findByGroupTrainingId(id: string): Promise<{ id: string } | null> {
+    return this.blockedTrainingIds.has(id) ? { id: "existing-block" } : null;
   }
 }
 
@@ -457,8 +502,17 @@ describe("TrainingsService", () => {
   });
 
   describe("listAvailable", () => {
-    // today is 2026-06-03 (see workflow context); these dates fall in the
-    // default today..today+14 window.
+    // Freeze "today" to 2026-06-03 so these fixtures stay inside the default
+    // today..today+14 window regardless of the real calendar date (otherwise the
+    // hardcoded 2026-06-05 slots rot out of the window once that date passes).
+    beforeEach(() => {
+      vi.useFakeTimers();
+      vi.setSystemTime(new Date("2026-06-03T12:00:00Z"));
+    });
+    afterEach(() => {
+      vi.useRealTimers();
+    });
+
     const TRAINER_A = "33333333-3333-3333-3333-333333333333";
     const LEVEL_A = "22222222-2222-2222-2222-222222222222";
     const slot = (over: Partial<AvailableSlotRow>): AvailableSlotRow => ({
@@ -1149,6 +1203,167 @@ describe("TrainingsService", () => {
       const b = result.perGroup.find((p) => p.groupId === groupB.id)!;
       expect(a.blocked).toBe(a.created);
       expect(b.skipped).toBe(b.created);
+    });
+  });
+
+  describe("assignCourt (manual court assignment for an orphan training)", () => {
+    const COURT_1 = "c0000000-0000-4000-8000-000000000001";
+    const COURT_2 = "c0000000-0000-4000-8000-000000000002";
+    const TRAINING_ID = "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa";
+
+    const orphan = (over: Partial<Training> = {}): Training => ({
+      id: TRAINING_ID,
+      groupId: GROUP_ID,
+      date: "2026-07-06",
+      startTime: "20:00",
+      endTime: "21:30",
+      trainerId: baseGroup.trainerId,
+      capacity: 12,
+      bookedCount: 0,
+      status: "open",
+      ...over
+    });
+
+    it("inserts a block keyed to the training on the requested court when it is free", async () => {
+      trainingsRepo.fullLock = orphan();
+
+      const result = await service.assignCourt(ADMIN_ID, TRAINING_ID, { courtId: COURT_1 });
+
+      expect(result.id).toBe(TRAINING_ID);
+      expect(courtBlocksRepo.inserted).toHaveLength(1);
+      const block = courtBlocksRepo.inserted[0];
+      expect(block.courtId).toBe(COURT_1);
+      expect(block.groupTrainingId).toBe(TRAINING_ID);
+      expect(block.reason).toBe(baseGroup.name);
+      expect(block.startTime).toBe("20:00");
+      expect(block.endTime).toBe("21:30");
+    });
+
+    it("rejects with ConflictException when the requested court is taken (chosen-court freeness)", async () => {
+      trainingsRepo.fullLock = orphan();
+      // The requested court is busy for the whole window; pickCourtForSlots would pick
+      // the other court, which !== the requested one → not grantable.
+      courtBlocksRepo.existingBlocks = [
+        { courtId: COURT_1, startTime: "20:00", durationMinutes: 90 }
+      ];
+
+      await expect(
+        service.assignCourt(ADMIN_ID, TRAINING_ID, { courtId: COURT_1 })
+      ).rejects.toBeInstanceOf(ConflictException);
+      expect(courtBlocksRepo.inserted).toHaveLength(0);
+    });
+
+    it("rejects with ConflictException when every covered slot is at the 6-per-slot limit", async () => {
+      // Only one active court, already taken → no court can be granted for the slot.
+      courtBlocksRepo.courts = [{ id: COURT_1, number: 1 }];
+      trainingsRepo.fullLock = orphan();
+      courtBlocksRepo.existingBlocks = [
+        { courtId: COURT_1, startTime: "20:00", durationMinutes: 90 }
+      ];
+
+      await expect(
+        service.assignCourt(ADMIN_ID, TRAINING_ID, { courtId: COURT_1 })
+      ).rejects.toBeInstanceOf(ConflictException);
+      expect(courtBlocksRepo.inserted).toHaveLength(0);
+    });
+
+    it("409s a training that already holds a court block (no double assignment)", async () => {
+      trainingsRepo.fullLock = orphan();
+      courtBlocksRepo.blockedTrainingIds.add(TRAINING_ID);
+
+      await expect(
+        service.assignCourt(ADMIN_ID, TRAINING_ID, { courtId: COURT_2 })
+      ).rejects.toBeInstanceOf(ConflictException);
+      expect(courtBlocksRepo.inserted).toHaveLength(0);
+    });
+
+    it("409s a cancelled training", async () => {
+      trainingsRepo.fullLock = orphan({ status: "cancelled" });
+      await expect(
+        service.assignCourt(ADMIN_ID, TRAINING_ID, { courtId: COURT_1 })
+      ).rejects.toBeInstanceOf(ConflictException);
+    });
+
+    it("404s a missing training", async () => {
+      await expect(
+        service.assignCourt(ADMIN_ID, TRAINING_ID, { courtId: COURT_1 })
+      ).rejects.toBeInstanceOf(NotFoundException);
+    });
+
+    it("is admin-only", async () => {
+      trainingsRepo.fullLock = orphan();
+      await expect(
+        service.assignCourt(NON_ADMIN_ID, TRAINING_ID, { courtId: COURT_1 })
+      ).rejects.toBeInstanceOf(ForbiddenException);
+      expect(courtBlocksRepo.inserted).toHaveLength(0);
+    });
+  });
+
+  describe("cancelFutureTrainingsForGroup (group-delete cascade)", () => {
+    const TRAINER_ID = baseGroup.trainerId;
+    const future1 = "f1111111-1111-4111-8111-111111111111";
+    const future2 = "f2222222-2222-4222-8222-222222222222";
+    const past = "f3333333-3333-4333-8333-333333333333";
+    const alreadyCancelled = "f4444444-4444-4444-8444-444444444444";
+
+    const row = (over: Partial<Training>): Training => ({
+      id: "x",
+      groupId: GROUP_ID,
+      date: "2099-07-06",
+      startTime: "20:00",
+      endTime: "21:30",
+      trainerId: TRAINER_ID,
+      capacity: 12,
+      bookedCount: 0,
+      status: "open",
+      ...over
+    });
+
+    beforeEach(() => {
+      trainingsRepo.rows = [
+        row({ id: future1, date: "2099-07-06" }),
+        row({ id: future2, date: "2099-07-13" }),
+        row({ id: past, date: "2000-01-01" }),
+        row({ id: alreadyCancelled, date: "2099-07-20", status: "cancelled" })
+      ];
+    });
+
+    it("cancels only future non-cancelled trainings, leaving past + already-cancelled untouched", async () => {
+      const count = await service.cancelFutureTrainingsForGroup(ADMIN_ID, GROUP_ID);
+
+      expect(count).toBe(2);
+      expect(trainingsRepo.markCancelledIds.sort()).toEqual([future1, future2].sort());
+      // The past session and the already-cancelled one are never marked again.
+      expect(trainingsRepo.markCancelledIds).not.toContain(past);
+      expect(trainingsRepo.markCancelledIds).not.toContain(alreadyCancelled);
+      // Each cancelled training freed its court and notified its members.
+      expect(courtBlocksRepo.deletedTrainingIds.sort()).toEqual([future1, future2].sort());
+    });
+
+    it("notifies the affected clients per cancelled training after commit", async () => {
+      trainingsRepo.cancelledClientIdsByTraining.set(future1, ["client-a"]);
+      trainingsRepo.cancelledClientIdsByTraining.set(future2, ["client-b", "client-c"]);
+
+      await service.cancelFutureTrainingsForGroup(ADMIN_ID, GROUP_ID);
+
+      expect(notifications.sendTrainingCancelled).toHaveBeenCalledWith(future1, ["client-a"]);
+      expect(notifications.sendTrainingCancelled).toHaveBeenCalledWith(future2, [
+        "client-b",
+        "client-c"
+      ]);
+    });
+
+    it("is admin-only and cancels nothing for a non-admin", async () => {
+      await expect(
+        service.cancelFutureTrainingsForGroup(NON_ADMIN_ID, GROUP_ID)
+      ).rejects.toBeInstanceOf(ForbiddenException);
+      expect(trainingsRepo.markCancelledIds).toHaveLength(0);
+    });
+
+    it("returns 0 when the group has no future non-cancelled trainings", async () => {
+      trainingsRepo.rows = [row({ id: past, date: "2000-01-01" })];
+      const count = await service.cancelFutureTrainingsForGroup(ADMIN_ID, GROUP_ID);
+      expect(count).toBe(0);
     });
   });
 });

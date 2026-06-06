@@ -54,7 +54,8 @@ const grid: CourtLoadGrid = {
       courtNumber: 3,
       cells: cells({ "08:00": "training", "08:30": "training" })
     }
-  ]
+  ],
+  unassignedTrainings: []
 };
 
 describe("courtLoadGridText", () => {

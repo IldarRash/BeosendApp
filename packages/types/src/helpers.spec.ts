@@ -7,16 +7,22 @@ import {
   courtLoadGrid,
   courtPriceRsd,
   courtSlotsCovered,
+  dayOfMonth,
+  daysInMonth,
   firstNameOf,
+  firstWeekdayMondayFirst,
   freeCourtsBySlot,
   freeSeats,
   isBookable,
+  isoDate,
   isoWeekdayOf,
   matchesSlotFilters,
   monthBounds,
   monthTrainingDates,
+  monthWeeks,
   recomputeTrainingStatus,
   safeRatio,
+  shiftMonth,
   timeOfDayOf,
   timeRangesOverlap,
   type FilterableSlot
@@ -85,6 +91,53 @@ describe("monthBounds", () => {
     expect(monthBounds(2026, 2)).toEqual(["2026-02-01", "2026-02-28"]);
     expect(monthBounds(2025, 12)).toEqual(["2025-12-01", "2025-12-31"]);
     expect(monthBounds(2024, 2)).toEqual(["2024-02-01", "2024-02-29"]); // leap year
+  });
+});
+
+describe("month-grid layout", () => {
+  it("zero-pads isoDate and extracts dayOfMonth", () => {
+    expect(isoDate(2026, 6, 7)).toBe("2026-06-07");
+    expect(isoDate(2026, 12, 31)).toBe("2026-12-31");
+    expect(dayOfMonth("2026-06-07")).toBe(7);
+    expect(dayOfMonth("2026-06-30")).toBe(30);
+  });
+
+  it("counts days in a month, incl. leap February", () => {
+    expect(daysInMonth(2026, 2)).toBe(28);
+    expect(daysInMonth(2024, 2)).toBe(29);
+    expect(daysInMonth(2026, 6)).toBe(30);
+  });
+
+  it("is Monday-first (0 = Mon … 6 = Sun)", () => {
+    expect(firstWeekdayMondayFirst(2026, 6)).toBe(0); // 2026-06-01 is a Monday
+    expect(firstWeekdayMondayFirst(2026, 2)).toBe(6); // 2026-02-01 is a Sunday
+  });
+
+  it("lays out a month into 7-cell Monday-first weeks with padding", () => {
+    const weeks = monthWeeks(2026, 6); // June 2026 starts on Monday, 30 days
+    for (const week of weeks) {
+      expect(week).toHaveLength(7);
+    }
+    expect(weeks[0][0]).toBe("2026-06-01"); // no leading padding
+    const days = weeks.flat().filter((d): d is string => d !== null);
+    expect(days).toHaveLength(30);
+    expect(days[0]).toBe("2026-06-01");
+    expect(days[days.length - 1]).toBe("2026-06-30");
+    expect(weeks[weeks.length - 1].some((c) => c === null)).toBe(true);
+  });
+
+  it("pads the first week when the 1st is not a Monday", () => {
+    const weeks = monthWeeks(2026, 2); // Feb 2026 starts on Sunday → 6 leading nulls
+    expect(weeks[0].slice(0, 6)).toEqual([null, null, null, null, null, null]);
+    expect(weeks[0][6]).toBe("2026-02-01");
+  });
+
+  it("shifts a 1-based {year, month} by delta, rolling the year", () => {
+    expect(shiftMonth(2026, 6, 1)).toEqual({ year: 2026, month: 7 });
+    expect(shiftMonth(2026, 12, 1)).toEqual({ year: 2027, month: 1 });
+    expect(shiftMonth(2026, 1, -1)).toEqual({ year: 2025, month: 12 });
+    expect(shiftMonth(2026, 11, 3)).toEqual({ year: 2027, month: 2 });
+    expect(shiftMonth(2026, 2, -3)).toEqual({ year: 2025, month: 11 });
   });
 });
 

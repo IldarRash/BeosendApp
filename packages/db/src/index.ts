@@ -4,4 +4,4 @@ export { createDb } from "./client";
 export type { Database } from "./client";
 // Re-export the query operators repositories need so apps/api goes through
 // @beosand/db only (drizzle-orm is not a direct api dependency).
-export { and, asc, eq, gte, inArray, isNotNull, lt, sql } from "drizzle-orm";
+export { and, asc, eq, gte, inArray, isNotNull, isNull, lt, sql } from "drizzle-orm";

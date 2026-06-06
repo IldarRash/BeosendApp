@@ -1,14 +1,15 @@
 import { useMemo, useState } from "react";
-import type {
-  ChangeCapacityInput,
-  Client,
-  Court,
-  GenerateAllResult,
-  GenerateMonthInput,
-  Group,
-  ListTrainingsQuery,
-  Training,
-  TrainingStatus
+import {
+  isoDate,
+  type ChangeCapacityInput,
+  type Client,
+  type Court,
+  type GenerateAllResult,
+  type GenerateMonthInput,
+  type Group,
+  type ListTrainingsQuery,
+  type Training,
+  type TrainingStatus
 } from "@beosand/types";
 import { AppShell } from "../ui/AppShell";
 import { Button } from "../ui/Button";
@@ -38,13 +39,6 @@ type Translate = (key: string, params?: Record<string, string | number>) => stri
 /** Catalog key for a training status the API returns (never recomputed here). */
 function statusLabel(status: TrainingStatus, t: Translate): string {
   return t(`admin.trainings.status${status.charAt(0).toUpperCase()}${status.slice(1)}`);
-}
-
-/** ISO `yyyy-mm-dd` for the given (year, 1-based month, day). Presentation only. */
-function isoDate(year: number, month: number, day: number): string {
-  const mm = String(month).padStart(2, "0");
-  const dd = String(day).padStart(2, "0");
-  return `${year}-${mm}-${dd}`;
 }
 
 /** First/last day of a calendar month as ISO strings (`month` is 1-12). */

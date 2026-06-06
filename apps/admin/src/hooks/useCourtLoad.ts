@@ -1,5 +1,11 @@
-import { useQuery, type UseQueryResult } from "@tanstack/react-query";
-import type { CourtLoadGrid } from "@beosand/types";
+import {
+  useMutation,
+  useQuery,
+  useQueryClient,
+  type UseMutationResult,
+  type UseQueryResult
+} from "@tanstack/react-query";
+import type { CourtLoadGrid, Training } from "@beosand/types";
 import { useApiClient } from "../api/ApiProvider";
 
 /**
@@ -23,5 +29,25 @@ export function useCourtLoad(date: string | null): UseQueryResult<CourtLoadGrid,
     queryKey: date ? loadKey(date) : [...COURT_LOAD_KEY, "idle"],
     queryFn: () => api.courtLoad(date as string),
     enabled: date !== null
+  });
+}
+
+/**
+ * Assign a court to an unassigned training (POST /trainings/:id/assign-court). On
+ * success every loaded day's grid is invalidated, so the training moves out of the
+ * "без корта" section and into the grid; a 409 (court not free / limit) propagates
+ * to the caller to render. The server owns the freeness/limit check.
+ */
+export function useAssignCourt(): UseMutationResult<
+  Training,
+  Error,
+  { trainingId: string; courtId: string }
+> {
+  const api = useApiClient();
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: ({ trainingId, courtId }: { trainingId: string; courtId: string }) =>
+      api.assignCourt(trainingId, courtId),
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: COURT_LOAD_KEY })
   });
 }
