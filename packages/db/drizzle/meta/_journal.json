@@ -64,6 +64,20 @@
       "when": 1780679051819,
       "tag": "0008_spotty_toro",
       "breakpoints": true
+    },
+    {
+      "idx": 9,
+      "version": "7",
+      "when": 1780991820358,
+      "tag": "0009_fast_molten_man",
+      "breakpoints": true
+    },
+    {
+      "idx": 10,
+      "version": "7",
+      "when": 1780998825293,
+      "tag": "0010_daily_squirrel_girl",
+      "breakpoints": true
     }
   ]
 }

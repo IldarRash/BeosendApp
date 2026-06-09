@@ -104,3 +104,28 @@ export class CatalogStore {
     }
   }
 }
+
+/** A catalog source keyed by locale — the `CatalogStore` (or any test double). */
+export interface CatalogSource {
+  get(locale: Locale): Catalog;
+}
+
+/**
+ * Resolve the caller's locale catalog from their stored `client.language`. A
+ * not-yet-onboarded caller (no client) or an identity-less update gets the
+ * default-locale (RU) catalog. Identity is the numeric telegram id only; the
+ * stored language is the single source of locale, resolved fresh per render so
+ * a render always reflects persisted state (A4 — no locale jump on a stale
+ * captured catalog). `asLocale` narrows NULL/unknown stored values to RU.
+ */
+export async function resolveClientCatalog(
+  source: CatalogSource,
+  api: Pick<ApiClient, "getClientByTelegramId">,
+  telegramId: number | undefined
+): Promise<Catalog> {
+  if (telegramId === undefined) {
+    return source.get(asLocale(undefined));
+  }
+  const client = await api.getClientByTelegramId(telegramId);
+  return source.get(asLocale(client?.language));
+}

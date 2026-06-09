@@ -1,5 +1,6 @@
 import { sql } from "drizzle-orm";
 import {
+  bigint,
   date,
   integer,
   numeric,
@@ -52,6 +53,22 @@ export const notificationType = pgEnum("notification_type", [
   "waitlist-slot",
   "training-cancelled"
 ]);
+/**
+ * The client-facing, single-training notification events whose body text the
+ * admin can override (Slice F). Mirrors packages/types notificationTemplateKey
+ * exactly. A subset of notificationType: only the 7 editable single-training
+ * messages (batch/group, trainer DMs and the HTML individual message stay
+ * hardcoded).
+ */
+export const notificationTemplateKey = pgEnum("notification_template_key", [
+  "booking-confirmed",
+  "reminder-24h",
+  "reminder-3h",
+  "training-cancelled",
+  "booking-pending",
+  "booking-declined",
+  "waitlist-slot"
+]);
 export const courtRequestStatus = pgEnum("court_request_status", [
   "pending",
   "confirmed",
@@ -74,7 +91,7 @@ export const trainers = pgTable("trainers", {
   name: text("name").notNull(),
   type: trainerType("type").notNull().default("main"),
   status: entityStatus("status").notNull().default("active"),
-  telegramId: integer("telegram_id")
+  telegramId: bigint("telegram_id", { mode: "number" })
 });
 
 export const clients = pgTable(
@@ -85,7 +102,7 @@ export const clients = pgTable(
     // Nullable: walk-in clients (source "walk_in") have no Telegram account;
     // bot-onboarded clients still set it. The unique index below is partial so
     // multiple NULL walk-ins coexist.
-    telegramId: integer("telegram_id"),
+    telegramId: bigint("telegram_id", { mode: "number" }),
     telegramUsername: text("telegram_username"),
     levelId: uuid("level_id").references(() => levels.id),
     // "telegram" for bot-onboarded, "walk_in" for manually created by an admin.
@@ -163,7 +180,7 @@ export const bookings = pgTable("bookings", {
    */
   paymentStatus: paymentStatus("payment_status").notNull().default("unpaid"),
   paidAt: timestamp("paid_at", { withTimezone: true }),
-  paidBy: integer("paid_by")
+  paidBy: bigint("paid_by", { mode: "number" })
 });
 
 export const waitlist = pgTable("waitlist", {
@@ -185,7 +202,7 @@ export const broadcasts = pgTable("broadcasts", {
   id: uuid("id").primaryKey().defaultRandom(),
   type: broadcastType("type").notNull(),
   payload: text("payload").notNull(),
-  createdBy: integer("created_by").notNull(),
+  createdBy: bigint("created_by", { mode: "number" }).notNull(),
   sentAt: timestamp("sent_at", { withTimezone: true }).notNull().defaultNow(),
   recipientsCount: integer("recipients_count").notNull().default(0)
 });
@@ -252,7 +269,7 @@ export const courtRequests = pgTable("court_requests", {
   courtId: uuid("court_id").references(() => courts.id),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
   decidedAt: timestamp("decided_at", { withTimezone: true }),
-  decidedBy: integer("decided_by")
+  decidedBy: bigint("decided_by", { mode: "number" })
 });
 
 // --- Localization (i18n) ---
@@ -276,6 +293,26 @@ export const uiLabels = pgTable(
   })
 );
 
+/**
+ * Admin-editable body text for the 7 client-facing single-training
+ * notifications (Slice F). One row per event_key (unique); a MISSING row means
+ * "use the code default" in apps/api notification-messages.ts. Placeholders like
+ * {training} / {date} are substituted server-side at send time. No locale
+ * dimension: notifications are RU-only (multi-locale templates are a follow-up).
+ */
+export const notificationTemplates = pgTable(
+  "notification_templates",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    eventKey: notificationTemplateKey("event_key").notNull(),
+    body: text("body").notNull(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow()
+  },
+  (table) => ({
+    eventKeyIdx: uniqueIndex("notification_templates_event_key_idx").on(table.eventKey)
+  })
+);
+
 export const schema = {
   levels,
   trainers,
@@ -289,5 +326,6 @@ export const schema = {
   courts,
   courtBlocks,
   courtRequests,
-  uiLabels
+  uiLabels,
+  notificationTemplates
 };

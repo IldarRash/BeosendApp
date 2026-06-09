@@ -1,6 +1,13 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { getStaticCatalog } from "@beosand/i18n";
-import { CatalogStore, asLocale, t, type Locale } from "./i18n";
+import {
+  CatalogStore,
+  asLocale,
+  resolveClientCatalog,
+  t,
+  type Catalog,
+  type Locale
+} from "./i18n";
 
 /**
  * Bot-side i18n: per-locale catalog hydration from the API with a static
@@ -70,5 +77,45 @@ describe("CatalogStore", () => {
     await store.refreshLocale("sr");
     // No throw; the bundled static catalog for the locale is still served.
     expect(store.get("sr")["bot.menu.back"]).toBe(getStaticCatalog("sr")["bot.menu.back"]);
+  });
+});
+
+describe("resolveClientCatalog (A4 — no locale jump)", () => {
+  // A test double for the per-locale catalog source (the real CatalogStore).
+  const source = {
+    get: (locale: Locale): Catalog => getStaticCatalog(locale)
+  };
+
+  it("resolves the RU catalog when the stored client.language is 'ru'", async () => {
+    const getClientByTelegramId = vi.fn().mockResolvedValue({ language: "ru" });
+    const catalog = await resolveClientCatalog(source, { getClientByTelegramId }, 777);
+    // The very strings the court-rental entry and the contact-manager screen
+    // render must come out RU for a Russian-speaking client.
+    expect(t(catalog, "bot.court.open")).toBe(getStaticCatalog("ru")["bot.court.open"]);
+    expect(t(catalog, "bot.menu.contactManagerLine", { contact: "@m" })).toBe(
+      "Связаться с менеджером: @m"
+    );
+    expect(getClientByTelegramId).toHaveBeenCalledWith(777);
+  });
+
+  it("treats a NULL stored language as RU (never a stale EN catalog)", async () => {
+    // A pre-A4 record could have language === null; it must resolve to RU, not
+    // whatever locale happened to be captured elsewhere.
+    const getClientByTelegramId = vi.fn().mockResolvedValue({ language: null });
+    const catalog = await resolveClientCatalog(source, { getClientByTelegramId }, 42);
+    expect(t(catalog, "bot.court.open")).toBe(getStaticCatalog("ru")["bot.court.open"]);
+  });
+
+  it("uses the RU catalog for an identity-less update without calling the API", async () => {
+    const getClientByTelegramId = vi.fn();
+    const catalog = await resolveClientCatalog(source, { getClientByTelegramId }, undefined);
+    expect(t(catalog, "bot.court.open")).toBe(getStaticCatalog("ru")["bot.court.open"]);
+    expect(getClientByTelegramId).not.toHaveBeenCalled();
+  });
+
+  it("resolves EN for an English client (sanity: resolution honours the stored value)", async () => {
+    const getClientByTelegramId = vi.fn().mockResolvedValue({ language: "en" });
+    const catalog = await resolveClientCatalog(source, { getClientByTelegramId }, 9);
+    expect(t(catalog, "bot.court.open")).toBe(getStaticCatalog("en")["bot.court.open"]);
   });
 });

@@ -25,6 +25,7 @@ import {
   groupSchema,
   levelSchema,
   noShowStatsSchema,
+  notificationTemplateSchema,
   popularSlotSchema,
   subscriptionSummarySchema,
   trainerLoadSchema,
@@ -76,6 +77,8 @@ import {
   type UpdateLabelInput,
   type MarkAttendanceInput,
   type NoShowStats,
+  type NotificationTemplate,
+  type NotificationTemplateKey,
   type OnboardClientInput,
   type PopularSlot,
   type SendBroadcastInput,
@@ -108,6 +111,7 @@ const popularSlotsSchema = z.array(popularSlotSchema);
 const trainerLoadListSchema = z.array(trainerLoadSchema);
 const generationStatusSchema = z.array(generationStatusItemSchema);
 const subscriptionsSchema = z.array(subscriptionSummarySchema);
+const notificationTemplatesSchema = z.array(notificationTemplateSchema);
 
 /** Input for creating a level — just the name (schema is server-validated). */
 export interface CreateLevelInput {
@@ -249,9 +253,13 @@ export class ApiClient {
     });
   }
 
-  /** C5/C6 — admin lists all court blocks for a date. */
-  listCourtBlocks(date: string): Promise<CourtBlock[]> {
-    const query = new URLSearchParams({ date }).toString();
+  /**
+   * C5/C6 — admin lists court blocks over an inclusive date range
+   * (GET /court-blocks?from=…&to=…, both `yyyy-mm-dd`). A single day is the
+   * `from === to` case. Each row is validated against `courtBlockSchema`.
+   */
+  listCourtBlocks(range: { from: string; to: string }): Promise<CourtBlock[]> {
+    const query = new URLSearchParams({ from: range.from, to: range.to }).toString();
     return this.request(`/court-blocks?${query}`, courtBlocksSchema);
   }
 
@@ -796,6 +804,45 @@ export class ApiClient {
     return this.request("/i18n/labels", labelEntrySchema, {
       method: "DELETE",
       body: JSON.stringify(input)
+    });
+  }
+
+  // ── Notification templates (Slice F) ────────────────────────────────────────
+
+  /**
+   * The editable client-facing notification templates (GET /notification-templates)
+   * — one row per event, each carrying its current effective body, whether it is
+   * overridden, the code default for reference/reset, and the allowed placeholders.
+   * Admin-only server-side; every row is validated by `notificationTemplateSchema`.
+   */
+  listNotificationTemplates(): Promise<NotificationTemplate[]> {
+    return this.request("/notification-templates", notificationTemplatesSchema);
+  }
+
+  /**
+   * Set one event's override body (PATCH /notification-templates/:eventKey, body
+   * `{ body }`). The server validates a non-empty body and returns the updated row;
+   * unknown `{tokens}` render literally rather than being rejected. Admin-only.
+   */
+  updateNotificationTemplate(
+    eventKey: NotificationTemplateKey,
+    body: string
+  ): Promise<NotificationTemplate> {
+    return this.request(`/notification-templates/${eventKey}`, notificationTemplateSchema, {
+      method: "PATCH",
+      body: JSON.stringify({ body })
+    });
+  }
+
+  /**
+   * Reset one event to its code default (POST /notification-templates/:eventKey/reset),
+   * removing any override. Idempotent; returns the row with `isOverridden: false`.
+   * Admin-only.
+   */
+  resetNotificationTemplate(eventKey: NotificationTemplateKey): Promise<NotificationTemplate> {
+    return this.request(`/notification-templates/${eventKey}/reset`, notificationTemplateSchema, {
+      method: "POST",
+      body: JSON.stringify({})
     });
   }
 }

@@ -17,6 +17,15 @@ describe("createTrainerSchema", () => {
     });
   });
 
+  it("accepts a modern Telegram id above 2^31 (stored as bigint, no overflow)", () => {
+    // Real Telegram user IDs now exceed the 32-bit signed max (2_147_483_647);
+    // the contract must not cap them and the DB column is bigint.
+    expect(
+      createTrainerSchema.parse({ name: "Danilo", type: "guest", telegramId: 7_500_000_000 })
+        .telegramId
+    ).toBe(7_500_000_000);
+  });
+
   it("rejects an unknown/invalid type", () => {
     expect(createTrainerSchema.safeParse({ name: "Bob", type: "coach" }).success).toBe(false);
   });
@@ -41,6 +50,10 @@ describe("updateTrainerSchema (PATCH /trainers/:id)", () => {
 
   it("accepts an empty patch", () => {
     expect(updateTrainerSchema.parse({})).toEqual({});
+  });
+
+  it("accepts a modern Telegram id above 2^31 (stored as bigint, no overflow)", () => {
+    expect(updateTrainerSchema.parse({ telegramId: 7_500_000_000 }).telegramId).toBe(7_500_000_000);
   });
 
   it("rejects a non-integer telegramId", () => {

@@ -7,6 +7,7 @@ import {
   courtRequestAdminViewSchema,
   courtRequestQueueQuerySchema,
   courtBlockSchema,
+  courtBlocksListQuerySchema,
   courtSchema,
   createCourtRequestSchema,
   createCourtBlockSchema,
@@ -236,6 +237,44 @@ describe("courtAvailabilityQuerySchema (C3 read input)", () => {
 
   it("rejects a missing date", () => {
     expect(courtAvailabilityQuerySchema.safeParse({}).success).toBe(false);
+  });
+});
+
+describe("courtBlocksListQuerySchema (admin list — single day or multi-day range)", () => {
+  it("accepts a single date (back-compat with the original form)", () => {
+    expect(courtBlocksListQuerySchema.safeParse({ date: "2026-06-10" }).success).toBe(true);
+  });
+
+  it("accepts a from/to range", () => {
+    expect(
+      courtBlocksListQuerySchema.safeParse({ from: "2026-06-10", to: "2026-06-12" }).success
+    ).toBe(true);
+  });
+
+  it("accepts a degenerate from === to range", () => {
+    expect(
+      courtBlocksListQuerySchema.safeParse({ from: "2026-06-10", to: "2026-06-10" }).success
+    ).toBe(true);
+  });
+
+  it("rejects neither date nor a complete range", () => {
+    expect(courtBlocksListQuerySchema.safeParse({}).success).toBe(false);
+    // A half range (only one bound) is not a valid range.
+    expect(courtBlocksListQuerySchema.safeParse({ from: "2026-06-10" }).success).toBe(false);
+    expect(courtBlocksListQuerySchema.safeParse({ to: "2026-06-12" }).success).toBe(false);
+  });
+
+  it("rejects an inverted range (from > to)", () => {
+    expect(
+      courtBlocksListQuerySchema.safeParse({ from: "2026-06-12", to: "2026-06-10" }).success
+    ).toBe(false);
+  });
+
+  it("rejects a malformed date in any field", () => {
+    expect(courtBlocksListQuerySchema.safeParse({ date: "10-06-2026" }).success).toBe(false);
+    expect(
+      courtBlocksListQuerySchema.safeParse({ from: "2026-06-10", to: "12-06-2026" }).success
+    ).toBe(false);
   });
 });
 

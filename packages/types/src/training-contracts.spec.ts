@@ -27,6 +27,7 @@ import {
   markAttendanceSchema,
   myBookingItemSchema,
   myBookingsQuerySchema,
+  rosterParticipantSchema,
   trainerTodayItemSchema,
   trainerTodayQuerySchema,
   trainingRosterSchema,
@@ -654,6 +655,38 @@ describe("trainerTodayItemSchema", () => {
   });
 });
 
+describe("rosterParticipantSchema", () => {
+  const base = {
+    bookingId: "22222222-2222-2222-2222-222222222222",
+    clientId: "33333333-3333-3333-3333-333333333333",
+    clientName: "Ana",
+    bookingStatus: "booked"
+  };
+
+  it("accepts a single (drop-in) participant with a null subscription id", () => {
+    const parsed = rosterParticipantSchema.safeParse({
+      ...base,
+      bookingType: "single",
+      groupSubscriptionId: null
+    });
+    expect(parsed.success).toBe(true);
+  });
+
+  it("accepts a group participant carrying its subscription id", () => {
+    const parsed = rosterParticipantSchema.safeParse({
+      ...base,
+      bookingType: "group",
+      groupSubscriptionId: "44444444-4444-4444-4444-444444444444"
+    });
+    expect(parsed.success).toBe(true);
+  });
+
+  it("rejects a participant missing bookingType", () => {
+    const parsed = rosterParticipantSchema.safeParse({ ...base, groupSubscriptionId: null });
+    expect(parsed.success).toBe(false);
+  });
+});
+
 describe("trainingRosterSchema", () => {
   const validRoster = {
     trainingId: "11111111-1111-1111-1111-111111111111",
@@ -666,7 +699,9 @@ describe("trainingRosterSchema", () => {
         bookingId: "22222222-2222-2222-2222-222222222222",
         clientId: "33333333-3333-3333-3333-333333333333",
         clientName: "Ana",
-        bookingStatus: "booked"
+        bookingStatus: "booked",
+        bookingType: "group",
+        groupSubscriptionId: "44444444-4444-4444-4444-444444444444"
       }
     ]
   };

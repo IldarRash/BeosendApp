@@ -125,6 +125,17 @@ describe("myBookingsKeyboard", () => {
     expect(callbacks.slice(-2)).toEqual([NAV_ACTIONS.back, NAV_ACTIONS.home]);
   });
 
+  it("labels the cancel button with the DD.MM date and start time (A2)", () => {
+    const keyboard = myBookingsKeyboard(ru, [item({ date: "2026-06-05", startTime: "18:00" })]);
+    const label = keyboard.inline_keyboard
+      .flat()
+      .map((b) => (typeof b === "object" && b !== null && "text" in b ? (b as { text: string }).text : ""))
+      .find((text) => text.includes("18:00"));
+    // The date disambiguates which of several same-weekday sessions is cancelled.
+    expect(label).toContain("05.06");
+    expect(label).toContain("18:00");
+  });
+
   it("renders only the footer when nothing is cancellable", () => {
     const keyboard = myBookingsKeyboard(ru, [item({ canCancel: false })]);
     expect(callbacksOf(keyboard)).toEqual([NAV_ACTIONS.back, NAV_ACTIONS.home]);

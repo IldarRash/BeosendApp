@@ -17,7 +17,7 @@ const BLOCK_ID = "22222222-2222-4222-8222-222222222222";
 
 function makeRepo(overrides: Partial<CourtBlocksRepository> = {}): CourtBlocksRepository {
   return {
-    findByDate: vi.fn().mockResolvedValue([]),
+    findByDateRange: vi.fn().mockResolvedValue([]),
     findById: vi.fn().mockResolvedValue(null),
     confirmedSpansForCourtAndDate: vi.fn().mockResolvedValue([]),
     isActiveCourt: vi.fn().mockResolvedValue(true),
@@ -70,10 +70,10 @@ describe("CourtBlocksService", () => {
     });
 
     it("rejects a non-admin list", async () => {
-      await expect(service.listBlocks(NON_ADMIN, "2026-06-10")).rejects.toBeInstanceOf(
-        ForbiddenException
-      );
-      expect(repo.findByDate).not.toHaveBeenCalled();
+      await expect(
+        service.listBlocks(NON_ADMIN, "2026-06-10", "2026-06-10")
+      ).rejects.toBeInstanceOf(ForbiddenException);
+      expect(repo.findByDateRange).not.toHaveBeenCalled();
     });
 
     it("rejects a non-admin delete before any DB write", async () => {
@@ -217,6 +217,43 @@ describe("CourtBlocksService", () => {
     repo = makeRepo({ deleteById: vi.fn().mockResolvedValue(false) });
     service = new CourtBlocksService(env, repo);
     await expect(service.deleteBlock(ADMIN, "missing")).rejects.toBeInstanceOf(NotFoundException);
+  });
+
+  describe("listBlocks (multi-day range)", () => {
+    it("returns blocks across the whole range in repo order (date then start time)", async () => {
+      // Three dates' blocks, already ordered by date then start time by the repo.
+      const ranged = [
+        { date: "2026-06-10", startTime: "08:00" },
+        { date: "2026-06-10", startTime: "18:00" },
+        { date: "2026-06-11", startTime: "09:00" },
+        { date: "2026-06-12", startTime: "20:00" }
+      ].map((d, i) => ({
+        id: `5555555${i}-5555-4555-8555-555555555555`,
+        courtId: COURT_ID,
+        date: d.date,
+        startTime: d.startTime,
+        endTime: "21:00",
+        reason: "Tournament",
+        groupTrainingId: null
+      }));
+      repo = makeRepo({ findByDateRange: vi.fn().mockResolvedValue(ranged) });
+      service = new CourtBlocksService(env, repo);
+
+      const blocks = await service.listBlocks(ADMIN, "2026-06-10", "2026-06-12");
+
+      expect(repo.findByDateRange).toHaveBeenCalledWith("2026-06-10", "2026-06-12");
+      expect(blocks.map((b) => [b.date, b.startTime])).toEqual([
+        ["2026-06-10", "08:00"],
+        ["2026-06-10", "18:00"],
+        ["2026-06-11", "09:00"],
+        ["2026-06-12", "20:00"]
+      ]);
+    });
+
+    it("passes a single day as the degenerate range from === to", async () => {
+      await service.listBlocks(ADMIN, "2026-06-10", "2026-06-10");
+      expect(repo.findByDateRange).toHaveBeenCalledWith("2026-06-10", "2026-06-10");
+    });
   });
 
   describe("reassignCourt (T7 — group scheduling)", () => {

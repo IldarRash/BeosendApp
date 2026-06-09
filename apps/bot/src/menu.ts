@@ -85,6 +85,37 @@ export function backHomeKeyboard(catalog: Catalog): InlineKeyboard {
     .text(t(catalog, "bot.nav.home"), NAV_ACTIONS.home);
 }
 
+/** Valid Telegram username (optionally @-prefixed): 5–32 word chars. */
+const TELEGRAM_USERNAME = /^@?[A-Za-z0-9_]{5,32}$/;
+
+/**
+ * Build a `https://t.me/<username>` deep link from a manager contact handle, or
+ * undefined when the configured contact isn't a valid Telegram username (e.g.
+ * free text or a phone number). The bot must never produce an invalid t.me URL.
+ */
+export function managerChatUrl(contact: string): string | undefined {
+  if (!TELEGRAM_USERNAME.test(contact)) {
+    return undefined;
+  }
+  return `https://t.me/${contact.replace(/^@/, "")}`;
+}
+
+/**
+ * Contact-manager keyboard: a direct "message the manager" deep-link button on
+ * its own row (only when the configured contact is a valid Telegram username),
+ * followed by the standard back/home footer so the journey never dead-ends.
+ */
+export function contactManagerKeyboard(catalog: Catalog, contact: string): InlineKeyboard {
+  const keyboard = new InlineKeyboard();
+  const url = managerChatUrl(contact);
+  if (url) {
+    keyboard.url(t(catalog, "bot.menu.contactManagerButton"), url).row();
+  }
+  return keyboard
+    .text(t(catalog, "bot.nav.back"), NAV_ACTIONS.back)
+    .text(t(catalog, "bot.nav.home"), NAV_ACTIONS.home);
+}
+
 /** Language picker: one button per supported locale (each in its own language). */
 export function languageKeyboard(): InlineKeyboard {
   const keyboard = new InlineKeyboard();

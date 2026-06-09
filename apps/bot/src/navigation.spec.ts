@@ -66,6 +66,16 @@ function callbacksOf(reply: ReturnType<typeof vi.fn>, callIndex = 0): (string | 
     );
 }
 
+/** Extract the `url` of every URL button in a reply's keyboard. */
+function urlsOf(reply: ReturnType<typeof vi.fn>, callIndex = 0): string[] {
+  const other = reply.mock.calls[callIndex][1] as { reply_markup?: { inline_keyboard: unknown[][] } };
+  return (other.reply_markup?.inline_keyboard ?? [])
+    .flat()
+    .flatMap((b) =>
+      typeof b === "object" && b !== null && "url" in b ? [(b as { url: string }).url] : []
+    );
+}
+
 describe("menu dispatch table", () => {
   it("maps every dispatched main-menu action to a defined handler (routing completeness)", () => {
     for (const action of DISPATCHED_ACTIONS) {
@@ -88,7 +98,12 @@ describe("menu dispatch table", () => {
       // cards — but both still leave the back/home footer last, never a dead-end.
       const callbacks = callbacksOf(reply);
       expect(callbacks).toContain(NAV_ACTIONS.home);
-      if (action === MENU_ACTIONS.availableTrainings) {
+      if (
+        action === MENU_ACTIONS.availableTrainings ||
+        // Contact manager prepends a URL deep-link button (no callback_data)
+        // above the footer, but still ends with the back/home row (D2).
+        action === MENU_ACTIONS.contactManager
+      ) {
         expect(callbacks.slice(-2)).toEqual([NAV_ACTIONS.back, NAV_ACTIONS.home]);
       } else if (action !== MENU_ACTIONS.myBookings) {
         expect(callbacks).toEqual([NAV_ACTIONS.back, NAV_ACTIONS.home]);
@@ -192,11 +207,26 @@ describe("menu dispatch table", () => {
     expect(callbacksOf(reply)).toContain("ind:pick:33333333-3333-3333-3333-333333333333");
   });
 
-  it("renders the manager contact (from config) for menu:contact", async () => {
+  it("renders the manager contact with a t.me deep-link button for a valid @username (menu:contact)", async () => {
     const { ctx, reply } = fakeCtx();
-    await menuHandlers[MENU_ACTIONS.contactManager]!(ctx, deps);
+    const localDeps = makeDeps();
+    localDeps.managerContact = "@milena";
+    await menuHandlers[MENU_ACTIONS.contactManager]!(ctx, localDeps);
     expect(reply).toHaveBeenCalledOnce();
-    expect(reply.mock.calls[0][0]).toContain("@test_manager");
+    expect(reply.mock.calls[0][0]).toContain("@milena");
+    // A single URL button opening her DM, then the back/home footer.
+    expect(urlsOf(reply)).toEqual(["https://t.me/milena"]);
+    expect(callbacksOf(reply).slice(-2)).toEqual([NAV_ACTIONS.back, NAV_ACTIONS.home]);
+  });
+
+  it("falls back to text + back/home (no URL button) for a non-username contact (menu:contact)", async () => {
+    const { ctx, reply } = fakeCtx();
+    const localDeps = makeDeps();
+    localDeps.managerContact = "+381 60 123 4567";
+    await menuHandlers[MENU_ACTIONS.contactManager]!(ctx, localDeps);
+    expect(reply).toHaveBeenCalledOnce();
+    expect(reply.mock.calls[0][0]).toContain("+381 60 123 4567");
+    expect(urlsOf(reply)).toEqual([]);
     expect(callbacksOf(reply)).toEqual([NAV_ACTIONS.back, NAV_ACTIONS.home]);
   });
 });

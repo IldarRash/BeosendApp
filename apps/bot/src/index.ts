@@ -10,7 +10,14 @@ import {
   parseSetLanguage,
   welcomeText
 } from "./menu";
-import { CatalogStore, asLocale, t, type Catalog, type Locale } from "./i18n";
+import {
+  CatalogStore,
+  asLocale,
+  resolveClientCatalog,
+  t,
+  type Catalog,
+  type Locale
+} from "./i18n";
 import {
   courtModConfirmedText,
   courtModNoCourtsText,
@@ -154,15 +161,11 @@ async function main(): Promise<void> {
   /**
    * Resolve the caller's locale catalog from their stored client.language. A
    * not-yet-onboarded caller (no client) gets the default-locale catalog. The
-   * bot keys identity off the numeric telegram id only.
+   * bot keys identity off the numeric telegram id only. Delegates to the shared,
+   * unit-tested `resolveClientCatalog` so the resolution rule lives in one place.
    */
-  const resolveCatalog = async (telegramId: number | undefined): Promise<Catalog> => {
-    if (telegramId === undefined) {
-      return catalogFor(asLocale(undefined));
-    }
-    const client = await api.getClientByTelegramId(telegramId);
-    return catalogFor(asLocale(client?.language));
-  };
+  const resolveCatalog = (telegramId: number | undefined): Promise<Catalog> =>
+    resolveClientCatalog(catalogs, api, telegramId);
 
   // Onboarding is multi-step, so the bot holds the conversation state (the API
   // owns persistence). Session is keyed per chat by grammY's default key.
@@ -455,7 +458,10 @@ async function main(): Promise<void> {
       if (client) {
         await api.setClientLanguage(telegramId, switchLocale);
       }
-      const catalog = catalogFor(switchLocale);
+      // Render from the persisted client state (not the captured switchLocale) so
+      // the confirmation reflects what was actually stored — avoids a locale jump
+      // if the write was a no-op or the stored value differs (A4).
+      const catalog = await resolveCatalog(telegramId);
       await ctx.reply(t(catalog, "bot.language.changed"), {
         reply_markup: menuFor(telegramId, catalog)
       });

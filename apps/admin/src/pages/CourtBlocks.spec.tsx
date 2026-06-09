@@ -120,10 +120,39 @@ describe("CourtBlocks page", () => {
     expect(screen.getByRole("alert").textContent).toContain("boom");
   });
 
-  it("shows an empty state when there are no blocks", () => {
+  it("shows an empty-range state when there are no blocks", () => {
     useCourtBlocks.mockReturnValue({ isPending: false, isError: false, data: [] });
     renderPage();
-    expect(screen.getByText("На эту дату блокировок нет.")).toBeTruthy();
+    expect(screen.getByText("За выбранный период блокировок нет.")).toBeTruthy();
+  });
+
+  it("offers day-count range presets (1 / 3 / 7) with the 3-day default pressed", () => {
+    renderPage();
+    const oneDay = screen.getByRole("button", { name: "1 день" });
+    const threeDays = screen.getByRole("button", { name: "3 дня" });
+    const sevenDays = screen.getByRole("button", { name: "7 дней" });
+    expect(oneDay.getAttribute("aria-pressed")).toBe("false");
+    expect(threeDays.getAttribute("aria-pressed")).toBe("true");
+    expect(sevenDays.getAttribute("aria-pressed")).toBe("false");
+    // Switching the preset moves the pressed state.
+    fireEvent.click(sevenDays);
+    expect(sevenDays.getAttribute("aria-pressed")).toBe("true");
+    expect(threeDays.getAttribute("aria-pressed")).toBe("false");
+  });
+
+  it("groups blocks into a per-day section keyed by each block's own date", () => {
+    useCourtBlocks.mockReturnValue({
+      isPending: false,
+      isError: false,
+      data: [
+        { ...sampleBlocks[0], id: "d1", date: "2026-06-12", startTime: "09:00", endTime: "10:00" },
+        { ...sampleBlocks[0], id: "d2", date: "2026-06-10", startTime: "10:00", endTime: "12:00" }
+      ]
+    });
+    renderPage();
+    // Two day subheadings, ascending: 10.06 before 12.06.
+    const headings = screen.getAllByRole("heading", { level: 2 });
+    expect(headings.map((h) => h.textContent)).toEqual(["10.06", "12.06"]);
   });
 
   it("creates a block with the form payload", () => {

@@ -45,6 +45,27 @@ export type CreateCourtBlock = z.infer<typeof createCourtBlockSchema>;
 export const reassignCourtBlockSchema = z.object({ courtId: uuid });
 export type ReassignCourtBlock = z.infer<typeof reassignCourtBlockSchema>;
 
+/**
+ * GET /court-blocks list query (admin-only). Back-compatible with the original
+ * single-`date` form and supports a multi-day inclusive range via `from`/`to`
+ * (so the admin can see several days of court occupancy at once). Exactly one of
+ * `date` or the `from`+`to` pair must be present; with `from`/`to`, `from <= to`.
+ * Kept separate from `courtAvailabilityQuerySchema` (C3/C6 stay strictly single-day).
+ */
+export const courtBlocksListQuerySchema = z
+  .object({
+    date: dateString.optional(),
+    from: dateString.optional(),
+    to: dateString.optional()
+  })
+  .refine((q) => q.date !== undefined || (q.from !== undefined && q.to !== undefined), {
+    message: "Provide either date=YYYY-MM-DD or both from=YYYY-MM-DD and to=YYYY-MM-DD."
+  })
+  .refine((q) => q.from === undefined || q.to === undefined || q.from <= q.to, {
+    message: "Range start (from) must be on or before its end (to)."
+  });
+export type CourtBlocksListQuery = z.infer<typeof courtBlocksListQuerySchema>;
+
 export const courtRequestStatus = z.enum(["pending", "confirmed", "rejected", "cancelled"]);
 export type CourtRequestStatus = z.infer<typeof courtRequestStatus>;
 

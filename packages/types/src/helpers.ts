@@ -126,6 +126,15 @@ export function dayOfMonth(iso: string): number {
   return Number.parseInt(iso.slice(8, 10), 10);
 }
 
+/**
+ * Short "DD.MM" day/month label for a "YYYY-MM-DD" ISO date (e.g. "2026-06-05"
+ * → "05.06"). Pure display helper shared by client-facing labels (e.g. the
+ * "my bookings" cancel buttons) so the day/month order lives in one tested place.
+ */
+export function formatDayMonth(iso: string): string {
+  return `${iso.slice(8, 10)}.${iso.slice(5, 7)}`;
+}
+
 /** Step a 1-based {year, month} by `delta` months, rolling the year at the boundaries. */
 export function shiftMonth(
   year: number,

@@ -202,10 +202,10 @@ export async function handleLevelCallback(
     ...(username ? { telegramUsername: username } : {})
   };
   await api.onboardClient(input);
-  // Persist the chosen language on the client so every later render uses it.
-  if (language !== DEFAULT_LOCALE) {
-    await api.setClientLanguage(telegramId, language);
-  }
+  // Always persist the chosen language on the client (including "ru") so the
+  // stored `language` is never left NULL — a NULL value can resolve to a stale
+  // catalog and make later renders jump locales (A4).
+  await api.setClientLanguage(telegramId, language);
   ctx.session = initialSession();
   await ctx.reply(welcomeText(catalog), { reply_markup: menuFor(catalog) });
   return true;

@@ -5,4 +5,5 @@ export * from "./training-contracts";
 export * from "./court-contracts";
 export * from "./analytics-contracts";
 export * from "./i18n-contracts";
+export * from "./notification-template-contracts";
 export * from "./helpers";

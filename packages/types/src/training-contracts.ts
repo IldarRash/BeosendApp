@@ -248,6 +248,7 @@ export type AvailableSlotsQuery = z.infer<typeof availableSlotsQuerySchema>;
 
 // --- Bookings (3.6) ---
 export const bookingType = z.enum(["single", "group"]);
+export type BookingType = z.infer<typeof bookingType>;
 export const bookingStatus = z.enum([
   "booked",
   "pending",
@@ -428,14 +429,20 @@ export type TrainerUpcomingQuery = z.infer<typeof trainerUpcomingQuerySchema>;
 
 /**
  * One roster row of a training (T2.3): the booking joined to its client name,
- * carrying the booking's attendance-relevant status. Rosters exclude
- * cancelled/waitlist bookings.
+ * carrying the booking's attendance-relevant status plus whether the attendee is
+ * a drop-in ("single", null subscription) or part of a monthly group subscription
+ * ("group", carrying its groupSubscriptionId). Rosters exclude cancelled/waitlist
+ * bookings.
  */
 export const rosterParticipantSchema = z.object({
   bookingId: uuid,
   clientId: uuid,
   clientName: z.string(),
-  bookingStatus
+  bookingStatus,
+  /** Drop-in ("single") vs. part of a monthly group subscription ("group"). */
+  bookingType,
+  /** The monthly-batch subscription this booking belongs to; null for drop-ins. */
+  groupSubscriptionId: uuid.nullable()
 });
 export type RosterParticipant = z.infer<typeof rosterParticipantSchema>;
 

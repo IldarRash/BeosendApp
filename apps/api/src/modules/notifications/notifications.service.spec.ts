@@ -25,6 +25,10 @@ interface RepoMock {
   findClientTrainingRecipients: ReturnType<typeof vi.fn>;
 }
 
+interface TemplatesMock {
+  findOverride: ReturnType<typeof vi.fn>;
+}
+
 function makeRepo(): RepoMock {
   return {
     hasBeenSent: vi.fn().mockResolvedValue(false),
@@ -38,13 +42,16 @@ function makeRepo(): RepoMock {
 describe("NotificationsService", () => {
   let repo: RepoMock;
   let sender: { sendMessage: ReturnType<typeof vi.fn> };
+  let templates: TemplatesMock;
   let service: NotificationsService;
 
   beforeEach(() => {
     repo = makeRepo();
     sender = { sendMessage: vi.fn().mockResolvedValue(undefined) };
+    // No override by default: every send uses the code default template.
+    templates = { findOverride: vi.fn().mockResolvedValue(undefined) };
     // The service only uses the methods mocked above.
-    service = new NotificationsService(repo as never, sender as never);
+    service = new NotificationsService(repo as never, sender as never, templates as never);
   });
 
   describe("sendBookingConfirmation", () => {
@@ -86,6 +93,27 @@ describe("NotificationsService", () => {
 
       expect(sender.sendMessage).not.toHaveBeenCalled();
       expect(repo.logSent).not.toHaveBeenCalled();
+    });
+
+    it("uses the code default body when no override exists (Slice F)", async () => {
+      repo.findClientTrainingRecipients.mockResolvedValue([recipient()]);
+
+      await service.sendBookingConfirmation("client-1", "training-1");
+
+      const text = sender.sendMessage.mock.calls[0][1] as string;
+      expect(text).toBe("Запись подтверждена ✅\n2026-06-04 18:00–19:30 · Beginner · Ana");
+    });
+
+    it("uses the admin override body, interpolated, when one exists (Slice F)", async () => {
+      repo.findClientTrainingRecipients.mockResolvedValue([recipient()]);
+      templates.findOverride.mockImplementation(async (key: string) =>
+        key === "booking-confirmed" ? "Готово! {date} в {startTime} — {trainerName}" : undefined
+      );
+
+      await service.sendBookingConfirmation("client-1", "training-1");
+
+      const text = sender.sendMessage.mock.calls[0][1] as string;
+      expect(text).toBe("Готово! 2026-06-04 в 18:00 — Ana");
     });
   });
 

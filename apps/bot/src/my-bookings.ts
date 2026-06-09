@@ -1,5 +1,5 @@
 import { InlineKeyboard } from "grammy";
-import type { BookingStatus, MyBookingItem } from "@beosand/types";
+import { formatDayMonth, type BookingStatus, type MyBookingItem } from "@beosand/types";
 import type { ApiClient } from "./api-client";
 import { backHomeKeyboard, MENU_ACTIONS, NAV_ACTIONS } from "./menu";
 import { showMainMenu, type MenuReplyCtx } from "./navigation";
@@ -138,7 +138,7 @@ export function myBookingsKeyboard(catalog: Catalog, upcoming: MyBookingItem[]):
   for (const item of upcoming) {
     if (item.canCancel) {
       const label = t(catalog, "bot.myBookings.cancelButton", {
-        day: weekdayShort(catalog, item.dayOfWeek),
+        date: formatDayMonth(item.date),
         time: item.startTime
       });
       keyboard.text(label, cancelBookingData(item.bookingId)).row();

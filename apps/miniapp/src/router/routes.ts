@@ -13,7 +13,6 @@ import type { IconName } from "../ui/icons";
 /** Every reachable client route. `home` is the stack root; the rest are pushable. */
 export type RouteId =
   | "home"
-  | "browse"
   | "schedule"
   | "my-bookings"
   | "group"
@@ -39,18 +38,19 @@ interface MenuEntry {
 }
 
 /**
- * The six client journeys, grouped for visual rhythm. The list is statically the
- * client journeys — there is no role branch and no admin/trainer entry by
- * construction (the held token is `scope:"client"`).
+ * The client journeys, grouped for visual rhythm. The list is statically the client
+ * journeys — there is no role branch and no admin/trainer entry by construction (the
+ * held token is `scope:"client"`).
  *
- * Single booking (S4) and waitlist (S6) are deliberately NOT menu entries: they
- * are reached from inside the browse flow (S3), not the Home hub.
+ * The Trainings section leads with a single "Расписание тренировок" tile: a month
+ * calendar of bookable sessions (its day view enters the booking flow). Single
+ * booking and waitlist are deliberately NOT menu entries — they are reached from
+ * inside that schedule day view, not the Home hub.
  */
 const MENU_GROUPS: ReadonlyArray<{ headerKey: string; items: ReadonlyArray<MenuEntry> }> = [
   {
     headerKey: "miniapp.home.sectionTrainings",
     items: [
-      { id: "browse", icon: "browse", labelKey: "miniapp.home.browse", hintKey: "miniapp.home.browseHint" },
       {
         id: "schedule",
         icon: "schedule",
@@ -111,7 +111,6 @@ export const HOME_SECTIONS: ReadonlyArray<HomeMenuSection> = MENU_GROUPS.map((gr
 /** Every valid route id, for narrowing a bare string from the presentational HomeScreen. */
 const ROUTE_IDS: ReadonlySet<RouteId> = new Set<RouteId>([
   "home",
-  "browse",
   "schedule",
   "my-bookings",
   "group",
@@ -138,7 +137,9 @@ export function toRouteId(value: string): RouteId | null {
  * later slices extend this same map.
  *
  *   home (or empty/absent) → home (default)
- *   browse                 → browse        ("записаться" deep link)
+ *   browse                 → schedule      (legacy "записаться" deep link → the
+ *                                           schedule calendar, its replacement)
+ *   schedule               → schedule
  *   mybookings             → my-bookings   (reminder notifications)
  *   group                  → group
  *   individual             → individual
@@ -154,7 +155,8 @@ export function toRouteId(value: string): RouteId | null {
  */
 const DEEP_LINK_ROUTES: Readonly<Record<string, Exclude<RouteId, "waitlist-accept">>> = {
   home: "home",
-  browse: "browse",
+  // The old "записаться" deep link lands on the schedule calendar (browse's replacement).
+  browse: "schedule",
   schedule: "schedule",
   mybookings: "my-bookings",
   group: "group",

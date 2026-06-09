@@ -1,5 +1,5 @@
 import { Injectable } from "@nestjs/common";
-import { and, asc, eq, tables, type Database } from "@beosand/db";
+import { and, asc, eq, gte, lte, tables, type Database } from "@beosand/db";
 import { DatabaseService } from "../../db/database.service";
 
 /** Row inserted for a court block. `groupTrainingId` is null for a manual block. */
@@ -42,13 +42,17 @@ export interface CourtOccupancyRow {
 export class CourtBlocksRepository {
   constructor(private readonly database: DatabaseService) {}
 
-  /** All blocks for a date, ordered by court then start time (for the C6 grid / list). */
-  async findByDate(date: string): Promise<CourtBlockRow[]> {
+  /**
+   * All blocks whose date falls in the inclusive [from, to] range, ordered by date
+   * then start time so the admin can group consecutive days. A single day is the
+   * degenerate range from === to.
+   */
+  async findByDateRange(from: string, to: string): Promise<CourtBlockRow[]> {
     const rows = await this.database.db
       .select(blockColumns)
       .from(tables.courtBlocks)
-      .where(eq(tables.courtBlocks.date, date))
-      .orderBy(asc(tables.courtBlocks.courtId), asc(tables.courtBlocks.startTime));
+      .where(and(gte(tables.courtBlocks.date, from), lte(tables.courtBlocks.date, to)))
+      .orderBy(asc(tables.courtBlocks.date), asc(tables.courtBlocks.startTime));
     return rows.map(normalizeBlock);
   }
 

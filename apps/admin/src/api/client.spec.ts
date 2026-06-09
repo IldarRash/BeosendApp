@@ -262,6 +262,48 @@ describe("ApiClient group-court scheduling (features 2+3)", () => {
   });
 });
 
+describe("ApiClient court blocks range (Slice C)", () => {
+  afterEach(() => {
+    vi.unstubAllGlobals();
+  });
+
+  const COURT_ID = "11111111-1111-1111-1111-111111111111";
+
+  const block = {
+    id: "22222222-2222-2222-2222-222222222222",
+    courtId: COURT_ID,
+    date: "2026-06-10",
+    startTime: "10:00",
+    endTime: "12:00",
+    reason: "Турнир",
+    groupTrainingId: null
+  };
+
+  it("encodes the inclusive from/to range into the court-blocks query", async () => {
+    const calls = mockFetchOnce([block]);
+    const result = await new ApiClient("http://api.test").listCourtBlocks({
+      from: "2026-06-10",
+      to: "2026-06-12"
+    });
+    expect(calls[0]?.url).toBe("http://api.test/court-blocks?from=2026-06-10&to=2026-06-12");
+    expect(result[0].reason).toBe("Турнир");
+  });
+
+  it("supports a single-day range as from === to", async () => {
+    const calls = mockFetchOnce([block]);
+    await new ApiClient("http://api.test").listCourtBlocks({ from: "2026-06-10", to: "2026-06-10" });
+    expect(calls[0]?.url).toBe("http://api.test/court-blocks?from=2026-06-10&to=2026-06-10");
+  });
+
+  it("rejects a malformed court-block row (contract enforced)", async () => {
+    // startTime must be a valid HH:MM; a bad value fails the courtBlock contract.
+    mockFetchOnce([{ ...block, startTime: "25:99" }]);
+    await expect(
+      new ApiClient("http://api.test").listCourtBlocks({ from: "2026-06-10", to: "2026-06-12" })
+    ).rejects.toThrow();
+  });
+});
+
 describe("ApiClient trainings calendar (Slice B)", () => {
   afterEach(() => {
     vi.unstubAllGlobals();
@@ -467,6 +509,65 @@ describe("ApiClient i18n", () => {
     });
     expect(calls[0]?.init?.method).toBe("DELETE");
     expect(result.override).toBeNull();
+  });
+});
+
+describe("ApiClient notification templates (Slice F)", () => {
+  afterEach(() => {
+    vi.unstubAllGlobals();
+  });
+
+  const row = {
+    eventKey: "booking-confirmed",
+    body: "Запись подтверждена: {training}",
+    isOverridden: false,
+    defaultBody: "Запись подтверждена: {training}",
+    placeholders: ["{training}", "{date}"]
+  };
+
+  it("lists the templates and validates each row", async () => {
+    const calls = mockFetchOnce([row]);
+    const result = await new ApiClient("http://api.test").listNotificationTemplates();
+    expect(calls[0]?.url).toBe("http://api.test/notification-templates");
+    expect(result[0].eventKey).toBe("booking-confirmed");
+    expect(result[0].isOverridden).toBe(false);
+  });
+
+  it("rejects a malformed template row (contract enforced, unsafe path)", async () => {
+    // Missing the required `placeholders` field must be rejected by the contract.
+    mockFetchOnce([
+      {
+        eventKey: "booking-confirmed",
+        body: "x",
+        isOverridden: false,
+        defaultBody: "x"
+      }
+    ]);
+    await expect(
+      new ApiClient("http://api.test").listNotificationTemplates()
+    ).rejects.toThrow();
+  });
+
+  it("PATCHes an override body for one event", async () => {
+    const calls = mockFetchOnce({ ...row, body: "Новый", isOverridden: true });
+    const result = await new ApiClient("http://api.test").updateNotificationTemplate(
+      "booking-confirmed",
+      "Новый"
+    );
+    expect(calls[0]?.url).toBe("http://api.test/notification-templates/booking-confirmed");
+    expect(calls[0]?.init?.method).toBe("PATCH");
+    expect(calls[0]?.init?.body).toBe(JSON.stringify({ body: "Новый" }));
+    expect(result.isOverridden).toBe(true);
+  });
+
+  it("POSTs a reset for one event", async () => {
+    const calls = mockFetchOnce(row);
+    const result = await new ApiClient("http://api.test").resetNotificationTemplate(
+      "booking-confirmed"
+    );
+    expect(calls[0]?.url).toBe("http://api.test/notification-templates/booking-confirmed/reset");
+    expect(calls[0]?.init?.method).toBe("POST");
+    expect(result.isOverridden).toBe(false);
   });
 });
 

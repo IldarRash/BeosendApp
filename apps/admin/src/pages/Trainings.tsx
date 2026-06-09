@@ -15,6 +15,7 @@ import { AppShell } from "../ui/AppShell";
 import { Button } from "../ui/Button";
 import { DataTable, type Column } from "../ui/DataTable";
 import { Modal } from "../ui/Modal";
+import { TrainingRosterModal } from "../ui/TrainingRosterModal";
 import { NumberField, SelectField, TextField, type SelectOption } from "../ui/Field";
 import { useToast } from "../ui/Toast";
 import { useT } from "../i18n/LanguageProvider";
@@ -136,6 +137,9 @@ export function Trainings(): JSX.Element {
   // ── Add person (Feature 5 — admin/trainer manual booking) ────────────────
   const [addPersonTarget, setAddPersonTarget] = useState<Training | null>(null);
 
+  // ── Roster (who signed up for this date — incl. one-time drop-ins) ────────
+  const [rosterTarget, setRosterTarget] = useState<Training | null>(null);
+
   const columns: Column<Training>[] = [
     { key: "date", header: t("admin.trainings.colDate"), render: (row) => row.date },
     {
@@ -161,6 +165,9 @@ export function Trainings(): JSX.Element {
       header: t("admin.trainings.colActions"),
       render: (row) => (
         <div style={{ display: "flex", gap: 8 }}>
+          <Button variant="ghost" onClick={() => setRosterTarget(row)}>
+            {t("admin.roster.open")}
+          </Button>
           <Button
             variant="ghost"
             onClick={() => setAddPersonTarget(row)}
@@ -407,6 +414,12 @@ export function Trainings(): JSX.Element {
           setAddPersonTarget(null);
           notify(t("admin.trainings.addPersonBooked", { name }), "success");
         }}
+      />
+
+      <TrainingRosterModal
+        trainingId={rosterTarget?.id ?? null}
+        onClose={() => setRosterTarget(null)}
+        t={t}
       />
     </AppShell>
   );
