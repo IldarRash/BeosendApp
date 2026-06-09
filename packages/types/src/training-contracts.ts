@@ -5,6 +5,7 @@ import {
   dayOfWeek,
   entityStatus,
   rsd,
+  telegramUsername,
   timeOfDay,
   timeString,
   uuid
@@ -33,17 +34,27 @@ export const trainerSchema = z.object({
   name: z.string().min(1),
   type: trainerType,
   status: entityStatus,
-  telegramId: z.number().int().nullable()
+  telegramId: z.number().int().nullable(),
+  /**
+   * Optional @username (normalized, no "@") used to link a trainer added by tag
+   * before their numeric id is known. The numeric telegramId is backfilled when
+   * they first contact the bot/Mini App; until then trainer-UI access is inactive.
+   */
+  telegramUsername: z.string().nullable()
 });
+// Identity is optional: a trainer can exist as reference data (shown in slots)
+// with neither id nor username, and gain bot access once either is linked.
 export const createTrainerSchema = trainerSchema.pick({ name: true, type: true }).extend({
-  telegramId: z.number().int().nullable().optional()
+  telegramId: z.number().int().nullable().optional(),
+  telegramUsername: telegramUsername.nullable().optional()
 });
 export const updateTrainerSchema = z
   .object({
     name: z.string().min(1),
     type: trainerType,
     status: entityStatus,
-    telegramId: z.number().int().nullable()
+    telegramId: z.number().int().nullable(),
+    telegramUsername: telegramUsername.nullable()
   })
   .partial();
 export type Trainer = z.infer<typeof trainerSchema>;
@@ -61,13 +72,30 @@ export const groupSchema = z.object({
   trainerId: uuid,
   /** Read-only display field, joined server-side from trainers; never accepted on writes. */
   trainerName: z.string(),
+  /**
+   * The group's home court. Required at CREATION (see createGroupSchema) and
+   * editable afterward; used as the preferred court when generating the group's
+   * monthly trainings (falls back per date via the 6-per-slot guard if busy).
+   * Changing it affects future generation only — already-generated trainings keep
+   * their court. Nullable on the entity so legacy groups created before this field
+   * (DB column added without backfill) still parse.
+   */
+  courtId: uuid.nullable(),
+  /** Read-only display field, joined server-side from courts; never accepted on writes. */
+  courtNumber: z.number().int().min(1).nullable(),
   capacity: z.number().int().positive(),
   priceSingleRsd: rsd,
   priceMonthRsd: rsd,
   status: entityStatus
 });
-export const createGroupSchema = groupSchema.omit({ id: true, status: true, trainerName: true });
-export const updateGroupSchema = groupSchema.omit({ id: true, trainerName: true }).partial();
+// Court is required at creation (override the entity's nullable courtId).
+export const createGroupSchema = groupSchema
+  .omit({ id: true, status: true, trainerName: true, courtNumber: true, courtId: true })
+  .extend({ courtId: uuid });
+// On update court is optional; null clears it (group reverts to auto-pick at generation).
+export const updateGroupSchema = groupSchema
+  .omit({ id: true, trainerName: true, courtNumber: true })
+  .partial();
 export type Group = z.infer<typeof groupSchema>;
 export type CreateGroupInput = z.infer<typeof createGroupSchema>;
 export type UpdateGroupInput = z.infer<typeof updateGroupSchema>;

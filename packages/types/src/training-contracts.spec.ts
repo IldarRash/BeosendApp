@@ -42,6 +42,7 @@ const valid = {
   startTime: "20:00",
   endTime: "21:30",
   trainerId: "22222222-2222-2222-2222-222222222222",
+  courtId: "00000000-0000-0000-0000-0000000000c1",
   capacity: 12,
   priceSingleRsd: 1500,
   priceMonthRsd: 10000
@@ -125,6 +126,7 @@ describe("groupSchema (bot-facing, includes trainerName)", () => {
     ...valid,
     id: "11111111-1111-1111-1111-111111111111",
     trainerName: "Jovana",
+    courtNumber: null,
     status: "active"
   };
 

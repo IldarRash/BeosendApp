@@ -38,6 +38,10 @@
   --teal-soft: #DBF0ED;
   --amber: #C98A12;
   --amber-soft: #F7EBCF;
+  /* Green = an available training the user can still sign up for. */
+  --green: #2E9E4F;
+  --green-ink: #1E7D3C;
+  --green-soft: #DCF1E1;
 
   /* Geometry */
   --r: 14px;
@@ -72,6 +76,7 @@
   --beosand-coral-tint: rgba(225, 91, 67, 0.18);
   --teal-soft: #0d2e2b;
   --amber-soft: #2e2008;
+  --green-soft: #102e1a;
 }
 
 /* =========================================================
@@ -516,6 +521,10 @@ button.slot { display: block; }
 /* cancelled = muted */
 .schip--muted { background: rgba(120, 120, 128, 0.12); color: var(--tg-hint); }
 .schip--muted .dot { background: var(--tg-hint); }
+
+/* available (can still sign up) = green */
+.schip--avail { background: var(--green-soft); color: var(--green-ink); }
+.schip--avail .dot { background: var(--green); }
 
 /* =========================================================
  * Segmented control — .seg
@@ -1192,13 +1201,25 @@ button.slot { display: block; }
   font-weight: 700;
 }
 
-/* A day carrying any item — the marker dot below the number. */
+/* A day's category markers — up to three colored dots in a tight row below the number. */
+.cal-cell__dots {
+  display: flex;
+  gap: 2px;
+  min-height: 5px;
+}
+
+/* One category marker dot. Color comes from the per-kind modifier below. */
 .cal-cell__dot {
   width: 5px;
   height: 5px;
   border-radius: 50%;
   background: var(--co);
 }
+
+/* Category colors: green = available, teal = court, coral = my training. */
+.cal-cell__dot--available { background: var(--green); }
+.cal-cell__dot--court { background: var(--teal); }
+.cal-cell__dot--training { background: var(--co); }
 
 /* Selected day — soft coral fill (selection is also announced via aria-selected). */
 .cal-cell--sel { background: var(--co-soft); }
@@ -1220,3 +1241,15 @@ button.slot { display: block; }
 
 .cal-kind--training { background: var(--co-soft); color: var(--co-ink); }
 .cal-kind--court { background: var(--teal-soft); color: #126B62; }
+.cal-kind--available { background: var(--green-soft); color: var(--green-ink); }
+
+/* Legend under the calendar title: one colored dot + label per category. */
+.cal-legend {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 14px;
+  margin: 4px 0 12px;
+  font-size: 12px;
+  color: var(--tg-hint);
+}
+.cal-legend__item { display: inline-flex; align-items: center; gap: 6px; }

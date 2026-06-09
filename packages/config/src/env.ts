@@ -78,6 +78,24 @@ export function loadEnv(source: NodeJS.ProcessEnv = process.env): Env {
   return parsed.data;
 }
 
+/**
+ * Process-level set of admin Telegram ids sourced from the DATABASE (the editable
+ * `managers` table), kept alongside the static env ids. Populated by the API's
+ * AdminRegistryService at startup and after every managers write; empty in every
+ * other context (bot, tests) so behaviour is env-only unless explicitly enabled.
+ * Stays here, next to `isAdmin`, so the single synchronous admin check is the
+ * union of env + DB without making 75 call sites async or DB-aware. No DB import:
+ * the API hands us the resolved ids.
+ */
+let dbAdminIds: ReadonlySet<string> = new Set();
+
+/** Replace the DB-sourced admin id set (idempotent; ids normalized to strings). */
+export function setDbAdminIds(ids: Iterable<number | string>): void {
+  dbAdminIds = new Set([...ids].map((id) => String(id)));
+}
+
+/** True if the id is a static env admin OR an active DB-backed manager. */
 export function isAdmin(env: Pick<Env, "ADMIN_TELEGRAM_IDS">, telegramId: number | string): boolean {
-  return env.ADMIN_TELEGRAM_IDS.includes(String(telegramId));
+  const id = String(telegramId);
+  return env.ADMIN_TELEGRAM_IDS.includes(id) || dbAdminIds.has(id);
 }

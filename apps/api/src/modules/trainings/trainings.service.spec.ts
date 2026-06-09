@@ -42,6 +42,8 @@ const baseGroup: Group = {
   endTime: "21:30",
   trainerId: "33333333-3333-3333-3333-333333333333",
   trainerName: "Jovana",
+  courtId: null,
+  courtNumber: null,
   capacity: 12,
   priceSingleRsd: 1500,
   priceMonthRsd: 10000,
@@ -649,6 +651,7 @@ describe("TrainingsService", () => {
       type: "main",
       status: "active",
       telegramId: TRAINER_TG,
+      telegramUsername: null,
       ...over
     });
 
@@ -708,14 +711,16 @@ describe("TrainingsService", () => {
           name: "Coach",
           type: "main",
           status: "active",
-          telegramId: TRAINER_TG
+          telegramId: TRAINER_TG,
+          telegramUsername: null
         },
         {
           id: "44444444-4444-4444-4444-444444444444",
           name: "Other",
           type: "main",
           status: "active",
-          telegramId: OTHER_TG
+          telegramId: OTHER_TG,
+          telegramUsername: null
         }
       ];
       trainingsRepo.headers = [

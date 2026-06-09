@@ -5,8 +5,12 @@ import { and, asc, eq, gte, lte } from "drizzle-orm";
 import { DatabaseService } from "../../db/database.service";
 
 type GroupRow = typeof tables.groups.$inferSelect;
-/** A group row plus its trainer's name (joined for the bot-facing display field). */
-type GroupRowWithTrainer = GroupRow & { trainerName: string };
+/**
+ * A group row plus its joined display fields: the trainer's name and the home
+ * court's number (null when the group has no court yet — a legacy row). Both are
+ * read-only, never accepted on writes.
+ */
+type GroupRowWithTrainer = GroupRow & { trainerName: string; courtNumber: number | null };
 
 /** A distinct client booked into the group that month — the roster row (no rules). */
 export interface GroupMemberRow {
@@ -21,22 +25,36 @@ export class GroupsRepository {
 
   async listActive(): Promise<Group[]> {
     const rows = await this.database.db
-      .select({ group: tables.groups, trainerName: tables.trainers.name })
+      .select({
+        group: tables.groups,
+        trainerName: tables.trainers.name,
+        courtNumber: tables.courts.number
+      })
       .from(tables.groups)
       .innerJoin(tables.trainers, eq(tables.groups.trainerId, tables.trainers.id))
+      .leftJoin(tables.courts, eq(tables.groups.courtId, tables.courts.id))
       .where(eq(tables.groups.status, "active"))
       .orderBy(asc(tables.groups.name));
-    return rows.map((row) => toGroup({ ...row.group, trainerName: row.trainerName }));
+    return rows.map((row) =>
+      toGroup({ ...row.group, trainerName: row.trainerName, courtNumber: row.courtNumber })
+    );
   }
 
   async findById(id: string): Promise<Group | undefined> {
     const [row] = await this.database.db
-      .select({ group: tables.groups, trainerName: tables.trainers.name })
+      .select({
+        group: tables.groups,
+        trainerName: tables.trainers.name,
+        courtNumber: tables.courts.number
+      })
       .from(tables.groups)
       .innerJoin(tables.trainers, eq(tables.groups.trainerId, tables.trainers.id))
+      .leftJoin(tables.courts, eq(tables.groups.courtId, tables.courts.id))
       .where(eq(tables.groups.id, id))
       .limit(1);
-    return row ? toGroup({ ...row.group, trainerName: row.trainerName }) : undefined;
+    return row
+      ? toGroup({ ...row.group, trainerName: row.trainerName, courtNumber: row.courtNumber })
+      : undefined;
   }
 
   /**

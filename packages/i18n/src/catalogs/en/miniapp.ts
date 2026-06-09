@@ -267,6 +267,8 @@ export const miniappEn: Record<string, string> = {
   "miniapp.calendar.emptyDay": "No bookings or requests on this day.",
   "miniapp.calendar.kindTraining": "Training",
   "miniapp.calendar.kindCourt": "Court",
+  "miniapp.calendar.kindAvailable": "Available",
+  "miniapp.calendar.legendAria": "Calendar legend",
   "miniapp.calendar.errorBody": "Couldn't load the calendar. Please try again.",
   "miniapp.calendar.courtStatus.pending": "Awaiting confirmation",
   "miniapp.calendar.courtStatus.confirmed": "Confirmed",

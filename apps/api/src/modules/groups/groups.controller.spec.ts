@@ -6,6 +6,7 @@ import { GroupsController } from "./groups.controller";
 import { GroupsService } from "./groups.service";
 import type { GroupsRepository } from "./groups.repository";
 import type { ClientsRepository } from "../clients/clients.repository";
+import type { CourtsRepository } from "../courts/courts.repository";
 import type { TrainingsService } from "../trainings/trainings.service";
 
 /** Roster reads are not exercised here; a no-op clients repo satisfies the ctor. */
@@ -20,6 +21,12 @@ const fakeTrainingsService = {
 
 const ADMIN_ID = 111;
 const NON_ADMIN_ID = 999;
+const COURT_ID = "44444444-4444-4444-4444-444444444444";
+
+/** The chosen home court must be active for create/update to pass validation. */
+const fakeCourtsRepo = {
+  findActive: async () => [{ id: COURT_ID, number: 1, status: "active" as const }]
+} as unknown as CourtsRepository;
 
 const env = { ADMIN_TELEGRAM_IDS: [String(ADMIN_ID)] } as unknown as Env;
 
@@ -32,6 +39,8 @@ const intermediate: Group = {
   endTime: "21:30",
   trainerId: "33333333-3333-3333-3333-333333333333",
   trainerName: "Jovana",
+  courtId: COURT_ID,
+  courtNumber: 1,
   capacity: 12,
   priceSingleRsd: 1500,
   priceMonthRsd: 10000,
@@ -45,6 +54,7 @@ const validBody = {
   startTime: "20:00",
   endTime: "21:30",
   trainerId: "33333333-3333-3333-3333-333333333333",
+  courtId: COURT_ID,
   capacity: 12,
   priceSingleRsd: 1500,
   priceMonthRsd: 10000
@@ -81,7 +91,7 @@ describe("GroupsController", () => {
   beforeEach(() => {
     repo = makeRepo();
     controller = new GroupsController(
-      new GroupsService(repo, fakeClientsRepo, fakeTrainingsService, env)
+      new GroupsService(repo, fakeClientsRepo, fakeCourtsRepo, fakeTrainingsService, env)
     );
   });
 
@@ -139,6 +149,12 @@ describe("GroupsController", () => {
     expect(() => controller.create(String(ADMIN_ID), { ...validBody, daysOfWeek: [] })).toThrow(
       BadRequestException
     );
+    expect(repo.create).not.toHaveBeenCalled();
+  });
+
+  it("rejects a POST body with no court (courtId required at creation) with BadRequestException", () => {
+    const { courtId: _omit, ...noCourt } = validBody;
+    expect(() => controller.create(String(ADMIN_ID), noCourt)).toThrow(BadRequestException);
     expect(repo.create).not.toHaveBeenCalled();
   });
 

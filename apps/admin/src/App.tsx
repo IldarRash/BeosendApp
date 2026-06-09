@@ -14,6 +14,7 @@ import { Groups } from "./pages/Groups";
 import { Labels } from "./pages/Labels";
 import { Levels } from "./pages/Levels";
 import { Login } from "./pages/Login";
+import { Managers } from "./pages/Managers";
 import { NotificationTemplates } from "./pages/NotificationTemplates";
 import { Subscriptions } from "./pages/Subscriptions";
 import { Trainers } from "./pages/Trainers";
@@ -70,6 +71,14 @@ export function App(): JSX.Element {
                   element={
                     <RequireAuth>
                       <Trainers />
+                    </RequireAuth>
+                  }
+                />
+                <Route
+                  path="/managers"
+                  element={
+                    <RequireAuth>
+                      <Managers />
                     </RequireAuth>
                   }
                 />

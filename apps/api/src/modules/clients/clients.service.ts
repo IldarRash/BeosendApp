@@ -12,6 +12,7 @@ import type { Client, CreateWalkInInput, ListClientsQuery, Locale } from "@beosa
 import { ENV } from "../../config/config.module";
 import { DatabaseService } from "../../db/database.service";
 import { LevelsRepository } from "../levels/levels.repository";
+import { StaffLinkingService } from "../managers/staff-linking.service";
 import { ClientsRepository } from "./clients.repository";
 
 interface OnboardInput {
@@ -38,6 +39,7 @@ export class ClientsService {
     private readonly clients: ClientsRepository,
     private readonly levels: LevelsRepository,
     private readonly database: DatabaseService,
+    private readonly staffLinking: StaffLinkingService,
     @Inject(ENV) private readonly env: Env
   ) {}
 
@@ -79,7 +81,7 @@ export class ClientsService {
       }
     }
 
-    return this.database.db.transaction(async (tx) => {
+    const client = await this.database.db.transaction(async (tx) => {
       const existing = await this.clients.findByTelegramId(input.telegramId, tx);
       if (existing) {
         return existing;
@@ -106,6 +108,11 @@ export class ClientsService {
       }
       return raced;
     });
+
+    // First bot contact links any trainer/manager added by this @username to the
+    // now-known numeric id (idempotent; never blocks onboarding on failure).
+    await this.staffLinking.linkPendingStaff(input.telegramId, input.telegramUsername);
+    return client;
   }
 
   /**

@@ -216,6 +216,10 @@ export class TrainingsService {
     month: number,
     preferredCourtId?: string
   ): Promise<{ created: Training[]; blocked: number; skipped: number }> {
+    // The group's home court is the default preferred court; an explicit
+    // per-call override (single-group generate) still wins. Either way the
+    // 6-per-slot guard falls back to the lowest free court when it is busy.
+    const effectivePreferredCourtId = preferredCourtId ?? group.courtId ?? undefined;
     const today = new Date().toISOString().slice(0, 10);
     const candidateDates = monthTrainingDates(group.daysOfWeek as DayOfWeek[], year, month).filter(
       (date) => date >= today
@@ -267,7 +271,7 @@ export class TrainingsService {
         slots,
         activeCourts,
         activeCourtCount,
-        preferredCourtId,
+        effectivePreferredCourtId,
         occupancy.confirmed,
         occupancy.blocks
       );

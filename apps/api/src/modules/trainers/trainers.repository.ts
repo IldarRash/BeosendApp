@@ -1,7 +1,7 @@
 import { Injectable } from "@nestjs/common";
 import type { Trainer } from "@beosand/types";
 import { tables } from "@beosand/db";
-import { and, asc, eq } from "drizzle-orm";
+import { and, asc, eq, isNull } from "drizzle-orm";
 import { DatabaseService } from "../../db/database.service";
 
 /** Only place trainers DB access lives. Returns typed rows; no business rules. */
@@ -40,22 +40,48 @@ export class TrainersRepository {
     name: string;
     type: Trainer["type"];
     telegramId?: number | null;
+    telegramUsername?: string | null;
   }): Promise<Trainer> {
     const [row] = await this.database.db
       .insert(tables.trainers)
-      .values({ name: input.name, type: input.type, telegramId: input.telegramId ?? null })
+      .values({
+        name: input.name,
+        type: input.type,
+        telegramId: input.telegramId ?? null,
+        telegramUsername: input.telegramUsername ?? null
+      })
       .returning();
     return row;
   }
 
   async update(
     id: string,
-    patch: Partial<Pick<Trainer, "name" | "type" | "status" | "telegramId">>
+    patch: Partial<Pick<Trainer, "name" | "type" | "status" | "telegramId" | "telegramUsername">>
   ): Promise<Trainer | undefined> {
     const [row] = await this.database.db
       .update(tables.trainers)
       .set(patch)
       .where(eq(tables.trainers.id, id))
+      .returning();
+    return row;
+  }
+
+  /**
+   * Link a trainer added by @username to a now-known numeric id: set telegram_id
+   * on the row matching this normalized username that has none yet. Atomic
+   * (telegram_id IS NULL guard) and idempotent — a second contact finds no
+   * unlinked row and returns undefined. Returns the linked trainer, if any.
+   */
+  async linkByUsername(username: string, telegramId: number): Promise<Trainer | undefined> {
+    const [row] = await this.database.db
+      .update(tables.trainers)
+      .set({ telegramId })
+      .where(
+        and(
+          eq(tables.trainers.telegramUsername, username),
+          isNull(tables.trainers.telegramId)
+        )
+      )
       .returning();
     return row;
   }

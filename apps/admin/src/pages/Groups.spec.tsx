@@ -1,7 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { cleanup, fireEvent, render, screen, within } from "@testing-library/react";
 import type { ReactNode } from "react";
-import type { Group, GroupMembers, Level, Trainer } from "@beosand/types";
+import type { Court, Group, GroupMembers, Level, Trainer } from "@beosand/types";
 import { ToastProvider } from "../ui/Toast";
 
 // AppShell pulls in the router + session hooks; stub it to a passthrough so the
@@ -18,6 +18,7 @@ const useUpdateGroup = vi.fn();
 const useDeleteGroup = vi.fn();
 const useLevels = vi.fn();
 const useTrainers = vi.fn();
+const useCourts = vi.fn();
 const useGroupMembers = vi.fn();
 const useTransferGroupMember = vi.fn();
 
@@ -33,16 +34,19 @@ vi.mock("../hooks/useGroupMembers", () => ({
 }));
 vi.mock("../hooks/useLevels", () => ({ useLevels: () => useLevels() }));
 vi.mock("../hooks/useTrainers", () => ({ useTrainers: () => useTrainers() }));
+vi.mock("../hooks/useCourts", () => ({ useCourts: () => useCourts() }));
 
 import { Groups } from "./Groups";
 
 const LEVEL: Level = { id: "11111111-1111-1111-1111-111111111111", name: "Начинающие", status: "active" };
+const COURT: Court = { id: "66666666-6666-6666-6666-666666666666", number: 1, status: "active" };
 const TRAINER: Trainer = {
   id: "22222222-2222-2222-2222-222222222222",
   name: "Анна",
   type: "main",
   status: "active",
-  telegramId: null
+  telegramId: null,
+  telegramUsername: null
 };
 const GROUP: Group = {
   id: "33333333-3333-3333-3333-333333333333",
@@ -53,6 +57,8 @@ const GROUP: Group = {
   endTime: "09:30",
   trainerId: TRAINER.id,
   trainerName: TRAINER.name,
+  courtId: null,
+  courtNumber: null,
   capacity: 12,
   priceSingleRsd: 1500,
   priceMonthRsd: 12000,
@@ -95,6 +101,7 @@ beforeEach(() => {
   useDeleteGroup.mockReturnValue(mutation());
   useLevels.mockReturnValue(query<Level[]>({ data: [LEVEL] }));
   useTrainers.mockReturnValue(query<Trainer[]>({ data: [TRAINER] }));
+  useCourts.mockReturnValue(query<Court[]>({ data: [COURT] }));
   useGroupMembers.mockReturnValue(query<GroupMembers>({ data: MEMBERS }));
   useTransferGroupMember.mockReturnValue(mutation());
 });

@@ -5,10 +5,12 @@ import { beforeEach, describe, expect, it } from "vitest";
 import { GroupsService } from "./groups.service";
 import type { GroupMemberRow, GroupsRepository } from "./groups.repository";
 import type { ClientsRepository } from "../clients/clients.repository";
+import type { CourtsRepository } from "../courts/courts.repository";
 import type { TrainingsService } from "../trainings/trainings.service";
 
 const ADMIN_ID = 111;
 const NON_ADMIN_ID = 999;
+const COURT_ID = "44444444-4444-4444-4444-444444444444";
 
 const baseInput: CreateGroupInput = {
   name: "Intermediate",
@@ -17,6 +19,7 @@ const baseInput: CreateGroupInput = {
   startTime: "20:00",
   endTime: "21:30",
   trainerId: "22222222-2222-2222-2222-222222222222",
+  courtId: COURT_ID,
   capacity: 12,
   priceSingleRsd: 1500,
   priceMonthRsd: 10000
@@ -39,7 +42,7 @@ class FakeGroupsRepository {
 
   async create(input: CreateGroupInput): Promise<Group> {
     const id = `00000000-0000-0000-0000-00000000000${++this.seq}`;
-    const row: Group = { ...input, id, status: "active", trainerName: "Jovana" };
+    const row: Group = { ...input, id, status: "active", trainerName: "Jovana", courtNumber: 1 };
     this.rows.set(id, row);
     return row;
   }
@@ -78,6 +81,16 @@ class FakeClientsRepository {
   }
 }
 
+/** In-memory courts stand-in: the group's home court must be among these active. */
+class FakeCourtsRepository {
+  active: { id: string; number: number; status: "active" | "inactive" }[] = [
+    { id: COURT_ID, number: 1, status: "active" }
+  ];
+  async findActive(): Promise<{ id: string; number: number; status: "active" | "inactive" }[]> {
+    return this.active;
+  }
+}
+
 /** In-memory stand-in for the trainings cascade the group soft-delete delegates to. */
 class FakeTrainingsService {
   cancelledFor: { actorTelegramId: number; groupId: string }[] = [];
@@ -93,16 +106,19 @@ const env = { ADMIN_TELEGRAM_IDS: [String(ADMIN_ID)] } as unknown as Env;
 describe("GroupsService", () => {
   let repo: FakeGroupsRepository;
   let clientsRepo: FakeClientsRepository;
+  let courtsRepo: FakeCourtsRepository;
   let trainingsService: FakeTrainingsService;
   let service: GroupsService;
 
   beforeEach(() => {
     repo = new FakeGroupsRepository();
     clientsRepo = new FakeClientsRepository();
+    courtsRepo = new FakeCourtsRepository();
     trainingsService = new FakeTrainingsService();
     service = new GroupsService(
       repo as unknown as GroupsRepository,
       clientsRepo as unknown as ClientsRepository,
+      courtsRepo as unknown as CourtsRepository,
       trainingsService as unknown as TrainingsService,
       env
     );
@@ -113,6 +129,39 @@ describe("GroupsService", () => {
     expect(created.name).toBe("Intermediate");
     expect(created.status).toBe("active");
     expect(await service.listActive()).toContainEqual(created);
+  });
+
+  it("create stores the chosen home court", async () => {
+    const created = await service.create(ADMIN_ID, baseInput);
+    expect(created.courtId).toBe(COURT_ID);
+  });
+
+  it("rejects a create whose court is not active (400) and writes nothing", async () => {
+    courtsRepo.active = []; // the chosen court is not among the active courts
+    await expect(service.create(ADMIN_ID, baseInput)).rejects.toMatchObject({ status: 400 });
+    expect(await service.listActive()).toHaveLength(0);
+  });
+
+  it("rejects a court change to an unknown court (400)", async () => {
+    const created = await service.create(ADMIN_ID, baseInput);
+    await expect(
+      service.update(ADMIN_ID, created.id, { courtId: "55555555-5555-5555-5555-555555555555" })
+    ).rejects.toMatchObject({ status: 400 });
+  });
+
+  it("allows a court change to another active court", async () => {
+    const OTHER_COURT = "66666666-6666-6666-6666-666666666666";
+    courtsRepo.active.push({ id: OTHER_COURT, number: 2, status: "active" });
+    const created = await service.create(ADMIN_ID, baseInput);
+    const updated = await service.update(ADMIN_ID, created.id, { courtId: OTHER_COURT });
+    expect(updated.courtId).toBe(OTHER_COURT);
+  });
+
+  it("allows clearing the court (null reverts to auto-pick) without validation", async () => {
+    const created = await service.create(ADMIN_ID, baseInput);
+    courtsRepo.active = []; // even with no active court, clearing must not 400
+    const updated = await service.update(ADMIN_ID, created.id, { courtId: null });
+    expect(updated.courtId).toBeNull();
   });
 
   it("admin edit of capacity and price succeeds", async () => {
@@ -247,16 +296,19 @@ describe("GroupsService.listMembers (group monthly roster)", () => {
 
   let repo: FakeGroupsRepository;
   let clientsRepo: FakeClientsRepository;
+  let courtsRepo: FakeCourtsRepository;
   let trainingsService: FakeTrainingsService;
   let service: GroupsService;
 
   beforeEach(async () => {
     repo = new FakeGroupsRepository();
     clientsRepo = new FakeClientsRepository();
+    courtsRepo = new FakeCourtsRepository();
     trainingsService = new FakeTrainingsService();
     service = new GroupsService(
       repo as unknown as GroupsRepository,
       clientsRepo as unknown as ClientsRepository,
+      courtsRepo as unknown as CourtsRepository,
       trainingsService as unknown as TrainingsService,
       env
     );

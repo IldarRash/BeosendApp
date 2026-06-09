@@ -4,6 +4,7 @@ import {
   adminSessionSchema,
   labelCatalogSchema,
   labelEntrySchema,
+  managerSchema,
   analyticsSummarySchema,
   bookingSchema,
   broadcastEffectivenessSchema,
@@ -70,8 +71,10 @@ import {
   type LabelCatalog,
   type LabelEntry,
   type Level,
+  type CreateManagerInput,
   type ListClientsQuery,
   type ListSubscriptionsQuery,
+  type Manager,
   type ListTrainingsQuery,
   type Locale,
   type UpdateLabelInput,
@@ -93,6 +96,7 @@ import {
   type TransferGroupResult,
   type UpdateGroupInput,
   type UpdateLevelInput,
+  type UpdateManagerInput,
   type UpdateTrainerInput
 } from "@beosand/types";
 
@@ -112,6 +116,7 @@ const trainerLoadListSchema = z.array(trainerLoadSchema);
 const generationStatusSchema = z.array(generationStatusItemSchema);
 const subscriptionsSchema = z.array(subscriptionSummarySchema);
 const notificationTemplatesSchema = z.array(notificationTemplateSchema);
+const managersSchema = z.array(managerSchema);
 
 /** Input for creating a level — just the name (schema is server-validated). */
 export interface CreateLevelInput {
@@ -413,9 +418,41 @@ export class ApiClient {
     });
   }
 
-  /** Edit a trainer (name/type/status/telegramId). */
+  /** Edit a trainer (name/type/status/telegramId/telegramUsername). */
   updateTrainer(id: string, input: UpdateTrainerInput): Promise<Trainer> {
     return this.request(`/trainers/${id}`, trainerSchema, {
+      method: "PATCH",
+      body: JSON.stringify(input)
+    });
+  }
+
+  // ── Managers (admins) ──────────────────────────────────────────────────
+
+  /**
+   * Active managers (GET /managers) — DB-backed admins. A row may carry only a
+   * @username (telegramId null) until that person first authenticates and the id
+   * is backfilled; the console renders the linked/pending state, never the auth
+   * decision (the server owns the admin gate). Admin-only server-side.
+   */
+  listManagers(): Promise<Manager[]> {
+    return this.request("/managers", managersSchema);
+  }
+
+  /**
+   * Create a manager by numeric id, @username, or both (POST /managers). The
+   * "at least one identity" rule is the server's — a body with neither surfaces
+   * as a thrown Error (400) the form renders.
+   */
+  createManager(input: CreateManagerInput): Promise<Manager> {
+    return this.request("/managers", managerSchema, {
+      method: "POST",
+      body: JSON.stringify(input)
+    });
+  }
+
+  /** Edit a manager (name/status/telegramId/telegramUsername). */
+  updateManager(id: string, input: UpdateManagerInput): Promise<Manager> {
+    return this.request(`/managers/${id}`, managerSchema, {
       method: "PATCH",
       body: JSON.stringify(input)
     });

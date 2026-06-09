@@ -18,7 +18,8 @@ const milena: Trainer = {
   name: "Milena",
   type: "main",
   status: "active",
-  telegramId: null
+  telegramId: null,
+  telegramUsername: null
 };
 
 function makeRepo(overrides: Partial<TrainersRepository> = {}): TrainersRepository {

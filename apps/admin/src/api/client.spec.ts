@@ -815,6 +815,8 @@ describe("ApiClient court assignment & group delete (slices 4+5)", () => {
     endTime: "09:30",
     trainerId: TRAINER_ID,
     trainerName: "Анна",
+    courtId: null,
+    courtNumber: null,
     capacity: 12,
     priceSingleRsd: 1500,
     priceMonthRsd: 12000,

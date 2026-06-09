@@ -310,6 +310,8 @@ export const miniappRu: Record<string, string> = {
   "miniapp.calendar.emptyDay": "В этот день нет записей и заявок.",
   "miniapp.calendar.kindTraining": "Тренировка",
   "miniapp.calendar.kindCourt": "Корт",
+  "miniapp.calendar.kindAvailable": "Доступно",
+  "miniapp.calendar.legendAria": "Обозначения календаря",
   "miniapp.calendar.errorBody": "Не удалось загрузить календарь. Попробуйте ещё раз.",
   // Court-request status chips (a client never sees a court number).
   "miniapp.calendar.courtStatus.pending": "Ожидает подтверждения",

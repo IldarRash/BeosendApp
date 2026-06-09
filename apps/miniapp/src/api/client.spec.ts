@@ -286,7 +286,8 @@ const TRAINER: Trainer = {
   name: "Иван",
   type: "main",
   status: "active",
-  telegramId: 99
+  telegramId: 99,
+  telegramUsername: null
 };
 
 describe("MiniappApiClient.listTrainers", () => {
@@ -660,6 +661,8 @@ const GROUP: Group = {
   endTime: "10:30",
   trainerId: TRAINER.id,
   trainerName: "Марко",
+  courtId: null,
+  courtNumber: null,
   capacity: 8,
   priceSingleRsd: 1500,
   priceMonthRsd: 12000,

@@ -5,6 +5,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import { ClientsService } from "./clients.service";
 import type { ClientsRepository } from "./clients.repository";
 import type { LevelsRepository } from "../levels/levels.repository";
+import type { StaffLinkingService } from "../managers/staff-linking.service";
 import type { DatabaseService } from "../../db/database.service";
 
 const TELEGRAM_ID = 4242;
@@ -87,6 +88,11 @@ function makeLevelsRepo(overrides: Partial<LevelsRepository> = {}): LevelsReposi
   } as unknown as LevelsRepository;
 }
 
+/** Staff linking is exercised in its own spec; here a no-op satisfies the ctor. */
+function makeStaffLinking(): StaffLinkingService {
+  return { linkPendingStaff: vi.fn(async () => undefined) } as unknown as StaffLinkingService;
+}
+
 describe("ClientsService", () => {
   let clientsRepo: ClientsRepository;
   let levelsRepo: LevelsRepository;
@@ -95,7 +101,7 @@ describe("ClientsService", () => {
   beforeEach(() => {
     clientsRepo = makeClientsRepo();
     levelsRepo = makeLevelsRepo();
-    service = new ClientsService(clientsRepo, levelsRepo, makeDatabase(), env);
+    service = new ClientsService(clientsRepo, levelsRepo, makeDatabase(), makeStaffLinking(), env);
   });
 
   it("404s when no client exists for the telegram id", async () => {
@@ -106,13 +112,13 @@ describe("ClientsService", () => {
 
   it("returns the client when one exists", async () => {
     clientsRepo = makeClientsRepo({ findByTelegramId: vi.fn(async () => existingClient) });
-    service = new ClientsService(clientsRepo, levelsRepo, makeDatabase(), env);
+    service = new ClientsService(clientsRepo, levelsRepo, makeDatabase(), makeStaffLinking(), env);
     await expect(service.getByTelegramId(TELEGRAM_ID, TELEGRAM_ID)).resolves.toEqual(existingClient);
   });
 
   it("forbids reading another client's record (no DB read)", async () => {
     clientsRepo = makeClientsRepo({ findByTelegramId: vi.fn(async () => existingClient) });
-    service = new ClientsService(clientsRepo, levelsRepo, makeDatabase(), env);
+    service = new ClientsService(clientsRepo, levelsRepo, makeDatabase(), makeStaffLinking(), env);
     await expect(service.getByTelegramId(TELEGRAM_ID, 1111)).rejects.toBeInstanceOf(
       ForbiddenException
     );
@@ -121,7 +127,7 @@ describe("ClientsService", () => {
 
   it("lets an admin read any client's record", async () => {
     clientsRepo = makeClientsRepo({ findByTelegramId: vi.fn(async () => existingClient) });
-    service = new ClientsService(clientsRepo, levelsRepo, makeDatabase(), env);
+    service = new ClientsService(clientsRepo, levelsRepo, makeDatabase(), makeStaffLinking(), env);
     await expect(service.getByTelegramId(ADMIN_ID, TELEGRAM_ID)).resolves.toEqual(existingClient);
   });
 
@@ -144,7 +150,7 @@ describe("ClientsService", () => {
 
   it("is idempotent: a second onboard returns the existing row and inserts nothing", async () => {
     clientsRepo = makeClientsRepo({ findByTelegramId: vi.fn(async () => existingClient) });
-    service = new ClientsService(clientsRepo, levelsRepo, makeDatabase(), env);
+    service = new ClientsService(clientsRepo, levelsRepo, makeDatabase(), makeStaffLinking(), env);
     const result = await service.onboard(TELEGRAM_ID, {
       telegramId: TELEGRAM_ID,
       name: "Different Name",
@@ -176,7 +182,7 @@ describe("ClientsService", () => {
 
   it("rejects an unknown levelId and inserts nothing", async () => {
     levelsRepo = makeLevelsRepo({ findById: vi.fn(async () => undefined) });
-    service = new ClientsService(clientsRepo, levelsRepo, makeDatabase(), env);
+    service = new ClientsService(clientsRepo, levelsRepo, makeDatabase(), makeStaffLinking(), env);
     await expect(
       service.onboard(TELEGRAM_ID, { telegramId: TELEGRAM_ID, name: "Ana", levelId: LEVEL_ID })
     ).rejects.toBeInstanceOf(BadRequestException);
@@ -187,7 +193,7 @@ describe("ClientsService", () => {
     levelsRepo = makeLevelsRepo({
       findById: vi.fn(async () => ({ ...beginner, status: "inactive" }) as Level)
     });
-    service = new ClientsService(clientsRepo, levelsRepo, makeDatabase(), env);
+    service = new ClientsService(clientsRepo, levelsRepo, makeDatabase(), makeStaffLinking(), env);
     await expect(
       service.onboard(TELEGRAM_ID, { telegramId: TELEGRAM_ID, name: "Ana", levelId: LEVEL_ID })
     ).rejects.toBeInstanceOf(BadRequestException);
@@ -203,7 +209,7 @@ describe("ClientsService", () => {
       findByTelegramId,
       insertIgnoreConflict: vi.fn(async () => undefined) // conflict: another tap inserted
     });
-    service = new ClientsService(clientsRepo, levelsRepo, makeDatabase(), env);
+    service = new ClientsService(clientsRepo, levelsRepo, makeDatabase(), makeStaffLinking(), env);
     const result = await service.onboard(TELEGRAM_ID, { telegramId: TELEGRAM_ID, name: "Ana" });
     expect(result).toEqual(existingClient);
   });
@@ -253,7 +259,7 @@ describe("ClientsService", () => {
 
   it("404s when setting language for a missing client", async () => {
     clientsRepo = makeClientsRepo({ updateLanguage: vi.fn(async () => undefined) });
-    service = new ClientsService(clientsRepo, levelsRepo, makeDatabase(), env);
+    service = new ClientsService(clientsRepo, levelsRepo, makeDatabase(), makeStaffLinking(), env);
     await expect(service.setLanguage(TELEGRAM_ID, TELEGRAM_ID, "sr")).rejects.toBeInstanceOf(
       NotFoundException
     );

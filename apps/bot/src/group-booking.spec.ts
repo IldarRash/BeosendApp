@@ -33,6 +33,8 @@ const group: Group = {
   endTime: "09:30",
   trainerId: "33333333-3333-3333-3333-333333333333",
   trainerName: "Jovana",
+  courtId: null,
+  courtNumber: null,
   capacity: 10,
   priceSingleRsd: 1500,
   priceMonthRsd: 9000,

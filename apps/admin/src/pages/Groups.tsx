@@ -1,5 +1,6 @@
 import { useMemo, useState, type FormEvent } from "react";
 import type {
+  Court,
   CreateGroupInput,
   DayOfWeek,
   Group,
@@ -19,6 +20,7 @@ import { useToast } from "../ui/Toast";
 import { useT } from "../i18n/LanguageProvider";
 import { useGroups, useCreateGroup, useDeleteGroup, useUpdateGroup } from "../hooks/useGroups";
 import { useGroupMembers, useTransferGroupMember } from "../hooks/useGroupMembers";
+import { useCourts } from "../hooks/useCourts";
 import { useLevels } from "../hooks/useLevels";
 import { useTrainers } from "../hooks/useTrainers";
 import { formatRsd } from "../lib/format";
@@ -46,6 +48,7 @@ interface GroupFormState {
   name: string;
   levelId: string;
   trainerId: string;
+  courtId: string;
   daysOfWeek: DayOfWeek[];
   startTime: string;
   endTime: string;
@@ -59,6 +62,7 @@ function emptyForm(): GroupFormState {
     name: "",
     levelId: "",
     trainerId: "",
+    courtId: "",
     daysOfWeek: [],
     startTime: "",
     endTime: "",
@@ -73,6 +77,7 @@ function formFromGroup(group: Group): GroupFormState {
     name: group.name,
     levelId: group.levelId,
     trainerId: group.trainerId,
+    courtId: group.courtId ?? "",
     daysOfWeek: [...group.daysOfWeek],
     startTime: group.startTime,
     endTime: group.endTime,
@@ -92,6 +97,7 @@ function toCreateInput(form: GroupFormState): CreateGroupInput {
     name: form.name.trim(),
     levelId: form.levelId,
     trainerId: form.trainerId,
+    courtId: form.courtId,
     daysOfWeek: form.daysOfWeek,
     startTime: form.startTime,
     endTime: form.endTime,
@@ -110,10 +116,11 @@ interface GroupFormProps {
   onChange: (next: GroupFormState) => void;
   levels: Level[];
   trainers: Trainer[];
+  courts: Court[];
   error?: string;
 }
 
-function GroupForm({ form, onChange, levels, trainers, error }: GroupFormProps): JSX.Element {
+function GroupForm({ form, onChange, levels, trainers, courts, error }: GroupFormProps): JSX.Element {
   const t = useT();
   const levelOptions: SelectOption[] = [
     { value: "", label: t("admin.groups.pickLevel") },
@@ -122,6 +129,13 @@ function GroupForm({ form, onChange, levels, trainers, error }: GroupFormProps):
   const trainerOptions: SelectOption[] = [
     { value: "", label: t("admin.groups.pickTrainer") },
     ...trainers.map((trainer) => ({ value: trainer.id, label: trainer.name }))
+  ];
+  const courtOptions: SelectOption[] = [
+    { value: "", label: t("admin.groups.pickCourt") },
+    ...courts.map((court) => ({
+      value: court.id,
+      label: t("admin.groups.courtLabel", { number: court.number })
+    }))
   ];
 
   return (
@@ -143,6 +157,12 @@ function GroupForm({ form, onChange, levels, trainers, error }: GroupFormProps):
         options={trainerOptions}
         value={form.trainerId}
         onChange={(event) => onChange({ ...form, trainerId: event.target.value })}
+      />
+      <SelectField
+        label={t("admin.field.court")}
+        options={courtOptions}
+        value={form.courtId}
+        onChange={(event) => onChange({ ...form, courtId: event.target.value })}
       />
       <DayOfWeekPicker
         label={t("admin.groups.fieldDays")}
@@ -380,6 +400,7 @@ export function Groups(): JSX.Element {
   const groups = useGroups();
   const levels = useLevels();
   const trainers = useTrainers();
+  const courts = useCourts();
   const createGroup = useCreateGroup();
   const updateGroup = useUpdateGroup();
   const deleteGroup = useDeleteGroup();
@@ -463,6 +484,14 @@ export function Groups(): JSX.Element {
       render: (group) => nameFor(group.trainerId, trainerOptions)
     },
     {
+      key: "court",
+      header: t("admin.groups.colCourt"),
+      render: (group) =>
+        group.courtNumber !== null
+          ? t("admin.groups.courtLabel", { number: group.courtNumber })
+          : t("admin.groups.courtNone")
+    },
+    {
       key: "level",
       header: t("admin.groups.colLevel"),
       render: (group) => nameFor(group.levelId, levelOptions)
@@ -519,7 +548,7 @@ export function Groups(): JSX.Element {
     }
   ];
 
-  const referenceLoading = levels.isLoading || trainers.isLoading;
+  const referenceLoading = levels.isLoading || trainers.isLoading || courts.isLoading;
 
   return (
     <AppShell>
@@ -570,6 +599,7 @@ export function Groups(): JSX.Element {
             onChange={setForm}
             levels={levels.data ?? []}
             trainers={trainers.data ?? []}
+            courts={courts.data ?? []}
             error={submitError}
           />
         </form>

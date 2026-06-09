@@ -228,7 +228,8 @@ describe("NotificationsService", () => {
       name: "Jovana",
       type: "main" as const,
       status: "active" as const,
-      telegramId: 555 as number
+      telegramId: 555 as number,
+      telegramUsername: null
     };
     const client: Client = {
       id: "client-1",
