@@ -86,13 +86,53 @@ export const levels = pgTable("levels", {
   status: entityStatus("status").notNull().default("active")
 });
 
-export const trainers = pgTable("trainers", {
-  id: uuid("id").primaryKey().defaultRandom(),
-  name: text("name").notNull(),
-  type: trainerType("type").notNull().default("main"),
-  status: entityStatus("status").notNull().default("active"),
-  telegramId: bigint("telegram_id", { mode: "number" })
-});
+export const trainers = pgTable(
+  "trainers",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    name: text("name").notNull(),
+    type: trainerType("type").notNull().default("main"),
+    status: entityStatus("status").notNull().default("active"),
+    telegramId: bigint("telegram_id", { mode: "number" }),
+    // Optional @username (normalized, no "@") to link a trainer added by tag
+    // before their numeric id is known; backfilled on first contact.
+    telegramUsername: text("telegram_username")
+  },
+  (table) => ({
+    // Partial unique: usernames are stored normalized (lowercased), so the column
+    // can be indexed directly; multiple NULLs (id-only / reference trainers) coexist.
+    telegramUsernameIdx: uniqueIndex("trainers_telegram_username_idx")
+      .on(table.telegramUsername)
+      .where(sql`${table.telegramUsername} IS NOT NULL`)
+  })
+);
+
+/**
+ * Managers (admins) editable in the admin console. Authorization is the union of
+ * env ADMIN_TELEGRAM_IDS and active rows here with a known telegram_id. A row may
+ * start username-only (telegram_id NULL) and get its id backfilled on first
+ * contact. Both identity columns are partial-unique so username-only and id-only
+ * rows can coexist.
+ */
+export const managers = pgTable(
+  "managers",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    name: text("name"),
+    telegramId: bigint("telegram_id", { mode: "number" }),
+    telegramUsername: text("telegram_username"),
+    status: entityStatus("status").notNull().default("active"),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow()
+  },
+  (table) => ({
+    telegramIdIdx: uniqueIndex("managers_telegram_id_idx")
+      .on(table.telegramId)
+      .where(sql`${table.telegramId} IS NOT NULL`),
+    telegramUsernameIdx: uniqueIndex("managers_telegram_username_idx")
+      .on(table.telegramUsername)
+      .where(sql`${table.telegramUsername} IS NOT NULL`)
+  })
+);
 
 export const clients = pgTable(
   "clients",
@@ -138,6 +178,11 @@ export const groups = pgTable("groups", {
   trainerId: uuid("trainer_id")
     .notNull()
     .references(() => trainers.id),
+  // The group's home court: required at creation and editable afterward (enforced
+  // by the Zod contract + service). Nullable at the DB layer so the column can be
+  // added without backfilling legacy rows; used as the preferred court at month
+  // generation, falling back per date via the 6-per-slot guard.
+  courtId: uuid("court_id").references(() => courts.id),
   capacity: integer("capacity").notNull(),
   priceSingleRsd: integer("price_single_rsd").notNull(),
   priceMonthRsd: integer("price_month_rsd").notNull(),
@@ -316,6 +361,7 @@ export const notificationTemplates = pgTable(
 export const schema = {
   levels,
   trainers,
+  managers,
   clients,
   groups,
   trainings,

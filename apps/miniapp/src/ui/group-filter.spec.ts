@@ -13,6 +13,8 @@ function makeGroup(overrides: Partial<Group> = {}): Group {
     endTime: "10:30",
     trainerId: "33333333-3333-3333-3333-333333333333",
     trainerName: "Иван",
+    courtId: null,
+    courtNumber: null,
     capacity: 8,
     priceSingleRsd: 1500,
     priceMonthRsd: 12000,

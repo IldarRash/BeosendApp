@@ -36,6 +36,8 @@ const group: Group = {
   endTime: "21:30",
   trainerId: "33333333-3333-3333-3333-333333333333",
   trainerName: "Jovana",
+  courtId: null,
+  courtNumber: null,
   capacity: 12,
   priceSingleRsd: 1500,
   priceMonthRsd: 10000,
@@ -261,6 +263,7 @@ describe("Trainer-scoped reads (T2.3)", () => {
     type: "main",
     status: "active",
     telegramId: TRAINER_TG,
+    telegramUsername: null,
     ...over
   });
 

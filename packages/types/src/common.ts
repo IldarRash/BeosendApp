@@ -19,6 +19,26 @@ export const rsd = z.number().int().nonnegative();
 export const entityStatus = z.enum(["active", "inactive"]);
 export type EntityStatus = z.infer<typeof entityStatus>;
 
+/**
+ * Normalize a Telegram @username for storage/comparison: trim, drop a leading
+ * "@", lowercase. Telegram usernames are case-insensitive, so we store them
+ * lowercased and match on the normalized form (reused by staff username linking).
+ */
+export function normalizeUsername(value: string): string {
+  return value.trim().replace(/^@/, "").toLowerCase();
+}
+
+/**
+ * Input contract for a Telegram @username: accepts an optional leading "@" and
+ * any case, normalizes it (see normalizeUsername), then enforces Telegram's rule
+ * of 5–32 chars of [a-z0-9_]. Stored without the "@". Used for staff (trainers /
+ * managers) added by tag before their numeric id is known.
+ */
+export const telegramUsername = z
+  .string()
+  .transform(normalizeUsername)
+  .pipe(z.string().regex(/^[a-z0-9_]{5,32}$/, "expected a Telegram username (5–32 chars)"));
+
 /** Slot width for the 30-minute court/training grid. */
 export const SLOT_MINUTES = 30;
 

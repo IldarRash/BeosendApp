@@ -1,5 +1,5 @@
-import { describe, expect, it } from "vitest";
-import { isAdmin, loadEnv } from "./env";
+import { afterEach, describe, expect, it } from "vitest";
+import { isAdmin, loadEnv, setDbAdminIds } from "./env";
 
 const base = {
   DATABASE_URL: "postgres://u:p@localhost:5432/db",
@@ -71,5 +71,36 @@ describe("loadEnv", () => {
     const env = loadEnv({ ...base, ADMIN_TELEGRAM_IDS: "111,222" });
     expect(isAdmin(env, 111)).toBe(true);
     expect(isAdmin(env, "999")).toBe(false);
+  });
+});
+
+describe("isAdmin DB-backed admin set (setDbAdminIds)", () => {
+  // The DB set is process-global; reset it after each test to avoid leakage.
+  afterEach(() => setDbAdminIds([]));
+
+  const env = loadEnv({ ...base, ADMIN_TELEGRAM_IDS: "111" });
+
+  it("admits an id present only in the DB set (env OR db)", () => {
+    expect(isAdmin(env, 555)).toBe(false);
+    setDbAdminIds([555, 666]);
+    expect(isAdmin(env, 555)).toBe(true);
+    expect(isAdmin(env, 666)).toBe(true);
+    // Env admins keep working alongside the DB set.
+    expect(isAdmin(env, 111)).toBe(true);
+  });
+
+  it("removes a DB admin when the set is replaced (deactivation)", () => {
+    setDbAdminIds([555]);
+    expect(isAdmin(env, 555)).toBe(true);
+    setDbAdminIds([]); // manager deactivated → no longer admin
+    expect(isAdmin(env, 555)).toBe(false);
+    expect(isAdmin(env, 111)).toBe(true); // env admin unaffected
+  });
+
+  it("normalizes ids to strings (numeric or string inputs match)", () => {
+    setDbAdminIds([777]);
+    expect(isAdmin(env, "777")).toBe(true);
+    setDbAdminIds(["888"]);
+    expect(isAdmin(env, 888)).toBe(true);
   });
 });

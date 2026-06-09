@@ -31,8 +31,11 @@ function bearer(token: string): GuardReq {
   return { headers: { authorization: `Bearer ${token}` } };
 }
 
+/** resolveSession (used by the guard) doesn't link; a no-op staff linker satisfies the ctor. */
+const noopLinking = { linkPendingStaff: async () => undefined } as never;
+
 describe("AdminAuthGuard (client→admin escalation barrier)", () => {
-  const guard = new AdminAuthGuard(new AuthService(env));
+  const guard = new AdminAuthGuard(new AuthService(env, noopLinking));
 
   it("admits an admin-scoped token and bridges the verified id", () => {
     const token = signSessionToken(

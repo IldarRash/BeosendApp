@@ -43,14 +43,16 @@ const sampleTrainers: Trainer[] = [
     name: "Милена",
     type: "main",
     status: "active",
-    telegramId: 4242
+    telegramId: 4242,
+    telegramUsername: null
   },
   {
     id: "22222222-2222-2222-2222-222222222222",
     name: "Данило",
     type: "guest",
     status: "active",
-    telegramId: null
+    telegramId: null,
+    telegramUsername: "danilo"
   }
 ];
 
@@ -72,9 +74,11 @@ describe("Trainers page", () => {
     expect(screen.getByText("Данило")).toBeTruthy();
     expect(screen.getByText("Основной")).toBeTruthy();
     expect(screen.getByText("Приглашённый")).toBeTruthy();
-    // Linked id shown; unlinked trainer flagged.
+    // Linked id shown; username-only trainer shown as @tag and flagged pending.
     expect(screen.getByText("4242")).toBeTruthy();
-    expect(screen.getByText("Не привязан")).toBeTruthy();
+    expect(screen.getByText("@danilo")).toBeTruthy();
+    expect(screen.getByText("Привязан")).toBeTruthy();
+    expect(screen.getByText("Ожидает привязки")).toBeTruthy();
   });
 
   it("shows a loading state", () => {
@@ -101,12 +105,14 @@ describe("Trainers page", () => {
     fireEvent.change(within(dialog).getByLabelText("Имя"), { target: { value: "Анна" } });
     fireEvent.change(within(dialog).getByLabelText("Тип"), { target: { value: "guest" } });
     fireEvent.change(within(dialog).getByLabelText("Telegram-ID"), { target: { value: "777" } });
+    fireEvent.change(within(dialog).getByLabelText("Username"), { target: { value: "anna" } });
     fireEvent.click(within(dialog).getByRole("button", { name: "Сохранить" }));
     expect(createMutate).toHaveBeenCalledTimes(1);
     expect(createMutate.mock.calls[0][0]).toEqual({
       name: "Анна",
       type: "guest",
-      telegramId: 777
+      telegramId: 777,
+      telegramUsername: "anna"
     });
   });
 
@@ -119,7 +125,8 @@ describe("Trainers page", () => {
     expect(createMutate.mock.calls[0][0]).toEqual({
       name: "Без бота",
       type: "main",
-      telegramId: null
+      telegramId: null,
+      telegramUsername: null
     });
   });
 
@@ -132,7 +139,13 @@ describe("Trainers page", () => {
     expect(updateMutate).toHaveBeenCalledTimes(1);
     expect(updateMutate.mock.calls[0][0]).toEqual({
       id: sampleTrainers[0].id,
-      input: { name: "Милена", type: "main", status: "inactive", telegramId: 4242 }
+      input: {
+        name: "Милена",
+        type: "main",
+        status: "inactive",
+        telegramId: 4242,
+        telegramUsername: null
+      }
     });
   });
 

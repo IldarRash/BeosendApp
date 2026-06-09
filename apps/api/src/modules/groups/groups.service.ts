@@ -24,6 +24,7 @@ import type {
 } from "@beosand/types";
 import { ENV } from "../../config/config.module";
 import { ClientsRepository } from "../clients/clients.repository";
+import { CourtsRepository } from "../courts/courts.repository";
 import { TrainingsService } from "../trainings/trainings.service";
 import { GroupsRepository } from "./groups.repository";
 
@@ -39,6 +40,7 @@ export class GroupsService {
   constructor(
     private readonly groups: GroupsRepository,
     private readonly clients: ClientsRepository,
+    private readonly courts: CourtsRepository,
     // forwardRef: GroupsModule <-> TrainingsModule are mutually dependent.
     @Inject(forwardRef(() => TrainingsService))
     private readonly trainings: TrainingsService,
@@ -109,6 +111,7 @@ export class GroupsService {
   async create(actorTelegramId: number, input: CreateGroupInput): Promise<Group> {
     this.assertAdmin(actorTelegramId);
     this.assertTimeOrder(input.startTime, input.endTime);
+    await this.assertActiveCourt(input.courtId);
     return this.groups.create(input);
   }
 
@@ -122,6 +125,11 @@ export class GroupsService {
       return existing;
     }
     this.assertTimeOrder(patch.startTime ?? existing.startTime, patch.endTime ?? existing.endTime);
+    // Validate only when the court is being changed to a concrete value; null
+    // clears it (revert to auto-pick) and undefined leaves it untouched.
+    if (patch.courtId != null) {
+      await this.assertActiveCourt(patch.courtId);
+    }
     const updated = await this.groups.update(id, patch);
     if (!updated) {
       throw new NotFoundException(`Group ${id} not found`);
@@ -170,6 +178,14 @@ export class GroupsService {
     }
     if (endTime <= startTime) {
       throw new BadRequestException("endTime must be after startTime");
+    }
+  }
+
+  /** The group's home court must reference an active court (capacity source). */
+  private async assertActiveCourt(courtId: string): Promise<void> {
+    const active = await this.courts.findActive();
+    if (!active.some((court) => court.id === courtId)) {
+      throw new BadRequestException("courtId must reference an active court");
     }
   }
 

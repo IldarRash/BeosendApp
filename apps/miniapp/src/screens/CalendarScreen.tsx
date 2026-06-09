@@ -1,21 +1,29 @@
 import { useMemo, useState } from "react";
 import type {
+  AvailableSlotsQuery,
   BookingStatus,
   CourtRequestStatus,
   MyBookingItem,
-  MyCourtRequestItem
+  MyCourtRequestItem,
+  SlotCard
 } from "@beosand/types";
-import { useMyBookings, useMyCourtRequests } from "../api/hooks";
+import { useAvailableSlots, useMyBookings, useMyCourtRequests } from "../api/hooks";
 import { useT } from "../i18n/LanguageProvider";
 import { hapticSelection } from "../tg/buttons";
 import {
+  activeBookedTrainingIds,
   dayOfMonth,
+  daysInMonth,
+  dedupeAvailableSlots,
   indexByDate,
+  isoDate,
+  kindsPresent,
   monthWeeks,
   shiftMonth
 } from "../ui/calendar";
 import { formatRsd, formatTimeRange, monthKey, todayLocalDate } from "../ui/format";
 import { ErrorState, LoadingState } from "../ui/StateView";
+import { useSlotBookingFlow } from "./useSlotBookingFlow";
 
 /** Monday-first weekday header keys (reusing the short weekday labels). */
 const WEEKDAY_KEYS = [
@@ -36,7 +44,8 @@ const WEEKDAY_KEYS = [
  */
 type CalendarItem =
   | { kind: "training"; date: string; id: string; booking: MyBookingItem }
-  | { kind: "court"; date: string; id: string; court: MyCourtRequestItem };
+  | { kind: "court"; date: string; id: string; court: MyCourtRequestItem }
+  | { kind: "available"; date: string; id: string; slot: SlotCard };
 
 /** The `.schip` variant for a training booking status (mirrors BookingItemCard's tone). */
 function trainingVariant(status: BookingStatus): "co" | "ok" | "warn" | "muted" {
@@ -112,7 +121,19 @@ export function CalendarScreen(): JSX.Element {
   const past = useMyBookings("past");
   const courts = useMyCourtRequests();
 
-  const isLoading = upcoming.isLoading || past.isLoading || courts.isLoading;
+  // Available bookable slots for the whole visible month (its first → last day). The
+  // server owns availability over this window; the Mini App only produces the range.
+  const slotsQuery = useMemo<AvailableSlotsQuery>(() => {
+    const from = isoDate(cursor.year, cursor.month, 1);
+    const to = isoDate(cursor.year, cursor.month, daysInMonth(cursor.year, cursor.month));
+    return { from, to } satisfies AvailableSlotsQuery;
+  }, [cursor]);
+  const available = useAvailableSlots(slotsQuery);
+
+  const flow = useSlotBookingFlow();
+
+  const isLoading =
+    upcoming.isLoading || past.isLoading || courts.isLoading || available.isLoading;
   const errorMessage =
     upcoming.error instanceof Error
       ? upcoming.error.message
@@ -120,14 +141,24 @@ export function CalendarScreen(): JSX.Element {
         ? past.error.message
         : courts.error instanceof Error
           ? courts.error.message
-          : upcoming.isError || past.isError || courts.isError
-            ? t("miniapp.calendar.errorBody")
-            : undefined;
+          : available.error instanceof Error
+            ? available.error.message
+            : upcoming.isError || past.isError || courts.isError || available.isError
+              ? t("miniapp.calendar.errorBody")
+              : undefined;
 
-  // Merge the two booking scopes + the court feed into a single date-indexed map.
+  // Merge the two booking scopes + the court feed + bookable slots into one date-indexed
+  // map. CRITICAL: drop available slots the user is already actively booked into, so a
+  // booked training never shows as BOTH "available" (green) and "my booking" (coral).
   const byDate = useMemo(() => {
+    const bookings = [...(upcoming.data ?? []), ...(past.data ?? [])];
+    const bookedIds = activeBookedTrainingIds(bookings);
+    const availableSlots = dedupeAvailableSlots(available.data ?? [], bookedIds);
     const items: CalendarItem[] = [
-      ...[...(upcoming.data ?? []), ...(past.data ?? [])].map(
+      ...availableSlots.map(
+        (s): CalendarItem => ({ kind: "available", date: s.date, id: s.trainingId, slot: s })
+      ),
+      ...bookings.map(
         (b): CalendarItem => ({ kind: "training", date: b.date, id: b.bookingId, booking: b })
       ),
       ...(courts.data ?? []).map(
@@ -135,7 +166,7 @@ export function CalendarScreen(): JSX.Element {
       )
     ];
     return indexByDate(items);
-  }, [upcoming.data, past.data, courts.data]);
+  }, [upcoming.data, past.data, courts.data, available.data]);
 
   const weeks = useMemo(() => monthWeeks(cursor.year, cursor.month), [cursor]);
   const monthLabel = `${t(monthKey(cursor.month))} ${cursor.year}`;
@@ -150,6 +181,11 @@ export function CalendarScreen(): JSX.Element {
     hapticSelection();
     setSelectedDate((prev) => (prev === iso ? null : iso));
   };
+
+  // The chosen-slot confirm / waitlist sub-flow takes over the whole screen when active.
+  if (flow.activeSubView) {
+    return flow.activeSubView;
+  }
 
   if (isLoading) {
     return (
@@ -171,6 +207,21 @@ export function CalendarScreen(): JSX.Element {
   return (
     <div className="screen screen--no-mainbutton">
       <h1 className="screen__title">{t("miniapp.calendar.title")}</h1>
+
+      <div className="cal-legend" role="list" aria-label={t("miniapp.calendar.legendAria")}>
+        <span className="cal-legend__item" role="listitem">
+          <span className="cal-cell__dot cal-cell__dot--available" aria-hidden="true" />
+          {t("miniapp.calendar.kindAvailable")}
+        </span>
+        <span className="cal-legend__item" role="listitem">
+          <span className="cal-cell__dot cal-cell__dot--court" aria-hidden="true" />
+          {t("miniapp.calendar.kindCourt")}
+        </span>
+        <span className="cal-legend__item" role="listitem">
+          <span className="cal-cell__dot cal-cell__dot--training" aria-hidden="true" />
+          {t("miniapp.calendar.kindTraining")}
+        </span>
+      </div>
 
       <div className="cal-nav" role="group" aria-label={t("miniapp.calendar.navAria")}>
         <button
@@ -230,9 +281,11 @@ export function CalendarScreen(): JSX.Element {
                   <span className={iso === today ? "cal-cell__num cal-cell__num--today" : "cal-cell__num"}>
                     {dayOfMonth(iso)}
                   </span>
-                  {(byDate.get(iso)?.length ?? 0) > 0 && (
-                    <span className="cal-cell__dot" aria-hidden="true" />
-                  )}
+                  <span className="cal-cell__dots" aria-hidden="true">
+                    {kindsPresent(byDate.get(iso)).map((kind) => (
+                      <span key={kind} className={`cal-cell__dot cal-cell__dot--${kind}`} />
+                    ))}
+                  </span>
                 </button>
               )
             )}
@@ -241,7 +294,7 @@ export function CalendarScreen(): JSX.Element {
       </div>
 
       {selectedDate && (
-        <DayAgenda items={agenda} emptyVisible />
+        <DayAgenda items={agenda} emptyVisible onBook={flow.openConfirm} />
       )}
     </div>
   );
@@ -250,10 +303,13 @@ export function CalendarScreen(): JSX.Element {
 /** The agenda list for the selected day: one row per item, KIND-tagged + status chip. */
 function DayAgenda({
   items,
-  emptyVisible
+  emptyVisible,
+  onBook
 }: {
   items: ReadonlyArray<CalendarItem>;
   emptyVisible: boolean;
+  /** Open the confirm step for an available slot (the AvailableRow "book" tap). */
+  onBook: (slot: SlotCard) => void;
 }): JSX.Element | null {
   const t = useT();
 
@@ -267,14 +323,66 @@ function DayAgenda({
 
   return (
     <div className="card" role="list" aria-label={t("miniapp.calendar.agendaAria")}>
-      {items.map((item) =>
-        item.kind === "training" ? (
-          <TrainingRow key={item.id} item={item.booking} />
-        ) : (
-          <CourtRow key={item.id} item={item.court} />
-        )
-      )}
+      {items.map((item) => {
+        switch (item.kind) {
+          case "available":
+            return <AvailableRow key={item.id} slot={item.slot} onBook={onBook} />;
+          case "training":
+            return <TrainingRow key={item.id} item={item.booking} />;
+          case "court":
+            return <CourtRow key={item.id} item={item.court} />;
+        }
+      })}
     </div>
+  );
+}
+
+/**
+ * One available-slot agenda row: a green kind tag, time, trainer · level, free-seats
+ * chip, server price, and a "Записаться" action that enters the shared booking flow.
+ * The user is NOT yet booked into this training — booking it moves the slot to their
+ * bookings on refetch. Interaction layer only: every value is the API's.
+ */
+function AvailableRow({
+  slot,
+  onBook
+}: {
+  slot: SlotCard;
+  onBook: (slot: SlotCard) => void;
+}): JSX.Element {
+  const t = useT();
+  const timeRange = formatTimeRange(slot.startTime, slot.endTime);
+  const subtitle = `${slot.trainerName} · ${slot.levelName}`;
+  const priceLabel = t("miniapp.browse.price", { price: formatRsd(slot.priceSingleRsd) });
+  const seatsLabel = t("miniapp.browse.seats", { count: slot.freeSeats });
+  const bookLabel = t("miniapp.browse.bookAria");
+
+  return (
+    <button
+      type="button"
+      className="lrow"
+      role="listitem"
+      aria-label={`${t("miniapp.calendar.kindAvailable")}. ${timeRange}. ${subtitle}. ${seatsLabel}. ${priceLabel}. ${bookLabel}`}
+      onClick={() => onBook(slot)}
+    >
+      <div className="lrow__main">
+        <div className="cal-row__top">
+          <span className="cal-kind cal-kind--available">
+            {t("miniapp.calendar.kindAvailable")}
+          </span>
+          <span className="lrow__title">{timeRange}</span>
+        </div>
+        <div className="lrow__sub">{subtitle}</div>
+        <div className="lrow__sub">{priceLabel}</div>
+        <div style={{ marginTop: 6 }}>
+          <span className="schip schip--avail">
+            <span className="dot" aria-hidden="true" />
+            {seatsLabel}
+          </span>
+        </div>
+      </div>
+      <span className="chevron" aria-hidden="true">›</span>
+    </button>
   );
 }
 

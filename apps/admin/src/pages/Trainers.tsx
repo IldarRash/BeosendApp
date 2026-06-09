@@ -31,11 +31,23 @@ export function Trainers(): JSX.Element {
     {
       key: "telegram",
       header: t("admin.trainers.colTelegram"),
+      render: (row) => (
+        <>
+          {row.telegramUsername ? <code>@{row.telegramUsername}</code> : null}
+          {row.telegramUsername && row.telegramId !== null ? " " : null}
+          {row.telegramId !== null ? <code>{row.telegramId}</code> : null}
+          {row.telegramUsername === null && row.telegramId === null ? "—" : null}
+        </>
+      )
+    },
+    {
+      key: "linked",
+      header: t("admin.trainers.colLinked"),
       render: (row) =>
-        row.telegramId === null ? (
-          <span className="state state--loading">{t("admin.trainers.notLinked")}</span>
+        row.telegramId !== null ? (
+          <span className="tag tag--ok">{t("admin.trainers.linked")}</span>
         ) : (
-          <code>{row.telegramId}</code>
+          <span className="tag tag--warn">{t("admin.trainers.pending")}</span>
         )
     },
     { key: "status", header: t("admin.trainers.colStatus"), render: (row) => statusLabel(row.status) },
@@ -99,6 +111,9 @@ function TrainerEditor({ state, onClose }: TrainerEditorProps): JSX.Element {
   const [telegramId, setTelegramId] = useState<number | null>(
     isEdit ? state.trainer.telegramId : null
   );
+  const [username, setUsername] = useState(
+    isEdit ? (state.trainer.telegramUsername ?? "") : ""
+  );
   const [status, setStatus] = useState<Trainer["status"]>(
     isEdit ? state.trainer.status : "active"
   );
@@ -108,9 +123,11 @@ function TrainerEditor({ state, onClose }: TrainerEditorProps): JSX.Element {
 
   function handleSubmit(event: React.FormEvent): void {
     event.preventDefault();
+    const trimmedUsername = username.trim();
+    const telegramUsername = trimmedUsername.length > 0 ? trimmedUsername : null;
     if (isEdit) {
       update.mutate(
-        { id: state.trainer.id, input: { name, type, status, telegramId } },
+        { id: state.trainer.id, input: { name, type, status, telegramId, telegramUsername } },
         {
           onSuccess: () => {
             toast.notify(t("admin.trainers.updated"), "success");
@@ -120,7 +137,7 @@ function TrainerEditor({ state, onClose }: TrainerEditorProps): JSX.Element {
       );
     } else {
       create.mutate(
-        { name, type, telegramId },
+        { name, type, telegramId, telegramUsername },
         {
           onSuccess: () => {
             toast.notify(t("admin.trainers.created"), "success");
@@ -169,6 +186,13 @@ function TrainerEditor({ state, onClose }: TrainerEditorProps): JSX.Element {
           value={telegramId}
           onValueChange={setTelegramId}
           hint={t("admin.trainers.telegramHint")}
+        />
+        <TextField
+          label={t("admin.field.username")}
+          value={username}
+          onChange={(event) => setUsername(event.target.value)}
+          autoComplete="off"
+          hint={t("admin.trainers.usernameHint")}
         />
         {isEdit ? (
           <SelectField

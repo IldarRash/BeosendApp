@@ -22,6 +22,7 @@ import {
   miniappSessionSchema
 } from "@beosand/types";
 import { ENV } from "../../config/config.module";
+import { StaffLinkingService } from "../managers/staff-linking.service";
 import { signSessionToken, verifySessionToken } from "./session-token";
 
 /** Telegram Login Widget freshness window: reject payloads older than 24h. */
@@ -37,16 +38,23 @@ const MINIAPP_AUTH_DATE_MAX_AGE_SECONDS = 5 * 60;
  */
 @Injectable()
 export class AuthService {
-  constructor(@Inject(ENV) private readonly env: Env) {}
+  constructor(
+    @Inject(ENV) private readonly env: Env,
+    private readonly staffLinking: StaffLinkingService
+  ) {}
 
   /**
    * Verify a Telegram Login Widget payload and, if it belongs to an admin, issue
    * a session. Throws Unauthorized on a bad/stale signature, Forbidden on a
-   * valid but non-admin id.
+   * valid but non-admin id. Before the admin gate we link any manager/trainer
+   * added by @username to this now-verified id, so a manager added by tag becomes
+   * an admin the first time they log in.
    */
-  loginWithTelegram(payload: TelegramLoginPayload): AdminSession {
+  async loginWithTelegram(payload: TelegramLoginPayload): Promise<AdminSession> {
     this.verifyWidgetSignature(payload);
     this.assertFresh(payload.auth_date);
+
+    await this.staffLinking.linkPendingStaff(payload.id, payload.username);
 
     if (!isAdmin(this.env, payload.id)) {
       throw new ForbiddenException("Admin privileges required");
@@ -69,7 +77,7 @@ export class AuthService {
    * ADMIN_TELEGRAM_IDS. An admin opening the Mini App is acting as a client
    * there; admin powers live behind the Login Widget seam and the admin guard.
    */
-  loginWithMiniapp(initData: string): MiniappSession {
+  async loginWithMiniapp(initData: string): Promise<MiniappSession> {
     const fields = this.verifyInitData(initData);
 
     const authDate = Number(fields.get("auth_date"));
@@ -82,6 +90,8 @@ export class AuthService {
     }
 
     const user = this.parseMiniappUser(fields.get("user"));
+    // First Mini App contact also links a staff member added by @username.
+    await this.staffLinking.linkPendingStaff(user.telegramId, user.username);
     const token = signSessionToken(
       { sub: user.telegramId, name: user.name, scope: "client", username: user.username },
       this.env.ADMIN_SESSION_SECRET

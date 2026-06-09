@@ -63,6 +63,13 @@ const ICONS: Record<string, JSX.Element> = {
       <path d="M5 21c0-3.9 3.1-7 7-7s7 3.1 7 7" />
     </Icon>
   ),
+  managers: (
+    <Icon>
+      <circle cx="12" cy="7" r="3.5" />
+      <path d="M5 21c0-3.9 3.1-7 7-7 1 0 2 .2 2.9.5" />
+      <path d="M19 13l3 1.3v2.4c0 2.2-1.3 3.6-3 4.3-1.7-.7-3-2.1-3-4.3v-2.4L19 13z" />
+    </Icon>
+  ),
   levels: (
     <Icon>
       <path d="M5 20V10M12 20V4M19 20v-7" />

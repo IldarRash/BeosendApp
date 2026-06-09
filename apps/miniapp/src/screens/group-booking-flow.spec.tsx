@@ -50,6 +50,8 @@ const GROUP: Group = {
   endTime: "10:30",
   trainerId: TRAINER_ID,
   trainerName: "Марко",
+  courtId: null,
+  courtNumber: null,
   capacity: 8,
   priceSingleRsd: 1500,
   priceMonthRsd: 12000,

@@ -267,6 +267,8 @@ export const miniappSr: Record<string, string> = {
   "miniapp.calendar.emptyDay": "Tog dana nema prijava ni zahteva.",
   "miniapp.calendar.kindTraining": "Trening",
   "miniapp.calendar.kindCourt": "Teren",
+  "miniapp.calendar.kindAvailable": "Dostupno",
+  "miniapp.calendar.legendAria": "Legenda kalendara",
   "miniapp.calendar.errorBody": "Učitavanje kalendara nije uspelo. Pokušajte ponovo.",
   "miniapp.calendar.courtStatus.pending": "Čeka potvrdu",
   "miniapp.calendar.courtStatus.confirmed": "Potvrđeno",

@@ -13,6 +13,7 @@ import { CourtRequestsModule } from "./modules/court-requests/court-requests.mod
 import { GroupsModule } from "./modules/groups/groups.module";
 import { I18nModule } from "./modules/i18n/i18n.module";
 import { LevelsModule } from "./modules/levels/levels.module";
+import { ManagersModule } from "./modules/managers/managers.module";
 import { NotificationsModule } from "./modules/notifications/notifications.module";
 import { NotificationTemplatesModule } from "./modules/notification-templates/notification-templates.module";
 import { SubscriptionsModule } from "./modules/subscriptions/subscriptions.module";
@@ -34,6 +35,7 @@ import { WaitlistModule } from "./modules/waitlist/waitlist.module";
     AuthModule,
     LevelsModule,
     TrainersModule,
+    ManagersModule,
     GroupsModule,
     TrainingsModule,
     ClientsModule,

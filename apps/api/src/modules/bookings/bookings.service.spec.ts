@@ -380,6 +380,8 @@ const activeGroup: Group = {
   endTime: "19:30",
   trainerId: "66666666-6666-6666-6666-666666666666",
   trainerName: "Jovana",
+  courtId: null,
+  courtNumber: null,
   capacity: 6,
   priceSingleRsd: 1200,
   priceMonthRsd: 8000,
@@ -1012,6 +1014,7 @@ describe("BookingsService.markAttendance (T2.3)", () => {
     type: "main",
     status: "active",
     telegramId: TRAINER_TG,
+    telegramUsername: null,
     ...over
   });
 
@@ -1143,13 +1146,21 @@ describe("BookingsService.createManual (Feature 5 — admin/trainer manual booki
     trainersRepo = new FakeTrainersRepository();
     // The training's trainer (TRAINER_ID) maps to TRAINER_ID_TG; a different trainer to OTHER_TRAINER_ID_TG.
     trainersRepo.trainers = [
-      { id: TRAINER_ID, name: "Coach", type: "main", status: "active", telegramId: TRAINER_ID_TG },
+      {
+        id: TRAINER_ID,
+        name: "Coach",
+        type: "main",
+        status: "active",
+        telegramId: TRAINER_ID_TG,
+        telegramUsername: null
+      },
       {
         id: OTHER_TRAINER_DB_ID,
         name: "Other",
         type: "main",
         status: "active",
-        telegramId: OTHER_TRAINER_ID_TG
+        telegramId: OTHER_TRAINER_ID_TG,
+        telegramUsername: null
       }
     ];
     confirmationCalls = [];
@@ -1576,14 +1587,16 @@ const TRAINER_WITH_TG: Trainer = {
   name: "Coach",
   type: "main",
   status: "active",
-  telegramId: TRAINER_ID_TG
+  telegramId: TRAINER_ID_TG,
+  telegramUsername: null
 };
 const TRAINER_NO_TG: Trainer = {
   id: TRAINER_ID,
   name: "Coach",
   type: "main",
   status: "active",
-  telegramId: null
+  telegramId: null,
+  telegramUsername: null
 };
 
 describe("BookingsService.createSingle — pending vs auto-confirm (trainer-confirmation)", () => {
@@ -1703,7 +1716,8 @@ describe("BookingsService.confirmBooking (trainer-confirmation)", () => {
         name: "Other",
         type: "main",
         status: "active",
-        telegramId: OTHER_TRAINER_ID_TG
+        telegramId: OTHER_TRAINER_ID_TG,
+        telegramUsername: null
       }
     ];
     notifications = makeNotificationsSpy();
@@ -1817,7 +1831,8 @@ describe("BookingsService.declineBooking (trainer-confirmation)", () => {
         name: "Other",
         type: "main",
         status: "active",
-        telegramId: OTHER_TRAINER_ID_TG
+        telegramId: OTHER_TRAINER_ID_TG,
+        telegramUsername: null
       }
     ];
     notifications = makeNotificationsSpy();
@@ -1964,7 +1979,8 @@ describe("BookingsService.confirm/declineSubscription (trainer-confirmation, mon
         name: "Other",
         type: "main",
         status: "active",
-        telegramId: OTHER_TRAINER_ID_TG
+        telegramId: OTHER_TRAINER_ID_TG,
+        telegramUsername: null
       }
     ];
     notifications = makeNotificationsSpy();

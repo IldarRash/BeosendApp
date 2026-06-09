@@ -41,7 +41,8 @@ const MAIN_TRAINER: Trainer = {
   name: "Марко",
   type: "main",
   status: "active",
-  telegramId: 777
+  telegramId: 777,
+  telegramUsername: null
 };
 
 const INACTIVE_TRAINER: Trainer = {
@@ -49,7 +50,8 @@ const INACTIVE_TRAINER: Trainer = {
   name: "Старый Тренер",
   type: "guest",
   status: "inactive",
-  telegramId: 888
+  telegramId: 888,
+  telegramUsername: null
 };
 
 interface FakeApi {

@@ -72,6 +72,8 @@ const GROUP: Group = {
   endTime: "09:30",
   trainerId: "33333333-3333-3333-3333-333333333333",
   trainerName: "Марко",
+  courtId: null,
+  courtNumber: null,
   capacity: 12,
   priceSingleRsd: 1500,
   priceMonthRsd: 9000,
@@ -83,7 +85,8 @@ const TRAINER: Trainer = {
   name: "Анна",
   type: "main",
   status: "active",
-  telegramId: null
+  telegramId: null,
+  telegramUsername: null
 };
 
 const COURTS: Court[] = [

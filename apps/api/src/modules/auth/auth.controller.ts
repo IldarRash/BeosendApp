@@ -24,14 +24,14 @@ export class AuthController {
 
   /** Exchange a verified Telegram Login Widget payload for an admin session. */
   @Post("telegram")
-  loginWithTelegram(@Body() body: unknown): AdminSession {
+  loginWithTelegram(@Body() body: unknown): Promise<AdminSession> {
     const payload = validate(telegramLoginPayloadSchema, body ?? {});
     return this.auth.loginWithTelegram(payload);
   }
 
   /** Exchange a verified Telegram Mini App initData string for a client session. */
   @Post("miniapp")
-  loginWithMiniapp(@Body() body: unknown): MiniappSession {
+  loginWithMiniapp(@Body() body: unknown): Promise<MiniappSession> {
     const { initData } = validate(miniappAuthSchema, body ?? {});
     return this.auth.loginWithMiniapp(initData);
   }
