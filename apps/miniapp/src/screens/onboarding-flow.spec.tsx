@@ -218,7 +218,7 @@ describe("Router onboarding decision", () => {
     renderWithProviders(<Router />);
 
     // S2 landing is the Home hub (the section-list menu), not the wizard.
-    await waitFor(() => expect(screen.getByText("Расписание")).toBeTruthy());
+    await waitFor(() => expect(screen.getByText("Расписание тренировок")).toBeTruthy());
     expect(screen.getByText("Тренировки")).toBeTruthy();
     expect(within(document.body).queryByText("Шаг 1 из 3")).toBeNull();
   });

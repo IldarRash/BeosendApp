@@ -10,6 +10,7 @@ import type {
 import { AppShell } from "../ui/AppShell";
 import { Button } from "../ui/Button";
 import { DataTable, type Column } from "../ui/DataTable";
+import { RosterList } from "../ui/RosterList";
 import { TextField } from "../ui/Field";
 import { useToast } from "../ui/Toast";
 import { useT } from "../i18n/LanguageProvider";
@@ -26,13 +27,6 @@ function bookingStatusLabel(status: BookingStatus, t: Translate): string {
 /** Catalog key for a training's status, used in the candidate picker. */
 function trainingStatusLabel(status: TrainingStatus, t: Translate): string {
   return t(`admin.attendance.training.${status}`);
-}
-
-/** Tag modifier per booking status — tint only; the rendered value stays the API's. */
-function statusTagClass(status: BookingStatus): string {
-  if (status === "attended") return "tag tag--ok";
-  if (status === "no_show") return "tag tag--warn";
-  return "tag";
 }
 
 /** Today's date as an ISO `yyyy-mm-dd` string for the default range. */
@@ -119,41 +113,6 @@ export function Attendance(): JSX.Element {
     }
   ];
 
-  const rosterColumns: Column<RosterParticipant>[] = [
-    { key: "name", header: t("admin.attendance.colClient"), render: (p) => p.clientName },
-    {
-      key: "status",
-      header: t("admin.attendance.colAttendance"),
-      render: (p) => (
-        <span className={statusTagClass(p.bookingStatus)}>
-          {bookingStatusLabel(p.bookingStatus, t)}
-        </span>
-      )
-    },
-    {
-      key: "actions",
-      header: t("admin.attendance.colMark"),
-      render: (p) => (
-        <div className="cluster">
-          <Button
-            variant="ghost"
-            disabled={isFuture || mark.isPending || p.bookingStatus === "attended"}
-            onClick={() => markBooking(p, "attended")}
-          >
-            {t("admin.attendance.markAttended")}
-          </Button>
-          <Button
-            variant="ghost"
-            disabled={isFuture || mark.isPending || p.bookingStatus === "no_show"}
-            onClick={() => markBooking(p, "no_show")}
-          >
-            {t("admin.attendance.markNoShow")}
-          </Button>
-        </div>
-      )
-    }
-  ];
-
   return (
     <AppShell>
       <header className="page-head">
@@ -224,12 +183,32 @@ export function Attendance(): JSX.Element {
                 {t("admin.attendance.futureNote")}
               </p>
             ) : null}
-            <DataTable
+            <RosterList
+              participants={roster.data.participants}
+              t={t}
               caption={t("admin.attendance.rosterCaption")}
-              columns={rosterColumns}
-              rows={roster.data.participants}
-              rowKey={(p) => p.bookingId}
               emptyLabel={t("admin.attendance.rosterEmpty")}
+              actions={{
+                header: t("admin.attendance.colMark"),
+                render: (p) => (
+                  <div className="cluster">
+                    <Button
+                      variant="ghost"
+                      disabled={isFuture || mark.isPending || p.bookingStatus === "attended"}
+                      onClick={() => markBooking(p, "attended")}
+                    >
+                      {t("admin.attendance.markAttended")}
+                    </Button>
+                    <Button
+                      variant="ghost"
+                      disabled={isFuture || mark.isPending || p.bookingStatus === "no_show"}
+                      onClick={() => markBooking(p, "no_show")}
+                    >
+                      {t("admin.attendance.markNoShow")}
+                    </Button>
+                  </div>
+                )
+              }}
             />
           </section>
         )}

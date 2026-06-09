@@ -5,14 +5,15 @@ import {
   isoDate,
   monthWeeks,
   type ListTrainingsQuery,
-  type TrainingCalendarItem,
-  type TrainingStatus
+  type TrainingCalendarItem
 } from "@beosand/types";
 import { Button } from "../ui/Button";
 import { Modal } from "../ui/Modal";
 import { SelectField, type SelectOption } from "../ui/Field";
 import { useToast } from "../ui/Toast";
 import { useT } from "../i18n/LanguageProvider";
+import { RosterSection } from "../ui/RosterSection";
+import { TrainingDetailBody, statusLabel } from "../ui/TrainingDetailBody";
 import { useGroups } from "../hooks/useGroups";
 import { useTrainers } from "../hooks/useTrainers";
 import { useTrainingDetail } from "../hooks/useTrainingDetail";
@@ -20,18 +21,6 @@ import { useTrainingsCalendar } from "../hooks/useTrainingsCalendar";
 import { useCancelTraining } from "../hooks/useTrainings";
 
 type Translate = (key: string, params?: Record<string, string | number>) => string;
-
-/** Catalog key for a training status the API returns (never recomputed here). */
-function statusLabel(status: TrainingStatus, t: Translate): string {
-  return t(`admin.trainings.status${status.charAt(0).toUpperCase()}${status.slice(1)}`);
-}
-
-/** Status-tag tone for the detail popup (open = ok, cancelled = warn). */
-function statusTone(status: TrainingStatus): string {
-  if (status === "open") return "tag--ok";
-  if (status === "cancelled") return "tag--warn";
-  return "";
-}
 
 /** Human-readable error from a failed query (the API decides the text). */
 function errorText(error: unknown, t: Translate): string {
@@ -381,6 +370,7 @@ function TrainingDetailModal({
       ) : item ? (
         <div className="stack">
           <TrainingDetailBody item={item} t={t} />
+          <RosterSection trainingId={item.id} t={t} />
           {confirming ? (
             <p role="alert">
               {t("admin.calendar.deletePrompt", {
@@ -396,54 +386,3 @@ function TrainingDetailModal({
   );
 }
 
-/**
- * The definition-list body of a training-detail popup. Exported so Slice A can
- * reuse the exact "whose training?" render. Pure presentation — every value
- * (occupancy, status, court) is the API's, never recomputed here.
- */
-export function TrainingDetailBody({
-  item,
-  t
-}: {
-  item: TrainingCalendarItem;
-  t: Translate;
-}): JSX.Element {
-  return (
-    <dl className="detail-list">
-      <div className="detail-list__row">
-        <dt>{t("admin.trainings.colGroup")}</dt>
-        <dd>{item.groupName ?? t("admin.trainings.oneOff")}</dd>
-      </div>
-      <div className="detail-list__row">
-        <dt>{t("admin.trainings.colTrainer")}</dt>
-        <dd>{item.trainerName}</dd>
-      </div>
-      <div className="detail-list__row">
-        <dt>{t("admin.calendar.detailDate")}</dt>
-        <dd>{item.date}</dd>
-      </div>
-      <div className="detail-list__row">
-        <dt>{t("admin.trainings.colTime")}</dt>
-        <dd>
-          {item.startTime}–{item.endTime}
-        </dd>
-      </div>
-      <div className="detail-list__row">
-        <dt>{t("admin.trainings.colOccupancy")}</dt>
-        <dd>
-          {item.bookedCount} / {item.capacity}
-        </dd>
-      </div>
-      <div className="detail-list__row">
-        <dt>{t("admin.trainings.colStatus")}</dt>
-        <dd>
-          <span className={`tag ${statusTone(item.status)}`}>{statusLabel(item.status, t)}</span>
-        </dd>
-      </div>
-      <div className="detail-list__row">
-        <dt>{t("admin.calendar.detailCourt")}</dt>
-        <dd>{item.courtNumber === null ? "—" : t("admin.trainings.courtOption", { number: item.courtNumber })}</dd>
-      </div>
-    </dl>
-  );
-}

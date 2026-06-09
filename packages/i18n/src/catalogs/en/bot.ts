@@ -24,17 +24,18 @@ export const botEn: Record<string, string> = {
   "bot.menu.adminCourtModeration": "🛠 Court requests (admin)",
   "bot.menu.adminCourtLoad": "📊 Court load (admin)",
   "bot.menu.contactManagerLine": "Contact the manager: {contact}",
+  "bot.menu.contactManagerButton": "✉️ Message the manager",
 
   // --- Free spots today (navigation.ts, Feature 6) ---
   "bot.today.header": "Free spots today:",
   "bot.today.none": "No free spots for today. Check back later 🙌",
 
   // --- Individual training (individual.ts, Feature 8) ---
-  "bot.individual.pickTrainer": "Which trainer would you like?",
-  "bot.individual.noTrainers": "No trainers are available right now. Check back later 🙌",
-  "bot.individual.requested": "✅ Your request was sent to the trainer. They will contact you on Telegram.",
+  "bot.individual.pickTrainer": "Which coach would you like?",
+  "bot.individual.noTrainers": "No coaches are available right now. Check back later 🙌",
+  "bot.individual.requested": "✅ Your request was sent to the coach. They will contact you on Telegram.",
   "bot.individual.trainerUnavailable":
-    "This trainer is not available on Telegram yet. Choose another or contact the manager.",
+    "This coach is not available on Telegram yet. Choose another or contact the manager.",
   "bot.individual.pickButton": "🧑‍🏫 {name}",
 
   // --- Shared navigation (menu.ts) ---
@@ -113,7 +114,7 @@ export const botEn: Record<string, string> = {
   "bot.myBookings.outcome.attended": "✅ attended",
   "bot.myBookings.outcome.no_show": "🚫 no-show",
   "bot.myBookings.outcome.cancelled": "❌ cancelled",
-  "bot.myBookings.cancelButton": "❌ Cancel · {day} {time}",
+  "bot.myBookings.cancelButton": "❌ Cancel · {date} {time}",
   "bot.myBookings.cancelConfirm":
     "Are you sure you want to cancel the booking? The seat will become available to others again.",
   "bot.myBookings.cancelDone": "✅ Booking cancelled.",
@@ -123,7 +124,7 @@ export const botEn: Record<string, string> = {
   // --- Group booking (group-booking.ts) ---
   "bot.group.none": "There are no groups to join right now. Check back later 🙌",
   "bot.group.header": "Groups for monthly booking:",
-  "bot.group.trainer": "Trainer: {name}",
+  "bot.group.trainer": "Coach: {name}",
   "bot.group.monthSubscription": "Monthly subscription: {price} RSD",
   "bot.group.pickButton": "👥 {name}",
   "bot.group.monthPickTitle": "Group “{name}”",
@@ -187,7 +188,7 @@ export const botEn: Record<string, string> = {
 
   // --- Trainer today (trainer-today.ts) ---
   "bot.trainer.notTrainer":
-    "This section is available to trainers only. If you're a trainer — contact the manager.",
+    "This section is available to coaches only. If you're a coach — contact the manager.",
   "bot.trainer.noToday": "You have no trainings today 🙌",
   "bot.trainer.todayHeader": "Your trainings today:",
   "bot.trainer.emptyRoster": "No one has booked this training yet.",
@@ -278,22 +279,22 @@ export const botEn: Record<string, string> = {
   "bot.filter.timeOfDay.morning": "Morning",
   "bot.filter.timeOfDay.afternoon": "Afternoon",
   "bot.filter.timeOfDay.evening": "Evening",
-  "bot.filter.trainerFallback": "trainer",
+  "bot.filter.trainerFallback": "coach",
   "bot.filter.levelFallback": "level",
   "bot.filter.active": "Filters: {filters}",
   "bot.filter.none": "No filters selected",
   "bot.filter.chip.weekday": "Weekday",
   "bot.filter.chip.time": "Time",
-  "bot.filter.chip.trainer": "Trainer",
+  "bot.filter.chip.trainer": "Coach",
   "bot.filter.chip.level": "Level",
   "bot.filter.clear": "🧹 Clear filters",
   "bot.filter.anyWeekday": "Any day",
   "bot.filter.anyTime": "Any time",
-  "bot.filter.anyTrainer": "Any trainer",
+  "bot.filter.anyTrainer": "Any coach",
   "bot.filter.anyLevel": "Any level",
   "bot.filter.backToList": "⬅️ To list",
   "bot.filter.pickWeekday": "Choose a weekday:",
   "bot.filter.pickTimeOfDay": "Choose a time of day:",
-  "bot.filter.pickTrainer": "Choose a trainer:",
+  "bot.filter.pickTrainer": "Choose a coach:",
   "bot.filter.pickLevel": "Choose a level:"
 };

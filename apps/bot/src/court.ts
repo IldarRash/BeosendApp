@@ -1,6 +1,6 @@
 import { InlineKeyboard } from "grammy";
 import type { CourtAvailability, CourtDurationHours, CourtRequestPreview } from "@beosand/types";
-import { courtDurationHours } from "@beosand/types";
+import { courtDurationHours, formatDayMonth } from "@beosand/types";
 import { MENU_ACTIONS } from "./menu";
 import { t, type Catalog } from "./i18n";
 
@@ -28,11 +28,8 @@ export const COURT_ACTIONS = {
 /** How many upcoming days the date picker offers (today included). */
 export const COURT_DATE_RANGE_DAYS = 7;
 
-/** "2026-06-15" -> "15.06" for display. */
-export function formatDayMonth(date: string): string {
-  const [, month, day] = date.split("-");
-  return `${day}.${month}`;
-}
+/** Re-exported shared "YYYY-MM-DD" -> "DD.MM" display helper (the single tested source). */
+export { formatDayMonth };
 
 /** Integer RSD -> space-grouped string, e.g. 4000 -> "4 000". */
 export function formatRsd(amount: number): string {

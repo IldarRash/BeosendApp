@@ -1,4 +1,4 @@
-import type { Client } from "@beosand/types";
+import type { Client, NotificationTemplateKey } from "@beosand/types";
 import type { NotificationRecipient } from "./notifications.repository";
 
 /** Minutes either side of a reminder target a training start must fall in to fire. */
@@ -30,9 +30,70 @@ function trainingLine(recipient: NotificationRecipient): string {
   return `${recipient.date} ${recipient.startTime}–${recipient.endTime}${level} · ${recipient.trainerName}`;
 }
 
+/**
+ * Code defaults for the 7 admin-editable client-facing single-training
+ * notifications (Slice F). Each is the CURRENT RU wording re-expressed with
+ * placeholders; a missing override row falls back to these, so wording never
+ * regresses. `{training}` is the full training line; `{windowMinutes}` is only
+ * meaningful for waitlist-slot.
+ */
+export const DEFAULT_TEMPLATES: Record<NotificationTemplateKey, string> = {
+  "booking-confirmed": "Запись подтверждена ✅\n{training}",
+  "reminder-24h": "Напоминание: тренировка завтра ⏰\n{training}",
+  "reminder-3h": "Напоминание: тренировка через 3 часа ⏰\n{training}",
+  "training-cancelled": "Тренировка отменена ❌\n{training}",
+  "booking-pending": "Заявка отправлена ⏳\n{training}\nОжидаем подтверждения тренера.",
+  "booking-declined": "Заявка отклонена ❌\n{training}\nК сожалению, тренер не подтвердил запись.",
+  "waitlist-slot":
+    "Освободилось место 🎉\n{training}\nПодтвердите запись в течение {windowMinutes} мин."
+};
+
+/**
+ * Substitute `{token}` placeholders with their (stringified) values; an unknown
+ * token is left literal (the admin can't break a send with a typo'd token).
+ * Pure and unit-tested. Mirrors the @beosand/i18n interpolator, kept local so
+ * notification-messages stays free of the i18n catalog machinery.
+ */
+export function renderNotificationTemplate(
+  template: string,
+  vars: Record<string, string | number>
+): string {
+  return template.replace(/\{(\w+)\}/g, (match, name: string) =>
+    name in vars ? String(vars[name]) : match
+  );
+}
+
+/**
+ * The placeholder values for a recipient: the composite `{training}` line plus
+ * the individual fields, and an optional `{windowMinutes}` (waitlist-slot).
+ */
+export function buildTemplateVars(
+  recipient: NotificationRecipient,
+  extra?: { windowMinutes?: number }
+): Record<string, string | number> {
+  const vars: Record<string, string | number> = {
+    training: trainingLine(recipient),
+    date: recipient.date,
+    startTime: recipient.startTime,
+    endTime: recipient.endTime,
+    levelName: recipient.levelName,
+    trainerName: recipient.trainerName
+  };
+  if (extra?.windowMinutes !== undefined) {
+    vars.windowMinutes = extra.windowMinutes;
+  }
+  return vars;
+}
+
 /** Booking confirmation message (single booking; UX §14). */
-export function bookingConfirmedMessage(recipient: NotificationRecipient): string {
-  return `Запись подтверждена ✅\n${trainingLine(recipient)}`;
+export function bookingConfirmedMessage(
+  recipient: NotificationRecipient,
+  override?: string
+): string {
+  return renderNotificationTemplate(
+    override ?? DEFAULT_TEMPLATES["booking-confirmed"],
+    buildTemplateVars(recipient)
+  );
 }
 
 /**
@@ -52,15 +113,24 @@ export function groupBookingConfirmedMessage(recipients: NotificationRecipient[]
 /** 24h / 3h reminder message (UX §14). */
 export function reminderMessage(
   type: "reminder-24h" | "reminder-3h",
-  recipient: NotificationRecipient
+  recipient: NotificationRecipient,
+  override?: string
 ): string {
-  const lead = type === "reminder-24h" ? "Напоминание: тренировка завтра" : "Напоминание: тренировка через 3 часа";
-  return `${lead} ⏰\n${trainingLine(recipient)}`;
+  return renderNotificationTemplate(
+    override ?? DEFAULT_TEMPLATES[type],
+    buildTemplateVars(recipient)
+  );
 }
 
 /** Training-cancelled message (UX §14). */
-export function trainingCancelledMessage(recipient: NotificationRecipient): string {
-  return `Тренировка отменена ❌\n${trainingLine(recipient)}`;
+export function trainingCancelledMessage(
+  recipient: NotificationRecipient,
+  override?: string
+): string {
+  return renderNotificationTemplate(
+    override ?? DEFAULT_TEMPLATES["training-cancelled"],
+    buildTemplateVars(recipient)
+  );
 }
 
 /** Escape the HTML-significant characters so a client name is safe inside an HTML mention. */
@@ -96,16 +166,28 @@ export function individualSessionRequestMessage(client: Client): string {
  * Client acknowledgement that a booking request was placed and is awaiting the
  * trainer's confirmation (the seat is held meanwhile). UX §14 style.
  */
-export function bookingPendingMessage(recipient: NotificationRecipient): string {
-  return `Заявка отправлена ⏳\n${trainingLine(recipient)}\nОжидаем подтверждения тренера.`;
+export function bookingPendingMessage(
+  recipient: NotificationRecipient,
+  override?: string
+): string {
+  return renderNotificationTemplate(
+    override ?? DEFAULT_TEMPLATES["booking-pending"],
+    buildTemplateVars(recipient)
+  );
 }
 
 /**
  * Client notice that the trainer declined the booking request and the held seat
  * was released. UX §14 style.
  */
-export function bookingDeclinedMessage(recipient: NotificationRecipient): string {
-  return `Заявка отклонена ❌\n${trainingLine(recipient)}\nК сожалению, тренер не подтвердил запись.`;
+export function bookingDeclinedMessage(
+  recipient: NotificationRecipient,
+  override?: string
+): string {
+  return renderNotificationTemplate(
+    override ?? DEFAULT_TEMPLATES["booking-declined"],
+    buildTemplateVars(recipient)
+  );
 }
 
 /**
@@ -160,10 +242,11 @@ export function groupPendingTrainerMessage(
  */
 export function waitlistSlotMessage(
   recipient: NotificationRecipient,
-  windowMinutes: number
+  windowMinutes: number,
+  override?: string
 ): string {
-  return (
-    `Освободилось место 🎉\n${trainingLine(recipient)}\n` +
-    `Подтвердите запись в течение ${windowMinutes} мин.`
+  return renderNotificationTemplate(
+    override ?? DEFAULT_TEMPLATES["waitlist-slot"],
+    buildTemplateVars(recipient, { windowMinutes })
   );
 }

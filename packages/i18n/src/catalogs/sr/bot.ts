@@ -24,6 +24,7 @@ export const botSr: Record<string, string> = {
   "bot.menu.adminCourtModeration": "🛠 Zahtevi za teren (admin)",
   "bot.menu.adminCourtLoad": "📊 Zauzetost terena (admin)",
   "bot.menu.contactManagerLine": "Kontaktiraj menadžera: {contact}",
+  "bot.menu.contactManagerButton": "✉️ Pošalji poruku menadžeru",
 
   // --- Free spots today (navigation.ts, Feature 6) ---
   "bot.today.header": "Slobodna mesta za danas:",
@@ -113,7 +114,7 @@ export const botSr: Record<string, string> = {
   "bot.myBookings.outcome.attended": "✅ prisustvovano",
   "bot.myBookings.outcome.no_show": "🚫 nije došao",
   "bot.myBookings.outcome.cancelled": "❌ otkazano",
-  "bot.myBookings.cancelButton": "❌ Otkaži · {day} {time}",
+  "bot.myBookings.cancelButton": "❌ Otkaži · {date} {time}",
   "bot.myBookings.cancelConfirm":
     "Da li ste sigurni da želite da otkažete prijavu? Mesto će ponovo postati dostupno drugima.",
   "bot.myBookings.cancelDone": "✅ Prijava je otkazana.",

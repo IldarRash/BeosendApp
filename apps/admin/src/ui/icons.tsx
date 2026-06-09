@@ -125,6 +125,12 @@ const ICONS: Record<string, JSX.Element> = {
       <path d="M3 12l9 4 9-4M3 17l9 4 9-4" />
     </Icon>
   ),
+  notificationTemplates: (
+    <Icon>
+      <rect x="3" y="5" width="18" height="14" rx="2" />
+      <path d="M3 7l9 6 9-6" />
+    </Icon>
+  ),
   // Chrome
   logout: (
     <Icon>

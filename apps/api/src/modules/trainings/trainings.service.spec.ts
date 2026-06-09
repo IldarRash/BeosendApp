@@ -733,15 +733,35 @@ describe("TrainingsService", () => {
           bookingId: "bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb",
           clientId: "cccccccc-cccc-cccc-cccc-cccccccccccc",
           clientName: "Ana",
-          bookingStatus: "booked"
+          bookingStatus: "booked",
+          bookingType: "group",
+          groupSubscriptionId: "dddddddd-dddd-dddd-dddd-dddddddddddd"
+        },
+        {
+          bookingId: "eeeeeeee-eeee-eeee-eeee-eeeeeeeeeeee",
+          clientId: "ffffffff-ffff-ffff-ffff-ffffffffffff",
+          clientName: "Boris",
+          bookingStatus: "booked",
+          bookingType: "single",
+          groupSubscriptionId: null
         }
       ];
     });
 
     it("returns the roster for the owning trainer", async () => {
       const roster = await service.getRoster(TRAINER_TG, TRAINING_ID);
-      expect(roster.participants).toHaveLength(1);
+      expect(roster.participants).toHaveLength(2);
       expect(roster.participants[0].clientName).toBe("Ana");
+    });
+
+    it("surfaces booking type and subscription id for group and drop-in rows", async () => {
+      const roster = await service.getRoster(TRAINER_TG, TRAINING_ID);
+      const ana = roster.participants.find((p) => p.clientName === "Ana");
+      const boris = roster.participants.find((p) => p.clientName === "Boris");
+      expect(ana?.bookingType).toBe("group");
+      expect(ana?.groupSubscriptionId).toBe("dddddddd-dddd-dddd-dddd-dddddddddddd");
+      expect(boris?.bookingType).toBe("single");
+      expect(boris?.groupSubscriptionId).toBeNull();
     });
 
     it("lets an admin read any roster", async () => {

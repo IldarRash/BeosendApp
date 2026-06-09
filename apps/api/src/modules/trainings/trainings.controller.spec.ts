@@ -277,7 +277,9 @@ describe("Trainer-scoped reads (T2.3)", () => {
     bookingId: "bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb",
     clientId: "cccccccc-cccc-cccc-cccc-cccccccccccc",
     clientName: "Ana",
-    bookingStatus: "booked"
+    bookingStatus: "booked",
+    bookingType: "group",
+    groupSubscriptionId: "dddddddd-dddd-dddd-dddd-dddddddddddd"
   };
 
   const todayRow: TrainerTrainingRow = {
@@ -320,6 +322,10 @@ describe("Trainer-scoped reads (T2.3)", () => {
       const roster = await controller.roster(String(TRAINER_TG), TRAINING_ID);
       expect(roster.participants).toHaveLength(1);
       expect(roster.participants[0].clientName).toBe("Ana");
+      expect(roster.participants[0].bookingType).toBe("group");
+      expect(roster.participants[0].groupSubscriptionId).toBe(
+        "dddddddd-dddd-dddd-dddd-dddddddddddd"
+      );
     });
 
     it("lets an admin read any roster", async () => {

@@ -13,7 +13,7 @@ import {
 } from "@nestjs/common";
 import { z } from "zod";
 import {
-  courtAvailabilityQuerySchema,
+  courtBlocksListQuerySchema,
   createCourtBlockSchema,
   reassignCourtBlockSchema,
   uuid,
@@ -44,18 +44,31 @@ export class CourtBlocksController {
     return this.service.createBlock(telegramId, parsed.data);
   }
 
-  /** Admin-only. Blocks for a single date (C6 grid). */
+  /**
+   * Admin-only. Blocks for a single date (`date=`, the C6 grid) or an inclusive
+   * multi-day range (`from=&to=`). Returns a flat `CourtBlock[]` ordered by date
+   * then start time; the admin groups by date client-side.
+   */
   @Get()
   async list(
     @Headers("x-telegram-id") rawTelegramId: string | undefined,
     @Query() query: Record<string, unknown>
   ): Promise<CourtBlock[]> {
     const telegramId = parseTelegramId(rawTelegramId);
-    const parsed = courtAvailabilityQuerySchema.safeParse(query);
+    const parsed = courtBlocksListQuerySchema.safeParse(query);
     if (!parsed.success) {
-      throw new BadRequestException("Invalid query: expected date=YYYY-MM-DD.");
+      throw new BadRequestException(
+        "Invalid query: expected date=YYYY-MM-DD or from=YYYY-MM-DD&to=YYYY-MM-DD."
+      );
     }
-    return this.service.listBlocks(telegramId, parsed.data.date);
+    // The refinement guarantees a single `date` or a complete `from`+`to` pair;
+    // a single date is the degenerate range from === to === date.
+    const { date, from, to } = parsed.data;
+    if (from !== undefined && to !== undefined) {
+      return this.service.listBlocks(telegramId, from, to);
+    }
+    const single = date as string;
+    return this.service.listBlocks(telegramId, single, single);
   }
 
   /** Admin-only. Move a block to another court (re-checks overlap + 6-per-slot limit). */

@@ -6,7 +6,6 @@ import { useClient } from "../api/hooks";
 import { useT } from "../i18n/LanguageProvider";
 import { useTg } from "../tg/TgSdkProvider";
 import { useBackButton } from "../tg/buttons";
-import { BrowseScreen } from "../screens/BrowseScreen";
 import { CalendarScreen } from "../screens/CalendarScreen";
 import { CourtRequestScreen } from "../screens/CourtRequestScreen";
 import { GroupBookingScreen } from "../screens/GroupBookingScreen";
@@ -144,12 +143,10 @@ function RouteView({
     switch (current) {
     case "home":
       return <HomeScreen sections={HOME_SECTIONS} onSelect={onSelect} />;
-    case "browse":
-      return <BrowseScreen />;
     case "schedule":
       return <ScheduleScreen />;
     case "my-bookings":
-      return <MyBookingsScreen onBrowse={() => push("browse")} />;
+      return <MyBookingsScreen onBrowse={() => push("schedule")} />;
     case "group":
       return <GroupBookingScreen />;
     case "individual":

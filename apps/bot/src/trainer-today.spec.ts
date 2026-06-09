@@ -56,7 +56,14 @@ function roster(over: Partial<TrainingRoster> = {}): TrainingRoster {
     endTime: "19:30",
     levelName: "Начинающий",
     participants: [
-      { bookingId: BOOKING_ID, clientId: CLIENT_ID, clientName: "Иван", bookingStatus: "booked" }
+      {
+        bookingId: BOOKING_ID,
+        clientId: CLIENT_ID,
+        clientName: "Иван",
+        bookingStatus: "booked",
+        bookingType: "single",
+        groupSubscriptionId: null
+      }
     ],
     ...over
   };
@@ -145,7 +152,9 @@ describe("renderRosterText", () => {
             bookingId: BOOKING_ID,
             clientId: CLIENT_ID,
             clientName: "Иван",
-            bookingStatus: "attended"
+            bookingStatus: "attended",
+            bookingType: "single",
+            groupSubscriptionId: null
           }
         ]
       })
@@ -290,7 +299,9 @@ describe("handleMarkAttendance", () => {
             bookingId: BOOKING_ID,
             clientId: CLIENT_ID,
             clientName: "Иван",
-            bookingStatus: "attended"
+            bookingStatus: "attended",
+            bookingType: "single",
+            groupSubscriptionId: null
           }
         ]
       })

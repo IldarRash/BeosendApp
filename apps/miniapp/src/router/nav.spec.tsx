@@ -178,7 +178,6 @@ describe("route table (pure)", () => {
   it("exposes exactly the client journeys — no admin/trainer entry", () => {
     const ids = HOME_SECTIONS.flatMap((s) => s.items.map((i) => i.routeId)).sort();
     expect(ids).toEqual([
-      "browse",
       "calendar",
       "court",
       "group",
@@ -195,16 +194,16 @@ describe("navigation shell", () => {
     renderWithProviders(<Router />);
 
     // The Home hub renders the section headers and journey rows.
-    await screen.findByText("Расписание");
+    await screen.findByText("Расписание тренировок");
     expect(screen.getByText("Тренировки")).toBeTruthy();
     expect(screen.getByText("Аренда корта")).toBeTruthy();
     // On the root, the BackButton is hidden (canPop === false).
     expect(latestBackButton().visible).toBe(false);
   });
 
-  it("renders exactly the six client journey rows and no admin/trainer entry", async () => {
+  it("renders exactly the client journey rows and no admin/trainer entry", async () => {
     renderWithProviders(<Router />);
-    await screen.findByText("Расписание");
+    await screen.findByText("Расписание тренировок");
 
     // The hub is the client surface: nothing manager/trainer-only is ever surfaced
     // (the held token is scope:"client"; the menu has no role branch by construction).
@@ -266,7 +265,7 @@ describe("navigation shell", () => {
     renderWithProviders(<Router />);
 
     // A waitlist_ link whose id is not a uuid is dropped; the hub renders, no throw.
-    await screen.findByText("Расписание");
+    await screen.findByText("Расписание тренировок");
     expect(latestBackButton().visible).toBe(false);
   });
 
@@ -276,7 +275,7 @@ describe("navigation shell", () => {
 
     // The bad id is rejected at parse time, so the shell seeds Home and the accept
     // screen is never mounted — acceptWaitlist must not be invoked for a malformed link.
-    await screen.findByText("Расписание");
+    await screen.findByText("Расписание тренировок");
     expect(screen.queryByText("Освободилось место")).toBeNull();
     expect(api.acceptWaitlist).not.toHaveBeenCalled();
   });

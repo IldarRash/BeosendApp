@@ -75,10 +75,14 @@ export class CourtBlocksService {
     return courtBlockSchema.parse(row);
   }
 
-  /** All blocks for a date (C6 grid / list). Admin-only — never exposed to clients. */
-  async listBlocks(callerTelegramId: number, date: string): Promise<CourtBlock[]> {
+  /**
+   * All blocks whose date falls in the inclusive [from, to] range, ordered by date
+   * then start time. A single-day list passes from === to. Admin-only — never
+   * exposed to clients.
+   */
+  async listBlocks(callerTelegramId: number, from: string, to: string): Promise<CourtBlock[]> {
     this.assertAdmin(callerTelegramId, "list");
-    const rows = await this.repository.findByDate(date);
+    const rows = await this.repository.findByDateRange(from, to);
     return rows.map((row) => courtBlockSchema.parse(row));
   }
 

@@ -353,7 +353,9 @@ const rosterBody: TrainingRoster = {
       bookingId: "33333333-3333-3333-3333-333333333333",
       clientId: CLIENT_ID,
       clientName: "Иван",
-      bookingStatus: "booked"
+      bookingStatus: "booked",
+      bookingType: "single",
+      groupSubscriptionId: null
     }
   ]
 };

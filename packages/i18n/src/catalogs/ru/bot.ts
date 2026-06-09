@@ -21,7 +21,7 @@ export const botRu: Record<string, string> = {
   "bot.menu.openApp": "🚀 Открыть приложение",
   "bot.menu.availableTrainings": "🎫 Разовое посещение",
   "bot.menu.todayFreeSlots": "📅 Свободные места сегодня",
-  "bot.menu.joinGroup": "👥 Записаться в группу",
+  "bot.menu.joinGroup": "👥 Купить абонемент (группа)",
   "bot.menu.individual": "🧑‍🏫 Индивидуальная тренировка",
   "bot.menu.myBookings": "📋 Мои записи",
   "bot.menu.rentCourt": "🏖 Арендовать корт",
@@ -30,6 +30,7 @@ export const botRu: Record<string, string> = {
   "bot.menu.adminCourtModeration": "🛠 Заявки на корт (админ)",
   "bot.menu.adminCourtLoad": "📊 Загрузка кортов (админ)",
   "bot.menu.contactManagerLine": "Связаться с менеджером: {contact}",
+  "bot.menu.contactManagerButton": "✉️ Написать менеджеру",
 
   // --- Free spots today (navigation.ts, Feature 6) ---
   "bot.today.header": "Свободные места на сегодня:",
@@ -119,7 +120,7 @@ export const botRu: Record<string, string> = {
   "bot.myBookings.outcome.attended": "✅ посещено",
   "bot.myBookings.outcome.no_show": "🚫 не пришёл",
   "bot.myBookings.outcome.cancelled": "❌ отменено",
-  "bot.myBookings.cancelButton": "❌ Отменить · {day} {time}",
+  "bot.myBookings.cancelButton": "❌ Отмена · {date} {time}",
   "bot.myBookings.cancelConfirm":
     "Вы уверены, что хотите отменить запись? Место снова станет доступным для других.",
   "bot.myBookings.cancelDone": "✅ Запись отменена.",

@@ -3,6 +3,7 @@ import type { Database } from "@beosand/db";
 import { tables } from "@beosand/db";
 import type {
   BookingStatus,
+  BookingType,
   Training,
   TrainingCalendarItem,
   TrainingStatus
@@ -86,6 +87,8 @@ export interface RosterRow {
   clientId: string;
   clientName: string;
   bookingStatus: BookingStatus;
+  bookingType: BookingType;
+  groupSubscriptionId: string | null;
 }
 
 /** Only place trainings DB access lives. Returns typed rows; no business rules. */
@@ -461,7 +464,9 @@ export class TrainingsRepository {
         bookingId: tables.bookings.id,
         clientId: tables.bookings.clientId,
         clientName: tables.clients.name,
-        bookingStatus: tables.bookings.status
+        bookingStatus: tables.bookings.status,
+        bookingType: tables.bookings.type,
+        groupSubscriptionId: tables.bookings.groupSubscriptionId
       })
       .from(tables.bookings)
       .innerJoin(tables.clients, eq(tables.bookings.clientId, tables.clients.id))

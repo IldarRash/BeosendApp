@@ -24,8 +24,6 @@ export const miniappSr: Record<string, string> = {
   "miniapp.home.sectionTrainings": "Treninzi",
   "miniapp.home.sectionCourts": "Tereni",
   "miniapp.home.sectionAccount": "Profil",
-  "miniapp.home.browse": "Raspored",
-  "miniapp.home.browseHint": "Izaberite trening i prijavite se",
   "miniapp.home.myBookings": "Moje prijave",
   "miniapp.home.myBookingsHint": "Predstojeće i prošle",
   "miniapp.home.group": "Pretplata (grupa)",
@@ -33,7 +31,7 @@ export const miniappSr: Record<string, string> = {
   "miniapp.home.individual": "Individualni trening",
   "miniapp.home.individualHint": "Zahtev treneru jedan na jedan",
   "miniapp.home.schedule": "Raspored treninga",
-  "miniapp.home.scheduleHint": "Svi termini za naredni mesec",
+  "miniapp.home.scheduleHint": "Kalendar treninga po mesecima — izaberite dan",
   "miniapp.home.court": "Iznajmljivanje terena",
   "miniapp.home.courtHint": "Zahtev za slobodan teren",
   "miniapp.home.calendar": "Moj kalendar",
@@ -79,25 +77,17 @@ export const miniappSr: Record<string, string> = {
   "miniapp.timeOfDay.afternoon": "Dan",
   "miniapp.timeOfDay.evening": "Veče",
 
-  // --- Browse slots (S3) ---
-  "miniapp.browse.title": "Raspored",
-  "miniapp.browse.today": "Danas",
-  "miniapp.browse.filtersAria": "Filteri rasporeda",
+  // --- Slot card labels (shared by the schedule day-detail + confirm/waitlist views) ---
   "miniapp.browse.seats": "{count} mesta",
   "miniapp.browse.seatsNone": "Nema mesta",
   "miniapp.browse.price": "{price} RSD",
   "miniapp.browse.bookAria": "Prijavi se",
   "miniapp.browse.waitlist": "Lista čekanja",
   "miniapp.browse.waitlistAria": "Stani na listu čekanja",
-  "miniapp.browse.emptyTitle": "Nema odgovarajućih treninga",
-  "miniapp.browse.emptyBody": "Promenite filtere ili pogledajte kasnije.",
-  "miniapp.browse.errorBody": "Učitavanje rasporeda nije uspelo. Pokušajte ponovo.",
 
-  // --- Browse filter sheet ---
-  "miniapp.browse.filter.title": "Filteri",
+  // --- Filter sheet labels (shared by the group-list filter) ---
   "miniapp.browse.filter.any": "Bilo koji",
   "miniapp.browse.filter.weekday": "Dan u nedelji",
-  "miniapp.browse.filter.timeOfDay": "Doba dana",
   "miniapp.browse.filter.trainer": "Trener",
   "miniapp.browse.filter.level": "Nivo",
   "miniapp.browse.filter.apply": "Primeni",
@@ -254,12 +244,16 @@ export const miniappSr: Record<string, string> = {
   "miniapp.month.11": "Novembar",
   "miniapp.month.12": "Decembar",
 
-  // --- Training schedule (raspored) ---
-  "miniapp.schedule.title": "Raspored",
-  "miniapp.schedule.hint": "Treninzi za naredni mesec. Dodirnite da se prijavite.",
-  "miniapp.schedule.filtersAria": "Filteri rasporeda",
-  "miniapp.schedule.emptyTitle": "Nema odgovarajućih treninga",
-  "miniapp.schedule.emptyBody": "Promenite filtere ili svratite kasnije.",
+  // --- Training schedule (raspored): month calendar of bookable sessions ---
+  "miniapp.schedule.title": "Raspored treninga",
+  "miniapp.schedule.hint": "Izaberite dan da vidite treninge i prijavite se.",
+  "miniapp.schedule.navAria": "Promena meseca",
+  "miniapp.schedule.prevMonth": "Prethodni mesec",
+  "miniapp.schedule.nextMonth": "Sledeći mesec",
+  "miniapp.schedule.gridAria": "Kalendar treninga za {month}",
+  "miniapp.schedule.dayAria": "{day}. dan, treninga: {count}",
+  "miniapp.schedule.emptyDayTitle": "Nema treninga tog dana",
+  "miniapp.schedule.emptyDayBody": "Izaberite drugi dan u kalendaru.",
   "miniapp.schedule.errorBody": "Učitavanje rasporeda nije uspelo. Pokušajte ponovo.",
 
   // --- My calendar (court + training) ---

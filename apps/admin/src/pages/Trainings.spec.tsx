@@ -1,6 +1,14 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { cleanup, fireEvent, render, screen, within } from "@testing-library/react";
-import type { Client, Court, Group, Trainer, Training } from "@beosand/types";
+import type {
+  Client,
+  Court,
+  Group,
+  Trainer,
+  Training,
+  TrainingCalendarItem,
+  TrainingRoster
+} from "@beosand/types";
 
 // Hooks are mocked so the page can be unit-tested without the ApiClient/network.
 const useTrainings = vi.fn();
@@ -15,6 +23,8 @@ const useCourts = vi.fn();
 const useClientsList = vi.fn();
 const useCreateWalkIn = vi.fn();
 const useBookManual = vi.fn();
+const useTrainingDetail = vi.fn();
+const useRoster = vi.fn();
 
 vi.mock("../hooks/useTrainings", () => ({
   useTrainings: (...args: unknown[]) => useTrainings(...args),
@@ -34,6 +44,12 @@ vi.mock("../hooks/useGenerationStatus", () => ({
 }));
 vi.mock("../hooks/useTrainers", () => ({ useTrainers: () => useTrainers() }));
 vi.mock("../hooks/useCourts", () => ({ useCourts: () => useCourts() }));
+vi.mock("../hooks/useTrainingDetail", () => ({
+  useTrainingDetail: (...args: unknown[]) => useTrainingDetail(...args)
+}));
+vi.mock("../hooks/useRoster", () => ({
+  useRoster: (...args: unknown[]) => useRoster(...args)
+}));
 
 // AppShell pulls in the router/nav; stub it to a passthrough for an isolated page test.
 vi.mock("../ui/AppShell", () => ({
@@ -101,6 +117,47 @@ const CLIENT: Client = {
   language: "ru"
 };
 
+const DETAIL: TrainingCalendarItem = {
+  id: TRAINING.id,
+  groupId: GROUP.id,
+  date: "2026-07-06",
+  startTime: "08:00",
+  endTime: "09:30",
+  trainerId: TRAINER.id,
+  capacity: 12,
+  bookedCount: 4,
+  status: "open",
+  groupName: "Утренняя группа",
+  trainerName: "Анна",
+  courtNumber: 3
+};
+
+const ROSTER: TrainingRoster = {
+  trainingId: TRAINING.id,
+  date: "2026-07-06",
+  startTime: "08:00",
+  endTime: "09:30",
+  levelName: "Начинающие",
+  participants: [
+    {
+      bookingId: "aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa",
+      clientId: "bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb",
+      clientName: "Игорь",
+      bookingStatus: "booked",
+      bookingType: "single",
+      groupSubscriptionId: null
+    },
+    {
+      bookingId: "cccccccc-cccc-cccc-cccc-cccccccccccc",
+      clientId: "dddddddd-dddd-dddd-dddd-dddddddddddd",
+      clientName: "Мария",
+      bookingStatus: "booked",
+      bookingType: "group",
+      groupSubscriptionId: "eeeeeeee-eeee-eeee-eeee-eeeeeeeeeeee"
+    }
+  ]
+};
+
 /** A passive (no-op) mutation result the page can call .reset()/.mutate() on. */
 function idleMutation(): Record<string, unknown> {
   return { mutate: vi.fn(), reset: vi.fn(), isPending: false, isError: false, error: null };
@@ -125,6 +182,9 @@ beforeEach(() => {
   useCreateWalkIn.mockReturnValue(idleMutation());
   useBookManual.mockReturnValue(idleMutation());
   useTrainings.mockReturnValue({ isPending: false, isError: false, error: null, data: [TRAINING] });
+  // Roster modal: detail + roster load instantly when a row opens it.
+  useTrainingDetail.mockReturnValue({ isPending: false, isError: false, error: null, data: DETAIL });
+  useRoster.mockReturnValue({ isPending: false, isError: false, error: null, data: ROSTER });
 });
 
 afterEach(cleanup);
@@ -197,6 +257,25 @@ describe("Trainings page", () => {
     // Occupancy and status are shown exactly as the contract delivers them.
     expect(within(row).getByText("4 / 12")).toBeTruthy();
     expect(within(row).getByText("Открыта")).toBeTruthy();
+  });
+
+  it("opens a row's roster with attendee names and drop-in vs subscription badges", () => {
+    render(<Trainings />);
+    setRange();
+
+    const table = screen.getByRole("table");
+    const row = within(table).getByText("2026-07-06").closest("tr") as HTMLElement;
+    fireEvent.click(within(row).getByRole("button", { name: "Записанные" }));
+
+    const dialog = screen.getByRole("dialog", { name: "Тренировка" });
+    // The headcount and both attendees come straight from the roster contract.
+    expect(within(dialog).getByText("Записано: 2")).toBeTruthy();
+
+    const igor = within(dialog).getByText("Игорь").closest("tr") as HTMLElement;
+    expect(within(igor).getByText("Разовое")).toBeTruthy();
+
+    const maria = within(dialog).getByText("Мария").closest("tr") as HTMLElement;
+    expect(within(maria).getByText("Абонемент")).toBeTruthy();
   });
 
   it("prompts before cancelling and only calls the mutation on confirm", () => {

@@ -11,6 +11,7 @@ import {
   daysInMonth,
   firstNameOf,
   firstWeekdayMondayFirst,
+  formatDayMonth,
   freeCourtsBySlot,
   freeSeats,
   isBookable,
@@ -100,6 +101,12 @@ describe("month-grid layout", () => {
     expect(isoDate(2026, 12, 31)).toBe("2026-12-31");
     expect(dayOfMonth("2026-06-07")).toBe(7);
     expect(dayOfMonth("2026-06-30")).toBe(30);
+  });
+
+  it("formats DD.MM, preserving zero-padding and day/month order", () => {
+    expect(formatDayMonth("2026-06-05")).toBe("05.06");
+    expect(formatDayMonth("2026-12-31")).toBe("31.12");
+    expect(formatDayMonth("2026-01-09")).toBe("09.01");
   });
 
   it("counts days in a month, incl. leap February", () => {

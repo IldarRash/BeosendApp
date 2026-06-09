@@ -19,7 +19,7 @@ import { useAssignCourt, useCourtLoad } from "../hooks/useCourtLoad";
 import { useCourts } from "../hooks/useCourts";
 import { useCourtRequestDetail } from "../hooks/useCourtRequests";
 import { useTrainingDetail } from "../hooks/useTrainingDetail";
-import { TrainingDetailBody } from "./TrainingsCalendar";
+import { TrainingDetailBody } from "../ui/TrainingDetailBody";
 import { formatRsd } from "../lib/format";
 
 type Translate = (key: string, params?: Record<string, string | number>) => string;

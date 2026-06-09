@@ -7,25 +7,27 @@ import {
 } from "@tanstack/react-query";
 import type { CourtBlock, CreateCourtBlock } from "@beosand/types";
 import { useApiClient } from "../api/ApiProvider";
+import type { DateRange } from "../ui/DateRangeFilter";
 import { COURT_LOAD_KEY } from "./useCourtLoad";
 
 const COURT_BLOCKS_KEY = ["court-blocks"] as const;
 
-/** Stable cache key for one day's court blocks. */
-function blocksKey(date: string): readonly unknown[] {
-  return [...COURT_BLOCKS_KEY, date] as const;
+/** Stable cache key for one inclusive `from..to` range of court blocks. */
+function blocksKey(range: DateRange): readonly unknown[] {
+  return [...COURT_BLOCKS_KEY, range.from, range.to] as const;
 }
 
 /**
- * C5/C6 — court blocks for one date (GET /court-blocks?date=…). Gated: no call
- * until a date is supplied. AuthError propagates so RequireAuth can redirect.
+ * C5/C6 — court blocks over an inclusive date range (GET /court-blocks?from=…&to=…).
+ * Gated: no call until a range is supplied (single day = `from === to`). AuthError
+ * propagates so RequireAuth can redirect.
  */
-export function useCourtBlocks(date: string | null): UseQueryResult<CourtBlock[], Error> {
+export function useCourtBlocks(range: DateRange | null): UseQueryResult<CourtBlock[], Error> {
   const api = useApiClient();
   return useQuery({
-    queryKey: date ? blocksKey(date) : [...COURT_BLOCKS_KEY, "idle"],
-    queryFn: () => api.listCourtBlocks(date as string),
-    enabled: date !== null
+    queryKey: range ? blocksKey(range) : [...COURT_BLOCKS_KEY, "idle"],
+    queryFn: () => api.listCourtBlocks(range as DateRange),
+    enabled: range !== null
   });
 }
 

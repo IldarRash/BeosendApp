@@ -1,5 +1,6 @@
 import { useMemo, useState } from "react";
 import type { Court, CourtBlock, CreateCourtBlock } from "@beosand/types";
+import { formatDayMonth } from "@beosand/types";
 import { AppShell } from "../ui/AppShell";
 import { Button } from "../ui/Button";
 import { DataTable, type Column } from "../ui/DataTable";
@@ -17,14 +18,54 @@ import {
 
 type Translate = (key: string, params?: Record<string, string | number>) => string;
 
-/** Today's date as an ISO `yyyy-mm-dd` string for the default day. */
+/** Day-count presets offered for the range (start day + the next N−1 days). */
+const RANGE_PRESETS = [1, 3, 7] as const;
+type RangePreset = (typeof RANGE_PRESETS)[number];
+
+/** Today's date as an ISO `yyyy-mm-dd` string for the default start day. */
 function todayIso(): string {
   return new Date().toISOString().slice(0, 10);
+}
+
+/**
+ * `start` (ISO `yyyy-mm-dd`) shifted by whole days, returned as ISO. UTC math so
+ * DST never bends the day count. Local to the page: this is range-window plumbing,
+ * not domain logic, and `@beosand/types` has no add-days helper to reuse.
+ */
+function shiftIsoDays(start: string, days: number): string {
+  const date = new Date(`${start}T00:00:00Z`);
+  date.setUTCDate(date.getUTCDate() + days);
+  return date.toISOString().slice(0, 10);
+}
+
+/** Inclusive `from..to` for a start day and an N-day preset (`to` = start + N−1). */
+function rangeFor(start: string, days: RangePreset): { from: string; to: string } {
+  return { from: start, to: shiftIsoDays(start, days - 1) };
 }
 
 /** Human-readable error from a failed query/mutation (the API decides the text). */
 function errorText(error: unknown, t: Translate): string {
   return error instanceof Error ? error.message : t("admin.courtBlocks.opFailed");
+}
+
+/**
+ * Group blocks by their own `date`, sorted ascending, each day's rows sorted by
+ * start time. Pure display arrangement — no domain math; every row is already a
+ * contract-validated `CourtBlock` from the API.
+ */
+function groupByDate(blocks: readonly CourtBlock[]): { date: string; rows: CourtBlock[] }[] {
+  const byDate = new Map<string, CourtBlock[]>();
+  for (const block of blocks) {
+    const rows = byDate.get(block.date);
+    if (rows) rows.push(block);
+    else byDate.set(block.date, [block]);
+  }
+  return [...byDate.entries()]
+    .sort(([a], [b]) => a.localeCompare(b))
+    .map(([date, rows]) => ({
+      date,
+      rows: [...rows].sort((a, b) => a.startTime.localeCompare(b.startTime))
+    }));
 }
 
 /**
@@ -37,12 +78,19 @@ function errorText(error: unknown, t: Translate): string {
 export function CourtBlocks(): JSX.Element {
   const t = useT();
   const { notify } = useToast();
-  const [date, setDate] = useState(todayIso());
+  const [startDate, setStartDate] = useState(todayIso());
+  const [preset, setPreset] = useState<RangePreset>(3);
   const [creating, setCreating] = useState(false);
 
+  // Inclusive query window: start day → start + (preset − 1) days.
+  const range = startDate ? rangeFor(startDate, preset) : null;
+
   const courts = useCourts();
-  const blocks = useCourtBlocks(date || null);
+  const blocks = useCourtBlocks(range);
   const remove = useDeleteCourtBlock();
+
+  // Blocks grouped into a section per calendar day (ascending), each sorted by time.
+  const grouped = useMemo(() => groupByDate(blocks.data ?? []), [blocks.data]);
 
   // Block whose court is being reassigned (the "change court" dialog target).
   const [reassignTarget, setReassignTarget] = useState<CourtBlock | null>(null);
@@ -124,19 +172,44 @@ export function CourtBlocks(): JSX.Element {
 
       <div className="stack">
         <form
-          aria-label={t("admin.courtBlocks.dateLabel")}
+          aria-label={t("admin.courtBlocks.rangeLabel")}
           onSubmit={(e) => e.preventDefault()}
           className="cluster"
         >
           <TextField
-            label={t("admin.field.date")}
+            label={t("admin.courtBlocks.startDate")}
             type="date"
-            value={date}
-            onChange={(e) => setDate(e.target.value)}
+            value={startDate}
+            onChange={(e) => setStartDate(e.target.value)}
           />
+          <div className="field">
+            <span className="field__label" id="court-blocks-range">
+              {t("admin.courtBlocks.rangeLabel")}
+            </span>
+            <div className="day-picker" role="group" aria-labelledby="court-blocks-range">
+              {RANGE_PRESETS.map((days) => {
+                const isOn = preset === days;
+                return (
+                  <button
+                    key={days}
+                    type="button"
+                    className={
+                      isOn
+                        ? "day-picker__day day-picker__day--wide day-picker__day--on"
+                        : "day-picker__day day-picker__day--wide"
+                    }
+                    aria-pressed={isOn}
+                    onClick={() => setPreset(days)}
+                  >
+                    {t(`admin.courtBlocks.rangeDays.${days}`)}
+                  </button>
+                );
+              })}
+            </div>
+          </div>
         </form>
 
-        {date === "" ? (
+        {startDate === "" || range === null ? (
           <p className="state">{t("admin.courtBlocks.pickDate")}</p>
         ) : blocks.isPending ? (
           <p className="state">{t("admin.courtBlocks.loading")}</p>
@@ -144,20 +217,27 @@ export function CourtBlocks(): JSX.Element {
           <p className="state state--error" role="alert">
             {errorText(blocks.error, t)}
           </p>
+        ) : grouped.length === 0 ? (
+          <p className="state">{t("admin.courtBlocks.emptyRange")}</p>
         ) : (
-          <DataTable
-            caption={t("admin.courtBlocks.caption")}
-            columns={columns}
-            rows={blocks.data}
-            rowKey={(b) => b.id}
-            emptyLabel={t("admin.courtBlocks.empty")}
-          />
+          grouped.map((day) => (
+            <section key={day.date} className="stack" aria-label={day.date}>
+              <h2 className="section-head">{formatDayMonth(day.date)}</h2>
+              <DataTable
+                caption={t("admin.courtBlocks.captionDay", { date: formatDayMonth(day.date) })}
+                columns={columns}
+                rows={day.rows}
+                rowKey={(b) => b.id}
+                emptyLabel={t("admin.courtBlocks.empty")}
+              />
+            </section>
+          ))
         )}
       </div>
 
       {creating ? (
         <CreateBlockDialog
-          date={date || todayIso()}
+          date={startDate || todayIso()}
           courts={courts.data ?? []}
           onClose={() => setCreating(false)}
         />

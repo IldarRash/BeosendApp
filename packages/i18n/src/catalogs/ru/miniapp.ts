@@ -29,16 +29,14 @@ export const miniappRu: Record<string, string> = {
   "miniapp.home.sectionTrainings": "Тренировки",
   "miniapp.home.sectionCourts": "Корты",
   "miniapp.home.sectionAccount": "Профиль",
-  "miniapp.home.browse": "Расписание",
-  "miniapp.home.browseHint": "Выберите тренировку и запишитесь",
   "miniapp.home.myBookings": "Мои записи",
   "miniapp.home.myBookingsHint": "Предстоящие и прошедшие",
-  "miniapp.home.group": "Абонемент (группа)",
+  "miniapp.home.group": "Купить абонемент (группа)",
   "miniapp.home.groupHint": "Месячная подписка на группу",
   "miniapp.home.individual": "Индивидуальная тренировка",
   "miniapp.home.individualHint": "Запрос тренеру один на один",
   "miniapp.home.schedule": "Расписание тренировок",
-  "miniapp.home.scheduleHint": "Все занятия на ближайший месяц",
+  "miniapp.home.scheduleHint": "Календарь занятий по месяцам — выберите день",
   "miniapp.home.court": "Аренда корта",
   "miniapp.home.courtHint": "Заявка на свободный корт",
   "miniapp.home.calendar": "Мой календарь",
@@ -84,25 +82,17 @@ export const miniappRu: Record<string, string> = {
   "miniapp.timeOfDay.afternoon": "День",
   "miniapp.timeOfDay.evening": "Вечер",
 
-  // --- Browse slots (S3) ---
-  "miniapp.browse.title": "Расписание",
-  "miniapp.browse.today": "Сегодня",
-  "miniapp.browse.filtersAria": "Фильтры расписания",
+  // --- Slot card labels (shared by the schedule day-detail + confirm/waitlist views) ---
   "miniapp.browse.seats": "{count} мест",
   "miniapp.browse.seatsNone": "Нет мест",
   "miniapp.browse.price": "{price} RSD",
   "miniapp.browse.bookAria": "Записаться",
   "miniapp.browse.waitlist": "Лист ожидания",
   "miniapp.browse.waitlistAria": "Встать в лист ожидания",
-  "miniapp.browse.emptyTitle": "Нет подходящих тренировок",
-  "miniapp.browse.emptyBody": "Измените фильтры или загляните позже.",
-  "miniapp.browse.errorBody": "Не удалось загрузить расписание. Попробуйте ещё раз.",
 
-  // --- Browse filter sheet ---
-  "miniapp.browse.filter.title": "Фильтры",
+  // --- Filter sheet labels (shared by the group-list filter) ---
   "miniapp.browse.filter.any": "Любой",
   "miniapp.browse.filter.weekday": "День недели",
-  "miniapp.browse.filter.timeOfDay": "Время дня",
   "miniapp.browse.filter.trainer": "Тренер",
   "miniapp.browse.filter.level": "Уровень",
   "miniapp.browse.filter.apply": "Применить",
@@ -297,12 +287,16 @@ export const miniappRu: Record<string, string> = {
   // Error loading the list.
   "miniapp.myBookings.errorBody": "Не удалось загрузить ваши записи. Попробуйте ещё раз.",
 
-  // --- Training schedule (расписание) ---
-  "miniapp.schedule.title": "Расписание",
-  "miniapp.schedule.hint": "Тренировки на ближайший месяц. Нажмите, чтобы записаться.",
-  "miniapp.schedule.filtersAria": "Фильтры расписания",
-  "miniapp.schedule.emptyTitle": "Нет подходящих тренировок",
-  "miniapp.schedule.emptyBody": "Измените фильтры или загляните позже.",
+  // --- Training schedule (расписание): month calendar of bookable sessions ---
+  "miniapp.schedule.title": "Расписание тренировок",
+  "miniapp.schedule.hint": "Выберите день, чтобы увидеть тренировки и записаться.",
+  "miniapp.schedule.navAria": "Переключение месяца",
+  "miniapp.schedule.prevMonth": "Предыдущий месяц",
+  "miniapp.schedule.nextMonth": "Следующий месяц",
+  "miniapp.schedule.gridAria": "Календарь тренировок на {month}",
+  "miniapp.schedule.dayAria": "{day} число, тренировок: {count}",
+  "miniapp.schedule.emptyDayTitle": "Нет тренировок в этот день",
+  "miniapp.schedule.emptyDayBody": "Выберите другой день в календаре.",
   "miniapp.schedule.errorBody": "Не удалось загрузить расписание. Попробуйте ещё раз.",
 
   // --- My calendar (court + training) ---

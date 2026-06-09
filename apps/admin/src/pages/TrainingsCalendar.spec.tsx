@@ -9,12 +9,16 @@ const useTrainingDetail = vi.fn();
 const useGroups = vi.fn();
 const useTrainers = vi.fn();
 const useCancelTraining = vi.fn();
+const useRoster = vi.fn();
 
 vi.mock("../hooks/useTrainingsCalendar", () => ({
   useTrainingsCalendar: (...args: unknown[]) => useTrainingsCalendar(...args)
 }));
 vi.mock("../hooks/useTrainingDetail", () => ({
   useTrainingDetail: (...args: unknown[]) => useTrainingDetail(...args)
+}));
+vi.mock("../hooks/useRoster", () => ({
+  useRoster: (...args: unknown[]) => useRoster(...args)
 }));
 vi.mock("../hooks/useGroups", () => ({ useGroups: () => useGroups() }));
 vi.mock("../hooks/useTrainers", () => ({ useTrainers: () => useTrainers() }));
@@ -79,6 +83,24 @@ const ITEM: TrainingCalendarItem = {
   courtNumber: 3
 };
 
+const ROSTER = {
+  trainingId: ITEM.id,
+  date: "2026-07-06",
+  startTime: "08:00",
+  endTime: "09:30",
+  levelName: "Начинающие",
+  participants: [
+    {
+      bookingId: "aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa",
+      clientId: "bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb",
+      clientName: "Игорь",
+      bookingStatus: "booked",
+      bookingType: "single",
+      groupSubscriptionId: null
+    }
+  ]
+};
+
 function idleQuery(data: unknown): Record<string, unknown> {
   return { isPending: false, isError: false, error: null, data };
 }
@@ -92,6 +114,7 @@ beforeEach(() => {
   useTrainers.mockReturnValue({ data: [TRAINER] });
   useTrainingsCalendar.mockReturnValue(idleQuery([ITEM]));
   useTrainingDetail.mockReturnValue({ isPending: false, isError: false, error: null, data: null });
+  useRoster.mockReturnValue(idleQuery(ROSTER));
   useCancelTraining.mockReturnValue(mutation());
 });
 
@@ -145,6 +168,17 @@ describe("TrainingsCalendar", () => {
     expect(within(dialog).getByText("Открыта")).toBeTruthy();
     expect(within(dialog).getByText("Корт 3")).toBeTruthy();
     expect(within(dialog).getByText("Анна")).toBeTruthy();
+  });
+
+  it("lists the session's attendees with a drop-in badge in the detail popup", () => {
+    useTrainingDetail.mockReturnValue(idleQuery(ITEM));
+    renderPage();
+
+    fireEvent.click(screen.getByRole("button", { name: /2026-07-06 08:00–09:30/ }));
+    const dialog = screen.getByRole("dialog", { name: "Тренировка" });
+    expect(within(dialog).getByText("Записано: 1")).toBeTruthy();
+    const igor = within(dialog).getByText("Игорь").closest("tr") as HTMLElement;
+    expect(within(igor).getByText("Разовое")).toBeTruthy();
   });
 
   it("shows a dash for a court-less training in the detail popup", () => {

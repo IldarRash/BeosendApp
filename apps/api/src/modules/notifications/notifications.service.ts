@@ -14,6 +14,7 @@ import {
   trainingCancelledMessage,
   waitlistSlotMessage
 } from "./notification-messages";
+import { NotificationTemplatesRepository } from "../notification-templates/notification-templates.repository";
 import {
   type NotificationRecipient,
   NotificationsRepository
@@ -37,7 +38,8 @@ export class NotificationsService {
 
   constructor(
     private readonly repo: NotificationsRepository,
-    private readonly sender: TelegramSender
+    private readonly sender: TelegramSender,
+    private readonly templates: NotificationTemplatesRepository
   ) {}
 
   /**
@@ -61,7 +63,12 @@ export class NotificationsService {
       this.logger.debug(`Client ${clientId} has no telegram_id; skipping confirmation DM`);
       return;
     }
-    await this.sendAndLog(recipient, "booking-confirmed", bookingConfirmedMessage(recipient));
+    const override = await this.templates.findOverride("booking-confirmed");
+    await this.sendAndLog(
+      recipient,
+      "booking-confirmed",
+      bookingConfirmedMessage(recipient, override)
+    );
   }
 
   /**
@@ -105,7 +112,8 @@ export class NotificationsService {
       this.logger.warn(`No training ${trainingId} render fields for client ${clientId}; skipping pending ack`);
       return;
     }
-    await this.sendAndLog(recipient, "booking-pending", bookingPendingMessage(recipient));
+    const override = await this.templates.findOverride("booking-pending");
+    await this.sendAndLog(recipient, "booking-pending", bookingPendingMessage(recipient, override));
   }
 
   /**
@@ -123,7 +131,12 @@ export class NotificationsService {
       this.logger.warn(`No training ${trainingId} render fields for client ${clientId}; skipping decline DM`);
       return;
     }
-    await this.sendAndLog(recipient, "booking-declined", bookingDeclinedMessage(recipient));
+    const override = await this.templates.findOverride("booking-declined");
+    await this.sendAndLog(
+      recipient,
+      "booking-declined",
+      bookingDeclinedMessage(recipient, override)
+    );
   }
 
   /**
@@ -229,9 +242,11 @@ export class NotificationsService {
   async sendDueReminders(type: "reminder-24h" | "reminder-3h", now: Date): Promise<number> {
     const { start, end } = reminderWindow(type, now);
     const recipients = await this.repo.findDueReminders(type, start, end);
+    // Fetch the override once for the whole batch (tiny table; one read per scan).
+    const override = await this.templates.findOverride(type);
     let sent = 0;
     for (const recipient of recipients) {
-      const ok = await this.sendAndLog(recipient, type, reminderMessage(type, recipient));
+      const ok = await this.sendAndLog(recipient, type, reminderMessage(type, recipient, override));
       if (ok) {
         sent += 1;
       }
@@ -253,12 +268,13 @@ export class NotificationsService {
       clientIds,
       "training-cancelled"
     );
+    const override = await this.templates.findOverride("training-cancelled");
     let sent = 0;
     for (const recipient of recipients) {
       const ok = await this.sendAndLog(
         recipient,
         "training-cancelled",
-        trainingCancelledMessage(recipient)
+        trainingCancelledMessage(recipient, override)
       );
       if (ok) {
         sent += 1;
@@ -293,10 +309,11 @@ export class NotificationsService {
       this.logger.debug(`Client ${clientId} has no telegram_id; skipping waitlist-slot`);
       return false;
     }
+    const override = await this.templates.findOverride("waitlist-slot");
     try {
       await this.sender.sendMessage(
         recipient.telegramId,
-        waitlistSlotMessage(recipient, windowMinutes),
+        waitlistSlotMessage(recipient, windowMinutes, override),
         replyMarkup
       );
       await this.repo.logSent({

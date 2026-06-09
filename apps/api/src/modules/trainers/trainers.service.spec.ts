@@ -114,6 +114,23 @@ describe("TrainersService", () => {
     expect(repo.update).toHaveBeenCalledWith(milena.id, { telegramId: null });
   });
 
+  it("forwards a modern Telegram id above 2^31 unchanged (bigint column, no overflow)", async () => {
+    // Regression: 32-bit telegram_id columns overflowed on real Telegram IDs and
+    // surfaced as a 500. The id must pass through to the repo untouched.
+    const bigId = 7_500_000_000;
+    const created = await service.create(ADMIN_ID, {
+      name: "Guest Big",
+      type: "guest",
+      telegramId: bigId
+    });
+    expect(created.telegramId).toBe(bigId);
+    expect(repo.create).toHaveBeenCalledWith({ name: "Guest Big", type: "guest", telegramId: bigId });
+
+    const updated = await service.update(ADMIN_ID, milena.id, { telegramId: bigId });
+    expect(updated.telegramId).toBe(bigId);
+    expect(repo.update).toHaveBeenCalledWith(milena.id, { telegramId: bigId });
+  });
+
   it("returns existing unchanged when patch is empty (no write)", async () => {
     await expect(service.update(ADMIN_ID, milena.id, {})).resolves.toEqual(milena);
     expect(repo.update).not.toHaveBeenCalled();
