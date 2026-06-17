@@ -217,19 +217,28 @@ export const miniappRu: Record<string, string> = {
   "miniapp.court.freeCount": "{count} свободно",
   "miniapp.court.noTimesTitle": "Нет свободного времени",
   "miniapp.court.noTimesBody": "На этот день нет свободных кортов. Выберите другую дату.",
-  // Step 3 — pick a duration.
+  // Step 3 — pick a duration (1…6 ч, шаг 0,5). The {hours} token is a comma-decimal.
   "miniapp.court.pickDuration": "Длительность",
-  "miniapp.court.duration1": "1 час",
-  "miniapp.court.duration1_5": "1,5 часа",
-  "miniapp.court.duration2": "2 часа",
+  "miniapp.court.durationHours": "{hours} ч",
   "miniapp.court.durationLabel": "Длительность",
-  // Step 4 — price preview ({price} is RSD from the server).
+  // Step 4 — pick one or more specific courts (the server returns the free ones).
+  "miniapp.court.pickCourts": "Выберите корт(ы)",
+  "miniapp.court.pickCourtsHint": "Можно выбрать несколько свободных кортов.",
+  "miniapp.court.courtN": "Корт {n}",
+  "miniapp.court.courtTaken": "Корт {n} занят",
+  "miniapp.court.noCourtsTitle": "Нет свободных кортов",
+  "miniapp.court.noCourtsBody": "На это время не осталось свободных кортов. Выберите другое время.",
+  "miniapp.court.selectedCount": "Выбрано кортов: {count}",
+  "miniapp.court.continue": "Продолжить",
+  "miniapp.court.courtsLabel": "Корты",
+  // Step 5 — price preview ({price} is RSD from the server, for the picked courts).
   "miniapp.court.previewTitle": "Подтверждение заявки",
-  "miniapp.court.previewBody": "Мы назначим свободный корт и сообщим вам.",
+  "miniapp.court.previewBody": "Выбранные корты закреплены за вами до подтверждения администратором.",
   "miniapp.court.submit": "Отправить заявку",
-  // Step 5 — pending (no court number is shown).
+  // Step 6 — pending. The picked courts ARE shown now (owner-approved).
   "miniapp.court.sentTitle": "Запрос отправлен",
-  "miniapp.court.sentBody": "Мы назначим корт и сообщим вам.",
+  "miniapp.court.sentBody": "Мы подтвердим выбранные корты и сообщим вам.",
+  "miniapp.court.sentCourts": "Выбранные корты: {courts}",
   "miniapp.court.toHome": "На главную",
   // Calm "slot taken meanwhile" state (preview unavailable or a submit 409) — NOT an error.
   "miniapp.court.unavailableTitle": "Это время заняли",

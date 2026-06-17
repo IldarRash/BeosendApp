@@ -84,9 +84,12 @@ export function levelKeyboard(catalog: Catalog, levels: Level[]): InlineKeyboard
 }
 
 /**
- * /start: branch on whether the caller already has a client record. New users
- * (API 404) enter onboarding; returning users land on the main menu, rendered in
- * their stored language.
+ * /start: always reply with the welcome text + main menu. Onboarding moved to the
+ * Mini App, so the bot no longer starts the name/language/level wizard on /start
+ * (it never sets `step` here). New and returning users alike land on the menu —
+ * which now leads into the Mini App. The wizard handlers remain exported and
+ * wired, reachable only via a stored `session.step` that is no longer set at
+ * start, so onboarding functionality is hidden, not removed.
  */
 export async function handleStart(
   ctx: BotContext,
@@ -98,15 +101,11 @@ export async function handleStart(
   if (telegramId === undefined) {
     return;
   }
-  const client = await api.getClientByTelegramId(telegramId);
-  if (client) {
-    ctx.session = initialSession();
-    await ctx.reply(welcomeText(catalog), { reply_markup: menu });
-    return;
-  }
-  ctx.session = { step: "awaiting_name" };
-  // No client record yet → render the first prompt in the default locale (RU).
-  await ctx.reply(onboardWelcome(catalog));
+  // The client lookup is retained so the API can record the contact; the result
+  // no longer branches the flow now that onboarding lives in the Mini App.
+  await api.getClientByTelegramId(telegramId);
+  ctx.session = initialSession();
+  await ctx.reply(welcomeText(catalog), { reply_markup: menu });
 }
 
 /**

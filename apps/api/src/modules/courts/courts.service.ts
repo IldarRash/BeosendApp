@@ -50,9 +50,10 @@ export class CourtsService {
       throw new ForbiddenException("Court load is admin-only.");
     }
 
-    const [courts, confirmed, blocks, unassignedTrainings] = await Promise.all([
+    const [courts, confirmed, holds, blocks, unassignedTrainings] = await Promise.all([
       this.repository.findActive(),
       this.repository.confirmedCourtOccupancyForDate(date),
+      this.repository.heldCourtOccupancyForDate(date),
       this.repository.blocksByCourtForDate(date),
       this.repository.unassignedTrainingsForDate(date)
     ]);
@@ -62,6 +63,7 @@ export class CourtsService {
       openHour: COURT_OPEN_HOUR,
       closeHour: COURT_CLOSE_HOUR,
       confirmed,
+      holds,
       blocks
     });
 

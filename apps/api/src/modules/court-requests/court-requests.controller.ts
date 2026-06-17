@@ -13,6 +13,7 @@ import { z } from "zod";
 import {
   confirmCourtRequestSchema,
   courtAvailabilityQuerySchema,
+  courtFreeCourtsQuerySchema,
   courtRequestQueueQuerySchema,
   createCourtRequestSchema,
   previewCourtRequestSchema,
@@ -23,6 +24,7 @@ import {
   type CourtRequest,
   type CourtRequestAdminView,
   type CourtRequestPreview,
+  type FreeCourtNumbers,
   type MyCourtRequestItem
 } from "@beosand/types";
 import { CourtRequestsService } from "./court-requests.service";
@@ -45,6 +47,23 @@ export class CourtRequestsController {
       throw new BadRequestException("Invalid availability query: expected date=YYYY-MM-DD.");
     }
     return this.service.getAvailability(parsed.data.date);
+  }
+
+  /**
+   * C3.1 — the SPECIFIC active court numbers free for a desired slot, so the Mini App
+   * can render a court picker. Client path (no admin gate); never returns a court id.
+   * Declared before the `:id` detail route so the literal "free-courts" segment is
+   * never captured as an id.
+   */
+  @Get("free-courts")
+  async freeCourtNumbers(@Query() query: Record<string, unknown>): Promise<FreeCourtNumbers> {
+    const parsed = courtFreeCourtsQuerySchema.safeParse(query);
+    if (!parsed.success) {
+      throw new BadRequestException(
+        "Invalid free-courts query: expected date=YYYY-MM-DD, startTime=HH:MM, durationHours."
+      );
+    }
+    return this.service.freeCourtNumbers(parsed.data);
   }
 
   /**
@@ -172,7 +191,7 @@ export class CourtRequestsController {
     const parsed = confirmCourtRequestSchema.safeParse(body);
     if (!parsed.success) {
       throw new BadRequestException(
-        "Invalid confirm body: expected { requestId, courtId, decidedBy }."
+        "Invalid confirm body: expected { requestId, courtIds: string[], decidedBy }."
       );
     }
     if (parsed.data.requestId !== id) {

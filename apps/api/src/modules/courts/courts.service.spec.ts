@@ -84,6 +84,7 @@ describe("CourtsService.getLoadGrid", () => {
       confirmedCourtOccupancyForDate: vi
         .fn()
         .mockResolvedValue([{ courtId: courtA, startTime: "10:00", durationMinutes: 120 }]),
+      heldCourtOccupancyForDate: vi.fn().mockResolvedValue([]),
       blocksByCourtForDate: vi
         .fn()
         .mockResolvedValue([{ courtId: courtB, startTime: "09:00", durationMinutes: 180 }]),
@@ -136,6 +137,7 @@ describe("CourtsService.getLoadGrid", () => {
         { id: courtB, number: 2, status: "active" }
       ]),
       confirmedCourtOccupancyForDate: vi.fn().mockResolvedValue([]),
+      heldCourtOccupancyForDate: vi.fn().mockResolvedValue([]),
       blocksByCourtForDate: vi.fn().mockResolvedValue([]),
       unassignedTrainingsForDate: vi.fn().mockResolvedValue([])
     } as unknown as CourtsRepository;
@@ -168,6 +170,7 @@ describe("CourtsService.getLoadGrid", () => {
         { id: courtB, number: 2, status: "active" }
       ]),
       confirmedCourtOccupancyForDate: vi.fn().mockResolvedValue([]),
+      heldCourtOccupancyForDate: vi.fn().mockResolvedValue([]),
       blocksByCourtForDate: vi.fn().mockResolvedValue([
         { courtId: courtA, startTime: "10:00", durationMinutes: 120, trainingId },
         { courtId: courtB, startTime: "14:00", durationMinutes: 60 }
@@ -198,6 +201,37 @@ describe("CourtsService.getLoadGrid", () => {
     expect(free?.trainingId).toBeNull();
   });
 
+  it("maps a still-pending hold (client picked the court) to a `hold` cell carrying its requestId", async () => {
+    const heldRequestId = "55555555-5555-4555-8555-555555555555";
+    const repo = {
+      findActive: vi.fn().mockResolvedValue([
+        { id: courtA, number: 1, status: "active" },
+        { id: courtB, number: 2, status: "active" }
+      ]),
+      confirmedCourtOccupancyForDate: vi.fn().mockResolvedValue([]),
+      heldCourtOccupancyForDate: vi
+        .fn()
+        .mockResolvedValue([
+          { courtId: courtA, startTime: "10:00", durationMinutes: 60, requestId: heldRequestId }
+        ]),
+      blocksByCourtForDate: vi.fn().mockResolvedValue([]),
+      unassignedTrainingsForDate: vi.fn().mockResolvedValue([])
+    } as unknown as CourtsRepository;
+    const service = new CourtsService(adminEnv, repo);
+
+    const grid = await service.getLoadGrid(111, "2026-06-10");
+
+    const rowA = grid.rows.find((r) => r.courtId === courtA);
+    const hold = rowA?.cells.find((c) => c.startTime === "10:00");
+    expect(hold?.state).toBe("hold");
+    expect(hold?.requestId).toBe(heldRequestId);
+    expect(rowA?.cells.find((c) => c.startTime === "10:30")?.state).toBe("hold");
+    // A court with no hold/confirmed/block stays free.
+    expect(grid.rows.find((r) => r.courtId === courtB)?.cells.every((c) => c.state === "free")).toBe(
+      true
+    );
+  });
+
   it("surfaces unassigned (orphan) trainings from the repo in the grid", async () => {
     const trainingId = "44444444-4444-4444-8444-444444444444";
     const repo = {
@@ -205,6 +239,7 @@ describe("CourtsService.getLoadGrid", () => {
         .fn()
         .mockResolvedValue([{ id: courtA, number: 1, status: "active" }]),
       confirmedCourtOccupancyForDate: vi.fn().mockResolvedValue([]),
+      heldCourtOccupancyForDate: vi.fn().mockResolvedValue([]),
       blocksByCourtForDate: vi.fn().mockResolvedValue([]),
       unassignedTrainingsForDate: vi.fn().mockResolvedValue([
         {

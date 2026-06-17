@@ -9,16 +9,13 @@ import {
   type MenuReplyCtx
 } from "./navigation";
 
-// The court rental entry (menu:court), the language switch (menu:lang) and the
-// back-to-menu action (menu:home) are routed by dedicated handlers in index.ts,
-// not through the generic dispatch table, so the table covers the remaining
-// client routes. The client menu buttons (everything except the home/back
-// action) are what mainMenuKeyboard renders.
+// The language switch (menu:lang) and the back-to-menu action (menu:home) are
+// routed by dedicated handlers in index.ts, not through the generic dispatch
+// table, so the table covers the remaining client routes. The client menu
+// buttons (everything except the home/back action) are what mainMenuKeyboard
+// renders. (Court rental moved to the Mini App, so there is no court entry.)
 const DISPATCHED_ACTIONS = Object.values(MENU_ACTIONS).filter(
-  (a) =>
-    a !== MENU_ACTIONS.rentCourt &&
-    a !== MENU_ACTIONS.language &&
-    a !== MENU_ACTIONS.backToMenu
+  (a) => a !== MENU_ACTIONS.language && a !== MENU_ACTIONS.backToMenu
 );
 const CLIENT = { id: "22222222-2222-2222-2222-222222222222" };
 
@@ -27,7 +24,7 @@ const WELCOME_TEXT = welcomeText(ru);
 
 // The fallback re-renders the full main menu, so the expected callbacks are
 // exactly mainMenuKeyboard's rows in order (today → single-visit → group →
-// individual → bookings → court → contact → language).
+// individual → bookings → contact → language).
 const MENU_BUTTON_ACTIONS = mainMenuKeyboard(ru).inline_keyboard
   .flat()
   .map((b) => ("callback_data" in b ? b.callback_data : undefined));

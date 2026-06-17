@@ -12,6 +12,7 @@ import type {
   CourtAvailability,
   CourtRequest,
   CourtRequestPreview,
+  FreeCourtNumbers,
   Group,
   GroupBookingResult,
   GroupMembers,
@@ -453,6 +454,31 @@ export function useCourtAvailability(
   });
 }
 
+/** The shared query-key prefix for every free-courts request (for invalidation). */
+const FREE_COURTS_KEY_PREFIX = "court-free-courts";
+
+/** A stable query key for one slot's free court numbers, keyed by date + start + duration. */
+export function courtFreeCourtsQueryKey(slot: CourtRequestInput): readonly [string, string] {
+  return [FREE_COURTS_KEY_PREFIX, `${slot.date}|${slot.startTime}|${slot.durationHours}`] as const;
+}
+
+/**
+ * The SPECIFIC courts free for a chosen slot (GET /court-requests/free-courts), so the
+ * court-picker step can render which courts (1…6) the client may pick. Keyed by the
+ * full slot so a date/time/duration change refetches; disabled until a complete slot is
+ * chosen. The server owns which courts are free; this hook only fetches and validates.
+ */
+export function useCourtFreeCourts(
+  slot: CourtRequestInput | undefined
+): UseQueryResult<FreeCourtNumbers> {
+  const apiClient = useApiClient();
+  return useQuery<FreeCourtNumbers>({
+    queryKey: courtFreeCourtsQueryKey(slot ?? { date: "", startTime: "", durationHours: 1 }),
+    enabled: slot != null,
+    queryFn: () => apiClient.getFreeCourtNumbers(slot!)
+  });
+}
+
 /**
  * Price + availability preview for a chosen court slot (POST /court-requests/preview).
  * The mutation argument is the chosen slot; the ApiClient supplies the caller's OWN
@@ -471,9 +497,10 @@ export function useCourtPreview(): UseMutationResult<CourtRequestPreview, Error,
  * Submit a court-rental request (POST /court-requests). The mutation argument is the
  * chosen slot; the ApiClient supplies the caller's OWN Telegram id from the verified
  * session. The created {@link CourtRequest} is `pending` with NO court assigned — the
- * client never sees/chooses a court. On settle it invalidates the date's availability
- * so a consumed slot reflects the server's recompute. A 409 (slot filled meanwhile)
- * surfaces as a {@link ConflictError} so the screen shows the server message verbatim.
+ * client now picks the courts (held while pending). On settle it invalidates the date's
+ * availability AND every free-courts query so a consumed slot — the picked courts now
+ * held — reflects the server's recompute. A 409 (slot filled meanwhile) surfaces as a
+ * {@link ConflictError} so the screen shows the server message verbatim.
  */
 export function useCreateCourtRequest(): UseMutationResult<CourtRequest, Error, CourtRequestInput> {
   const apiClient = useApiClient();
@@ -482,6 +509,9 @@ export function useCreateCourtRequest(): UseMutationResult<CourtRequest, Error, 
     mutationFn: (input) => apiClient.createCourtRequest(input),
     onSettled: (_data, _error, input) => {
       void qc.invalidateQueries({ queryKey: courtAvailabilityQueryKey(input.date) });
+      // The picked courts are now held; refetch every free-courts read so no taken
+      // court is still offered as selectable on the picker.
+      void qc.invalidateQueries({ queryKey: [FREE_COURTS_KEY_PREFIX] });
     }
   });
 }

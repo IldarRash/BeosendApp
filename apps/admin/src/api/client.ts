@@ -322,9 +322,9 @@ export class ApiClient {
 
   /**
    * C4 — admin moderation queue for one status (GET /court-requests?status=…),
-   * joined with the client's name/telegram. This admin-only view carries a
-   * `courtId`, populated only for confirmed requests; a pending row's `courtId`
-   * is null (the screen must render "—", never a court number).
+   * joined with the client's name/telegram. This admin-only view carries
+   * `courtCount` + `courtNumbers`: while pending these are the client's picked
+   * (held) courts; after confirmation they are the admin's final courts.
    */
   listCourtRequests(status: CourtRequestStatus): Promise<CourtRequestAdminView[]> {
     const query = new URLSearchParams({ status }).toString();
@@ -334,7 +334,7 @@ export class ApiClient {
   /**
    * Admin-only detail for one request (GET /court-requests/:id), joined with the
    * client's name/telegram and the derived end time. Backs the court-load grid's
-   * "who booked this court/hour?" popup. Carries a `courtId` (admin path only).
+   * "who booked this court/hour?" popup. Carries `courtNumbers` (admin path only).
    */
   courtRequestDetail(id: string): Promise<CourtRequestAdminView> {
     return this.request(`/court-requests/${id}`, courtRequestAdminViewSchema);
@@ -344,21 +344,28 @@ export class ApiClient {
    * C4 — the active courts free for *every* 30-min slot the request covers (GET
    * /court-requests/:id/free-courts). The server owns the per-slot/6-per-court
    * math; the picker only offers what this returns and never computes its own.
+   * The list INCLUDES the request's own currently-held courts, so the client's
+   * picks appear as selectable/pre-checkable in the confirm picker.
    */
   freeCourtsForRequest(id: string): Promise<Court[]> {
     return this.request(`/court-requests/${id}/free-courts`, courtsSchema);
   }
 
   /**
-   * C4 — confirm a pending request onto a chosen court (POST
-   * /court-requests/:id/confirm). Body is { requestId, courtId, decidedBy };
-   * `requestId` is fixed to the path id here. The server atomically re-checks
-   * freeness — a slot filled meanwhile surfaces as a thrown Error (409).
+   * C4 — confirm a pending request onto a chosen set of courts (POST
+   * /court-requests/:id/confirm). Body is { requestId, courtIds, decidedBy };
+   * `requestId` is fixed to the path id here. `courtIds.length` must equal the
+   * request's `courtCount` — the admin may keep the client's picked courts or swap
+   * them. The server atomically re-checks freeness for every covered slot — a court
+   * filled meanwhile surfaces as a thrown Error (409).
    */
-  confirmRequest(id: string, input: { courtId: string; decidedBy: number }): Promise<CourtRequest> {
+  confirmRequest(
+    id: string,
+    input: { courtIds: string[]; decidedBy: number }
+  ): Promise<CourtRequest> {
     return this.request(`/court-requests/${id}/confirm`, courtRequestSchema, {
       method: "POST",
-      body: JSON.stringify({ requestId: id, courtId: input.courtId, decidedBy: input.decidedBy })
+      body: JSON.stringify({ requestId: id, courtIds: input.courtIds, decidedBy: input.decidedBy })
     });
   }
 
@@ -380,8 +387,8 @@ export class ApiClient {
 
   /**
    * C6 — per-day court load grid (GET /courts/load?date=YYYY-MM-DD): courts ×
-   * 30-minute-slot cells, each free | request | block. Admin-only; carries court
-   * numbers (never a client path).
+   * 30-minute-slot cells, each free | request | hold | block | training. Admin-only;
+   * carries court numbers (never a client path).
    */
   courtLoad(date: string): Promise<CourtLoadGrid> {
     const query = new URLSearchParams({ date }).toString();

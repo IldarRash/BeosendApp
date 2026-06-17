@@ -72,7 +72,9 @@ const MY_COURT: MyCourtRequestItem = {
   endTime: "13:00",
   durationHours: 1,
   priceRsd: 2000,
-  status: "pending"
+  status: "pending",
+  courtCount: 1,
+  courtNumbers: [3]
 };
 
 // /trainings/available returns BOTH the already-booked training (must be deduped) and a

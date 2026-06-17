@@ -9,8 +9,6 @@ export const MENU_ACTIONS = {
   /** Individual-training request flow (Feature 8). */
   individual: "menu:individual",
   myBookings: "menu:bookings",
-  /** Court rental request flow (Edition 2, C2). */
-  rentCourt: "menu:court",
   contactManager: "menu:contact",
   /** Per-user language switch (i18n). */
   language: "menu:lang",
@@ -48,9 +46,14 @@ export function parseSetLanguage(data: string | undefined): Locale | undefined {
 
 /**
  * Main menu keyboard. When a Mini App URL is configured, a prominent web_app
- * button to open the Mini App is placed at the top (FOUNDATION slice D); the
- * existing inline flow buttons stay during migration. `miniappUrl` is omitted in
- * a tunnel-less local setup, in which case only the legacy inline buttons show.
+ * button to open the Mini App is placed at the top (FOUNDATION slice D). All
+ * client interactive booking flows (today's free slots, single-visit, group,
+ * individual, my bookings, court rental) moved to the Mini App only — the bot is
+ * now a channel for broadcasts, confirmations, and receiving info, so it offers
+ * only: open the app, contact the manager, and switch language. The flow
+ * handlers stay wired (stale callbacks / quick-book-from-broadcast keep working)
+ * but have no menu entry points here. `miniappUrl` is omitted in a tunnel-less
+ * local setup, in which case only the contact + language buttons show.
  */
 export function mainMenuKeyboard(catalog: Catalog, miniappUrl?: string): InlineKeyboard {
   const keyboard = new InlineKeyboard();
@@ -58,18 +61,6 @@ export function mainMenuKeyboard(catalog: Catalog, miniappUrl?: string): InlineK
     keyboard.webApp(t(catalog, "bot.menu.openApp"), miniappUrl).row();
   }
   return keyboard
-    .text(t(catalog, "bot.menu.todayFreeSlots"), MENU_ACTIONS.todayFreeSlots)
-    .row()
-    .text(t(catalog, "bot.menu.availableTrainings"), MENU_ACTIONS.availableTrainings)
-    .row()
-    .text(t(catalog, "bot.menu.joinGroup"), MENU_ACTIONS.joinGroup)
-    .row()
-    .text(t(catalog, "bot.menu.individual"), MENU_ACTIONS.individual)
-    .row()
-    .text(t(catalog, "bot.menu.myBookings"), MENU_ACTIONS.myBookings)
-    .row()
-    .text(t(catalog, "bot.menu.rentCourt"), MENU_ACTIONS.rentCourt)
-    .row()
     .text(t(catalog, "bot.menu.contactManager"), MENU_ACTIONS.contactManager)
     .row()
     .text(t(catalog, "bot.menu.language"), MENU_ACTIONS.language);

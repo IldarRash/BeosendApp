@@ -21,6 +21,8 @@ const preview: CourtRequestPreview = {
   endTime: "15:00",
   durationHours: 1,
   priceRsd: 2000,
+  courtCount: 1,
+  courtNumbers: [],
   available: true
 };
 
@@ -32,7 +34,8 @@ const created: CourtRequest = {
   durationHours: 1,
   priceRsd: 2000,
   status: "pending",
-  courtId: null,
+  courtCount: 1,
+  courtNumbers: [],
   createdAt: "2026-06-05T00:00:00.000Z",
   decidedAt: null,
   decidedBy: null
@@ -97,8 +100,9 @@ describe("CourtRequestsController.preview (POST /court-requests/preview)", () =>
   });
 
   it("rejects an invalid body (Zod) before calling the service", async () => {
+    // 7 is past the 6h max; off-grid (2.25) and over-max both fail the contract.
     await expect(
-      controller.preview({ ...validBody, durationHours: 3 }, HEADER)
+      controller.preview({ ...validBody, durationHours: 7 }, HEADER)
     ).rejects.toBeInstanceOf(BadRequestException);
     expect(service.previewRequest).not.toHaveBeenCalled();
   });

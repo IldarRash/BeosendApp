@@ -40,8 +40,12 @@ type Translate = (key: string, params?: Record<string, string | number>) => stri
 
 /**
  * M3 — Загрузка кортов: the per-day load grid (courts × time). Every cell's state
- * (free | request | block | training) comes straight from the API — this screen
- * never computes occupancy, the 6-per-slot limit, or per-slot court availability.
+ * (free | request | hold | block | training) comes straight from the API — this
+ * screen never computes occupancy, the 6-per-slot limit, or per-slot availability.
+ * A `request` cell is a confirmed court request; a `hold` cell is a still-pending
+ * request whose client picked this court (held until the admin decides) — both
+ * carry a `requestId` and open the same booking-detail popup, rendered in distinct
+ * tints/glyphs so the admin can tell a held court from a confirmed one.
  *
  * The API returns 30-minute cells; for legibility the grid groups them into
  * 2-hour COLUMNS, each rendered as a bar of its underlying 30-min sub-segments so
@@ -55,7 +59,13 @@ type Translate = (key: string, params?: Record<string, string | number>) => stri
  */
 
 /** Cell states in legend order. Labels resolve through the catalog. */
-const CELL_STATES: readonly CourtLoadCellState[] = ["free", "request", "block", "training"];
+const CELL_STATES: readonly CourtLoadCellState[] = [
+  "free",
+  "request",
+  "hold",
+  "block",
+  "training"
+];
 
 /** Catalog key for each cell state — also used for the cell's accessible name. */
 function cellStateLabel(state: CourtLoadCellState, t: Translate): string {
@@ -66,6 +76,7 @@ function cellStateLabel(state: CourtLoadCellState, t: Translate): string {
 const CELL_STATE_GLYPH: Record<CourtLoadCellState, string> = {
   free: "·",
   request: "З",
+  hold: "У",
   block: "Б",
   training: "Т"
 };
@@ -383,7 +394,9 @@ function LoadSegment({
     state: cellStateLabel(cell.state, t)
   };
 
-  if (cell.state === "request" && cell.requestId) {
+  // A `request` (confirmed) and a `hold` (pending pick) both link to a request and
+  // open the same booking-detail popup; they differ only in tint/glyph/label.
+  if ((cell.state === "request" || cell.state === "hold") && cell.requestId) {
     const requestId = cell.requestId;
     return (
       <button

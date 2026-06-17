@@ -136,12 +136,13 @@ describe("handleStart", () => {
     expect(api.onboardClient).not.toHaveBeenCalled();
   });
 
-  it("starts onboarding (welcome + awaiting_name) for a new client", async () => {
+  it("shows welcome + menu for a new client without starting the wizard (onboarding lives in the Mini App)", async () => {
     const api = mockApi({ getClientByTelegramId: vi.fn().mockResolvedValue(null) });
     const { ctx, reply } = fakeCtx({ from: { id: 99 } });
     await handleStart(ctx, api, ru, menuFor(ru));
-    expect(reply).toHaveBeenCalledWith(ONBOARD_WELCOME);
-    expect(ctx.session.step).toBe("awaiting_name");
+    expect(reply).toHaveBeenCalledWith(WELCOME_TEXT, expect.anything());
+    expect(ctx.session.step).toBeUndefined();
+    expect(api.onboardClient).not.toHaveBeenCalled();
   });
 });
 

@@ -118,7 +118,7 @@ const GRID: CourtLoadGrid = {
       courtNumber: 2,
       cells: [
         cell("08:00", "block", { blockId: MANUAL_BLOCK_ID }),
-        cell("08:30", "free"),
+        cell("08:30", "hold", { requestId: REQUEST_ID }),
         cell("09:00", "free"),
         cell("09:30", "free"),
         cell("10:00", "training", { trainingId: TRAINING_ID, blockId: TRAINING_BLOCK_ID }),
@@ -139,7 +139,8 @@ const DETAIL: CourtRequestAdminView = {
   durationHours: 1,
   priceRsd: 2000,
   status: "confirmed",
-  courtId: "11111111-1111-1111-1111-111111111111",
+  courtCount: 1,
+  courtNumbers: [1],
   createdAt: "2026-06-01T10:00:00.000Z",
   decidedAt: "2026-06-02T10:00:00.000Z",
   decidedBy: 555,
@@ -239,6 +240,27 @@ describe("CourtLoad page", () => {
     );
     expect(training.tagName).toBe("BUTTON");
     expect(training.className).toContain("load-seg--training");
+  });
+
+  it("renders a hold (pending pick) segment distinctly and opens the request detail", () => {
+    renderPage();
+
+    const hold = screen.getByLabelText("Корт 2, 08:30 — Удержание. Открыть детали брони.");
+    // A hold reads as its own tint/glyph, not the confirmed-request one.
+    expect(hold.tagName).toBe("BUTTON");
+    expect(hold.className).toContain("load-seg--hold");
+    expect(hold.textContent).toBe("У");
+
+    // A hold cell links to its request like a confirmed-request cell.
+    fireEvent.click(hold);
+    expect(useCourtRequestDetail).toHaveBeenLastCalledWith(REQUEST_ID);
+    expect(screen.getByRole("dialog", { name: "Детали брони" })).toBeTruthy();
+  });
+
+  it("lists the hold state in the legend", () => {
+    renderPage();
+    const legend = screen.getByRole("list", { name: "Обозначения" });
+    expect(within(legend).getByText("Удержание")).toBeTruthy();
   });
 
   it("makes request, training and block segments clickable; free stays inert", () => {

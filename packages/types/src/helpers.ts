@@ -148,13 +148,16 @@ export function shiftMonth(
 
 /**
  * Court rental price in RSD (section "Стоимость аренды"). Fractional hours are
- * allowed (1 | 1.5 | 2); 1.5h × 2000 = 3000 stays whole RSD for these durations.
+ * allowed (0.5 grid, 1…6h); a half-hour × 2000 = 1000 stays whole RSD. The total
+ * scales by `courtCount` (a client may rent several courts at once): 2 courts × 2h
+ * = 4 × 2000 = 16000. `courtCount` defaults to 1 for the single-court (bot) path.
  */
 export function courtPriceRsd(
   durationHours: CourtDurationHours,
+  courtCount: number = 1,
   ratePerHour: number = COURT_RATE_RSD_PER_HOUR
 ): number {
-  return durationHours * ratePerHour;
+  return durationHours * ratePerHour * courtCount;
 }
 
 /** A court duration in whole minutes (1 → 60, 1.5 → 90, 2 → 120). */
@@ -317,10 +320,11 @@ export function courtFreeForSlots(
 /**
  * C6 — per-day court load grid (admin). For each active court and each 30-min slot
  * in [openHour:00, closeHour:00): `block` if a block covers that court/slot, else
- * `request` if a confirmed request covers it, else `free`. This is the per-court
- * analogue of `freeCourtsBySlot` and uses the same `courtSlotsCovered` notion as
- * the C4 confirm re-check, so a `free` cell is exactly a court/slot C3 counts as
- * free. Pure: no Nest/DB.
+ * `request` if a confirmed request covers it, else `hold` if a pending request is
+ * holding it (the client picked it but admin has not decided yet), else `free`.
+ * This is the per-court analogue of `freeCourtsBySlot` and uses the same
+ * `courtSlotsCovered` notion as the C4 confirm re-check, so a `free` cell is exactly
+ * a court/slot C3 counts as free. Pure: no Nest/DB.
  */
 export function courtLoadGrid(input: {
   courts: readonly { id: string; number: number }[];
@@ -328,6 +332,8 @@ export function courtLoadGrid(input: {
   closeHour: number;
   confirmed: readonly CourtCellOccupant[];
   blocks: readonly CourtCellOccupant[];
+  /** Pending requests holding a specific court (client picked it; admin not decided). */
+  holds?: readonly CourtCellOccupant[];
 }): {
   courtId: string;
   courtNumber: number;
@@ -341,12 +347,14 @@ export function courtLoadGrid(input: {
 }[] {
   const blockSlots = occupiedSlotsByCourt(input.blocks);
   const requestSlots = occupiedSlotsByCourt(input.confirmed);
+  const holdSlots = occupiedSlotsByCourt(input.holds ?? []);
   const openMinutes = input.openHour * 60;
   const closeMinutes = input.closeHour * 60;
 
   return input.courts.map((court) => {
     const blocked = blockSlots.get(court.id);
     const requested = requestSlots.get(court.id);
+    const held = holdSlots.get(court.id);
     const cells: {
       startTime: string;
       state: CourtLoadCellState;
@@ -358,6 +366,7 @@ export function courtLoadGrid(input: {
       const startTime = timeOfMinutes(m);
       const block = blocked?.get(startTime);
       const request = requested?.get(startTime);
+      const hold = held?.get(startTime);
       if (block) {
         const tid = block.trainingId;
         cells.push({
@@ -372,6 +381,14 @@ export function courtLoadGrid(input: {
           startTime,
           state: "request",
           requestId: request.requestId,
+          trainingId: null,
+          blockId: null
+        });
+      } else if (hold) {
+        cells.push({
+          startTime,
+          state: "hold",
+          requestId: hold.requestId,
           trainingId: null,
           blockId: null
         });

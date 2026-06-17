@@ -25,27 +25,20 @@ function callbacksOf(keyboard: { inline_keyboard: unknown[][] }): (string | unde
 }
 
 describe("mainMenuKeyboard", () => {
-  it("renders the entry actions in the Feature 7 order plus the language switch", () => {
+  it("renders only contact + language now that booking flows live in the Mini App", () => {
     expect(callbacksOf(mainMenuKeyboard(ru))).toEqual([
-      MENU_ACTIONS.todayFreeSlots,
-      MENU_ACTIONS.availableTrainings,
-      MENU_ACTIONS.joinGroup,
-      MENU_ACTIONS.individual,
-      MENU_ACTIONS.myBookings,
-      MENU_ACTIONS.rentCourt,
       MENU_ACTIONS.contactManager,
       MENU_ACTIONS.language
     ]);
   });
 
-  it("renames the single-visit label without changing its callback", () => {
-    expect(ru["bot.menu.availableTrainings"]).toBe("🎫 Разовое посещение");
-    expect(MENU_ACTIONS.availableTrainings).toBe("menu:available");
-  });
-
-  it("exposes the new individual-training entry on its namespaced callback", () => {
-    expect(MENU_ACTIONS.individual).toBe("menu:individual");
-    expect(callbacksOf(mainMenuKeyboard(ru))).toContain(MENU_ACTIONS.individual);
+  it("hides the client booking entry points (still defined for routing/quick-book)", () => {
+    const callbacks = callbacksOf(mainMenuKeyboard(ru));
+    expect(callbacks).not.toContain(MENU_ACTIONS.todayFreeSlots);
+    expect(callbacks).not.toContain(MENU_ACTIONS.availableTrainings);
+    expect(callbacks).not.toContain(MENU_ACTIONS.joinGroup);
+    expect(callbacks).not.toContain(MENU_ACTIONS.individual);
+    expect(callbacks).not.toContain(MENU_ACTIONS.myBookings);
   });
 
   it("omits the Mini App web_app button when no URL is configured", () => {
@@ -68,14 +61,18 @@ describe("mainMenuKeyboard", () => {
 });
 
 describe("adminMenuKeyboard", () => {
-  it("appends the admin court entries below the main menu", () => {
+  it("appends the admin court entries below the slim main menu", () => {
     const callbacks = callbacksOf(adminMenuKeyboard(ru));
     expect(callbacks).toContain(ADMIN_ACTIONS.courtModeration);
     expect(callbacks).toContain(ADMIN_ACTIONS.courtLoad);
-    // The standard client actions are still present; admin entries follow them,
+    // The slim client base (contact + language) leads; admin entries follow it,
     // with the read-only load grid last.
-    expect(callbacks[0]).toBe(MENU_ACTIONS.todayFreeSlots);
-    expect(callbacks.at(-1)).toBe(ADMIN_ACTIONS.courtLoad);
+    expect(callbacks).toEqual([
+      MENU_ACTIONS.contactManager,
+      MENU_ACTIONS.language,
+      ADMIN_ACTIONS.courtModeration,
+      ADMIN_ACTIONS.courtLoad
+    ]);
   });
 });
 

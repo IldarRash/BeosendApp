@@ -779,6 +779,61 @@ button.slot { display: block; }
 }
 
 /* =========================================================
+ * Court multi-select grid (court) — .courtgrid / .ccell
+ * A grid of court chips (numbers 1–6). Only free courts are selectable; taken
+ * courts render disabled/greyed. Mirrors the .timegrid / .tcell visual language
+ * with a coral selected fill and the same focus ring.
+ * ========================================================= */
+.courtgrid {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 9px;
+  padding: 0 16px;
+}
+
+.ccell {
+  position: relative;
+  border-radius: 13px;
+  border: 1px solid var(--tg-sep);
+  background: var(--tg-bg);
+  cursor: pointer;
+  padding: 16px 0;
+  text-align: center;
+  transition: all .12s;
+  font-family: var(--ff);
+}
+
+.ccell__n { font-size: 18px; font-weight: 700; color: var(--tg-text); }
+.ccell__label { font-size: 11px; color: var(--tg-hint); margin-top: 2px; }
+
+.ccell.is-on { background: var(--co); border-color: var(--co); }
+.ccell.is-on .ccell__n,
+.ccell.is-on .ccell__label { color: #fff; }
+
+/* Selected chips show a small check in the corner. */
+.ccell.is-on::after {
+  content: "✓";
+  position: absolute;
+  top: 6px;
+  right: 8px;
+  font-size: 12px;
+  font-weight: 700;
+  color: #fff;
+}
+
+/* Taken courts: greyed, not interactive. */
+.ccell:disabled {
+  cursor: not-allowed;
+  opacity: 0.4;
+  background: var(--tg-bg);
+}
+
+.ccell:focus-visible {
+  outline: 2px solid var(--co);
+  outline-offset: 2px;
+}
+
+/* =========================================================
  * Confirm summary rows — .sumrow / .note
  * ========================================================= */
 .sumrow {

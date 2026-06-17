@@ -7,6 +7,7 @@ import type {
   CourtAvailability,
   CourtRequest,
   CourtRequestPreview,
+  FreeCourtNumbers,
   MiniappMe
 } from "@beosand/types";
 import { ConflictError } from "../api/client";
@@ -20,13 +21,16 @@ const FIRST_DATE = offeredDates()[0];
 
 /**
  * S9 court-rental-request flow tests. The screen is an interaction layer: it offers a
- * date → a server start time → a duration, shows the SERVER's price preview, submits,
- * and renders the pending request.
+ * date → a server start time → a duration → SPECIFIC free courts (multi-select), shows
+ * the SERVER's price preview, submits, and renders the pending request.
  *
  * Invariants under test:
- *  - the client NEVER sees or chooses a court number at ANY step (the contracts carry
- *    no court id; the availability indicator is a free-court COUNT, and the pending
- *    state shows no court).
+ *  - the court step renders the server's FREE courts as selectable, and every other
+ *    court (taken) is disabled/greyed — the client never picks a court the server
+ *    didn't sanction.
+ *  - the client may pick MORE THAN ONE court; the preview + pending show the picked
+ *    numbers and the count.
+ *  - durations up to 6h are offered (COURT_DURATION_CHOICES).
  *  - the price is the server's preview.priceRsd, shown read-only.
  *  - a slot taken meanwhile (preview unavailable, or a submit 409) is a CALM
  *    "pick another time" state (role=status), never a red alert.
@@ -58,12 +62,23 @@ const AVAILABILITY: CourtAvailability = {
   ]
 };
 
+/** Courts 1, 3, 5 are free for the chosen slot; 2, 4, 6 are taken (disabled). */
+const FREE_COURTS: FreeCourtNumbers = {
+  date: "2026-06-10",
+  startTime: "08:00",
+  endTime: "09:30",
+  durationHours: 1.5,
+  courtNumbers: [1, 3, 5]
+};
+
 const PREVIEW: CourtRequestPreview = {
   date: "2026-06-10",
   startTime: "08:00",
   endTime: "09:30",
   durationHours: 1.5,
-  priceRsd: 3000,
+  priceRsd: 6000,
+  courtCount: 2,
+  courtNumbers: [1, 3],
   available: true
 };
 
@@ -73,9 +88,10 @@ const COURT_REQUEST: CourtRequest = {
   date: "2026-06-10",
   startTime: "08:00",
   durationHours: 1.5,
-  priceRsd: 3000,
+  priceRsd: 6000,
   status: "pending",
-  courtId: null,
+  courtCount: 2,
+  courtNumbers: [1, 3],
   createdAt: "2026-06-05T10:00:00.000Z",
   decidedAt: null,
   decidedBy: null
@@ -85,6 +101,7 @@ interface FakeApi {
   getMe: ReturnType<typeof vi.fn>;
   getClientByTelegramId: ReturnType<typeof vi.fn>;
   getCourtAvailability: ReturnType<typeof vi.fn>;
+  getFreeCourtNumbers: ReturnType<typeof vi.fn>;
   previewCourtRequest: ReturnType<typeof vi.fn>;
   createCourtRequest: ReturnType<typeof vi.fn>;
 }
@@ -96,6 +113,7 @@ function makeApi(overrides: Partial<FakeApi> = {}): FakeApi {
     getMe: vi.fn().mockReturnValue(ME),
     getClientByTelegramId: vi.fn().mockResolvedValue(ONBOARDED),
     getCourtAvailability: vi.fn().mockResolvedValue(AVAILABILITY),
+    getFreeCourtNumbers: vi.fn().mockResolvedValue(FREE_COURTS),
     previewCourtRequest: vi.fn().mockResolvedValue(PREVIEW),
     createCourtRequest: vi.fn().mockResolvedValue(COURT_REQUEST),
     ...overrides
@@ -130,8 +148,8 @@ function renderScreen() {
   );
 }
 
-/** Drive date → time → duration so the preview/submit step is on screen. */
-async function advanceToPreview(): Promise<void> {
+/** Drive date → time → duration so the court-select step is on screen. */
+async function advanceToCourts(): Promise<void> {
   // Step 1 — pick the first offered date pill.
   const dateRail = await screen.findByRole("group", { name: "Выберите дату" });
   fireEvent.click(dateRail.querySelectorAll("button")[0]);
@@ -139,8 +157,17 @@ async function advanceToPreview(): Promise<void> {
   // Step 2 — pick the 08:00 start time (its pill carries a free-court COUNT).
   fireEvent.click(await screen.findByRole("button", { name: /08:00, 4 свободно/ }));
 
-  // Step 3 — pick a duration (the radio selection advances to the preview).
-  fireEvent.click(await screen.findByRole("radio", { name: "1,5 часа" }));
+  // Step 3 — pick a duration (the radio selection advances to the court step).
+  fireEvent.click(await screen.findByRole("radio", { name: "1,5 ч" }));
+}
+
+/** Continue from the court step into the preview by picking courts 1 and 3. */
+async function advanceToPreview(): Promise<void> {
+  await advanceToCourts();
+  await screen.findByRole("group", { name: "Выберите корт(ы)" });
+  fireEvent.click(screen.getByRole("button", { name: "Корт 1" }));
+  fireEvent.click(screen.getByRole("button", { name: "Корт 3" }));
+  fireEvent.click(screen.getByRole("button", { name: "Продолжить" }));
 }
 
 beforeEach(() => {
@@ -153,53 +180,92 @@ afterEach(() => {
 });
 
 describe("CourtRequestScreen", () => {
-  it("opens on the date picker and never shows a court number on the time step", async () => {
+  it("opens on the date picker and shows free-court COUNTS (not numbers) on the time step", async () => {
     renderScreen();
 
     const dateRail = await screen.findByRole("group", { name: "Выберите дату" });
     fireEvent.click(dateRail.querySelectorAll("button")[0]);
 
     // The time step shows offerable starts each with a free-court COUNT — never a court
-    // id/number. "4 свободно" is a count; no "корт №" / "court #" appears.
+    // number at THIS step. "4 свободно" is a count.
     await screen.findByRole("button", { name: /08:00, 4 свободно/ });
     expect(screen.getByText("4 свободно")).toBeTruthy();
-    expect(document.body.textContent).not.toMatch(/корт\s*№/i);
     expect(api.getCourtAvailability).toHaveBeenCalledWith(FIRST_DATE);
   });
 
-  it("shows the SERVER price preview, submits the chosen slot, and lands on pending with NO court number", async () => {
+  it("offers durations up to 6 hours (COURT_DURATION_CHOICES)", async () => {
     renderScreen();
-    await advanceToPreview();
+    const dateRail = await screen.findByRole("group", { name: "Выберите дату" });
+    fireEvent.click(dateRail.querySelectorAll("button")[0]);
+    fireEvent.click(await screen.findByRole("button", { name: /08:00, 4 свободно/ }));
 
-    // The preview renders the server's price (read-only) — the client computes nothing.
-    expect(await screen.findByText("Подтверждение заявки")).toBeTruthy();
-    expect(screen.getByText("3 000 RSD")).toBeTruthy();
-    // Even at the price/detail step the client never sees a court number.
-    expect(document.body.textContent).not.toMatch(/корт\s*№/i);
+    // The duration list is the full 1…6h grid, comma-decimal "{hours} ч".
+    expect(await screen.findByRole("radio", { name: "1 ч" })).toBeTruthy();
+    expect(screen.getByRole("radio", { name: "2,5 ч" })).toBeTruthy();
+    expect(screen.getByRole("radio", { name: "6 ч" })).toBeTruthy();
+  });
 
-    // The preview was fetched for the chosen slot only — the client sends no price.
-    expect(api.previewCourtRequest).toHaveBeenCalledWith({
+  it("renders the free courts as selectable and disables taken courts", async () => {
+    renderScreen();
+    await advanceToCourts();
+
+    await screen.findByRole("group", { name: "Выберите корт(ы)" });
+    expect(api.getFreeCourtNumbers).toHaveBeenCalledWith({
       date: FIRST_DATE,
       startTime: "08:00",
       durationHours: 1.5
     });
+
+    // Free courts (1,3,5) are enabled; taken courts (2,4,6) are disabled/greyed.
+    expect((screen.getByRole("button", { name: "Корт 1" }) as HTMLButtonElement).disabled).toBe(false);
+    expect((screen.getByRole("button", { name: "Корт 3" }) as HTMLButtonElement).disabled).toBe(false);
+    expect((screen.getByRole("button", { name: "Корт 2 занят" }) as HTMLButtonElement).disabled).toBe(true);
+    expect((screen.getByRole("button", { name: "Корт 4 занят" }) as HTMLButtonElement).disabled).toBe(true);
+  });
+
+  it("supports multi-select, then previews and submits the PICKED courts; pending shows the numbers", async () => {
+    renderScreen();
+    await advanceToPreview();
+
+    // The preview was fetched for the chosen slot INCLUDING the picked courts.
+    expect(await screen.findByText("Подтверждение заявки")).toBeTruthy();
+    expect(api.previewCourtRequest).toHaveBeenCalledWith({
+      date: FIRST_DATE,
+      startTime: "08:00",
+      durationHours: 1.5,
+      courtNumbers: [1, 3]
+    });
+
+    // The preview renders the server's price (read-only) and the picked court numbers.
+    expect(screen.getByText("6 000 RSD")).toBeTruthy();
+    expect(screen.getByText("1, 3")).toBeTruthy();
 
     // Submit the request.
     fireEvent.click(screen.getByRole("button", { name: "Отправить заявку" }));
 
     await waitFor(() => expect(api.createCourtRequest).toHaveBeenCalledTimes(1));
-    // The slot is forwarded; no price/court id is ever sent from the client.
     expect(api.createCourtRequest.mock.calls[0][0]).toEqual({
       date: FIRST_DATE,
       startTime: "08:00",
-      durationHours: 1.5
+      durationHours: 1.5,
+      courtNumbers: [1, 3]
     });
 
-    // Pending state: calm success (role=status), and NO court number anywhere.
+    // Pending state: calm success (role=status), and the picked courts ARE shown.
     const sent = await screen.findByText("Запрос отправлен");
     expect(sent.closest('[role="status"]')).not.toBeNull();
     expect(screen.queryByRole("alert")).toBeNull();
-    expect(document.body.textContent).not.toMatch(/корт\s*№/i);
+    expect(screen.getByText("Выбранные корты: 1, 3")).toBeTruthy();
+  });
+
+  it("shows an empty state when no courts are free for the chosen slot", async () => {
+    api = makeApi({
+      getFreeCourtNumbers: vi.fn().mockResolvedValue({ ...FREE_COURTS, courtNumbers: [] })
+    });
+    renderScreen();
+    await advanceToCourts();
+
+    await screen.findByText("Нет свободных кортов");
   });
 
   it("renders a slot taken meanwhile (preview.available === false) as a CALM state, NOT an error", async () => {

@@ -176,6 +176,16 @@ describe("court pricing", () => {
     expect(courtPriceRsd(1)).toBe(2000);
     expect(courtPriceRsd(1.5)).toBe(3000);
     expect(courtPriceRsd(2)).toBe(4000);
+    expect(courtPriceRsd(2.5)).toBe(5000);
+    expect(courtPriceRsd(6)).toBe(12000);
+  });
+
+  it("scales the total by the number of courts rented at once", () => {
+    expect(courtPriceRsd(2, 2)).toBe(8000);
+    expect(courtPriceRsd(1.5, 3)).toBe(9000);
+    expect(courtPriceRsd(1, 6)).toBe(12000);
+    // Defaults to a single court (the bot path) when no count is given.
+    expect(courtPriceRsd(2)).toBe(courtPriceRsd(2, 1));
   });
 
   it("covers the right 30-min slots", () => {
@@ -429,6 +439,27 @@ describe("courtLoadGrid", () => {
       blocks: [{ courtId: courtA, startTime: "10:00", durationMinutes: 60 }]
     });
     expect(cellAt(rows, courtA, "10:00")).toBe("block");
+  });
+
+  it("marks a pending hold as a hold cell, below confirmed/block precedence", () => {
+    const holdId = "eeeeeeee-eeee-4eee-8eee-eeeeeeeeeeee";
+    const rows = courtLoadGrid({
+      courts,
+      ...window,
+      confirmed: [{ courtId: courtB, startTime: "12:00", durationMinutes: 60 }],
+      blocks: [],
+      holds: [
+        { courtId: courtA, startTime: "12:00", durationMinutes: 60, requestId: holdId },
+        // A hold never overrides a confirmed request on the same court/slot.
+        { courtId: courtB, startTime: "12:00", durationMinutes: 60, requestId: holdId }
+      ]
+    });
+    expect(cellAt(rows, courtA, "12:00")).toBe("hold");
+    expect(cellAt(rows, courtA, "12:30")).toBe("hold");
+    expect(
+      rows.find((r) => r.courtId === courtA)?.cells.find((c) => c.startTime === "12:00")?.requestId
+    ).toBe(holdId);
+    expect(cellAt(rows, courtB, "12:00")).toBe("request");
   });
 
   it("threads the covering request id onto every request cell; free/block carry null", () => {
