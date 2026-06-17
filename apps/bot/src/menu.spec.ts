@@ -1,8 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { getStaticCatalog } from "@beosand/i18n";
 import {
-  ADMIN_ACTIONS,
-  adminMenuKeyboard,
   backHomeKeyboard,
   LANGUAGE_ACTIONS,
   MENU_ACTIONS,
@@ -60,22 +58,6 @@ describe("mainMenuKeyboard", () => {
   });
 });
 
-describe("adminMenuKeyboard", () => {
-  it("appends the admin court entries below the slim main menu", () => {
-    const callbacks = callbacksOf(adminMenuKeyboard(ru));
-    expect(callbacks).toContain(ADMIN_ACTIONS.courtModeration);
-    expect(callbacks).toContain(ADMIN_ACTIONS.courtLoad);
-    // The slim client base (contact + language) leads; admin entries follow it,
-    // with the read-only load grid last.
-    expect(callbacks).toEqual([
-      MENU_ACTIONS.contactManager,
-      MENU_ACTIONS.language,
-      ADMIN_ACTIONS.courtModeration,
-      ADMIN_ACTIONS.courtLoad
-    ]);
-  });
-});
-
 describe("backHomeKeyboard", () => {
   it("offers both back and home navigation", () => {
     expect(callbacksOf(backHomeKeyboard(ru))).toEqual([NAV_ACTIONS.back, NAV_ACTIONS.home]);
@@ -85,7 +67,6 @@ describe("backHomeKeyboard", () => {
     const all = [
       ...Object.values(MENU_ACTIONS),
       ...Object.values(NAV_ACTIONS),
-      ...Object.values(ADMIN_ACTIONS),
       ...Object.values(LANGUAGE_ACTIONS),
       setLanguageData("ru"),
       setLanguageData("sr"),

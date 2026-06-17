@@ -21,8 +21,6 @@ export const botEn: Record<string, string> = {
   "bot.menu.rentCourt": "🏖 Rent a court",
   "bot.menu.contactManager": "ℹ️ Contact the manager",
   "bot.menu.language": "🌐 Language / Язык",
-  "bot.menu.adminCourtModeration": "🛠 Court requests (admin)",
-  "bot.menu.adminCourtLoad": "📊 Court load (admin)",
   "bot.menu.contactManagerLine": "Contact the manager: {contact}",
   "bot.menu.contactManagerButton": "✉️ Message the manager",
 

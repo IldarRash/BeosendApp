@@ -27,8 +27,6 @@ export const botRu: Record<string, string> = {
   "bot.menu.rentCourt": "🏖 Арендовать корт",
   "bot.menu.contactManager": "ℹ️ Связаться с менеджером",
   "bot.menu.language": "🌐 Язык / Language",
-  "bot.menu.adminCourtModeration": "🛠 Заявки на корт (админ)",
-  "bot.menu.adminCourtLoad": "📊 Загрузка кортов (админ)",
   "bot.menu.contactManagerLine": "Связаться с менеджером: {contact}",
   "bot.menu.contactManagerButton": "✉️ Написать менеджеру",
 

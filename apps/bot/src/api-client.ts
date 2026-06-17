@@ -1,9 +1,5 @@
 import {
-  analyticsSummarySchema,
   bookingSchema,
-  broadcastPreviewSchema,
-  broadcastSchema,
-  changeCapacitySchema,
   clientSchema,
   groupBookingResultSchema,
   groupSchema,
@@ -18,14 +14,8 @@ import {
   trainingRosterSchema,
   trainingSchema,
   waitlistEntrySchema,
-  type AnalyticsSummary,
   type AvailableSlotsQuery,
   type Booking,
-  type Broadcast,
-  type BroadcastAudience,
-  type BroadcastPreview,
-  type BroadcastType,
-  type ChangeCapacityInput,
   type Client,
   type CreateGroupBookingInput,
   type CreateSingleBookingInput,
@@ -37,7 +27,6 @@ import {
   type LabelCatalog,
   type Level,
   type Locale,
-  type ListTrainingsQuery,
   type MarkAttendanceInput,
   type MyBookingItem,
   type MyBookingScope,
@@ -50,16 +39,6 @@ import {
   type WaitlistEntry
 } from "@beosand/types";
 import { z } from "zod";
-import {
-  courtLoadGridSchema,
-  courtRequestAdminViewSchema,
-  courtRequestSchema,
-  courtSchema,
-  type Court,
-  type CourtLoadGrid,
-  type CourtRequest,
-  type CourtRequestAdminView
-} from "@beosand/types";
 
 /** Header carrying the caller's numeric Telegram id for admin-gated endpoints. */
 const TELEGRAM_ID_HEADER = "x-telegram-id";
@@ -94,18 +73,6 @@ export type AcceptWaitlistResult =
   | { ok: false; reason: "conflict" };
 
 /**
- * Outcome of an admin capacity change (A1). `forbidden` maps the API's 403
- * (caller not an admin) so the bot hides the manager action; `belowBooked` maps
- * the 400 the service raises when the requested capacity is under the training's
- * current bookedCount, so the handler can show a distinct guidance message
- * instead of a generic error. The below-booked guard and the open↔full recompute
- * are decided server-side; the bot only renders the result.
- */
-export type ChangeCapacityResult =
-  | { ok: true; training: Training }
-  | { ok: false; reason: "forbidden" | "belowBooked" };
-
-/**
  * Outcome of a trainer confirm/decline action (trainer-confirmation). `ok` maps
  * a 2xx (the pending booking — or subscription batch — was confirmed/declined);
  * `alreadyDecided` maps the API's 409 (the row is no longer `pending`, e.g. a
@@ -118,17 +85,6 @@ export type ChangeCapacityResult =
 export type TrainerDecisionResult =
   | { ok: true }
   | { ok: false; reason: "alreadyDecided" | "notAuthorized" };
-
-/**
- * Outcome of an admin training delete (A1). `forbidden` maps the 403 (caller not
- * an admin); `notFound` maps the 404 (no such training). Deleting is idempotent
- * server-side (an already-cancelled training still resolves to its id). The cancel
- * of booked bookings, the client notifications and the permanent row removal all
- * happen server-side; the bot only forwards the id and renders the outcome.
- */
-export type DeleteTrainingResult =
-  | { ok: true; id: string }
-  | { ok: false; reason: "forbidden" | "notFound" };
 
 const levelsSchema = z.array(levelSchema);
 const trainersSchema = z.array(trainerSchema);
@@ -424,50 +380,6 @@ export class ApiClient {
   }
 
   /**
-   * C4 — admin moderation queue (pending court requests, joined with client
-   * name/telegram). The API enforces the admin gate by x-telegram-id; the bot
-   * only forwards the caller's id and renders the validated rows.
-   */
-  listPendingCourtRequests(adminId: number): Promise<CourtRequestAdminView[]> {
-    return this.request(
-      "/court-requests?status=pending",
-      z.array(courtRequestAdminViewSchema),
-      { headers: { [TELEGRAM_ID_HEADER]: String(adminId) } }
-    );
-  }
-
-  /**
-   * C4 — active courts free for every hour the given request covers. Admin-only
-   * (gated server-side); never a client path. The bot renders one button per
-   * returned court so the admin can assign one manually.
-   */
-  freeCourtsForRequest(adminId: number, requestId: string): Promise<Court[]> {
-    return this.request(
-      `/court-requests/${requestId}/free-courts`,
-      z.array(courtSchema),
-      { headers: { [TELEGRAM_ID_HEADER]: String(adminId) } }
-    );
-  }
-
-  /**
-   * C4 — confirm a pending request onto the admin-chosen court(s). The API
-   * re-checks the per-hour limit and chosen-court freeness atomically and
-   * notifies the client with the court number(s) + total RSD; the bot sends only
-   * IDs. `courtIds` carries the chosen courts (the confirm contract takes a list).
-   */
-  confirmCourtRequest(
-    adminId: number,
-    requestId: string,
-    courtIds: string[]
-  ): Promise<CourtRequest> {
-    return this.request(`/court-requests/${requestId}/confirm`, courtRequestSchema, {
-      method: "POST",
-      headers: { [TELEGRAM_ID_HEADER]: String(adminId) },
-      body: JSON.stringify({ requestId, courtIds, decidedBy: adminId })
-    });
-  }
-
-  /**
    * Join a full training's waitlist (T2.1). Eligibility (the slot must be full,
    * one entry per client) is decided server-side from the actor's telegram_id; a
    * 409 (slot still bookable / already on the list) is surfaced as a distinct
@@ -516,84 +428,6 @@ export class ApiClient {
       throw new Error(`API /waitlist/${entryId}/accept failed: ${res.status}`);
     }
     return { ok: true, booking: bookingSchema.parse(await res.json()) };
-  }
-
-  /** Admin-only (A1): list trainings in a date range (fill overview). */
-  listTrainings(query: ListTrainingsQuery, actorTelegramId: number): Promise<Training[]> {
-    const params = new URLSearchParams({ from: query.from, to: query.to });
-    if (query.groupId) {
-      params.set("groupId", query.groupId);
-    }
-    return this.request(`/trainings?${params.toString()}`, trainingsSchema, {
-      headers: { "x-telegram-id": String(actorTelegramId) }
-    });
-  }
-
-  /**
-   * Admin-only (A1): permanently delete a training. The API gates the caller via
-   * ADMIN_TELEGRAM_IDS, cancels its still-booked bookings, notifies the affected
-   * clients, frees the court and removes the row — all server-side. A 403 (not an
-   * admin) → `forbidden` so the bot can hide the action; a 404 → `notFound`.
-   * Delete is idempotent server-side. The bot only forwards the id and renders the
-   * returned `{ id }`.
-   */
-  async deleteTraining(
-    trainingId: string,
-    adminTelegramId: number
-  ): Promise<DeleteTrainingResult> {
-    const res = await fetch(`${this.baseUrl}/trainings/${trainingId}`, {
-      method: "DELETE",
-      headers: {
-        "x-telegram-id": String(adminTelegramId)
-      }
-    });
-    if (res.status === 403) {
-      return { ok: false, reason: "forbidden" };
-    }
-    if (res.status === 404) {
-      return { ok: false, reason: "notFound" };
-    }
-    if (!res.ok) {
-      throw new Error(`API DELETE /trainings/${trainingId} failed: ${res.status}`);
-    }
-    const { id } = z.object({ id: z.string().uuid() }).parse(await res.json());
-    return { ok: true, id };
-  }
-
-  /**
-   * Admin-only (A1): change a training's capacity. The API gates the caller via
-   * ADMIN_TELEGRAM_IDS, rejects a value below the current bookedCount (400) and
-   * recomputes open/full from the new capacity — all server-side. A 403 (not an
-   * admin) → `forbidden` so the bot can hide the action; a 400 → `belowBooked`
-   * so the handler shows the guidance message. The capacity is re-validated with
-   * the shared contract before the request; the bot does no seat math.
-   */
-  async changeTrainingCapacity(
-    trainingId: string,
-    capacity: number,
-    adminTelegramId: number
-  ): Promise<ChangeCapacityResult> {
-    const body: ChangeCapacityInput = changeCapacitySchema.parse({ capacity });
-    const res = await fetch(`${this.baseUrl}/trainings/${trainingId}/capacity`, {
-      method: "PATCH",
-      headers: {
-        "content-type": "application/json",
-        "x-telegram-id": String(adminTelegramId)
-      },
-      body: JSON.stringify(body)
-    });
-    if (res.status === 403) {
-      return { ok: false, reason: "forbidden" };
-    }
-    if (res.status === 400) {
-      // The service rejects capacity < bookedCount; surfaced distinctly so the bot
-      // can guide the manager instead of showing a generic error.
-      return { ok: false, reason: "belowBooked" };
-    }
-    if (!res.ok) {
-      throw new Error(`API /trainings/${trainingId}/capacity failed: ${res.status}`);
-    }
-    return { ok: true, training: trainingSchema.parse(await res.json()) };
   }
 
   /**
@@ -768,136 +602,4 @@ export class ApiClient {
     });
   }
 
-  /**
-   * Admin-only (T2.4): preview a free-slot broadcast of one type. The API gates
-   * the caller via ADMIN_TELEGRAM_IDS, selects only bookable slots, composes the
-   * Russian text and counts active recipients — all server-side. A 403 (caller is
-   * not an admin) resolves to null so the bot can hide the broadcast UI instead of
-   * erroring; non-admins never see a preview. The preview never books and never
-   * writes a broadcasts row. The bot only renders what it returns.
-   *
-   * T3.2: an optional `audience` segment (`all`/`level`/`active`/`lapsed`)
-   * narrows the recipient set. Absent ⇒ the API defaults to `{ kind: "all" }`
-   * (T2.4 behaviour). The bot only forwards the chosen segment; the API resolves
-   * it to active clients and reports the exact `recipientsCount`.
-   */
-  async previewBroadcast(
-    type: BroadcastType,
-    adminTelegramId: number,
-    audience?: BroadcastAudience
-  ): Promise<BroadcastPreview | null> {
-    const params = new URLSearchParams({ type });
-    if (audience) {
-      params.set("audience", JSON.stringify(audience));
-    }
-    const res = await fetch(`${this.baseUrl}/broadcasts/preview?${params.toString()}`, {
-      headers: {
-        "content-type": "application/json",
-        "x-telegram-id": String(adminTelegramId)
-      }
-    });
-    if (res.status === 403) {
-      // Caller is not an admin: the bot hides the broadcast UI rather than erroring.
-      return null;
-    }
-    if (!res.ok) {
-      throw new Error(`API /broadcasts/preview failed: ${res.status}`);
-    }
-    return broadcastPreviewSchema.parse(await res.json());
-  }
-
-  /**
-   * Admin-only (T2.4): send a free-slot broadcast of one type. The API gates the
-   * caller via ADMIN_TELEGRAM_IDS, re-selects bookable slots at send time, fans
-   * the send out to active clients via its own bot token, and writes exactly one
-   * broadcasts row — all server-side. A 403 (caller is not an admin) resolves to
-   * null so the bot can refuse instead of erroring. The bot only renders the
-   * resulting row's recipient count; it never sends or books.
-   *
-   * T3.2: an optional `audience` segment narrows the recipient set (absent ⇒ the
-   * API defaults to `{ kind: "all" }`, preserving T2.4). The bot only forwards
-   * the chosen segment; the API re-resolves it to active clients server-side and
-   * records the dispatched count. Admin gating stays in the service.
-   */
-  async sendBroadcast(
-    type: BroadcastType,
-    adminTelegramId: number,
-    audience?: BroadcastAudience
-  ): Promise<Broadcast | null> {
-    const res = await fetch(`${this.baseUrl}/broadcasts/send`, {
-      method: "POST",
-      headers: {
-        "content-type": "application/json",
-        "x-telegram-id": String(adminTelegramId)
-      },
-      body: JSON.stringify(audience ? { type, audience } : { type })
-    });
-    if (res.status === 403) {
-      return null;
-    }
-    if (!res.ok) {
-      throw new Error(`API /broadcasts/send failed: ${res.status}`);
-    }
-    return broadcastSchema.parse(await res.json());
-  }
-
-  /**
-   * Admin-only (T3.1): the composite analytics headline summary for the manager
-   * screen. The API gates the caller via ADMIN_TELEGRAM_IDS, derives every figure
-   * server-side from the authoritative tables and echoes the resolved range. Both
-   * `from`/`to` are optional — omitting them lets the API default to the last 30
-   * days. A 403 (caller is not an admin) resolves to null so the bot can show the
-   * "managers only" message instead of erroring; non-admins never see the screen.
-   * The bot only renders the returned numbers; it never aggregates or computes.
-   */
-  async getAnalyticsSummary(
-    from: string | undefined,
-    to: string | undefined,
-    adminTelegramId: number
-  ): Promise<AnalyticsSummary | null> {
-    const params = new URLSearchParams();
-    if (from) {
-      params.set("from", from);
-    }
-    if (to) {
-      params.set("to", to);
-    }
-    const qs = params.toString();
-    const res = await fetch(`${this.baseUrl}/analytics/summary${qs ? `?${qs}` : ""}`, {
-      headers: {
-        "content-type": "application/json",
-        "x-telegram-id": String(adminTelegramId)
-      }
-    });
-    if (res.status === 403) {
-      // Caller is not an admin: the bot hides the stats UI rather than erroring.
-      return null;
-    }
-    if (!res.ok) {
-      throw new Error(`API /analytics/summary failed: ${res.status}`);
-    }
-    return analyticsSummarySchema.parse(await res.json());
-  }
-
-  /**
-   * C6 — read-only court load grid (confirmed requests + blocks) for one date.
-   * Admin-only: the response carries court ids/numbers, so the API gates the read
-   * by x-telegram-id (403 for non-admins) before any DB access; the bot only
-   * forwards the caller's id and renders the validated grid.
-   */
-  getCourtLoad(adminId: number, date: string): Promise<CourtLoadGrid> {
-    const query = new URLSearchParams({ date }).toString();
-    return this.request(`/courts/load?${query}`, courtLoadGridSchema, {
-      headers: { [TELEGRAM_ID_HEADER]: String(adminId) }
-    });
-  }
-
-  /** C4 — reject a pending request. The API stamps decided_* and notifies the client. */
-  rejectCourtRequest(adminId: number, requestId: string): Promise<CourtRequest> {
-    return this.request(`/court-requests/${requestId}/reject`, courtRequestSchema, {
-      method: "POST",
-      headers: { [TELEGRAM_ID_HEADER]: String(adminId) },
-      body: JSON.stringify({ requestId, decidedBy: adminId })
-    });
-  }
 }

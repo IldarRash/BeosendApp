@@ -412,6 +412,18 @@ export function Groups(): JSX.Element {
   const [deleteTarget, setDeleteTarget] = useState<Group | null>(null);
   const { year, month } = useMemo(() => currentYearMonth(), []);
 
+  // Presentation-only ordering: first weekday (Mon→Sun = ascending ISO 1..7),
+  // then start time. Sort a copy so the query cache array stays untouched.
+  const sortedGroups = useMemo(
+    () =>
+      [...(groups.data ?? [])].sort((a, b) => {
+        const dayDelta = Math.min(...a.daysOfWeek) - Math.min(...b.daysOfWeek);
+        if (dayDelta !== 0) return dayDelta;
+        return a.startTime.localeCompare(b.startTime);
+      }),
+    [groups.data]
+  );
+
   const levelOptions: SelectOption[] = useMemo(
     () => (levels.data ?? []).map((level) => ({ value: level.id, label: level.name })),
     [levels.data]
@@ -572,7 +584,7 @@ export function Groups(): JSX.Element {
         <DataTable
           caption={t("admin.groups.caption")}
           columns={columns}
-          rows={groups.data ?? []}
+          rows={sortedGroups}
           rowKey={(group) => group.id}
           emptyLabel={t("admin.groups.empty")}
         />

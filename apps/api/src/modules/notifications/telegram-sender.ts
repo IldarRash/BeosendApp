@@ -2,11 +2,20 @@ import { Inject, Injectable } from "@nestjs/common";
 import type { Env } from "@beosand/config";
 import { ENV } from "../../config/config.module";
 
-/** A single inline button: a label and the callback_data the bot routes on. */
-export interface InlineButton {
+/** A single inline button that routes a callback the bot handles. */
+export interface InlineCallbackButton {
   text: string;
   callback_data: string;
 }
+
+/** A single inline button that opens a URL (e.g. the admin console deep link). */
+export interface InlineUrlButton {
+  text: string;
+  url: string;
+}
+
+/** A single inline button: either a callback button or a URL (link) button. */
+export type InlineButton = InlineCallbackButton | InlineUrlButton;
 
 /** Telegram inline keyboard markup (rows of buttons) accepted by sendMessage. */
 export interface InlineKeyboardMarkup {

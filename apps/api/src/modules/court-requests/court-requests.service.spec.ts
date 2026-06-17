@@ -9,6 +9,7 @@ import type { Env } from "@beosand/config";
 import { COURT_CLOSE_HOUR, COURT_OPEN_HOUR, myCourtRequestItemSchema } from "@beosand/types";
 import type { ChannelDispatcher } from "../connectors/channels/channel-dispatcher.service";
 import type { DomainEventsService } from "../connectors/domain-events.service";
+import type { NotificationsService } from "../notifications/notifications.service";
 import {
   CourtModerationTx,
   CourtRequestsRepository,
@@ -37,12 +38,19 @@ function makeDomainEvents(): DomainEventsService {
   } as unknown as DomainEventsService;
 }
 
+function makeNotifications(): NotificationsService {
+  return {
+    sendCourtRequestCreatedToAdmins: vi.fn().mockResolvedValue(undefined)
+  } as unknown as NotificationsService;
+}
+
 function makeService(
   repo: CourtRequestsRepository,
   dispatcher: ChannelDispatcher = makeDispatcher(),
-  domainEvents: DomainEventsService = makeDomainEvents()
+  domainEvents: DomainEventsService = makeDomainEvents(),
+  notifications: NotificationsService = makeNotifications()
 ) {
-  return new CourtRequestsService(repo, env, dispatcher, domainEvents);
+  return new CourtRequestsService(repo, env, dispatcher, domainEvents, notifications);
 }
 
 const clientId = "11111111-1111-4111-8111-111111111111";
@@ -87,7 +95,10 @@ function makeRepo(input: {
     findActiveClientByTelegramId: vi
       .fn()
       .mockResolvedValue(input.client === undefined ? { id: clientId } : input.client),
-    createPendingRequest: vi.fn().mockResolvedValue(input.created ?? makeRow())
+    createPendingRequest: vi.fn().mockResolvedValue(input.created ?? makeRow()),
+    findWithClientById: vi
+      .fn()
+      .mockResolvedValue(adminRow({ ...(input.created ?? makeRow()) }))
   } as unknown as CourtRequestsRepository;
 }
 
@@ -418,6 +429,78 @@ describe("CourtRequestsService.createRequest (C2 pending creation)", () => {
       service.createRequest({ telegramId: tg, date, startTime: "20:00", durationHours: 2 })
     ).rejects.toBeInstanceOf(BadRequestException);
     expect(repo.findActiveClientByTelegramId).not.toHaveBeenCalled();
+  });
+});
+
+describe("CourtRequestsService.createRequest admin notification", () => {
+  it("DMs the admins with the new request details after the bot-path create", async () => {
+    const repo = makeRepo({ created: makeRow({ priceRsd: 4000, durationHours: "2.0" }) });
+    (repo.findWithClientById as ReturnType<typeof vi.fn>).mockResolvedValue(
+      adminRow({ clientName: "Ana", clientTelegramId: 7001, priceRsd: 4000, durationHours: "2.0" })
+    );
+    const notifications = makeNotifications();
+    const service = makeService(repo, makeDispatcher(), makeDomainEvents(), notifications);
+
+    await service.createRequest({ telegramId: tg, date, startTime: "14:00", durationHours: 2 });
+
+    const send = notifications.sendCourtRequestCreatedToAdmins as ReturnType<typeof vi.fn>;
+    expect(send).toHaveBeenCalledTimes(1);
+    expect(send.mock.calls[0][0]).toMatchObject({
+      clientName: "Ana",
+      clientTelegramId: 7001,
+      date,
+      startTime: "14:00",
+      endTime: "16:00",
+      durationHours: 2,
+      courtCount: 1,
+      priceRsd: 4000
+    });
+  });
+
+  it("DMs the admins after the multi-court (tx) create", async () => {
+    const created = makeRow({ courtCount: 2, courtNumbers: [1, 3], priceRsd: 8000 });
+    const { tx } = makeTx({ request: null, created, activeNumbers: [
+      { id: courtIdA, number: 1 },
+      { id: courtIdB, number: 3 }
+    ] });
+    const repo = {
+      ...makeRepo({}),
+      transaction: vi.fn(async (work: (tx: CourtModerationTx) => Promise<unknown>) => work(tx)),
+      findWithClientById: vi.fn().mockResolvedValue(adminRow({ ...created }))
+    } as unknown as CourtRequestsRepository;
+    const notifications = makeNotifications();
+    const service = makeService(repo, makeDispatcher(), makeDomainEvents(), notifications);
+
+    await service.createRequest({
+      telegramId: tg,
+      date,
+      startTime: "14:00",
+      durationHours: 2,
+      courtNumbers: [1, 3]
+    });
+
+    const send = notifications.sendCourtRequestCreatedToAdmins as ReturnType<typeof vi.fn>;
+    expect(send).toHaveBeenCalledTimes(1);
+    expect(send.mock.calls[0][0]).toMatchObject({ courtCount: 2, priceRsd: 8000 });
+  });
+
+  it("returns the created request even when the admin notification throws", async () => {
+    const repo = makeRepo({ created: makeRow() });
+    const notifications = makeNotifications();
+    (notifications.sendCourtRequestCreatedToAdmins as ReturnType<typeof vi.fn>).mockRejectedValue(
+      new Error("telegram unreachable")
+    );
+    const service = makeService(repo, makeDispatcher(), makeDomainEvents(), notifications);
+
+    const result = await service.createRequest({
+      telegramId: tg,
+      date,
+      startTime: "14:00",
+      durationHours: 2
+    });
+
+    expect(result.status).toBe("pending");
+    expect(notifications.sendCourtRequestCreatedToAdmins).toHaveBeenCalled();
   });
 });
 

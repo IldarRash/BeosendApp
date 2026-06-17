@@ -2,7 +2,11 @@ import { ForbiddenException } from "@nestjs/common";
 import type { Env } from "@beosand/config";
 import type { BroadcastType, TrainingStatus } from "@beosand/types";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import type { InlineKeyboardMarkup, TelegramSender } from "../notifications/telegram-sender";
+import type {
+  InlineCallbackButton,
+  InlineKeyboardMarkup,
+  TelegramSender
+} from "../notifications/telegram-sender";
 import type { BroadcastSlotRow, BroadcastsRepository } from "./broadcasts.repository";
 import { BroadcastsService } from "./broadcasts.service";
 
@@ -223,7 +227,7 @@ describe("BroadcastsService", () => {
       await service.send(ADMIN_ID, "today");
 
       const markup = sender.sendMessage.mock.calls[0][2] as InlineKeyboardMarkup;
-      expect(markup.inline_keyboard[0][0].callback_data).toBe(
+      expect((markup.inline_keyboard[0][0] as InlineCallbackButton).callback_data).toBe(
         "book:slot:11111111-1111-1111-1111-111111111111"
       );
     });
@@ -309,7 +313,9 @@ describe("BroadcastsService", () => {
       await service.send(ADMIN_ID, "today");
 
       const markup = sender.sendMessage.mock.calls[0][2] as InlineKeyboardMarkup;
-      const callbacks = markup.inline_keyboard.flat().map((b) => b.callback_data);
+      const callbacks = markup.inline_keyboard
+        .flat()
+        .map((b) => (b as InlineCallbackButton).callback_data);
       expect(callbacks).toEqual(["book:slot:aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa"]);
 
       const payload = repo.insertBroadcast.mock.calls[0][0].payload as string;

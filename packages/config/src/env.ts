@@ -50,6 +50,12 @@ const envSchema = z.object({
    */
   MINIAPP_URL: z.string().url().optional(),
   /**
+   * Base URL of the admin web console (apps/admin). Used to build a deep link in
+   * the operational admin DM sent when a new court request is created. Optional
+   * (the DM omits the button when unset); never a secret.
+   */
+  ADMIN_URL: z.string().url().optional(),
+  /**
    * Comma-separated browser origins allowed to call the API in production from
    * the Mini App (the tunnel/host origin serving apps/miniapp). Sibling to
    * ADMIN_ALLOWED_ORIGINS; both are merged into the API CORS allow-list.

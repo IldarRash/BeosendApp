@@ -43,6 +43,8 @@ function makeRepo(): RepoMock {
   };
 }
 
+const baseEnv = { ADMIN_TELEGRAM_IDS: [] as string[], ADMIN_URL: undefined as string | undefined };
+
 describe("NotificationsService", () => {
   let repo: RepoMock;
   let sender: { sendMessage: ReturnType<typeof vi.fn> };
@@ -91,7 +93,8 @@ describe("NotificationsService", () => {
       repo as never,
       sender as never,
       templates as never,
-      dispatcher as never
+      dispatcher as never,
+      baseEnv as never
     );
   });
 
@@ -340,5 +343,79 @@ describe("NotificationsService", () => {
       await expect(service.requestIndividualSession(trainer, client)).resolves.toBe(false);
       expect(repo.logSent).not.toHaveBeenCalled();
     });
+  });
+});
+
+describe("NotificationsService.sendCourtRequestCreatedToAdmins", () => {
+  const detail = {
+    clientName: "Ana",
+    clientTelegramId: 7001,
+    date: "2026-06-10",
+    startTime: "14:00",
+    endTime: "16:00",
+    durationHours: 2,
+    courtCount: 2,
+    priceRsd: 8000
+  };
+
+  function makeService(env: { ADMIN_TELEGRAM_IDS: string[]; ADMIN_URL?: string }): {
+    service: NotificationsService;
+    sender: { sendMessage: ReturnType<typeof vi.fn> };
+  } {
+    const sender = { sendMessage: vi.fn().mockResolvedValue(undefined) };
+    const service = new NotificationsService(
+      makeRepo() as never,
+      sender as never,
+      { findOverride: vi.fn().mockResolvedValue(undefined) } as never,
+      { dispatch: vi.fn() } as never,
+      env as never
+    );
+    return { service, sender };
+  }
+
+  it("DMs every configured admin with the request details", async () => {
+    const { service, sender } = makeService({ ADMIN_TELEGRAM_IDS: ["111", "222"] });
+
+    await service.sendCourtRequestCreatedToAdmins(detail);
+
+    expect(sender.sendMessage).toHaveBeenCalledTimes(2);
+    expect(sender.sendMessage.mock.calls.map((c) => c[0])).toEqual([111, 222]);
+    const text = sender.sendMessage.mock.calls[0][1] as string;
+    expect(text).toContain("Новая заявка на корт");
+    expect(text).toContain("Ana (id 7001)");
+    expect(text).toContain("2026-06-10, 14:00–16:00 (2 ч)");
+    expect(text).toContain("Кортов: 2 · 8000 RSD");
+  });
+
+  it("attaches the 'Открыть заявку' url button only when ADMIN_URL is set", async () => {
+    const withUrl = makeService({
+      ADMIN_TELEGRAM_IDS: ["111"],
+      ADMIN_URL: "https://admin.beosand.example"
+    });
+    await withUrl.service.sendCourtRequestCreatedToAdmins(detail);
+    const markup = withUrl.sender.sendMessage.mock.calls[0][2];
+    expect(markup).toEqual({
+      inline_keyboard: [
+        [{ text: "Открыть заявку", url: "https://admin.beosand.example/court-requests" }]
+      ]
+    });
+
+    const withoutUrl = makeService({ ADMIN_TELEGRAM_IDS: ["111"] });
+    await withoutUrl.service.sendCourtRequestCreatedToAdmins(detail);
+    expect(withoutUrl.sender.sendMessage.mock.calls[0][2]).toBeUndefined();
+  });
+
+  it("is a no-op when no admin ids are configured", async () => {
+    const { service, sender } = makeService({ ADMIN_TELEGRAM_IDS: [] });
+    await service.sendCourtRequestCreatedToAdmins(detail);
+    expect(sender.sendMessage).not.toHaveBeenCalled();
+  });
+
+  it("tolerates a failed/blocked DM and still notifies the remaining admins", async () => {
+    const { service, sender } = makeService({ ADMIN_TELEGRAM_IDS: ["111", "222"] });
+    sender.sendMessage.mockRejectedValueOnce(new Error("blocked"));
+
+    await expect(service.sendCourtRequestCreatedToAdmins(detail)).resolves.toBeUndefined();
+    expect(sender.sendMessage).toHaveBeenCalledTimes(2);
   });
 });

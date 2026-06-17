@@ -1,9 +1,7 @@
-import { isAdmin, loadEnv } from "@beosand/config";
+import { loadEnv } from "@beosand/config";
 import { Bot, session } from "grammy";
-import type { Court } from "@beosand/types";
 import { ApiClient } from "./api-client";
 import {
-  adminMenuKeyboard,
   languageKeyboard,
   MENU_ACTIONS,
   mainMenuKeyboard,
@@ -18,33 +16,6 @@ import {
   type Catalog,
   type Locale
 } from "./i18n";
-import {
-  courtModConfirmedText,
-  courtModNoCourtsText,
-  courtModNotAdminText,
-  courtModPickText,
-  courtModQueueKeyboard,
-  courtModQueueText,
-  courtModRejectedText,
-  courtPickKeyboard,
-  parseAssign,
-  parsePick,
-  parseReject,
-  COURT_MOD_ACTIONS
-} from "./court-moderation";
-import {
-  courtLoadDateKeyboard,
-  courtLoadGridKeyboard,
-  courtLoadGridText,
-  courtLoadNotAdminText,
-  courtLoadPickDateText,
-  parseLoadDate,
-  COURT_LOAD_ACTIONS
-} from "./court-load";
-// Court rental moved to the Mini App only; the bot keeps only the shared date
-// helper used by the admin court-load grid (C6). The client court-request flow
-// (date → time → duration → submit) and its keyboards/parsers were removed.
-import { courtDateOptions } from "./court";
 import { resolveCallback } from "./navigation";
 import { handleBookConfirm, handleBookStart } from "./booking";
 import { handleWaitlistAccept, handleWaitlistJoin } from "./waitlist";
@@ -80,34 +51,6 @@ import {
   TRAINER_ACTIONS
 } from "./trainer-today";
 import { handleTrainerDecision, parseTrainerDecision } from "./trainer-confirm";
-import {
-  BROADCAST_ACTIONS,
-  handleBroadcastAudiencePicker,
-  handleBroadcastLevelPick,
-  handleBroadcastMenu,
-  handleBroadcastPreview,
-  handleBroadcastSend,
-  parseBroadcastAudience,
-  parseBroadcastLevelPick,
-  parseBroadcastSend,
-  parseBroadcastType
-} from "./broadcast";
-import { handleStatsMenu, STATS_ACTIONS } from "./stats";
-import {
-  handleCancelConfirm as handleManagerCancelConfirm,
-  handleCancelDo,
-  handleCancelPickList,
-  handleCapPicker,
-  handleCapPickList,
-  handleCapSet,
-  handleManagerMenu,
-  handleManagerOverview,
-  MANAGER_ACTIONS,
-  parseCancelOk,
-  parseCancelPick,
-  parseCapPick,
-  parseCapSet
-} from "./manager-menu";
 import {
   applyFilterEdit,
   FILTER_ACTIONS,
@@ -157,15 +100,13 @@ async function main(): Promise<void> {
   // owns persistence). Session is keyed per chat by grammY's default key.
   bot.use(session<SessionData, BotContext>({ initial: initialSession }));
 
-  // The main menu shows the admin moderation entry only to admins (config-based);
-  // the API still re-gates every moderation read/write by x-telegram-id.
-  const menuFor = (telegramId: number, catalog: Catalog) =>
-    isAdmin(env, telegramId)
-      ? adminMenuKeyboard(catalog, miniappUrl)
-      : mainMenuKeyboard(catalog, miniappUrl);
+  // All admin actions live in the web admin console now; the bot is
+  // notifications-only for admins, so every caller gets the same client menu.
+  const menuFor = (_telegramId: number, catalog: Catalog) =>
+    mainMenuKeyboard(catalog, miniappUrl);
 
   // First entry (UX sections 1–2): new users (API 404) enter onboarding;
-  // returning users land on the main menu (admin-aware), in their stored language.
+  // returning users land on the main menu in their stored language.
   bot.command("start", async (ctx) => {
     const telegramId = ctx.from?.id ?? 0;
     const catalog = await resolveCatalog(telegramId);
@@ -205,158 +146,6 @@ async function main(): Promise<void> {
     await handleTrainerUpcoming(ctx, api, catalog, ctx.from?.id);
   });
 
-  // Manager-only entry (T2.4): free-slot broadcasts. Admin role is gated by the
-  // API (ADMIN_TELEGRAM_IDS); non-admins get a "managers only" message and never
-  // see the broadcast UI. The client main menu stays client-only.
-  bot.command("broadcast", async (ctx) => {
-    const catalog = await resolveCatalog(ctx.from?.id);
-    await handleBroadcastMenu(ctx, api, catalog, ctx.from?.id);
-  });
-
-  // Manager-only entry (T3.1): the read-only analytics summary. Admin role is
-  // gated by the API (ADMIN_TELEGRAM_IDS); non-admins get a "managers only"
-  // message and never see the stats. The client main menu stays client-only.
-  bot.command("stats", async (ctx) => {
-    const catalog = await resolveCatalog(ctx.from?.id);
-    await handleStatsMenu(ctx, api, catalog, ctx.from?.id);
-  });
-
-  // --- C4 court moderation (admin). The bot only renders the API-returned queue
-  // and free courts and calls confirm/reject; the API enforces the admin gate,
-  // re-checks the per-slot limit and chosen-court freeness, assigns the court, and
-  // notifies the client. The bot shows a court number only to the admin here. ---
-
-  // Per-admin cache of the free-court list last fetched for a request, so the
-  // compact assign callback (request id + court index) can resolve the court id
-  // without overflowing the 64-byte callback_data cap with a second UUID.
-  const freeCourtsCache = new Map<string, Court[]>();
-  const cacheKey = (adminId: number, requestId: string): string => `${adminId}:${requestId}`;
-
-  // Open the pending moderation queue. Admin-gated client-side only to decide
-  // whether to render the UI; the API is the real gate on every read/write.
-  bot.callbackQuery(COURT_MOD_ACTIONS.queue, async (ctx) => {
-    await ctx.answerCallbackQuery();
-    const catalog = await resolveCatalog(ctx.from.id);
-    if (!isAdmin(env, ctx.from.id)) {
-      await ctx.reply(courtModNotAdminText(catalog), { reply_markup: mainMenuKeyboard(catalog) });
-      return;
-    }
-    const requests = await api.listPendingCourtRequests(ctx.from.id);
-    await ctx.reply(courtModQueueText(catalog, requests), {
-      reply_markup: courtModQueueKeyboard(catalog, requests)
-    });
-  });
-
-  // Подтвердить → fetch the courts free for every covered slot and offer one button each.
-  bot.callbackQuery(new RegExp(`^${COURT_MOD_ACTIONS.pickPrefix}`), async (ctx) => {
-    await ctx.answerCallbackQuery();
-    const catalog = await resolveCatalog(ctx.from.id);
-    if (!isAdmin(env, ctx.from.id)) {
-      await ctx.reply(courtModNotAdminText(catalog), { reply_markup: mainMenuKeyboard(catalog) });
-      return;
-    }
-    const requestId = parsePick(ctx.callbackQuery.data);
-    const courts = await api.freeCourtsForRequest(ctx.from.id, requestId);
-    freeCourtsCache.set(cacheKey(ctx.from.id, requestId), courts);
-    if (courts.length === 0) {
-      await ctx.reply(courtModNoCourtsText(catalog), {
-        reply_markup: courtModQueueKeyboard(catalog, [])
-      });
-      return;
-    }
-    await ctx.reply(courtModPickText(catalog), {
-      reply_markup: courtPickKeyboard(catalog, requestId, courts)
-    });
-  });
-
-  // Корт №X → confirm. The court id is resolved from the cached free-court list by
-  // index; the API re-checks freeness atomically, so a stale index is rejected there.
-  bot.callbackQuery(new RegExp(`^${COURT_MOD_ACTIONS.assignPrefix}`), async (ctx) => {
-    await ctx.answerCallbackQuery();
-    const catalog = await resolveCatalog(ctx.from.id);
-    if (!isAdmin(env, ctx.from.id)) {
-      await ctx.reply(courtModNotAdminText(catalog), { reply_markup: mainMenuKeyboard(catalog) });
-      return;
-    }
-    const { requestId, courtIndex } = parseAssign(ctx.callbackQuery.data);
-    const courts = freeCourtsCache.get(cacheKey(ctx.from.id, requestId));
-    const court = courts?.[courtIndex];
-    if (!court) {
-      // Cache lost (restart) — re-open the picker so the admin reselects.
-      const refreshed = await api.freeCourtsForRequest(ctx.from.id, requestId);
-      freeCourtsCache.set(cacheKey(ctx.from.id, requestId), refreshed);
-      await ctx.reply(courtModPickText(catalog), {
-        reply_markup: courtPickKeyboard(catalog, requestId, refreshed)
-      });
-      return;
-    }
-    await api.confirmCourtRequest(ctx.from.id, requestId, [court.id]);
-    freeCourtsCache.delete(cacheKey(ctx.from.id, requestId));
-    await ctx.reply(courtModConfirmedText(catalog), {
-      reply_markup: courtModQueueKeyboard(catalog, [])
-    });
-  });
-
-  // Отклонить → reject; the API stamps decided_* and notifies the client.
-  bot.callbackQuery(new RegExp(`^${COURT_MOD_ACTIONS.rejectPrefix}`), async (ctx) => {
-    await ctx.answerCallbackQuery();
-    const catalog = await resolveCatalog(ctx.from.id);
-    if (!isAdmin(env, ctx.from.id)) {
-      await ctx.reply(courtModNotAdminText(catalog), { reply_markup: mainMenuKeyboard(catalog) });
-      return;
-    }
-    const requestId = parseReject(ctx.callbackQuery.data);
-    await api.rejectCourtRequest(ctx.from.id, requestId);
-    freeCourtsCache.delete(cacheKey(ctx.from.id, requestId));
-    await ctx.reply(courtModRejectedText(catalog), {
-      reply_markup: courtModQueueKeyboard(catalog, [])
-    });
-  });
-
-  // --- C6 court load grid (admin). Read-only: the bot shows a date picker, fetches
-  // the API-built occupancy grid (confirmed requests + blocks) for the chosen date,
-  // and renders it as a compact monospace text grid. Admin-gated client-side to
-  // decide whether to show the UI; the API re-gates the read by x-telegram-id and
-  // returns no court data to non-admins. ---
-
-  // Open the load view → show the date picker.
-  bot.callbackQuery(COURT_LOAD_ACTIONS.open, async (ctx) => {
-    await ctx.answerCallbackQuery();
-    const catalog = await resolveCatalog(ctx.from.id);
-    if (!isAdmin(env, ctx.from.id)) {
-      await ctx.reply(courtLoadNotAdminText(catalog), { reply_markup: mainMenuKeyboard(catalog) });
-      return;
-    }
-    await ctx.reply(courtLoadPickDateText(catalog), {
-      reply_markup: courtLoadDateKeyboard(catalog, courtDateOptions(new Date()))
-    });
-  });
-
-  // Date picked → fetch the grid and render it.
-  bot.callbackQuery(new RegExp(`^${COURT_LOAD_ACTIONS.datePrefix}`), async (ctx) => {
-    await ctx.answerCallbackQuery();
-    const catalog = await resolveCatalog(ctx.from.id);
-    if (!isAdmin(env, ctx.from.id)) {
-      await ctx.reply(courtLoadNotAdminText(catalog), { reply_markup: mainMenuKeyboard(catalog) });
-      return;
-    }
-    const date = parseLoadDate(ctx.callbackQuery.data);
-    const grid = await api.getCourtLoad(ctx.from.id, date);
-    await ctx.reply(courtLoadGridText(catalog, grid), {
-      parse_mode: "HTML",
-      reply_markup: courtLoadGridKeyboard(catalog)
-    });
-  });
-
-  // Manager-only entry (A1): the consolidated manager console. Admin role is
-  // gated by the API (ADMIN_TELEGRAM_IDS) via a probe; non-admins get the
-  // "managers only" message and never see the menu. The client main menu stays
-  // client-only — clients never reach these screens.
-  bot.command("manage", async (ctx) => {
-    const catalog = await resolveCatalog(ctx.from?.id);
-    await handleManagerMenu(ctx, api, catalog, ctx.from?.id);
-  });
-
   // Free text only matters while awaiting the onboarding name; otherwise ignore.
   // Onboarding's first prompts use the default-locale catalog (no client yet).
   bot.on("message:text", async (ctx) => {
@@ -375,8 +164,8 @@ async function main(): Promise<void> {
       return;
     }
     // Returning-user language switch: persist the chosen locale on the client and
-    // re-render the (admin-aware) main menu in the new language. The API
-    // authorizes the write (caller may set only their own record).
+    // re-render the main menu in the new language. The API authorizes the write
+    // (caller may set only their own record).
     const switchLocale = parseSetLanguage(ctx.callbackQuery.data);
     if (switchLocale !== undefined) {
       const telegramId = ctx.from.id;
@@ -505,82 +294,6 @@ async function main(): Promise<void> {
     const trainerDecision = parseTrainerDecision(ctx.callbackQuery.data);
     if (trainerDecision !== undefined) {
       await handleTrainerDecision(ctx, api, catalog, ctx.from.id, trainerDecision);
-      return;
-    }
-    // Free-slot broadcasts (T2.4 + T3.2 segments): admin-gated by the API. Menu
-    // entry → type picker → audience picker (all/level/active/lapsed) → preview
-    // (per-slot book:slot deep links + segment count) → send. Non-admins never
-    // reach these screens (the API resolves their call to null).
-    if (ctx.callbackQuery.data === BROADCAST_ACTIONS.entry) {
-      await handleBroadcastMenu(ctx, api, catalog, ctx.from.id);
-      return;
-    }
-    const broadcastType = parseBroadcastType(ctx.callbackQuery.data);
-    if (broadcastType !== undefined) {
-      await handleBroadcastAudiencePicker(ctx, api, catalog, ctx.from.id, broadcastType);
-      return;
-    }
-    const broadcastLevelPickType = parseBroadcastLevelPick(ctx.callbackQuery.data);
-    if (broadcastLevelPickType !== undefined) {
-      await handleBroadcastLevelPick(ctx, api, catalog, ctx.from.id, broadcastLevelPickType);
-      return;
-    }
-    const broadcastSelection = parseBroadcastAudience(ctx.callbackQuery.data);
-    if (broadcastSelection !== undefined) {
-      await handleBroadcastPreview(ctx, api, catalog, ctx.from.id, broadcastSelection);
-      return;
-    }
-    const broadcastSendSelection = parseBroadcastSend(ctx.callbackQuery.data);
-    if (broadcastSendSelection !== undefined) {
-      await handleBroadcastSend(ctx, api, catalog, ctx.from.id, broadcastSendSelection);
-      return;
-    }
-    // Analytics summary (T3.1): admin-gated by the API. Menu entry → server-
-    // composed headline figures. Non-admins never reach this screen (the API
-    // resolves their call to null → "managers only").
-    if (ctx.callbackQuery.data === STATS_ACTIONS.entry) {
-      await handleStatsMenu(ctx, api, catalog, ctx.from.id);
-      return;
-    }
-    // Manager console (A1): admin-gated by the API (a non-admin probe resolves to
-    // null → "managers only"). The menu surfaces the already-built flows
-    // (broadcasts, stats) plus the fill overview and the two new writes
-    // (cancel a training, change capacity) — every decision lives in the API; the
-    // bot only forwards ids/ints and renders. Clients never reach these screens.
-    if (ctx.callbackQuery.data === MANAGER_ACTIONS.entry) {
-      await handleManagerMenu(ctx, api, catalog, ctx.from.id);
-      return;
-    }
-    if (ctx.callbackQuery.data === MANAGER_ACTIONS.overview) {
-      await handleManagerOverview(ctx, api, catalog, ctx.from.id);
-      return;
-    }
-    if (ctx.callbackQuery.data === MANAGER_ACTIONS.cancelEntry) {
-      await handleCancelPickList(ctx, api, catalog, ctx.from.id);
-      return;
-    }
-    const cancelPickId = parseCancelPick(ctx.callbackQuery.data);
-    if (cancelPickId !== undefined) {
-      await handleManagerCancelConfirm(ctx, api, catalog, ctx.from.id, cancelPickId);
-      return;
-    }
-    const cancelOkId = parseCancelOk(ctx.callbackQuery.data);
-    if (cancelOkId !== undefined) {
-      await handleCancelDo(ctx, api, catalog, ctx.from.id, cancelOkId);
-      return;
-    }
-    if (ctx.callbackQuery.data === MANAGER_ACTIONS.capEntry) {
-      await handleCapPickList(ctx, api, catalog, ctx.from.id);
-      return;
-    }
-    const capPickId = parseCapPick(ctx.callbackQuery.data);
-    if (capPickId !== undefined) {
-      await handleCapPicker(ctx, api, catalog, ctx.from.id, capPickId);
-      return;
-    }
-    const capChange = parseCapSet(ctx.callbackQuery.data);
-    if (capChange !== undefined) {
-      await handleCapSet(ctx, api, catalog, ctx.from.id, capChange);
       return;
     }
     // Client slot filters (T3.2): chips on the available-slots screen. The bot

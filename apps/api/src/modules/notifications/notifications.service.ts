@@ -1,4 +1,5 @@
-import { Injectable, Logger } from "@nestjs/common";
+import { Inject, Injectable, Logger } from "@nestjs/common";
+import type { Env } from "@beosand/config";
 import type { Client, NotificationType, Trainer } from "@beosand/types";
 import {
   bookingConfirmedMessage,
@@ -21,6 +22,7 @@ import {
   NotificationsRepository
 } from "./notifications.repository";
 import { type InlineKeyboardMarkup, TelegramSender } from "./telegram-sender";
+import { ENV } from "../../config/config.module";
 
 /**
  * Owns every outbound domain notification (T2.2). Sends are server-side here —
@@ -46,7 +48,8 @@ export class NotificationsService {
     private readonly repo: NotificationsRepository,
     private readonly sender: TelegramSender,
     private readonly templates: NotificationTemplatesRepository,
-    private readonly dispatcher: ChannelDispatcher
+    private readonly dispatcher: ChannelDispatcher,
+    @Inject(ENV) private readonly env: Env
   ) {}
 
   /**
@@ -361,6 +364,58 @@ export class NotificationsService {
           (error instanceof Error ? error.message : String(error))
       );
       return false;
+    }
+  }
+
+  /**
+   * Operational DM to every admin (ADMIN_TELEGRAM_IDS) that a new court request was
+   * just created, so a manager can open the moderation queue and confirm/reject it.
+   * This is an inline operational message, NOT one of the client-facing DB templates,
+   * and it carries no send-log row. When ADMIN_URL is set it attaches a single
+   * "Открыть заявку" URL button deep-linking the admin console's court-requests page.
+   * Best-effort: each per-admin send is wrapped so a blocked/failed DM is logged and
+   * skipped — the committed court request is never undone because Telegram was
+   * unreachable. A no-op when no admin ids are configured.
+   */
+  async sendCourtRequestCreatedToAdmins(input: {
+    clientName: string;
+    clientTelegramId: number;
+    date: string;
+    startTime: string;
+    endTime: string;
+    durationHours: number;
+    courtCount: number;
+    priceRsd: number;
+  }): Promise<void> {
+    const adminIds = this.env.ADMIN_TELEGRAM_IDS;
+    if (adminIds.length === 0) {
+      return;
+    }
+
+    const text =
+      `🎾 Новая заявка на корт\n` +
+      `${input.clientName} (id ${input.clientTelegramId})\n` +
+      `${input.date}, ${input.startTime}–${input.endTime} (${input.durationHours} ч)\n` +
+      `Кортов: ${input.courtCount} · ${input.priceRsd} RSD`;
+
+    const replyMarkup: InlineKeyboardMarkup | undefined = this.env.ADMIN_URL
+      ? {
+          inline_keyboard: [
+            [{ text: "Открыть заявку", url: `${this.env.ADMIN_URL}/court-requests` }]
+          ]
+        }
+      : undefined;
+
+    for (const adminId of adminIds) {
+      const numericId = Number(adminId);
+      try {
+        await this.sender.sendMessage(numericId, text, replyMarkup);
+      } catch (error) {
+        this.logger.warn(
+          `New-court-request DM to admin ${adminId} failed: ` +
+            (error instanceof Error ? error.message : String(error))
+        );
+      }
     }
   }
 
