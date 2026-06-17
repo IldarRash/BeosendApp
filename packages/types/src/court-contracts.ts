@@ -204,12 +204,15 @@ export type CourtLoadCellState = z.infer<typeof courtLoadCellState>;
  * `trainingId` (so the grid can open its detail) with `requestId` null.
  * `free`/`block` cells carry both null (a block is not a request, a manual block
  * has no training). The cell is keyed by its slot-start time (`:00`/`:30`).
+ * `blockId` carries the covering court-block's id for `training`/`block` cells (so
+ * the grid can move it to another court via reassign); `free`/`request` cells null.
  */
 export const courtLoadCellSchema = z.object({
   startTime: timeString,
   state: courtLoadCellState,
   requestId: uuid.nullable(),
-  trainingId: uuid.nullable()
+  trainingId: uuid.nullable(),
+  blockId: uuid.nullable()
 });
 export type CourtLoadCell = z.infer<typeof courtLoadCellSchema>;
 

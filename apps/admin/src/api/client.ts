@@ -19,6 +19,7 @@ import {
   cancellationStatsSchema,
   clientActivitySchema,
   clientSchema,
+  autoAssignResultSchema,
   courtBlockSchema,
   courtLoadGridSchema,
   generateAllResultSchema,
@@ -55,6 +56,8 @@ import {
   type AnalyticsRangeQuery,
   type AnalyticsSummary,
   type AssignCourtInput,
+  type AutoAssignCourtsInput,
+  type AutoAssignResult,
   type Booking,
   type Broadcast,
   type BroadcastAudience,
@@ -395,6 +398,20 @@ export class ApiClient {
   assignCourt(trainingId: string, courtId: string): Promise<Training> {
     const input: AssignCourtInput = { courtId };
     return this.request(`/trainings/${trainingId}/assign-court`, trainingSchema, {
+      method: "POST",
+      body: JSON.stringify(input)
+    });
+  }
+
+  /**
+   * Auto-place every orphaned training on a date onto a free court (POST
+   * /trainings/assign-courts-auto, body `{ date }`). The server picks each group's
+   * chosen court if free, else the lowest free court, under the 6-per-30-min limit.
+   * Admin-only; returns the assigned/skipped counts the grid then refetches against.
+   */
+  autoAssignOrphans(date: string): Promise<AutoAssignResult> {
+    const input: AutoAssignCourtsInput = { date };
+    return this.request("/trainings/assign-courts-auto", autoAssignResultSchema, {
       method: "POST",
       body: JSON.stringify(input)
     });

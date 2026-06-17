@@ -12,6 +12,8 @@ import { isAdmin } from "@beosand/config";
 import type { Database } from "@beosand/db";
 import type {
   AssignCourtInput,
+  AutoAssignCourtsInput,
+  AutoAssignResult,
   AvailableSlotsQuery,
   ChangeCapacityInput,
   CourtCellOccupant,
@@ -33,6 +35,7 @@ import type {
   TrainingRoster
 } from "@beosand/types";
 import {
+  autoAssignResultSchema,
   COURT_CLOSE_HOUR,
   COURT_OPEN_HOUR,
   courtFreeForSlots,
@@ -738,6 +741,92 @@ export class TrainingsService {
     });
 
     return trainingSchema.parse(training);
+  }
+
+  /**
+   * Admin: auto-place every orphaned training (no auto-block) on a date onto a court,
+   * so the owner needn't assign each one by hand. In one transaction the date's
+   * orphans are locked FOR UPDATE, then each is run through the SAME pickCourtForSlots
+   * guard the generator uses — its group's chosen court if free for every covered slot
+   * and within the 6-per-slot limit, else the lowest free court, else skipped (every
+   * court busy). This run's auto-blocks accumulate in the occupancy so two orphans on
+   * the date can't take the same court/slot. Returns assigned vs skipped counts.
+   */
+  async autoAssignOrphans(
+    actorTelegramId: number,
+    input: AutoAssignCourtsInput
+  ): Promise<AutoAssignResult> {
+    this.assertAdmin(actorTelegramId);
+
+    const result = await this.trainings.transaction(async (tx) => {
+      const orphans = await this.trainings.listOrphansForDateForUpdate(tx, input.date);
+      if (orphans.length === 0) {
+        return { assigned: 0, skipped: 0 };
+      }
+
+      const activeCourts = await this.courtBlocks.activeCourts(tx);
+      const activeCourtCount = activeCourts.length;
+      // Date occupancy read once and mutated as we add this run's auto-blocks, so two
+      // orphans on the date cannot both take the same court/slot.
+      const [confirmed, blocks] = await Promise.all([
+        this.courtBlocks.confirmedOccupancyForDate(input.date, tx),
+        this.courtBlocks.blocksOccupancyForDate(input.date, tx)
+      ]);
+      const groupCache = new Map<string, Group>();
+
+      let assigned = 0;
+      let skipped = 0;
+      for (const training of orphans) {
+        // The query excludes null-group trainings; guard defensively for the type.
+        if (!training.groupId) {
+          skipped += 1;
+          continue;
+        }
+        let group = groupCache.get(training.groupId);
+        if (!group) {
+          const found = await this.groups.findById(training.groupId);
+          if (!found) {
+            skipped += 1;
+            continue;
+          }
+          group = found;
+          groupCache.set(training.groupId, group);
+        }
+
+        const durationMinutes = minutesOfDay(training.endTime) - minutesOfDay(training.startTime);
+        const slots = courtSlotsCovered(training.startTime, durationMinutes);
+        const courtId = this.pickCourtForSlots(
+          slots,
+          activeCourts,
+          activeCourtCount,
+          group.courtId ?? undefined,
+          confirmed,
+          blocks
+        );
+        if (!courtId) {
+          skipped += 1;
+          continue;
+        }
+
+        await this.courtBlocks.insert(
+          {
+            courtId,
+            date: training.date,
+            startTime: training.startTime,
+            endTime: training.endTime,
+            reason: group.name,
+            groupTrainingId: training.id
+          },
+          tx
+        );
+        blocks.push({ courtId, startTime: training.startTime, durationMinutes });
+        assigned += 1;
+      }
+
+      return { assigned, skipped };
+    });
+
+    return autoAssignResultSchema.parse(result);
   }
 
   /**

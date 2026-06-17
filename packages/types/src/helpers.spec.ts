@@ -483,6 +483,34 @@ describe("courtLoadGrid", () => {
     expect(cell(courtA, "12:00")?.trainingId).toBeNull();
   });
 
+  it("threads the covering block id onto training/block cells; free/request carry null", () => {
+    const trainingId = "dddddddd-dddd-dddd-dddd-dddddddddddd";
+    const requestId = "cccccccc-cccc-cccc-cccc-cccccccccccc";
+    const trainingBlockId = "f1f1f1f1-f1f1-4f1f-8f1f-f1f1f1f1f1f1";
+    const manualBlockId = "f2f2f2f2-f2f2-4f2f-8f2f-f2f2f2f2f2f2";
+    const cell = (courtId: string, startTime: string) =>
+      rows.find((r) => r.courtId === courtId)?.cells.find((c) => c.startTime === startTime);
+
+    const rows = courtLoadGrid({
+      courts,
+      ...window,
+      confirmed: [{ courtId: courtA, startTime: "14:00", durationMinutes: 60, requestId }],
+      blocks: [
+        { courtId: courtA, startTime: "10:00", durationMinutes: 90, trainingId, blockId: trainingBlockId },
+        { courtId: courtB, startTime: "10:00", durationMinutes: 60, blockId: manualBlockId }
+      ]
+    });
+
+    // training cell carries the covering block id across all its slots
+    expect(cell(courtA, "10:00")?.blockId).toBe(trainingBlockId);
+    expect(cell(courtA, "10:30")?.blockId).toBe(trainingBlockId);
+    // manual block cell carries its block id
+    expect(cell(courtB, "10:00")?.blockId).toBe(manualBlockId);
+    // request and free cells carry null block id
+    expect(cell(courtA, "14:00")?.blockId).toBeNull();
+    expect(cell(courtA, "12:00")?.blockId).toBeNull();
+  });
+
   it("keeps a confirmed occupant a request cell with its requestId and null trainingId", () => {
     const requestId = "eeeeeeee-eeee-eeee-eeee-eeeeeeeeeeee";
     const rows = courtLoadGrid({

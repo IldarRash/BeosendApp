@@ -8,7 +8,7 @@ import type {
   TrainingCalendarItem,
   TrainingStatus
 } from "@beosand/types";
-import { and, asc, eq, gte, inArray, isNotNull, lte, ne, sql } from "drizzle-orm";
+import { and, asc, eq, gte, inArray, isNotNull, lte, ne, notExists, sql } from "drizzle-orm";
 import { DatabaseService } from "../../db/database.service";
 
 type TrainingRow = typeof tables.trainings.$inferSelect;
@@ -147,6 +147,34 @@ export class TrainingsRepository {
         )
       )
       .orderBy(asc(tables.trainings.date), asc(tables.trainings.startTime));
+  }
+
+  /**
+   * Non-terminal (open/full) trainings on a date that belong to a group but have NO
+   * auto-block — the "orphans" the auto-assign places onto a free court. Locked FOR
+   * UPDATE inside the caller's tx so a concurrent assign/auto-assign can't double-book
+   * the same training. Ordered by start time so lower slots are placed first.
+   */
+  async listOrphansForDateForUpdate(tx: Database, date: string): Promise<Training[]> {
+    const rows = await tx
+      .select()
+      .from(tables.trainings)
+      .where(
+        and(
+          eq(tables.trainings.date, date),
+          isNotNull(tables.trainings.groupId),
+          inArray(tables.trainings.status, ["open", "full"]),
+          notExists(
+            tx
+              .select({ one: sql`1` })
+              .from(tables.courtBlocks)
+              .where(eq(tables.courtBlocks.groupTrainingId, tables.trainings.id))
+          )
+        )
+      )
+      .orderBy(asc(tables.trainings.startTime))
+      .for("update");
+    return rows.map(toTraining);
   }
 
   /** Insert many trainings inside the caller's transaction; returns the created rows. */

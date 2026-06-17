@@ -8,6 +8,7 @@ import {
   courtRequestQueueQuerySchema,
   courtBlockSchema,
   courtBlocksListQuerySchema,
+  courtLoadCellSchema,
   courtSchema,
   createCourtRequestSchema,
   createCourtBlockSchema,
@@ -94,6 +95,34 @@ describe("reassignCourtBlockSchema (T10)", () => {
 
   it("rejects a non-uuid courtId", () => {
     expect(reassignCourtBlockSchema.safeParse({ courtId: "nope" }).success).toBe(false);
+  });
+});
+
+describe("courtLoadCellSchema (carries the block id for move actions)", () => {
+  const base = { startTime: "08:00", state: "free", requestId: null, trainingId: null };
+
+  it("accepts a free cell with a null blockId", () => {
+    expect(courtLoadCellSchema.safeParse({ ...base, blockId: null }).success).toBe(true);
+  });
+
+  it("accepts a training cell carrying request/training/block ids", () => {
+    expect(
+      courtLoadCellSchema.safeParse({
+        startTime: "09:00",
+        state: "training",
+        requestId: null,
+        trainingId: "66666666-6666-4666-8666-666666666666",
+        blockId: "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa"
+      }).success
+    ).toBe(true);
+  });
+
+  it("requires the blockId key (no silent omission)", () => {
+    expect(courtLoadCellSchema.safeParse(base).success).toBe(false);
+  });
+
+  it("rejects a non-uuid blockId", () => {
+    expect(courtLoadCellSchema.safeParse({ ...base, blockId: "nope" }).success).toBe(false);
   });
 });
 

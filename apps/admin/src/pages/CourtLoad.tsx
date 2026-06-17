@@ -15,12 +15,26 @@ import { TextField } from "../ui/Field";
 import { Modal } from "../ui/Modal";
 import { useToast } from "../ui/Toast";
 import { useT } from "../i18n/LanguageProvider";
-import { useAssignCourt, useCourtLoad } from "../hooks/useCourtLoad";
+import { useAssignCourt, useAutoAssignOrphans, useCourtLoad } from "../hooks/useCourtLoad";
 import { useCourts } from "../hooks/useCourts";
 import { useCourtRequestDetail } from "../hooks/useCourtRequests";
 import { useTrainingDetail } from "../hooks/useTrainingDetail";
 import { TrainingDetailBody } from "../ui/TrainingDetailBody";
+import { ReassignCourtDialog } from "../components/ReassignCourtDialog";
 import { formatRsd } from "../lib/format";
+
+/** A training cell's move/detail context: the covering block + court it sits on. */
+interface TrainingTarget {
+  trainingId: string;
+  blockId: string | null;
+  courtId: string;
+}
+
+/** A block to move to another court (the clicked cell's block + its current court). */
+interface MoveTarget {
+  blockId: string;
+  currentCourtId: string;
+}
 
 type Translate = (key: string, params?: Record<string, string | number>) => string;
 
@@ -154,9 +168,11 @@ export function CourtLoad(): JSX.Element {
   const t = useT();
   const [date, setDate] = useState(todayIso());
   const [openRequestId, setOpenRequestId] = useState<string | null>(null);
-  const [openTrainingId, setOpenTrainingId] = useState<string | null>(null);
+  const [openTraining, setOpenTraining] = useState<TrainingTarget | null>(null);
+  const [moveTarget, setMoveTarget] = useState<MoveTarget | null>(null);
   const [assignTarget, setAssignTarget] = useState<UnassignedTraining | null>(null);
   const load = useCourtLoad(date || null);
+  const courts = useCourts();
 
   const grid = load.data;
   const unassigned = grid?.unassignedTrainings ?? [];
@@ -235,7 +251,8 @@ export function CourtLoad(): JSX.Element {
                       row={row}
                       columns={groupColumns(row.cells)}
                       onOpenRequest={setOpenRequestId}
-                      onOpenTraining={setOpenTrainingId}
+                      onOpenTraining={setOpenTraining}
+                      onMoveBlock={setMoveTarget}
                       t={t}
                     />
                   ))}
@@ -266,10 +283,23 @@ export function CourtLoad(): JSX.Element {
       />
 
       <TrainingDetailModal
-        trainingId={openTrainingId}
-        onClose={() => setOpenTrainingId(null)}
+        target={openTraining}
+        onClose={() => setOpenTraining(null)}
+        onMove={(move) => {
+          setOpenTraining(null);
+          setMoveTarget(move);
+        }}
         t={t}
       />
+
+      {moveTarget ? (
+        <ReassignCourtDialog
+          blockId={moveTarget.blockId}
+          currentCourtId={moveTarget.currentCourtId}
+          courts={courts.data ?? []}
+          onClose={() => setMoveTarget(null)}
+        />
+      ) : null}
     </AppShell>
   );
 }
@@ -284,12 +314,14 @@ function CourtRow({
   columns,
   onOpenRequest,
   onOpenTraining,
+  onMoveBlock,
   t
 }: {
   row: CourtLoadRow;
   columns: LoadColumn[];
   onOpenRequest: (id: string) => void;
-  onOpenTraining: (id: string) => void;
+  onOpenTraining: (target: TrainingTarget) => void;
+  onMoveBlock: (target: MoveTarget) => void;
   t: Translate;
 }): JSX.Element {
   return (
@@ -304,9 +336,11 @@ function CourtRow({
               <LoadSegment
                 key={cell.startTime}
                 cell={cell}
+                courtId={row.courtId}
                 courtNumber={row.courtNumber}
                 onOpenRequest={onOpenRequest}
                 onOpenTraining={onOpenTraining}
+                onMoveBlock={onMoveBlock}
                 t={t}
               />
             ))}
@@ -319,20 +353,26 @@ function CourtRow({
 
 /**
  * A single 30-min sub-segment. A `request` segment opens the booking detail; a
- * `training` segment opens the covering training's detail; `free`/`block` stay
- * inert. State is conveyed by aria-label + glyph, never colour alone.
+ * `training` segment opens the covering training's detail (with a move action); a
+ * `block` segment opens the move-court dialog directly; `free` (and any cell without
+ * the id needed to act) stays inert. State is conveyed by aria-label + glyph, never
+ * colour alone.
  */
 function LoadSegment({
   cell,
+  courtId,
   courtNumber,
   onOpenRequest,
   onOpenTraining,
+  onMoveBlock,
   t
 }: {
   cell: CourtLoadCell;
+  courtId: string;
   courtNumber: number;
   onOpenRequest: (id: string) => void;
-  onOpenTraining: (id: string) => void;
+  onOpenTraining: (target: TrainingTarget) => void;
+  onMoveBlock: (target: MoveTarget) => void;
   t: Translate;
 }): JSX.Element {
   const className = `load-seg load-seg--${cell.state}`;
@@ -359,12 +399,27 @@ function LoadSegment({
 
   if (cell.state === "training" && cell.trainingId) {
     const trainingId = cell.trainingId;
+    const blockId = cell.blockId;
     return (
       <button
         type="button"
         className={className}
         aria-label={t("admin.courtLoad.cellTrainingAria", params)}
-        onClick={() => onOpenTraining(trainingId)}
+        onClick={() => onOpenTraining({ trainingId, blockId, courtId })}
+      >
+        {glyph}
+      </button>
+    );
+  }
+
+  if (cell.state === "block" && cell.blockId) {
+    const blockId = cell.blockId;
+    return (
+      <button
+        type="button"
+        className={className}
+        aria-label={t("admin.courtLoad.cellMoveAria", params)}
+        onClick={() => onMoveBlock({ blockId, currentCourtId: courtId })}
       >
         {glyph}
       </button>
@@ -381,21 +436,40 @@ function LoadSegment({
 /**
  * Detail popup for a training-origin segment. Reuses the calendar's
  * {@link useTrainingDetail} hook + exported {@link TrainingDetailBody} so the
- * "whose training?" render is identical and never duplicated.
+ * "whose training?" render is identical and never duplicated. When the training
+ * carries a court block, a "Сменить корт" action hands the block off to the
+ * move-court dialog (the server owns the freeness/limit re-check).
  */
 function TrainingDetailModal({
-  trainingId,
+  target,
   onClose,
+  onMove,
   t
 }: {
-  trainingId: string | null;
+  target: TrainingTarget | null;
   onClose: () => void;
+  onMove: (move: MoveTarget) => void;
   t: Translate;
 }): JSX.Element {
-  const detail = useTrainingDetail(trainingId);
+  const detail = useTrainingDetail(target?.trainingId ?? null);
+  const blockId = target?.blockId ?? null;
 
   return (
-    <Modal open={trainingId !== null} onClose={onClose} title={t("admin.calendar.detailTitle")}>
+    <Modal
+      open={target !== null}
+      onClose={onClose}
+      title={t("admin.calendar.detailTitle")}
+      footer={
+        blockId !== null && target !== null ? (
+          <Button
+            variant="primary"
+            onClick={() => onMove({ blockId, currentCourtId: target.courtId })}
+          >
+            {t("admin.courtBlocks.changeCourt")}
+          </Button>
+        ) : undefined
+      }
+    >
       {detail.isPending ? (
         <p className="state">{t("admin.calendar.detailLoading")}</p>
       ) : detail.isError ? (
@@ -491,9 +565,11 @@ function RequestDetailBody({
 /**
  * Slice 4 — the "Без корта" section: trainings on this date the generator could
  * not place on a court (every court was busy). The API decides which trainings are
- * orphaned (`grid.unassignedTrainings`); this section only lists them and offers a
- * manual assign action, flagged with the warning (amber) accent. Rendered only when
- * the list is non-empty.
+ * orphaned (`grid.unassignedTrainings`); this section lists them and offers both a
+ * one-click "auto-assign all" (each onto its group's chosen court if free, else the
+ * lowest free court) and a per-training manual assign, flagged with the warning
+ * (amber) accent. Rendered only when the list is non-empty. The server owns the
+ * court pick + freeness/limit checks; this section computes nothing.
  */
 function UnassignedSection({
   date,
@@ -506,6 +582,27 @@ function UnassignedSection({
   onAssign: (training: UnassignedTraining) => void;
   t: Translate;
 }): JSX.Element {
+  const { notify } = useToast();
+  const autoAssign = useAutoAssignOrphans();
+
+  function runAutoAssign(): void {
+    autoAssign.mutate(date, {
+      onSuccess: (result) =>
+        notify(
+          t("admin.courtLoad.autoAssignDone", {
+            assigned: result.assigned,
+            skipped: result.skipped
+          }),
+          result.skipped > 0 ? "info" : "success"
+        ),
+      onError: (error) =>
+        notify(
+          error instanceof Error ? error.message : t("admin.courtLoad.autoAssignFailed"),
+          "error"
+        )
+    });
+  }
+
   const columns: Column<UnassignedTraining>[] = [
     {
       key: "time",
@@ -543,7 +640,14 @@ function UnassignedSection({
 
   return (
     <section className="note note--warn" aria-labelledby="court-load-unassigned-heading">
-      <h2 id="court-load-unassigned-heading">{t("admin.courtLoad.unassignedTitle")}</h2>
+      <div className="cluster cluster--spread">
+        <h2 id="court-load-unassigned-heading">{t("admin.courtLoad.unassignedTitle")}</h2>
+        <Button variant="primary" onClick={runAutoAssign} disabled={autoAssign.isPending}>
+          {autoAssign.isPending
+            ? t("admin.courtLoad.autoAssigning")
+            : t("admin.courtLoad.autoAssign")}
+        </Button>
+      </div>
       <p>{t("admin.courtLoad.unassignedLead")}</p>
       <DataTable
         caption={t("admin.courtLoad.unassignedCaption", { date })}

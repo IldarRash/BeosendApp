@@ -194,6 +194,17 @@ class FakeTrainingsRepository {
     return this.rows.find((r) => r.id === id);
   }
 
+  // Orphan trainings (no auto-block) on a date — the auto-assign candidate set.
+  // The fake has no block link, so it returns every grouped open/full row on the
+  // date; the test seeds only the orphans it wants placed.
+  async listOrphansForDateForUpdate(_tx: Database, date: string): Promise<Training[]> {
+    return this.rows
+      .filter(
+        (r) => r.date === date && r.groupId !== null && (r.status === "open" || r.status === "full")
+      )
+      .sort((a, b) => a.startTime.localeCompare(b.startTime));
+  }
+
   // Future non-cancelled trainings of a group (the cascade candidate set).
   async listFutureNonCancelledForGroup(
     groupId: string,
@@ -1313,6 +1324,90 @@ describe("TrainingsService", () => {
       trainingsRepo.fullLock = orphan();
       await expect(
         service.assignCourt(NON_ADMIN_ID, TRAINING_ID, { courtId: COURT_1 })
+      ).rejects.toBeInstanceOf(ForbiddenException);
+      expect(courtBlocksRepo.inserted).toHaveLength(0);
+    });
+  });
+
+  describe("autoAssignOrphans (one-click placement of orphan trainings)", () => {
+    const COURT_1 = "c0000000-0000-4000-8000-000000000001";
+    const COURT_2 = "c0000000-0000-4000-8000-000000000002";
+    const DATE = "2026-07-06";
+
+    const orphan = (id: string, startTime: string, endTime: string): Training => ({
+      id,
+      groupId: GROUP_ID,
+      date: DATE,
+      startTime,
+      endTime,
+      trainerId: baseGroup.trainerId,
+      capacity: 12,
+      bookedCount: 0,
+      status: "open"
+    });
+
+    it("places each orphan on its group's preferred court when free", async () => {
+      groupsRepo.group = { ...baseGroup, courtId: COURT_1 };
+      trainingsRepo.rows = [
+        orphan("a0000000-0000-4000-8000-000000000001", "08:00", "09:30"),
+        orphan("a0000000-0000-4000-8000-000000000002", "10:00", "11:30")
+      ];
+
+      const result = await service.autoAssignOrphans(ADMIN_ID, { date: DATE });
+
+      expect(result).toEqual({ assigned: 2, skipped: 0 });
+      expect(courtBlocksRepo.inserted).toHaveLength(2);
+      expect(courtBlocksRepo.inserted.every((b) => b.courtId === COURT_1)).toBe(true);
+      expect(courtBlocksRepo.inserted.map((b) => b.groupTrainingId).sort()).toEqual(
+        trainingsRepo.rows.map((r) => r.id).sort()
+      );
+    });
+
+    it("falls back to the lowest free court when the preferred one is busy", async () => {
+      groupsRepo.group = { ...baseGroup, courtId: COURT_1 };
+      courtBlocksRepo.existingBlocks = [
+        { courtId: COURT_1, startTime: "08:00", durationMinutes: 90, date: DATE }
+      ];
+      trainingsRepo.rows = [orphan("a0000000-0000-4000-8000-000000000001", "08:00", "09:30")];
+
+      const result = await service.autoAssignOrphans(ADMIN_ID, { date: DATE });
+
+      expect(result).toEqual({ assigned: 1, skipped: 0 });
+      expect(courtBlocksRepo.inserted[0].courtId).toBe(COURT_2);
+    });
+
+    it("skips an orphan when every court is busy for its slot (6-per-slot limit)", async () => {
+      courtBlocksRepo.courts = [{ id: COURT_1, number: 1 }];
+      groupsRepo.group = { ...baseGroup, courtId: COURT_1 };
+      courtBlocksRepo.existingBlocks = [
+        { courtId: COURT_1, startTime: "08:00", durationMinutes: 90, date: DATE }
+      ];
+      trainingsRepo.rows = [orphan("a0000000-0000-4000-8000-000000000001", "08:00", "09:30")];
+
+      const result = await service.autoAssignOrphans(ADMIN_ID, { date: DATE });
+
+      expect(result).toEqual({ assigned: 0, skipped: 1 });
+      expect(courtBlocksRepo.inserted).toHaveLength(0);
+    });
+
+    it("does not place two orphans on the same court/slot (in-run occupancy)", async () => {
+      groupsRepo.group = { ...baseGroup, courtId: COURT_1 };
+      trainingsRepo.rows = [
+        orphan("a0000000-0000-4000-8000-000000000001", "08:00", "09:30"),
+        orphan("a0000000-0000-4000-8000-000000000002", "08:00", "09:30")
+      ];
+
+      const result = await service.autoAssignOrphans(ADMIN_ID, { date: DATE });
+
+      expect(result).toEqual({ assigned: 2, skipped: 0 });
+      const courts = courtBlocksRepo.inserted.map((b) => b.courtId).sort();
+      expect(courts).toEqual([COURT_1, COURT_2]);
+    });
+
+    it("is admin-only", async () => {
+      trainingsRepo.rows = [orphan("a0000000-0000-4000-8000-000000000001", "08:00", "09:30")];
+      await expect(
+        service.autoAssignOrphans(NON_ADMIN_ID, { date: DATE })
       ).rejects.toBeInstanceOf(ForbiddenException);
       expect(courtBlocksRepo.inserted).toHaveLength(0);
     });

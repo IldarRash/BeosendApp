@@ -5,7 +5,7 @@ import {
   type UseMutationResult,
   type UseQueryResult
 } from "@tanstack/react-query";
-import type { CourtLoadGrid, Training } from "@beosand/types";
+import type { AutoAssignResult, CourtLoadGrid, Training } from "@beosand/types";
 import { useApiClient } from "../api/ApiProvider";
 
 /**
@@ -48,6 +48,21 @@ export function useAssignCourt(): UseMutationResult<
   return useMutation({
     mutationFn: ({ trainingId, courtId }: { trainingId: string; courtId: string }) =>
       api.assignCourt(trainingId, courtId),
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: COURT_LOAD_KEY })
+  });
+}
+
+/**
+ * Auto-place every orphaned training on a date onto a free court (POST
+ * /trainings/assign-courts-auto). On success every loaded day's grid is invalidated,
+ * so placed trainings leave the "без корта" section and join the grid. The server
+ * owns the court pick + freeness/limit checks; the result reports assigned vs skipped.
+ */
+export function useAutoAssignOrphans(): UseMutationResult<AutoAssignResult, Error, string> {
+  const api = useApiClient();
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (date: string) => api.autoAssignOrphans(date),
     onSuccess: () => queryClient.invalidateQueries({ queryKey: COURT_LOAD_KEY })
   });
 }

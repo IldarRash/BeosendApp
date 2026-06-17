@@ -228,6 +228,22 @@ describe("ApiClient group-court scheduling (features 2+3)", () => {
     ).rejects.toThrow();
   });
 
+  it("POSTs an auto-assign for a date and validates the summary", async () => {
+    const calls = mockFetchOnce({ assigned: 3, skipped: 1 });
+    const result = await new ApiClient("http://api.test").autoAssignOrphans("2026-06-17");
+    expect(calls[0]?.url).toBe("http://api.test/trainings/assign-courts-auto");
+    expect(calls[0]?.init?.method).toBe("POST");
+    expect(JSON.parse(calls[0]?.init?.body as string)).toEqual({ date: "2026-06-17" });
+    expect(result).toEqual({ assigned: 3, skipped: 1 });
+  });
+
+  it("rejects a malformed auto-assign summary (contract enforced)", async () => {
+    mockFetchOnce({ assigned: -1, skipped: 1 });
+    await expect(
+      new ApiClient("http://api.test").autoAssignOrphans("2026-06-17")
+    ).rejects.toThrow();
+  });
+
   it("PATCHes a court reassignment and returns the moved block", async () => {
     const calls = mockFetchOnce({
       id: BLOCK_ID,

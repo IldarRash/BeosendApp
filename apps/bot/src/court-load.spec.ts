@@ -28,7 +28,8 @@ function cells(
       startTime,
       state: occupied[startTime] ?? "free",
       requestId: null,
-      trainingId: null
+      trainingId: null,
+      blockId: null
     });
   }
   return out;
