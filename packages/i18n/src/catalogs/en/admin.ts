@@ -24,6 +24,7 @@ export const adminEn: Record<string, string> = {
   "admin.nav.notificationTemplates": "Notification templates",
   "admin.nav.connectors": "Connectors",
   "admin.nav.sectionsLabel": "Sections",
+  "admin.nav.toggle": "Navigation menu",
   "admin.nav.soon": "soon",
   "admin.nav.groupSchedule": "Schedule",
   "admin.nav.groupCourts": "Courts",

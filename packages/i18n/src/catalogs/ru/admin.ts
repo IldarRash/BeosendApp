@@ -30,6 +30,7 @@ export const adminRu: Record<string, string> = {
   "admin.nav.notificationTemplates": "Шаблоны уведомлений",
   "admin.nav.connectors": "Коннекторы",
   "admin.nav.sectionsLabel": "Разделы",
+  "admin.nav.toggle": "Меню навигации",
   "admin.nav.soon": "скоро",
   "admin.nav.groupSchedule": "Расписание",
   "admin.nav.groupCourts": "Корты",
