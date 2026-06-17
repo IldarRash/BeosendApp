@@ -2,7 +2,11 @@ import { BadRequestException, ForbiddenException } from "@nestjs/common";
 import type { Env } from "@beosand/config";
 import type { TrainingStatus } from "@beosand/types";
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import type { InlineKeyboardMarkup, TelegramSender } from "../notifications/telegram-sender";
+import type {
+  InlineCallbackButton,
+  InlineKeyboardMarkup,
+  TelegramSender
+} from "../notifications/telegram-sender";
 import type { BroadcastSlotRow, BroadcastsRepository } from "./broadcasts.repository";
 import { BroadcastsController } from "./broadcasts.controller";
 import { BroadcastsService } from "./broadcasts.service";
@@ -199,7 +203,9 @@ describe("BroadcastsController", () => {
       await controller.send(String(ADMIN_ID), { type: "today" });
 
       const markup = sender.sendMessage.mock.calls[0][2] as InlineKeyboardMarkup;
-      const callbacks = markup.inline_keyboard.flat().map((b) => b.callback_data);
+      const callbacks = markup.inline_keyboard
+        .flat()
+        .map((b) => (b as InlineCallbackButton).callback_data);
       expect(callbacks).toEqual(["book:slot:aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa"]);
     });
   });

@@ -116,25 +116,6 @@ export function languageKeyboard(): InlineKeyboard {
   return keyboard;
 }
 
-/**
- * Admin-only entry to the court moderation queue (C4), appended below the main
- * menu for admins. The keyboard is rendered only when the caller is an admin
- * (decided in the bot via config), and every action is re-gated by the API.
- */
-export const ADMIN_ACTIONS = {
-  courtModeration: "court_mod:queue",
-  /** C6 — read-only per-day court load grid (admin). */
-  courtLoad: "court_load:open"
-} as const;
-
-export function adminMenuKeyboard(catalog: Catalog, miniappUrl?: string): InlineKeyboard {
-  return mainMenuKeyboard(catalog, miniappUrl)
-    .row()
-    .text(t(catalog, "bot.menu.adminCourtModeration"), ADMIN_ACTIONS.courtModeration)
-    .row()
-    .text(t(catalog, "bot.menu.adminCourtLoad"), ADMIN_ACTIONS.courtLoad);
-}
-
 /** Welcome / home-screen body text. */
 export function welcomeText(catalog: Catalog): string {
   return t(catalog, "bot.menu.welcomeFull");

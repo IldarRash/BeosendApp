@@ -127,6 +127,42 @@ describe("Groups", () => {
     expect(cells.getByText("12 000 RSD")).toBeTruthy();
   });
 
+  it("orders rows by first weekday then start time, regardless of input order", () => {
+    // Out-of-order input: later weekday first, and a same-weekday pair where the
+    // earlier start time is supplied second.
+    const friday: Group = { ...GROUP, id: "a1", name: "Пятница", daysOfWeek: [5], startTime: "10:00" };
+    const tuesdayLate: Group = {
+      ...GROUP,
+      id: "a2",
+      name: "Вторник поздно",
+      daysOfWeek: [2, 4],
+      startTime: "19:00"
+    };
+    const tuesdayEarly: Group = {
+      ...GROUP,
+      id: "a3",
+      name: "Вторник рано",
+      daysOfWeek: [2],
+      startTime: "07:30"
+    };
+    const monday: Group = { ...GROUP, id: "a4", name: "Понедельник", daysOfWeek: [3, 1], startTime: "08:00" };
+    useGroups.mockReturnValue(
+      query<Group[]>({ data: [friday, tuesdayLate, tuesdayEarly, monday] })
+    );
+
+    renderPage();
+
+    const table = screen.getByRole("table", { name: "Группы тренировок" });
+    const bodyRows = within(table).getAllByRole("row").slice(1);
+    const names = bodyRows.map((row) => within(row).getAllByRole("cell")[0].textContent);
+    expect(names).toEqual([
+      "Понедельник", // min day 1
+      "Вторник рано", // min day 2, 07:30
+      "Вторник поздно", // min day 2, 19:00
+      "Пятница" // min day 5
+    ]);
+  });
+
   it("shows the loading state while groups are fetching", () => {
     useGroups.mockReturnValue(query<Group[]>({ isLoading: true }));
     renderPage();

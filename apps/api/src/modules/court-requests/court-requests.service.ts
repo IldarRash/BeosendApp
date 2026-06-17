@@ -48,6 +48,7 @@ import {
 import { ENV } from "../../config/config.module";
 import { ChannelDispatcher } from "../connectors/channels/channel-dispatcher.service";
 import { DomainEventsService } from "../connectors/domain-events.service";
+import { NotificationsService } from "../notifications/notifications.service";
 import {
   CourtRequestsRepository,
   type CourtOccupancyRow,
@@ -72,7 +73,8 @@ export class CourtRequestsService {
     private readonly repository: CourtRequestsRepository,
     @Inject(ENV) private readonly env: Env,
     private readonly dispatcher: ChannelDispatcher,
-    private readonly domainEvents: DomainEventsService
+    private readonly domainEvents: DomainEventsService,
+    private readonly notifications: NotificationsService
   ) {}
 
   /** Offerable 30-min slot starts for a date, with free-court counts per slot. */
@@ -166,6 +168,7 @@ export class CourtRequestsService {
         courtCount: 1,
         priceRsd: courtPriceRsd(input.durationHours, 1)
       });
+      await this.notifyAdminsOfNewRequest(row);
       return this.toEntity(row);
     }
 
@@ -202,7 +205,40 @@ export class CourtRequestsService {
       });
     });
 
+    await this.notifyAdminsOfNewRequest(row);
     return this.toEntity(row);
+  }
+
+  /**
+   * Post-commit: DM every admin (ADMIN_TELEGRAM_IDS) the new request's details so a
+   * manager can moderate it. Best-effort and self-tolerant — looks up the client name
+   * via the same join the moderation reads use, and any failure (vanished row,
+   * unreachable Telegram) is logged and swallowed so a committed create is never undone.
+   */
+  private async notifyAdminsOfNewRequest(request: CourtRequestRow): Promise<void> {
+    try {
+      const withClient = await this.repository.findWithClientById(request.id);
+      if (!withClient) {
+        this.logger.warn(`New request ${request.id} vanished before admin notify`);
+        return;
+      }
+      const duration = parseDuration(withClient.durationHours);
+      await this.notifications.sendCourtRequestCreatedToAdmins({
+        clientName: withClient.clientName,
+        clientTelegramId: withClient.clientTelegramId,
+        date: withClient.date,
+        startTime: withClient.startTime.slice(0, 5),
+        endTime: this.endTimeFor(withClient.startTime, duration),
+        durationHours: duration,
+        courtCount: withClient.courtCount,
+        priceRsd: withClient.priceRsd
+      });
+    } catch (error) {
+      this.logger.warn(
+        `Admin notify for new request ${request.id} failed: ` +
+          (error instanceof Error ? error.message : String(error))
+      );
+    }
   }
 
   /**

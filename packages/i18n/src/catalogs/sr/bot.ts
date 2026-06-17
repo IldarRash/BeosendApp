@@ -21,8 +21,6 @@ export const botSr: Record<string, string> = {
   "bot.menu.rentCourt": "🏖 Iznajmi teren",
   "bot.menu.contactManager": "ℹ️ Kontaktiraj menadžera",
   "bot.menu.language": "🌐 Jezik / Language",
-  "bot.menu.adminCourtModeration": "🛠 Zahtevi za teren (admin)",
-  "bot.menu.adminCourtLoad": "📊 Zauzetost terena (admin)",
   "bot.menu.contactManagerLine": "Kontaktiraj menadžera: {contact}",
   "bot.menu.contactManagerButton": "✉️ Pošalji poruku menadžeru",
 
