@@ -1,15 +1,16 @@
 import { Inject, Injectable, Logger } from "@nestjs/common";
 import type { Env } from "@beosand/config";
+import { adminTelegramIds } from "@beosand/config";
 import type { Client, NotificationType, Trainer } from "@beosand/types";
 import {
   bookingConfirmedMessage,
   bookingDeclinedMessage,
+  bookingPendingAdminMessage,
   bookingPendingMessage,
-  bookingPendingTrainerMessage,
   groupBookingConfirmedMessage,
   groupBookingDeclinedMessage,
-  groupPendingTrainerMessage,
-  individualSessionRequestMessage,
+  groupPendingAdminMessage,
+  individualRequestAdminMessage,
   reminderMessage,
   reminderWindow,
   trainingCancelledMessage,
@@ -21,7 +22,7 @@ import {
   type NotificationRecipient,
   NotificationsRepository
 } from "./notifications.repository";
-import { type InlineKeyboardMarkup, TelegramSender } from "./telegram-sender";
+import { type InlineButton, type InlineKeyboardMarkup, TelegramSender } from "./telegram-sender";
 import { ENV } from "../../config/config.module";
 
 /**
@@ -36,9 +37,10 @@ import { ENV } from "../../config/config.module";
  * never undone because Telegram was unreachable.
  *
  * Client-facing sends fan out through the connectors ChannelDispatcher (Slice 0:
- * TelegramChannel only, so behavior is identical). The trainer-DM/keyboard sends
- * stay on TelegramSender directly — they carry an inline keyboard and target a
- * trainer, not a client the dispatcher fans out to.
+ * TelegramChannel only, so behavior is identical). The admin-DM/keyboard sends
+ * (pending booking/subscription, new court request, individual-session request)
+ * stay on TelegramSender directly — they carry an inline keyboard and target the
+ * admins, not a client the dispatcher fans out to.
  */
 @Injectable()
 export class NotificationsService {
@@ -170,73 +172,107 @@ export class NotificationsService {
   }
 
   /**
-   * DM the training's trainer that a single booking request awaits their decision
-   * (T trainer-confirm). Notification-only: no send-log row (modeled on
-   * requestIndividualSession). Carries an inline confirm/decline keyboard whose
-   * callback data the bot routes on. The caller resolves the trainer telegram id
-   * (skips entirely when the trainer has none — that path auto-confirms instead).
-   * Returns whether the DM was sent; a failure is logged and swallowed.
+   * One inline row deep-linking `path` of the admin console, labelled `label`, or
+   * `[]` when ADMIN_URL is unset (graceful degradation — the DM still sends, just
+   * without the button). The single place admin-console links are built.
    */
-  async sendBookingPendingToTrainer(
-    trainerTelegramId: number,
+  private adminDeepLinkRow(path: string, label: string): InlineButton[][] {
+    if (!this.env.ADMIN_URL) {
+      return [];
+    }
+    return [[{ text: label, url: `${this.env.ADMIN_URL}${path}` }]];
+  }
+
+  /**
+   * Keyboard carrying ONLY the deep-link row, or `undefined` when ADMIN_URL is
+   * unset (Telegram rejects an empty inline_keyboard, so the send omits markup).
+   */
+  private adminDeepLinkMarkup(path: string, label: string): InlineKeyboardMarkup | undefined {
+    const rows = this.adminDeepLinkRow(path, label);
+    return rows.length > 0 ? { inline_keyboard: rows } : undefined;
+  }
+
+  /** Append the admin-console deep-link row beneath an action (confirm/decline) keyboard. */
+  private withAdminDeepLink(
+    keyboard: InlineKeyboardMarkup,
+    path: string,
+    label: string
+  ): InlineKeyboardMarkup {
+    return { inline_keyboard: [...keyboard.inline_keyboard, ...this.adminDeepLinkRow(path, label)] };
+  }
+
+  /**
+   * DM every admin that a single booking request awaits a decision (T
+   * admin-confirm). Notification-only: no send-log row. Carries the caller's
+   * confirm/decline keyboard (whose callback data the bot routes on) plus a
+   * deep-link button into the trainings page. Best-effort per recipient; a
+   * blocked/failed DM is logged and skipped, the committed booking stands.
+   */
+  async sendBookingPendingToAdmins(
+    adminIds: number[],
     clientId: string,
     trainingId: string,
     clientName: string,
-    replyMarkup: InlineKeyboardMarkup
-  ): Promise<boolean> {
+    actionKeyboard: InlineKeyboardMarkup
+  ): Promise<void> {
+    if (adminIds.length === 0) {
+      return;
+    }
     const recipient = await this.repo.findWaitlistRecipient(clientId, trainingId);
     if (!recipient) {
-      this.logger.warn(`No training ${trainingId} render fields; skipping trainer pending DM`);
-      return false;
+      this.logger.warn(`No training ${trainingId} render fields; skipping admin pending DM`);
+      return;
     }
-    try {
-      await this.sender.sendMessage(
-        trainerTelegramId,
-        bookingPendingTrainerMessage(recipient, clientName),
-        replyMarkup
-      );
-      return true;
-    } catch (error) {
-      this.logger.error(
-        `Trainer pending DM (training ${trainingId}) failed: ` +
-          (error instanceof Error ? error.message : String(error))
-      );
-      return false;
+    const text = bookingPendingAdminMessage(recipient, clientName);
+    const replyMarkup = this.withAdminDeepLink(actionKeyboard, "/trainings", "Открыть в админке");
+    for (const adminId of adminIds) {
+      try {
+        await this.sender.sendMessage(adminId, text, replyMarkup);
+      } catch (error) {
+        this.logger.warn(
+          `Booking-pending DM (training ${trainingId}) to admin ${adminId} failed: ` +
+            (error instanceof Error ? error.message : String(error))
+        );
+      }
     }
   }
 
   /**
-   * DM the trainer ONE summary of a monthly-subscription batch of pending requests
-   * with a single confirm/decline keyboard (keyed on the groupSubscriptionId).
-   * Notification-only: no send-log row. The caller resolves the trainer telegram id
-   * (skips when the trainer has none — that path auto-confirms). Returns whether the
-   * DM was sent; a failure is logged and swallowed.
+   * DM every admin ONE summary of a monthly-subscription batch of pending requests
+   * with a single confirm/decline keyboard (keyed on the groupSubscriptionId) plus
+   * a deep-link button into the subscriptions page. Notification-only: no send-log
+   * row. Best-effort per recipient; a failed DM is logged and skipped.
    */
-  async sendGroupPendingToTrainer(
-    trainerTelegramId: number,
+  async sendGroupPendingToAdmins(
+    adminIds: number[],
     clientId: string,
     trainingIds: string[],
     clientName: string,
-    replyMarkup: InlineKeyboardMarkup
-  ): Promise<boolean> {
+    actionKeyboard: InlineKeyboardMarkup
+  ): Promise<void> {
+    if (adminIds.length === 0) {
+      return;
+    }
     const recipients = await this.repo.findClientTrainingRenderFields(clientId, trainingIds);
     if (recipients.length === 0) {
-      this.logger.warn(`No render fields for subscription batch; skipping trainer pending DM`);
-      return false;
+      this.logger.warn(`No render fields for subscription batch; skipping admin pending DM`);
+      return;
     }
-    try {
-      await this.sender.sendMessage(
-        trainerTelegramId,
-        groupPendingTrainerMessage(recipients, clientName),
-        replyMarkup
-      );
-      return true;
-    } catch (error) {
-      this.logger.error(
-        `Trainer group-pending DM failed: ` +
-          (error instanceof Error ? error.message : String(error))
-      );
-      return false;
+    const text = groupPendingAdminMessage(recipients, clientName);
+    const replyMarkup = this.withAdminDeepLink(
+      actionKeyboard,
+      "/subscriptions",
+      "Открыть в админке"
+    );
+    for (const adminId of adminIds) {
+      try {
+        await this.sender.sendMessage(adminId, text, replyMarkup);
+      } catch (error) {
+        this.logger.warn(
+          `Subscription-pending DM to admin ${adminId} failed: ` +
+            (error instanceof Error ? error.message : String(error))
+        );
+      }
     }
   }
 
@@ -341,30 +377,38 @@ export class NotificationsService {
   }
 
   /**
-   * Ad-hoc trainer DM (Feature 8): a client wants an individual session — DM the
-   * trainer a "please contact the client" message carrying a clickable link to
-   * the client (username link or an id-based mention for username-less clients).
-   * Notification-only: no send-log row (there is no training to key it on). The
-   * caller guarantees a non-null trainer telegram id. Returns whether the send
-   * succeeded; a failure is logged (never the token) and swallowed.
+   * Ad-hoc admin DM (Feature 8): a client wants an individual session with a
+   * trainer — DM every admin a "please contact the client" message naming the
+   * requested trainer and carrying a clickable link to the client (username link
+   * or an id-based mention for username-less clients) plus a deep-link button into
+   * the trainings page. Notification-only: no send-log row (there is no training to
+   * key it on). Returns whether at least one admin received it; per-recipient
+   * failures are logged (never the token) and swallowed.
    */
-  async requestIndividualSession(
-    trainer: Trainer & { telegramId: number },
+  async notifyAdminsOfIndividualRequest(
+    adminIds: number[],
+    trainer: Trainer,
     client: Client
   ): Promise<boolean> {
-    try {
-      await this.sender.sendMessage(trainer.telegramId, individualSessionRequestMessage(client));
-      this.logger.log(
-        `Individual-session request from client ${client.id} delivered to trainer ${trainer.id}`
-      );
-      return true;
-    } catch (error) {
-      this.logger.error(
-        `Individual-session request from client ${client.id} to trainer ${trainer.id} failed: ` +
-          (error instanceof Error ? error.message : String(error))
-      );
+    if (adminIds.length === 0) {
       return false;
     }
+    const text = individualRequestAdminMessage(client, trainer);
+    const replyMarkup = this.adminDeepLinkMarkup("/trainings", "Открыть в админке");
+    let delivered = false;
+    for (const adminId of adminIds) {
+      try {
+        await this.sender.sendMessage(adminId, text, replyMarkup);
+        delivered = true;
+      } catch (error) {
+        this.logger.warn(
+          `Individual-session request (client ${client.id}, trainer ${trainer.id}) to admin ` +
+            `${adminId} failed: ` +
+            (error instanceof Error ? error.message : String(error))
+        );
+      }
+    }
+    return delivered;
   }
 
   /**
@@ -387,7 +431,7 @@ export class NotificationsService {
     courtCount: number;
     priceRsd: number;
   }): Promise<void> {
-    const adminIds = this.env.ADMIN_TELEGRAM_IDS;
+    const adminIds = adminTelegramIds(this.env);
     if (adminIds.length === 0) {
       return;
     }
@@ -398,18 +442,11 @@ export class NotificationsService {
       `${input.date}, ${input.startTime}–${input.endTime} (${input.durationHours} ч)\n` +
       `Кортов: ${input.courtCount} · ${input.priceRsd} RSD`;
 
-    const replyMarkup: InlineKeyboardMarkup | undefined = this.env.ADMIN_URL
-      ? {
-          inline_keyboard: [
-            [{ text: "Открыть заявку", url: `${this.env.ADMIN_URL}/court-requests` }]
-          ]
-        }
-      : undefined;
+    const replyMarkup = this.adminDeepLinkMarkup("/court-requests", "Открыть заявку");
 
     for (const adminId of adminIds) {
-      const numericId = Number(adminId);
       try {
-        await this.sender.sendMessage(numericId, text, replyMarkup);
+        await this.sender.sendMessage(adminId, text, replyMarkup);
       } catch (error) {
         this.logger.warn(
           `New-court-request DM to admin ${adminId} failed: ` +

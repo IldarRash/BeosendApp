@@ -295,13 +295,13 @@ describe("NotificationsService", () => {
     });
   });
 
-  describe("requestIndividualSession (Feature 8)", () => {
+  describe("notifyAdminsOfIndividualRequest (Feature 8 — admin-routed)", () => {
     const trainer = {
       id: "trainer-1",
       name: "Jovana",
       type: "main" as const,
       status: "active" as const,
-      telegramId: 555 as number,
+      telegramId: 555 as number | null,
       telegramUsername: null
     };
     const client: Client = {
@@ -319,29 +319,38 @@ describe("NotificationsService", () => {
       status: "active"
     };
 
-    it("DMs the TRAINER's telegram id (not the client's) and writes no send-log row", async () => {
-      const ok = await service.requestIndividualSession(trainer, client);
+    it("DMs every admin (never the client) and writes no send-log row", async () => {
+      const ok = await service.notifyAdminsOfIndividualRequest([111, 222], trainer, client);
 
       expect(ok).toBe(true);
-      expect(sender.sendMessage).toHaveBeenCalledTimes(1);
-      // The recipient is the trainer; the client's id (777) is only inside the
-      // link text, never the destination.
-      expect(sender.sendMessage.mock.calls[0][0]).toBe(trainer.telegramId);
-      expect(sender.sendMessage.mock.calls[0][0]).not.toBe(client.telegramId);
+      expect(sender.sendMessage).toHaveBeenCalledTimes(2);
+      expect(sender.sendMessage.mock.calls.map((c) => c[0])).toEqual([111, 222]);
+      // The client's id (777) is only inside the link text, never the destination.
+      expect(sender.sendMessage.mock.calls.map((c) => c[0])).not.toContain(client.telegramId);
       // Notification-only: there is no training to key a log row on.
       expect(repo.logSent).not.toHaveBeenCalled();
     });
 
-    it("composes a clickable link to the client in the DM text", async () => {
-      await service.requestIndividualSession(trainer, client);
-      expect(sender.sendMessage.mock.calls[0][1]).toContain("https://t.me/ivan");
+    it("composes a clickable client link and names the requested trainer", async () => {
+      await service.notifyAdminsOfIndividualRequest([111], trainer, client);
+      const text = sender.sendMessage.mock.calls[0][1] as string;
+      expect(text).toContain("https://t.me/ivan");
+      expect(text).toContain("Jovana");
     });
 
-    it("returns false (no throw, no log) when the send fails", async () => {
-      sender.sendMessage.mockRejectedValueOnce(new Error("Telegram unreachable"));
+    it("returns false and DMs no one when there are no admins", async () => {
+      await expect(service.notifyAdminsOfIndividualRequest([], trainer, client)).resolves.toBe(
+        false
+      );
+      expect(sender.sendMessage).not.toHaveBeenCalled();
+    });
 
-      await expect(service.requestIndividualSession(trainer, client)).resolves.toBe(false);
-      expect(repo.logSent).not.toHaveBeenCalled();
+    it("tolerates a per-admin failure and still reports delivered for the rest", async () => {
+      sender.sendMessage.mockRejectedValueOnce(new Error("blocked"));
+      await expect(
+        service.notifyAdminsOfIndividualRequest([111, 222], trainer, client)
+      ).resolves.toBe(true);
+      expect(sender.sendMessage).toHaveBeenCalledTimes(2);
     });
   });
 });
@@ -417,5 +426,81 @@ describe("NotificationsService.sendCourtRequestCreatedToAdmins", () => {
 
     await expect(service.sendCourtRequestCreatedToAdmins(detail)).resolves.toBeUndefined();
     expect(sender.sendMessage).toHaveBeenCalledTimes(2);
+  });
+});
+
+describe("NotificationsService admin pending DMs (confirm/decline + deep-link)", () => {
+  const confirmKeyboard = {
+    inline_keyboard: [
+      [
+        { text: "✅ Подтвердить", callback_data: "confirm:bk:b1" },
+        { text: "❌ Отклонить", callback_data: "decline:bk:b1" }
+      ]
+    ]
+  };
+
+  function makeService(env: { ADMIN_TELEGRAM_IDS: string[]; ADMIN_URL?: string }): {
+    service: NotificationsService;
+    sender: { sendMessage: ReturnType<typeof vi.fn> };
+  } {
+    const sender = { sendMessage: vi.fn().mockResolvedValue(undefined) };
+    const repo = {
+      findWaitlistRecipient: vi.fn().mockResolvedValue(recipient()),
+      findClientTrainingRenderFields: vi.fn().mockResolvedValue([recipient(), recipient()])
+    };
+    const service = new NotificationsService(
+      repo as never,
+      sender as never,
+      { findOverride: vi.fn().mockResolvedValue(undefined) } as never,
+      { dispatch: vi.fn() } as never,
+      env as never
+    );
+    return { service, sender };
+  }
+
+  it("DMs every admin the confirm/decline keyboard with a /trainings deep-link row when ADMIN_URL is set", async () => {
+    const { service, sender } = makeService({
+      ADMIN_TELEGRAM_IDS: [],
+      ADMIN_URL: "https://admin.beosand.example"
+    });
+
+    await service.sendBookingPendingToAdmins([111, 222], "client-1", "training-1", "Ivan", confirmKeyboard);
+
+    expect(sender.sendMessage.mock.calls.map((c) => c[0])).toEqual([111, 222]);
+    const markup = sender.sendMessage.mock.calls[0][2];
+    expect(markup.inline_keyboard).toEqual([
+      confirmKeyboard.inline_keyboard[0],
+      [{ text: "Открыть в админке", url: "https://admin.beosand.example/trainings" }]
+    ]);
+  });
+
+  it("omits the deep-link row (confirm/decline only) when ADMIN_URL is unset", async () => {
+    const { service, sender } = makeService({ ADMIN_TELEGRAM_IDS: [] });
+
+    await service.sendBookingPendingToAdmins([111], "client-1", "training-1", "Ivan", confirmKeyboard);
+
+    expect(sender.sendMessage.mock.calls[0][2].inline_keyboard).toEqual(
+      confirmKeyboard.inline_keyboard
+    );
+  });
+
+  it("is a no-op when there are no admins", async () => {
+    const { service, sender } = makeService({ ADMIN_TELEGRAM_IDS: [] });
+    await service.sendBookingPendingToAdmins([], "client-1", "training-1", "Ivan", confirmKeyboard);
+    expect(sender.sendMessage).not.toHaveBeenCalled();
+  });
+
+  it("subscription-batch DM deep-links to /subscriptions", async () => {
+    const { service, sender } = makeService({
+      ADMIN_TELEGRAM_IDS: [],
+      ADMIN_URL: "https://admin.beosand.example"
+    });
+
+    await service.sendGroupPendingToAdmins([111], "client-1", ["t1", "t2"], "Ivan", confirmKeyboard);
+
+    const markup = sender.sendMessage.mock.calls[0][2];
+    expect(markup.inline_keyboard.at(-1)).toEqual([
+      { text: "Открыть в админке", url: "https://admin.beosand.example/subscriptions" }
+    ]);
   });
 });

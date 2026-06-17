@@ -33,7 +33,7 @@ function makeNotifications(
   overrides: Partial<NotificationsService> = {}
 ): NotificationsService {
   return {
-    requestIndividualSession: vi.fn(async () => true),
+    notifyAdminsOfIndividualRequest: vi.fn(async () => true),
     ...overrides
   } as unknown as NotificationsService;
 }
@@ -161,16 +161,14 @@ describe("TrainersService", () => {
     expect(repo.update).not.toHaveBeenCalled();
   });
 
-  describe("requestIndividual (Feature 8)", () => {
-    const reachableTrainer: Trainer = { ...milena, telegramId: 555 };
-
+  describe("requestIndividual (Feature 8 — admin-routed)", () => {
     it("404s when the requesting client is not onboarded (no send)", async () => {
       clients = makeClients({ findByTelegramId: vi.fn(async () => undefined) });
       service = new TrainersService(repo, clients, notifications, env);
       await expect(service.requestIndividual(milena.id, 777)).rejects.toBeInstanceOf(
         NotFoundException
       );
-      expect(notifications.requestIndividualSession).not.toHaveBeenCalled();
+      expect(notifications.notifyAdminsOfIndividualRequest).not.toHaveBeenCalled();
     });
 
     it("404s when the trainer is unknown or inactive (no send)", async () => {
@@ -179,37 +177,27 @@ describe("TrainersService", () => {
       await expect(service.requestIndividual(milena.id, 777)).rejects.toBeInstanceOf(
         NotFoundException
       );
-      expect(notifications.requestIndividualSession).not.toHaveBeenCalled();
+      expect(notifications.notifyAdminsOfIndividualRequest).not.toHaveBeenCalled();
     });
 
-    it("returns trainer-unavailable (no send) when the trainer has no telegram id", async () => {
-      // milena.telegramId === null
+    it("DMs the admins (the trainer's own telegram id is irrelevant) and returns delivered:true", async () => {
+      // milena.telegramId === null — recipient is the admin, not the trainer.
       await expect(service.requestIndividual(milena.id, 777)).resolves.toEqual({
-        delivered: false,
-        reason: "trainer-unavailable"
-      });
-      expect(notifications.requestIndividualSession).not.toHaveBeenCalled();
-    });
-
-    it("delivers to a reachable trainer and returns delivered:true", async () => {
-      repo = makeRepo({ findById: vi.fn(async () => reachableTrainer) });
-      service = new TrainersService(repo, clients, notifications, env);
-      await expect(service.requestIndividual(reachableTrainer.id, 777)).resolves.toEqual({
         delivered: true
       });
-      expect(notifications.requestIndividualSession).toHaveBeenCalledWith(
-        expect.objectContaining({ id: reachableTrainer.id, telegramId: 555 }),
+      expect(notifications.notifyAdminsOfIndividualRequest).toHaveBeenCalledWith(
+        [ADMIN_ID],
+        expect.objectContaining({ id: milena.id }),
         client
       );
     });
 
-    it("returns trainer-unavailable when the send fails", async () => {
-      repo = makeRepo({ findById: vi.fn(async () => reachableTrainer) });
+    it("returns trainer-unavailable when no admin received it (delivery failed)", async () => {
       notifications = makeNotifications({
-        requestIndividualSession: vi.fn(async () => false)
+        notifyAdminsOfIndividualRequest: vi.fn(async () => false)
       });
       service = new TrainersService(repo, clients, notifications, env);
-      await expect(service.requestIndividual(reachableTrainer.id, 777)).resolves.toEqual({
+      await expect(service.requestIndividual(milena.id, 777)).resolves.toEqual({
         delivered: false,
         reason: "trainer-unavailable"
       });

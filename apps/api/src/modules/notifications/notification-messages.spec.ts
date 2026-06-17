@@ -1,4 +1,4 @@
-import type { Client } from "@beosand/types";
+import type { Client, Trainer } from "@beosand/types";
 import { describe, expect, it } from "vitest";
 import type { NotificationRecipient } from "./notifications.repository";
 import {
@@ -6,7 +6,7 @@ import {
   bookingConfirmedMessage,
   bookingDeclinedMessage,
   bookingPendingMessage,
-  individualSessionRequestMessage,
+  individualRequestAdminMessage,
   reminderMessage,
   renderNotificationTemplate,
   reminderWindow,
@@ -48,31 +48,44 @@ function makeClient(overrides: Partial<Client> = {}): Client {
   };
 }
 
-describe("individualSessionRequestMessage", () => {
-  it("links to t.me/<username> when the client has a username", () => {
-    const text = individualSessionRequestMessage(makeClient({ telegramUsername: "ivan" }));
+describe("individualRequestAdminMessage", () => {
+  const trainer: Trainer = {
+    id: "tttttttt-tttt-tttt-tttt-tttttttttttt",
+    name: "Jovana",
+    type: "main",
+    status: "active",
+    telegramId: null,
+    telegramUsername: null
+  };
+
+  it("links to t.me/<username> when the client has a username and names the trainer", () => {
+    const text = individualRequestAdminMessage(makeClient({ telegramUsername: "ivan" }), trainer);
     expect(text).toContain("https://t.me/ivan");
     expect(text).not.toContain("tg://user");
+    expect(text).toContain("Jovana");
   });
 
   it("uses an id-based HTML mention when the client has no username", () => {
-    const text = individualSessionRequestMessage(
-      makeClient({ telegramUsername: null, telegramId: 777, name: "Ivan" })
+    const text = individualRequestAdminMessage(
+      makeClient({ telegramUsername: null, telegramId: 777, name: "Ivan" }),
+      trainer
     );
     expect(text).toContain('<a href="tg://user?id=777">Ivan</a>');
   });
 
   it("HTML-escapes the client name in the mention branch", () => {
-    const text = individualSessionRequestMessage(
-      makeClient({ telegramUsername: null, telegramId: 777, name: "A<b>&c" })
+    const text = individualRequestAdminMessage(
+      makeClient({ telegramUsername: null, telegramId: 777, name: "A<b>&c" }),
+      trainer
     );
     expect(text).toContain('<a href="tg://user?id=777">A&lt;b&gt;&amp;c</a>');
     expect(text).not.toContain("A<b>&c");
   });
 
   it("falls back to a plain escaped name for a walk-in (no username, no telegram id)", () => {
-    const text = individualSessionRequestMessage(
-      makeClient({ telegramUsername: null, telegramId: null, name: "Ana" })
+    const text = individualRequestAdminMessage(
+      makeClient({ telegramUsername: null, telegramId: null, name: "Ana" }),
+      trainer
     );
     expect(text).not.toContain("tg://user");
     expect(text).not.toContain("https://t.me");

@@ -67,7 +67,7 @@ function makeClients(overrides: Partial<ClientsRepository> = {}): ClientsReposit
 
 function makeNotifications(): NotificationsService {
   return {
-    requestIndividualSession: vi.fn(async () => true)
+    notifyAdminsOfIndividualRequest: vi.fn(async () => true)
   } as unknown as NotificationsService;
 }
 
@@ -152,7 +152,7 @@ describe("TrainersController", () => {
       expect(() => controller.requestIndividual(String(777), TRAINER_ID, { telegramId: 888 })).toThrow(
         ForbiddenException
       );
-      expect(notifications.requestIndividualSession).not.toHaveBeenCalled();
+      expect(notifications.notifyAdminsOfIndividualRequest).not.toHaveBeenCalled();
     });
 
     it("rejects a missing/invalid header before any work", () => {
@@ -186,7 +186,7 @@ describe("TrainersController", () => {
       await expect(
         controller.requestIndividual(String(777), TRAINER_ID, { telegramId: 777 })
       ).resolves.toEqual({ delivered: true });
-      expect(notifications.requestIndividualSession).toHaveBeenCalledOnce();
+      expect(notifications.notifyAdminsOfIndividualRequest).toHaveBeenCalledOnce();
     });
 
     it("resolves the actor from x-client-telegram-id when no x-telegram-id is sent (Mini App)", async () => {
@@ -199,7 +199,7 @@ describe("TrainersController", () => {
       await expect(
         controller.requestIndividual(undefined, TRAINER_ID, { telegramId: 777 }, String(777))
       ).resolves.toEqual({ delivered: true });
-      expect(notifications.requestIndividualSession).toHaveBeenCalledOnce();
+      expect(notifications.notifyAdminsOfIndividualRequest).toHaveBeenCalledOnce();
     });
 
     it("prefers x-client-telegram-id over x-telegram-id for the actor", async () => {
@@ -213,14 +213,14 @@ describe("TrainersController", () => {
       await expect(
         controller.requestIndividual(String(888), TRAINER_ID, { telegramId: 777 }, String(777))
       ).resolves.toEqual({ delivered: true });
-      expect(notifications.requestIndividualSession).toHaveBeenCalledOnce();
+      expect(notifications.notifyAdminsOfIndividualRequest).toHaveBeenCalledOnce();
     });
 
     it("rejects a foreign body id against the client-header actor with ForbiddenException and no send", () => {
       expect(() =>
         controller.requestIndividual(undefined, TRAINER_ID, { telegramId: 888 }, String(777))
       ).toThrow(ForbiddenException);
-      expect(notifications.requestIndividualSession).not.toHaveBeenCalled();
+      expect(notifications.notifyAdminsOfIndividualRequest).not.toHaveBeenCalled();
     });
 
     // The two-header split is load-bearing: the requester the service looks up must

@@ -1,6 +1,6 @@
-import { ForbiddenException, Inject, Injectable, Logger, NotFoundException } from "@nestjs/common";
+import { ForbiddenException, Inject, Injectable, NotFoundException } from "@nestjs/common";
 import type { Env } from "@beosand/config";
-import { isAdmin } from "@beosand/config";
+import { adminTelegramIds, isAdmin } from "@beosand/config";
 import type {
   CreateTrainerInput,
   IndividualRequestResult,
@@ -21,8 +21,6 @@ import { TrainersRepository } from "./trainers.repository";
  */
 @Injectable()
 export class TrainersService {
-  private readonly logger = new Logger(TrainersService.name);
-
   constructor(
     private readonly trainers: TrainersRepository,
     private readonly clients: ClientsRepository,
@@ -38,8 +36,8 @@ export class TrainersService {
   /**
    * Client-facing, self-only (Feature 8): an onboarded client requests an
    * individual session with a trainer. Resolves the requesting client and the
-   * target trainer, then DMs the trainer a "contact the client" message. A
-   * trainer with no Telegram channel (or a failed send) yields a soft
+   * target trainer, then DMs the admins a "contact the client" message naming the
+   * requested trainer. No reachable admin (or a failed send) yields a soft
    * `trainer-unavailable` result rather than an error so the bot can offer
    * another trainer. Notification-only: no persisted booking. The header/body
    * telegram-id equality (self-only authz) is enforced in the controller.
@@ -56,14 +54,9 @@ export class TrainersService {
     if (!trainer || trainer.status !== "active") {
       throw new NotFoundException(`Trainer ${trainerId} not found`);
     }
-    if (trainer.telegramId === null) {
-      this.logger.log(
-        `Trainer ${trainerId} has no telegram_id; individual request from client ${client.id} not delivered`
-      );
-      return { delivered: false, reason: "trainer-unavailable" };
-    }
-    const delivered = await this.notifications.requestIndividualSession(
-      { ...trainer, telegramId: trainer.telegramId },
+    const delivered = await this.notifications.notifyAdminsOfIndividualRequest(
+      adminTelegramIds(this.env),
+      trainer,
       client
     );
     return delivered ? { delivered: true } : { delivered: false, reason: "trainer-unavailable" };

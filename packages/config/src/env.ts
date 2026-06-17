@@ -172,3 +172,15 @@ export function isAdmin(env: Pick<Env, "ADMIN_TELEGRAM_IDS">, telegramId: number
   const id = String(telegramId);
   return env.ADMIN_TELEGRAM_IDS.includes(id) || dbAdminIds.has(id);
 }
+
+/**
+ * The numeric Telegram ids of every admin — the de-duped UNION of the static env
+ * ids and the DB-backed managers. This is the single recipient source for the
+ * operational admin DMs (new court request, pending booking/subscription,
+ * individual-session request): a list, where `isAdmin` is the membership test.
+ * Returns numbers (Telegram chat ids); a non-numeric id is dropped defensively.
+ */
+export function adminTelegramIds(env: Pick<Env, "ADMIN_TELEGRAM_IDS">): number[] {
+  const ids = new Set<string>([...env.ADMIN_TELEGRAM_IDS, ...dbAdminIds]);
+  return [...ids].map((id) => Number(id)).filter((id) => Number.isFinite(id));
+}

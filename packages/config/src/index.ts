@@ -1,2 +1,2 @@
-export { loadEnv, isAdmin, setDbAdminIds } from "./env";
+export { loadEnv, isAdmin, adminTelegramIds, setDbAdminIds } from "./env";
 export type { Env } from "./env";

@@ -9,7 +9,7 @@ import {
   NotFoundException
 } from "@nestjs/common";
 import type { Env } from "@beosand/config";
-import { isAdmin } from "@beosand/config";
+import { adminTelegramIds, isAdmin } from "@beosand/config";
 import type {
   Booking,
   GroupBookingResult,
@@ -85,21 +85,19 @@ export class BookingsService {
   async createSingle(actorTelegramId: number, input: CreateSingleInput): Promise<Booking> {
     await this.assertOwnsClient(actorTelegramId, input.clientId);
 
-    // The training's trainer (resolved inside the tx) decides confirmation flow:
-    // a trainer with a Telegram id gets a confirm/decline DM (booking starts
-    // 'pending'); a trainer with NO telegram id can never confirm, so we
-    // auto-confirm ('booked') to avoid a request that hangs forever.
-    let trainerTelegramId: number | null = null;
+    // The admins decide confirmation flow: with at least one admin reachable the
+    // request starts 'pending' (the admins get a confirm/decline DM); with NO admin
+    // configured nobody can confirm, so we auto-confirm ('booked') to avoid a
+    // request that hangs forever. Admin availability does not depend on the
+    // training, so it is resolved up front.
+    const adminIds = adminTelegramIds(this.env);
+    const status: "booked" | "pending" = adminIds.length > 0 ? "pending" : "booked";
 
     const booking = await this.bookings.transaction(async (tx) => {
       const training = await this.bookings.findTrainingForUpdate(tx, input.trainingId);
       if (!training) {
         throw new NotFoundException(`Training ${input.trainingId} not found`);
       }
-      const trainer = await this.trainers.findById(training.trainerId);
-      trainerTelegramId = trainer?.telegramId ?? null;
-      // Auto-confirm when the trainer has no Telegram channel; else hold as pending.
-      const status: "booked" | "pending" = trainerTelegramId === null ? "booked" : "pending";
       return this.bookSeat(tx, {
         clientId: input.clientId,
         training,
@@ -113,12 +111,12 @@ export class BookingsService {
     // the booking or surface as an error to the caller. All sends are idempotent and
     // swallow errors; we still guard so a pre-send DB hiccup cannot 500 the booking.
     if (booking.status === "booked") {
-      // Auto-confirmed (no-trainer-telegram): the seat is final, send the confirmation.
+      // Auto-confirmed (no admin to ask): the seat is final, send the confirmation.
       await this.sendConfirmationSafely(() =>
         this.notifications.sendBookingConfirmation(input.clientId, input.trainingId)
       );
     } else {
-      await this.notifyPendingSafely(booking, trainerTelegramId);
+      await this.notifyPendingSafely(booking, adminIds);
     }
     // Connector seam: emit the typed booking.created event (no listener yet).
     await this.emitBookingCreatedSafely([
@@ -202,9 +200,9 @@ export class BookingsService {
    * recomputes open⇔full so concurrent bookings can never oversell. The only
    * booking math in the module lives here.
    *
-   * `status` is 'pending' for a client request that must wait for trainer
-   * confirmation, 'booked' for an auto-confirmed path (manual/walk-in/no-trainer-
-   * telegram). EITHER status holds a seat: bookedCount is incremented identically,
+   * `status` is 'pending' for a client request that must wait for admin
+   * confirmation, 'booked' for an auto-confirmed path (manual/walk-in/no-admin-
+   * configured). EITHER status holds a seat: bookedCount is incremented identically,
    * so recompute / free-seats / open⇔full are unchanged by the pending hold.
    */
   private async bookSeat(
@@ -296,13 +294,12 @@ export class BookingsService {
 
     const groupSubscriptionId = randomUUID();
 
-    // The group's trainer decides the batch confirmation flow (all instances share
-    // it): a trainer with a Telegram id gets ONE confirm/decline DM (rows start
-    // 'pending'); a trainer with NO telegram id can never confirm, so the batch
+    // The admins decide the batch confirmation flow (all instances share it): with
+    // at least one admin reachable the batch gets ONE confirm/decline DM (rows start
+    // 'pending'); with NO admin configured nobody can confirm, so the batch
     // auto-confirms ('booked') to avoid a request that hangs forever.
-    const trainer = await this.trainers.findById(group.trainerId);
-    const trainerTelegramId = trainer?.telegramId ?? null;
-    const batchStatus: "booked" | "pending" = trainerTelegramId === null ? "booked" : "pending";
+    const adminIds = adminTelegramIds(this.env);
+    const batchStatus: "booked" | "pending" = adminIds.length > 0 ? "pending" : "booked";
 
     const result = await this.bookings.transaction(async (tx) => {
       const { created, skipped, trainingCount } = await this.bookGroupMonth(tx, {
@@ -345,7 +342,7 @@ export class BookingsService {
           input.clientId,
           createdTrainingIds,
           groupSubscriptionId,
-          trainerTelegramId
+          adminIds
         );
       }
       // Connector seam: one booking.created per created instance of the batch.
@@ -964,26 +961,21 @@ export class BookingsService {
 
   /**
    * Post-commit pending notifications for a single client request: an
-   * acknowledgement to the client, and (only when the trainer has a Telegram id) a
-   * confirm/decline DM to the trainer. Self-tolerant: a send failure never 500s the
+   * acknowledgement to the client, and (when at least one admin is reachable) a
+   * confirm/decline DM to the admins. Self-tolerant: a send failure never 500s the
    * committed booking.
    */
-  private async notifyPendingSafely(
-    booking: Booking,
-    trainerTelegramId: number | null
-  ): Promise<void> {
+  private async notifyPendingSafely(booking: Booking, adminIds: number[]): Promise<void> {
     try {
       await this.notifications.sendBookingPending(booking.clientId, booking.trainingId);
-      if (trainerTelegramId !== null) {
-        const client = await this.clients.findById(booking.clientId);
-        await this.notifications.sendBookingPendingToTrainer(
-          trainerTelegramId,
-          booking.clientId,
-          booking.trainingId,
-          client?.name ?? "",
-          singleConfirmKeyboard(booking.id)
-        );
-      }
+      const client = await this.clients.findById(booking.clientId);
+      await this.notifications.sendBookingPendingToAdmins(
+        adminIds,
+        booking.clientId,
+        booking.trainingId,
+        client?.name ?? "",
+        singleConfirmKeyboard(booking.id)
+      );
     } catch (error) {
       this.logger.error(
         "Pending notification failed (booking stands): " +
@@ -993,30 +985,27 @@ export class BookingsService {
   }
 
   /**
-   * Post-commit pending notifications for a monthly-subscription batch: an
-   * acknowledgement is implicit in the ONE trainer DM (keyed on the subscription)
-   * plus a client batch acknowledgement; the trainer DM is sent only when the
-   * trainer has a Telegram id. Self-tolerant: failures never 500 the committed batch.
+   * Post-commit pending notifications for a monthly-subscription batch: a client
+   * batch acknowledgement plus ONE confirm/decline DM to the admins (keyed on the
+   * subscription). Self-tolerant: failures never 500 the committed batch.
    */
   private async notifyGroupPendingSafely(
     clientId: string,
     trainingIds: string[],
     groupSubscriptionId: string,
-    trainerTelegramId: number | null
+    adminIds: number[]
   ): Promise<void> {
     try {
       // Client acknowledgement keyed on the earliest created training (idempotent).
       await this.notifications.sendBookingPending(clientId, trainingIds[0]);
-      if (trainerTelegramId !== null) {
-        const client = await this.clients.findById(clientId);
-        await this.notifications.sendGroupPendingToTrainer(
-          trainerTelegramId,
-          clientId,
-          trainingIds,
-          client?.name ?? "",
-          subscriptionConfirmKeyboard(groupSubscriptionId)
-        );
-      }
+      const client = await this.clients.findById(clientId);
+      await this.notifications.sendGroupPendingToAdmins(
+        adminIds,
+        clientId,
+        trainingIds,
+        client?.name ?? "",
+        subscriptionConfirmKeyboard(groupSubscriptionId)
+      );
     } catch (error) {
       this.logger.error(
         "Group-pending notification failed (batch stands): " +

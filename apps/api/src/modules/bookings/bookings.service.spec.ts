@@ -22,10 +22,13 @@ import type { NotificationsService } from "../notifications/notifications.servic
 import type { TrainersRepository } from "../trainers/trainers.repository";
 import type { WaitlistService } from "../waitlist/waitlist.service";
 
-/** No-op notifications double: confirmation sends are fire-and-forget here. */
+/** No-op notifications double: confirmation/pending sends are fire-and-forget here. */
 const fakeNotifications = {
   sendBookingConfirmation: async (): Promise<void> => undefined,
-  sendGroupBookingConfirmation: async (): Promise<void> => undefined
+  sendGroupBookingConfirmation: async (): Promise<void> => undefined,
+  sendBookingPending: async (): Promise<void> => undefined,
+  sendBookingPendingToAdmins: async (): Promise<void> => undefined,
+  sendGroupPendingToAdmins: async (): Promise<void> => undefined
 } as unknown as NotificationsService;
 
 /** No-op waitlist double: the cancel post-commit promotion is fire-and-forget here. */
@@ -414,6 +417,9 @@ class FakeGroupsRepository {
 }
 
 const env = { ADMIN_TELEGRAM_IDS: [String(ADMIN_ID)] } as unknown as Env;
+// No admin configured: a client booking has nobody to confirm it, so it
+// auto-confirms (→ booked) and the confirmation send is what fires post-commit.
+const envNoAdmin = { ADMIN_TELEGRAM_IDS: [] as string[] } as unknown as Env;
 
 describe("BookingsService.createSingle", () => {
   let bookingsRepo: FakeBookingsRepository;
@@ -423,6 +429,9 @@ describe("BookingsService.createSingle", () => {
   beforeEach(() => {
     bookingsRepo = new FakeBookingsRepository();
     clientsRepo = new FakeClientsRepository();
+    // Admin configured (`env`) so admin-on-behalf and oversell tests authorize; a
+    // client request therefore holds as 'pending' (a pending hold counts toward
+    // capacity exactly like a booked seat, so the seat-math assertions are unchanged).
     service = new BookingsService(
       bookingsRepo as unknown as BookingsRepository,
       clientsRepo as unknown as ClientsRepository,
@@ -437,7 +446,7 @@ describe("BookingsService.createSingle", () => {
 
   const input = { clientId: CLIENT_ID, trainingId: TRAINING_ID };
 
-  it("books a seat, increments bookedCount exactly once and keeps the slot open below capacity", async () => {
+  it("holds a seat, increments bookedCount exactly once and keeps the slot open below capacity", async () => {
     bookingsRepo.training = {
       id: TRAINING_ID,
       capacity: 6,
@@ -446,7 +455,7 @@ describe("BookingsService.createSingle", () => {
     };
     const booking = await service.createSingle(OWNER_ID, input);
 
-    expect(booking.status).toBe("booked");
+    expect(booking.status).toBe("pending");
     expect(booking.type).toBe("single");
     expect(booking.groupSubscriptionId).toBeNull();
     expect(bookingsRepo.bookings).toHaveLength(1);
@@ -738,7 +747,7 @@ describe("BookingsService confirmation hook is failure-tolerant", () => {
       fakeWaitlist,
       new FakeTrainersRepository() as unknown as TrainersRepository,
       fakeDomainEvents,
-      env
+      envNoAdmin
     );
   });
 
@@ -1553,16 +1562,16 @@ describe("BookingsService.transferGroup (Item C — admin group transfer)", () =
   });
 });
 
-// --- Trainer-confirmation feature ---------------------------------------------
+// --- Admin-confirmation feature -----------------------------------------------
 //
-// A client request onto a training whose trainer HAS a Telegram id starts
-// `pending` (seat held), and the trainer confirms (→ booked) or declines
-// (→ cancelled, seat freed). A trainer with NO Telegram id can never act, so the
-// request auto-confirms (→ booked) instead of hanging forever. The pending hold
-// counts toward capacity exactly like a booked seat, so recompute / open⇔full /
-// the duplicate guard are unchanged by it.
+// A client request starts `pending` (seat held) whenever at least one admin is
+// configured, and an admin confirms (→ booked) or declines (→ cancelled, seat
+// freed). With NO admin configured nobody can act, so the request auto-confirms
+// (→ booked) instead of hanging forever. The pending hold counts toward capacity
+// exactly like a booked seat, so recompute / open⇔full / the duplicate guard are
+// unchanged by it.
 
-/** A spying notifications double covering every trainer-confirm send. */
+/** A spying notifications double covering every admin-confirm send. */
 function makeNotificationsSpy() {
   const calls = {
     confirmation: [] as string[],
@@ -1570,8 +1579,8 @@ function makeNotificationsSpy() {
     pending: [] as string[],
     declined: [] as string[],
     groupDeclined: [] as string[][],
-    pendingToTrainer: [] as { trainerTelegramId: number; bookingTrainingId: string }[],
-    groupPendingToTrainer: [] as { trainerTelegramId: number; trainingIds: string[] }[]
+    pendingToAdmins: [] as { adminIds: number[]; bookingTrainingId: string }[],
+    groupPendingToAdmins: [] as { adminIds: number[]; trainingIds: string[] }[]
   };
   const service = {
     sendBookingConfirmation: async (clientId: string): Promise<void> => {
@@ -1589,21 +1598,19 @@ function makeNotificationsSpy() {
     sendGroupBookingDeclined: async (_c: string, ids: string[]): Promise<void> => {
       calls.groupDeclined.push(ids);
     },
-    sendBookingPendingToTrainer: async (
-      trainerTelegramId: number,
+    sendBookingPendingToAdmins: async (
+      adminIds: number[],
       _clientId: string,
       bookingTrainingId: string
-    ): Promise<boolean> => {
-      calls.pendingToTrainer.push({ trainerTelegramId, bookingTrainingId });
-      return true;
+    ): Promise<void> => {
+      calls.pendingToAdmins.push({ adminIds, bookingTrainingId });
     },
-    sendGroupPendingToTrainer: async (
-      trainerTelegramId: number,
+    sendGroupPendingToAdmins: async (
+      adminIds: number[],
       _clientId: string,
       trainingIds: string[]
-    ): Promise<boolean> => {
-      calls.groupPendingToTrainer.push({ trainerTelegramId, trainingIds });
-      return true;
+    ): Promise<void> => {
+      calls.groupPendingToAdmins.push({ adminIds, trainingIds });
     }
   } as unknown as NotificationsService;
   return { service, calls };
@@ -1617,16 +1624,8 @@ const TRAINER_WITH_TG: Trainer = {
   telegramId: TRAINER_ID_TG,
   telegramUsername: null
 };
-const TRAINER_NO_TG: Trainer = {
-  id: TRAINER_ID,
-  name: "Coach",
-  type: "main",
-  status: "active",
-  telegramId: null,
-  telegramUsername: null
-};
 
-describe("BookingsService.createSingle — pending vs auto-confirm (trainer-confirmation)", () => {
+describe("BookingsService.createSingle — pending vs auto-confirm (admin-confirmation)", () => {
   let bookingsRepo: FakeBookingsRepository;
   let trainersRepo: FakeTrainersRepository;
   let notifications: ReturnType<typeof makeNotificationsSpy>;
@@ -1635,6 +1634,7 @@ describe("BookingsService.createSingle — pending vs auto-confirm (trainer-conf
   beforeEach(() => {
     bookingsRepo = new FakeBookingsRepository();
     trainersRepo = new FakeTrainersRepository();
+    trainersRepo.trainers = [TRAINER_WITH_TG];
     notifications = makeNotificationsSpy();
     service = new BookingsService(
       bookingsRepo as unknown as BookingsRepository,
@@ -1657,25 +1657,22 @@ describe("BookingsService.createSingle — pending vs auto-confirm (trainer-conf
 
   const input = { clientId: CLIENT_ID, trainingId: TRAINING_ID };
 
-  it("holds a pending seat and DMs the trainer when the trainer has a Telegram id", async () => {
-    trainersRepo.trainers = [TRAINER_WITH_TG];
-
+  it("holds a pending seat and DMs the admins when an admin is configured", async () => {
     const booking = await service.createSingle(OWNER_ID, input);
 
     expect(booking.status).toBe("pending");
     // A pending hold still counts toward capacity exactly like a booked seat.
     expect(bookingsRepo.training?.bookedCount).toBe(3);
     expect(bookingsRepo.training?.status).toBe("open");
-    // Client gets an acknowledgement; the trainer gets a confirm/decline DM. No confirmation yet.
+    // Client gets an acknowledgement; the admins get a confirm/decline DM. No confirmation yet.
     expect(notifications.calls.pending).toEqual([CLIENT_ID]);
-    expect(notifications.calls.pendingToTrainer).toEqual([
-      { trainerTelegramId: TRAINER_ID_TG, bookingTrainingId: TRAINING_ID }
+    expect(notifications.calls.pendingToAdmins).toEqual([
+      { adminIds: [ADMIN_ID], bookingTrainingId: TRAINING_ID }
     ]);
     expect(notifications.calls.confirmation).toEqual([]);
   });
 
   it("flips the slot to full on the capacity-th pending hold (recompute unchanged by pending)", async () => {
-    trainersRepo.trainers = [TRAINER_WITH_TG];
     bookingsRepo.training = {
       id: TRAINING_ID,
       capacity: 6,
@@ -1689,21 +1686,29 @@ describe("BookingsService.createSingle — pending vs auto-confirm (trainer-conf
     expect(bookingsRepo.training?.status).toBe("full");
   });
 
-  it("auto-confirms (→ booked) and sends the confirmation when the trainer has no Telegram id", async () => {
-    trainersRepo.trainers = [TRAINER_NO_TG];
+  it("auto-confirms (→ booked) and sends the confirmation when NO admin is configured", async () => {
+    const noAdminService = new BookingsService(
+      bookingsRepo as unknown as BookingsRepository,
+      new FakeClientsRepository() as unknown as ClientsRepository,
+      new FakeGroupsRepository() as unknown as GroupsRepository,
+      notifications.service,
+      fakeWaitlist,
+      trainersRepo as unknown as TrainersRepository,
+      fakeDomainEvents,
+      envNoAdmin
+    );
 
-    const booking = await service.createSingle(OWNER_ID, input);
+    const booking = await noAdminService.createSingle(OWNER_ID, input);
 
     expect(booking.status).toBe("booked");
     expect(bookingsRepo.training?.bookedCount).toBe(3);
-    // No trainer to ask → the confirmation goes straight out; no pending/trainer DM.
+    // No admin to ask → the confirmation goes straight out; no pending/admin DM.
     expect(notifications.calls.confirmation).toEqual([CLIENT_ID]);
     expect(notifications.calls.pending).toEqual([]);
-    expect(notifications.calls.pendingToTrainer).toEqual([]);
+    expect(notifications.calls.pendingToAdmins).toEqual([]);
   });
 
   it("counts a pending hold in the duplicate guard (re-book rejected with 409)", async () => {
-    trainersRepo.trainers = [TRAINER_WITH_TG];
     await service.createSingle(OWNER_ID, input);
     await expect(service.createSingle(OWNER_ID, input)).rejects.toBeInstanceOf(ConflictException);
     expect(bookingsRepo.bookings).toHaveLength(1);

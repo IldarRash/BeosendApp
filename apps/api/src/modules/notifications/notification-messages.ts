@@ -1,4 +1,4 @@
-import type { Client, NotificationTemplateKey } from "@beosand/types";
+import type { Client, NotificationTemplateKey, Trainer } from "@beosand/types";
 import type { NotificationRecipient } from "./notifications.repository";
 
 /** Minutes either side of a reminder target a training start must fall in to fire. */
@@ -142,14 +142,14 @@ function escapeHtml(value: string): string {
 }
 
 /**
- * Individual-training request DM (Feature 8), sent to the trainer. Carries a
- * clickable link back to the client: a `t.me/<username>` link when the client
- * has a username, else a `tg://user?id=<id>` HTML mention so the trainer can
- * still reach a username-less client. Falls back to the plain (escaped) name for
- * a client with neither (a walk-in, not reachable via the bot path). RU string,
- * composed server-side; sent with parse_mode HTML.
+ * Individual-training request DM (Feature 8), sent to the admin. Names the
+ * requested trainer and carries a clickable link to the client: a `t.me/<username>`
+ * link when the client has a username, else a `tg://user?id=<id>` HTML mention so
+ * the admin can still reach a username-less client. Falls back to the plain
+ * (escaped) name for a client with neither (a walk-in, not reachable via the bot
+ * path). RU string, composed server-side; sent with parse_mode HTML.
  */
-export function individualSessionRequestMessage(client: Client): string {
+export function individualRequestAdminMessage(client: Client, trainer: Trainer): string {
   const safeName = escapeHtml(client.name);
   let link: string;
   if (client.telegramUsername) {
@@ -159,7 +159,12 @@ export function individualSessionRequestMessage(client: Client): string {
   } else {
     link = safeName;
   }
-  return `К вам хотят записаться на индивидуальную тренировку. Пожалуйста, свяжитесь с клиентом: ${link}`;
+  return (
+    `Заявка на индивидуальную тренировку 🏐\n` +
+    `Клиент: ${link}\n` +
+    `Тренер: ${escapeHtml(trainer.name)}\n` +
+    `Свяжитесь с клиентом и согласуйте тренировку.`
+  );
 }
 
 /**
@@ -202,12 +207,12 @@ export function groupBookingDeclinedMessage(recipients: NotificationRecipient[])
 }
 
 /**
- * Trainer DM for a single pending booking request (notification-only, no log
- * row — modeled on individualSessionRequestMessage). Names the client and the
+ * Admin DM for a single pending booking request (notification-only, no log
+ * row — modeled on individualRequestAdminMessage). Names the client and the
  * session; the inline confirm/decline keyboard is attached by the service. RU
  * string, HTML-safe client name.
  */
-export function bookingPendingTrainerMessage(
+export function bookingPendingAdminMessage(
   recipient: NotificationRecipient,
   clientName: string
 ): string {
@@ -218,11 +223,11 @@ export function bookingPendingTrainerMessage(
 }
 
 /**
- * Trainer DM for a monthly-subscription batch of pending requests: one DM
+ * Admin DM for a monthly-subscription batch of pending requests: one DM
  * listing the requested dates with a single confirm/decline keyboard (attached
  * by the service). Notification-only, no log row. RU string, HTML-safe name.
  */
-export function groupPendingTrainerMessage(
+export function groupPendingAdminMessage(
   recipients: NotificationRecipient[],
   clientName: string
 ): string {
