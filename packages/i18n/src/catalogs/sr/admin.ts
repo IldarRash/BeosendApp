@@ -24,6 +24,7 @@ export const adminSr: Record<string, string> = {
   "admin.nav.notificationTemplates": "Šabloni obaveštenja",
   "admin.nav.connectors": "Konektori",
   "admin.nav.sectionsLabel": "Sekcije",
+  "admin.nav.toggle": "Meni navigacije",
   "admin.nav.soon": "uskoro",
   "admin.nav.groupSchedule": "Raspored",
   "admin.nav.groupCourts": "Tereni",
