@@ -1,6 +1,8 @@
 import { describe, expect, it } from "vitest";
 import { bookingSource } from "./common";
 import {
+  autoAssignCourtsSchema,
+  autoAssignResultSchema,
   availableSlotsQuerySchema,
   bookingSchema,
   bookingStatus,
@@ -228,6 +230,24 @@ describe("generateMonthSchema", () => {
 
   it("T10 — rejects a non-uuid courtId", () => {
     expect(generateMonthSchema.safeParse({ ...validBody, courtId: "nope" }).success).toBe(false);
+  });
+});
+
+describe("autoAssignCourtsSchema / autoAssignResultSchema", () => {
+  it("accepts a body with a valid date", () => {
+    expect(autoAssignCourtsSchema.safeParse({ date: "2026-06-17" }).success).toBe(true);
+  });
+
+  it("rejects a malformed date and stray fields", () => {
+    expect(autoAssignCourtsSchema.safeParse({ date: "17-06-2026" }).success).toBe(false);
+    expect(
+      autoAssignCourtsSchema.safeParse({ date: "2026-06-17", courtId: "x" }).success
+    ).toBe(false);
+  });
+
+  it("validates an assigned/skipped result and rejects negatives", () => {
+    expect(autoAssignResultSchema.safeParse({ assigned: 3, skipped: 1 }).success).toBe(true);
+    expect(autoAssignResultSchema.safeParse({ assigned: -1, skipped: 0 }).success).toBe(false);
   });
 });
 

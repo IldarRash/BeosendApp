@@ -12,9 +12,17 @@ import type {
 // The data hooks are mocked so the page is unit-tested without the ApiClient/network.
 const useCourtLoad = vi.fn();
 const useAssignCourt = vi.fn();
+const useAutoAssignOrphans = vi.fn();
 vi.mock("../hooks/useCourtLoad", () => ({
   useCourtLoad: (...args: unknown[]) => useCourtLoad(...args),
-  useAssignCourt: (...args: unknown[]) => useAssignCourt(...args)
+  useAssignCourt: (...args: unknown[]) => useAssignCourt(...args),
+  useAutoAssignOrphans: (...args: unknown[]) => useAutoAssignOrphans(...args)
+}));
+
+// The shared move-court dialog reaches for the reassign mutation.
+const useReassignCourtBlock = vi.fn();
+vi.mock("../hooks/useCourtBlocks", () => ({
+  useReassignCourtBlock: (...args: unknown[]) => useReassignCourtBlock(...args)
 }));
 
 const useCourts = vi.fn();
@@ -43,18 +51,21 @@ import { CourtLoad } from "./CourtLoad";
 
 const REQUEST_ID = "33333333-3333-3333-3333-333333333333";
 const TRAINING_ID = "66666666-6666-6666-6666-666666666666";
+const TRAINING_BLOCK_ID = "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa";
+const MANUAL_BLOCK_ID = "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb";
 
-/** Build a 30-min cell, defaulting the request/training links to null. */
+/** Build a 30-min cell, defaulting the request/training/block links to null. */
 function cell(
   startTime: string,
   state: CourtLoadGrid["rows"][number]["cells"][number]["state"],
-  links: { requestId?: string; trainingId?: string } = {}
+  links: { requestId?: string; trainingId?: string; blockId?: string } = {}
 ): CourtLoadGrid["rows"][number]["cells"][number] {
   return {
     startTime,
     state,
     requestId: links.requestId ?? null,
-    trainingId: links.trainingId ?? null
+    trainingId: links.trainingId ?? null,
+    blockId: links.blockId ?? null
   };
 }
 
@@ -76,6 +87,12 @@ const COURT: Court = {
   status: "active"
 };
 
+const COURT2: Court = {
+  id: "22222222-2222-2222-2222-222222222222",
+  number: 2,
+  status: "active"
+};
+
 const GRID: CourtLoadGrid = {
   date: "2026-06-10",
   openHour: 8,
@@ -88,7 +105,7 @@ const GRID: CourtLoadGrid = {
       cells: [
         cell("08:00", "request", { requestId: REQUEST_ID }),
         cell("08:30", "request", { requestId: REQUEST_ID }),
-        cell("09:00", "training", { trainingId: TRAINING_ID }),
+        cell("09:00", "training", { trainingId: TRAINING_ID, blockId: TRAINING_BLOCK_ID }),
         cell("09:30", "free"),
         cell("10:00", "free"),
         cell("10:30", "free"),
@@ -100,11 +117,11 @@ const GRID: CourtLoadGrid = {
       courtId: "22222222-2222-2222-2222-222222222222",
       courtNumber: 2,
       cells: [
-        cell("08:00", "block"),
+        cell("08:00", "block", { blockId: MANUAL_BLOCK_ID }),
         cell("08:30", "free"),
         cell("09:00", "free"),
         cell("09:30", "free"),
-        cell("10:00", "training", { trainingId: TRAINING_ID }),
+        cell("10:00", "training", { trainingId: TRAINING_ID, blockId: TRAINING_BLOCK_ID }),
         cell("10:30", "free"),
         cell("11:00", "free"),
         cell("11:30", "free")
@@ -163,7 +180,14 @@ beforeEach(() => {
   vi.clearAllMocks();
   useCourtLoad.mockReturnValue({ isPending: false, isError: false, error: null, data: GRID });
   useAssignCourt.mockReturnValue(mutation());
-  useCourts.mockReturnValue({ isPending: false, isError: false, error: null, data: [COURT] });
+  useAutoAssignOrphans.mockReturnValue(mutation());
+  useReassignCourtBlock.mockReturnValue(mutation());
+  useCourts.mockReturnValue({
+    isPending: false,
+    isError: false,
+    error: null,
+    data: [COURT, COURT2]
+  });
   useCourtRequestDetail.mockReturnValue({
     isPending: false,
     isError: false,
@@ -206,8 +230,8 @@ describe("CourtLoad page", () => {
     expect(free.tagName).toBe("SPAN");
     expect(free.className).toContain("load-seg--free");
 
-    const block = screen.getByLabelText("Корт 2, 08:00 — Блокировка");
-    expect(block.tagName).toBe("SPAN");
+    const block = screen.getByLabelText("Корт 2, 08:00 — Блокировка. Сменить корт.");
+    expect(block.tagName).toBe("BUTTON");
     expect(block.className).toContain("load-seg--block");
 
     const training = screen.getByLabelText(
@@ -217,10 +241,12 @@ describe("CourtLoad page", () => {
     expect(training.className).toContain("load-seg--training");
   });
 
-  it("makes only request and training segments clickable; free and block are inert", () => {
+  it("makes request, training and block segments clickable; free stays inert", () => {
     renderPage();
     expect(screen.getByLabelText("Корт 1, 09:30 — Свободно").tagName).toBe("SPAN");
-    expect(screen.getByLabelText("Корт 2, 08:00 — Блокировка").tagName).toBe("SPAN");
+    expect(screen.getByLabelText("Корт 2, 08:00 — Блокировка. Сменить корт.").tagName).toBe(
+      "BUTTON"
+    );
   });
 
   it("opens the booking detail with the API-decided values when a request segment is clicked", () => {
@@ -378,5 +404,55 @@ describe("CourtLoad page", () => {
       "disabled",
       true
     );
+  });
+
+  it("moves a manual block to another court via reassign when its segment is clicked", () => {
+    const mutate = vi.fn();
+    useReassignCourtBlock.mockReturnValue(mutation({ mutate }));
+    renderPage();
+
+    fireEvent.click(screen.getByLabelText("Корт 2, 08:00 — Блокировка. Сменить корт."));
+    const dialog = screen.getByRole("dialog", { name: "Сменить корт блокировки" });
+    // Court 2 (current) is excluded; court 1 is the only target and is preselected.
+    fireEvent.click(within(dialog).getByRole("button", { name: "Сохранить" }));
+
+    expect(mutate).toHaveBeenCalledTimes(1);
+    expect(mutate.mock.calls[0][0]).toEqual({ id: MANUAL_BLOCK_ID, courtId: COURT.id });
+  });
+
+  it("moves a training's court from its detail popup via reassign", () => {
+    const mutate = vi.fn();
+    useReassignCourtBlock.mockReturnValue(mutation({ mutate }));
+    renderPage();
+
+    fireEvent.click(
+      screen.getByLabelText("Корт 1, 09:00 — Тренировка. Открыть детали тренировки.")
+    );
+    const detail = screen.getByRole("dialog", { name: "Тренировка" });
+    fireEvent.click(within(detail).getByRole("button", { name: "Сменить корт" }));
+
+    const dialog = screen.getByRole("dialog", { name: "Сменить корт блокировки" });
+    // Court 1 (current) is excluded; court 2 is the only target and is preselected.
+    fireEvent.click(within(dialog).getByRole("button", { name: "Сохранить" }));
+
+    expect(mutate).toHaveBeenCalledTimes(1);
+    expect(mutate.mock.calls[0][0]).toEqual({ id: TRAINING_BLOCK_ID, courtId: COURT2.id });
+  });
+
+  it("auto-assigns all orphans for the grid's date via the mutation", () => {
+    const mutate = vi.fn();
+    useAutoAssignOrphans.mockReturnValue(mutation({ mutate }));
+    useCourtLoad.mockReturnValue({
+      isPending: false,
+      isError: false,
+      error: null,
+      data: { ...GRID, unassignedTrainings: [UNASSIGNED] }
+    });
+    renderPage();
+
+    fireEvent.click(screen.getByRole("button", { name: "Назначить корты автоматически" }));
+
+    expect(mutate).toHaveBeenCalledTimes(1);
+    expect(mutate.mock.calls[0][0]).toBe("2026-06-10");
   });
 });

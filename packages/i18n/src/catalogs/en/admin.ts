@@ -542,6 +542,7 @@ export const adminEn: Record<string, string> = {
   "admin.courtBlocks.changeCourt": "Change court",
   "admin.courtBlocks.changeCourtTitle": "Change block court",
   "admin.courtBlocks.changeCourtHint": "Current court: {court}, {start}–{end}. The server checks whether the chosen court is free for these slots.",
+  "admin.courtBlocks.changeCourtHintSimple": "Current court: {court}. The server checks whether the chosen court is free for the needed slots.",
   "admin.courtBlocks.courtChanged": "Block court changed.",
   "admin.courtBlocks.opFailed": "Failed to perform the operation.",
 
@@ -596,6 +597,11 @@ export const adminEn: Record<string, string> = {
   "admin.courtLoad.assigning": "Assigning…",
   "admin.courtLoad.assigned": "Court assigned to the {group} training.",
   "admin.courtLoad.assignFailed": "Failed to assign the court.",
+  "admin.courtLoad.cellMoveAria": "Court {number}, {hour} — {state}. Change court.",
+  "admin.courtLoad.autoAssign": "Auto-assign courts",
+  "admin.courtLoad.autoAssigning": "Assigning…",
+  "admin.courtLoad.autoAssignDone": "Assigned: {assigned}, skipped: {skipped}.",
+  "admin.courtLoad.autoAssignFailed": "Failed to auto-assign courts.",
 
   // ── Broadcasts page ───────────────────────────────────────────────────────
   "admin.broadcasts.title": "Broadcasts",

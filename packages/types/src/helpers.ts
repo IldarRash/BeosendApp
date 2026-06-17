@@ -289,6 +289,8 @@ export interface CourtCellOccupant {
   requestId?: string;
   /** Auto-block's training id, so a training cell can open its detail. Confirmed requests / manual blocks omit it. */
   trainingId?: string;
+  /** Court-block id, so a `training`/`block` cell can be moved to another court. Confirmed requests omit it. */
+  blockId?: string;
 }
 
 /**
@@ -334,6 +336,7 @@ export function courtLoadGrid(input: {
     state: CourtLoadCellState;
     requestId: string | null;
     trainingId: string | null;
+    blockId: string | null;
   }[];
 }[] {
   const blockSlots = occupiedSlotsByCourt(input.blocks);
@@ -349,50 +352,67 @@ export function courtLoadGrid(input: {
       state: CourtLoadCellState;
       requestId: string | null;
       trainingId: string | null;
+      blockId: string | null;
     }[] = [];
     for (let m = openMinutes; m < closeMinutes; m += SLOT_MINUTES) {
       const startTime = timeOfMinutes(m);
-      if (blocked?.has(startTime)) {
-        const tid = blocked.get(startTime) ?? null;
+      const block = blocked?.get(startTime);
+      const request = requested?.get(startTime);
+      if (block) {
+        const tid = block.trainingId;
         cells.push({
           startTime,
           state: tid ? "training" : "block",
           requestId: null,
-          trainingId: tid
+          trainingId: tid,
+          blockId: block.blockId
         });
-      } else if (requested?.has(startTime)) {
+      } else if (request) {
         cells.push({
           startTime,
           state: "request",
-          requestId: requested.get(startTime) ?? null,
-          trainingId: null
+          requestId: request.requestId,
+          trainingId: null,
+          blockId: null
         });
       } else {
-        cells.push({ startTime, state: "free", requestId: null, trainingId: null });
+        cells.push({ startTime, state: "free", requestId: null, trainingId: null, blockId: null });
       }
     }
     return { courtId: court.id, courtNumber: court.number, cells };
   });
 }
 
+/** The id links a covered slot carries: a request id and/or a training id and/or a block id. */
+interface SlotLink {
+  requestId: string | null;
+  trainingId: string | null;
+  blockId: string | null;
+}
+
 /**
  * Map each court id to its occupied 30-min slot starts ("HH:MM"). Each slot maps
- * to the occupant's `requestId`, else its `trainingId` (auto-block under a group),
- * else `null` (manual block / unidentified occupant), so a `request` cell can carry
- * the covering request id and a `training` cell the covering training id.
+ * to the covering occupant's link ids — `requestId` (confirmed request), `trainingId`
+ * (auto-block under a group), `blockId` (the court block) — so a `request` cell can
+ * carry the request id, and a `training`/`block` cell the training id (if any) and
+ * the block id used to move it to another court.
  */
 function occupiedSlotsByCourt(
   occupants: readonly CourtCellOccupant[]
-): Map<string, Map<string, string | null>> {
-  const byCourt = new Map<string, Map<string, string | null>>();
+): Map<string, Map<string, SlotLink>> {
+  const byCourt = new Map<string, Map<string, SlotLink>>();
   for (const occupant of occupants) {
     let slots = byCourt.get(occupant.courtId);
     if (!slots) {
-      slots = new Map<string, string | null>();
+      slots = new Map<string, SlotLink>();
       byCourt.set(occupant.courtId, slots);
     }
     for (const slot of courtSlotsCovered(occupant.startTime, occupant.durationMinutes)) {
-      slots.set(slot, occupant.requestId ?? occupant.trainingId ?? null);
+      slots.set(slot, {
+        requestId: occupant.requestId ?? null,
+        trainingId: occupant.trainingId ?? null,
+        blockId: occupant.blockId ?? null
+      });
     }
   }
   return byCourt;

@@ -542,6 +542,7 @@ export const adminSr: Record<string, string> = {
   "admin.courtBlocks.changeCourt": "Promeni teren",
   "admin.courtBlocks.changeCourtTitle": "Promeni teren blokade",
   "admin.courtBlocks.changeCourtHint": "Trenutni teren: {court}, {start}–{end}. Server proverava da li je izabrani teren slobodan za te termine.",
+  "admin.courtBlocks.changeCourtHintSimple": "Trenutni teren: {court}. Server proverava da li je izabrani teren slobodan za potrebne termine.",
   "admin.courtBlocks.courtChanged": "Teren blokade je promenjen.",
   "admin.courtBlocks.opFailed": "Neuspešno izvršavanje operacije.",
 
@@ -596,6 +597,11 @@ export const adminSr: Record<string, string> = {
   "admin.courtLoad.assigning": "Dodeljivanje…",
   "admin.courtLoad.assigned": "Teren je dodeljen treningu {group}.",
   "admin.courtLoad.assignFailed": "Neuspešno dodeljivanje terena.",
+  "admin.courtLoad.cellMoveAria": "Teren {number}, {hour} — {state}. Promeni teren.",
+  "admin.courtLoad.autoAssign": "Automatski dodeli terene",
+  "admin.courtLoad.autoAssigning": "Dodeljivanje…",
+  "admin.courtLoad.autoAssignDone": "Dodeljeno: {assigned}, preskočeno: {skipped}.",
+  "admin.courtLoad.autoAssignFailed": "Neuspešno automatsko dodeljivanje terena.",
 
   // ── Broadcasts page ───────────────────────────────────────────────────────
   "admin.broadcasts.title": "Obaveštenja",

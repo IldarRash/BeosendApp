@@ -11,6 +11,8 @@ export interface CourtOccupancyRow {
   requestId?: string;
   /** Covering auto-block's group_training_id, so a `training` cell can link to its training detail. */
   trainingId?: string;
+  /** Covering court-block's id, so a `training`/`block` cell can be moved to another court. */
+  blockId?: string;
 }
 
 /** A training on a date with no auto-block (no court reserved), joined to group/level names. */
@@ -74,6 +76,7 @@ export class CourtsRepository {
   async blocksByCourtForDate(date: string): Promise<CourtOccupancyRow[]> {
     const rows = await this.database.db
       .select({
+        id: tables.courtBlocks.id,
         courtId: tables.courtBlocks.courtId,
         startTime: tables.courtBlocks.startTime,
         endTime: tables.courtBlocks.endTime,
@@ -85,7 +88,8 @@ export class CourtsRepository {
       courtId: row.courtId,
       startTime: row.startTime.slice(0, 5),
       durationMinutes: minuteSpan(row.startTime, row.endTime),
-      trainingId: row.groupTrainingId ?? undefined
+      trainingId: row.groupTrainingId ?? undefined,
+      blockId: row.id
     }));
   }
 

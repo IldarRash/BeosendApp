@@ -12,9 +12,9 @@ import { useCourts } from "../hooks/useCourts";
 import {
   useCourtBlocks,
   useCreateCourtBlock,
-  useDeleteCourtBlock,
-  useReassignCourtBlock
+  useDeleteCourtBlock
 } from "../hooks/useCourtBlocks";
+import { ReassignCourtDialog } from "../components/ReassignCourtDialog";
 
 type Translate = (key: string, params?: Record<string, string | number>) => string;
 
@@ -245,9 +245,11 @@ export function CourtBlocks(): JSX.Element {
 
       {reassignTarget ? (
         <ReassignCourtDialog
-          block={reassignTarget}
+          blockId={reassignTarget.id}
+          currentCourtId={reassignTarget.courtId}
+          startTime={reassignTarget.startTime}
+          endTime={reassignTarget.endTime}
           courts={courts.data ?? []}
-          courtLabel={courtLabel}
           onClose={() => setReassignTarget(null)}
         />
       ) : null}
@@ -342,95 +344,6 @@ function CreateBlockDialog({ date, courts, onClose }: CreateBlockDialogProps): J
         {create.error ? (
           <p className="state state--error" role="alert">
             {errorText(create.error, t)}
-          </p>
-        ) : null}
-      </form>
-    </Modal>
-  );
-}
-
-interface ReassignCourtDialogProps {
-  block: CourtBlock;
-  courts: Court[];
-  courtLabel: (courtId: string) => string;
-  onClose: () => void;
-}
-
-/**
- * Move a group auto-block to another court. The server re-checks the target
- * court's freeness and the 6-per-30-min limit for the block's own slots and
- * rejects (409) a clash; this dialog only collects the chosen court and renders
- * the server's error — it computes no availability itself.
- */
-function ReassignCourtDialog({
-  block,
-  courts,
-  courtLabel,
-  onClose
-}: ReassignCourtDialogProps): JSX.Element {
-  const t = useT();
-  const { notify } = useToast();
-  const reassign = useReassignCourtBlock();
-
-  // Offer every court except the block's current one (moving to itself is a no-op).
-  const targets = courts.filter((c) => c.id !== block.courtId);
-  const [courtId, setCourtId] = useState(targets[0]?.id ?? "");
-
-  function handleSubmit(event: React.FormEvent): void {
-    event.preventDefault();
-    if (courtId === "") return;
-    reassign.mutate(
-      { id: block.id, courtId },
-      {
-        onSuccess: () => {
-          notify(t("admin.courtBlocks.courtChanged"), "success");
-          onClose();
-        }
-      }
-    );
-  }
-
-  return (
-    <Modal
-      open
-      onClose={onClose}
-      title={t("admin.courtBlocks.changeCourtTitle")}
-      footer={
-        <>
-          <Button variant="ghost" onClick={onClose} disabled={reassign.isPending}>
-            {t("admin.action.cancel")}
-          </Button>
-          <Button
-            type="submit"
-            form="reassign-court-form"
-            disabled={reassign.isPending || courtId === ""}
-          >
-            {reassign.isPending ? t("admin.action.saving") : t("admin.action.save")}
-          </Button>
-        </>
-      }
-    >
-      <form id="reassign-court-form" onSubmit={handleSubmit} className="form">
-        <p className="state">
-          {t("admin.courtBlocks.changeCourtHint", {
-            court: courtLabel(block.courtId),
-            start: block.startTime,
-            end: block.endTime
-          })}
-        </p>
-        <SelectField
-          label={t("admin.courtBlocks.colCourt")}
-          value={courtId}
-          onChange={(e) => setCourtId(e.target.value)}
-          required
-          options={targets.map((court) => ({
-            value: court.id,
-            label: t("admin.courtBlocks.court", { number: court.number })
-          }))}
-        />
-        {reassign.error ? (
-          <p className="state state--error" role="alert">
-            {errorText(reassign.error, t)}
           </p>
         ) : null}
       </form>

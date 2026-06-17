@@ -550,6 +550,7 @@ export const adminRu: Record<string, string> = {
   "admin.courtBlocks.changeCourt": "Сменить корт",
   "admin.courtBlocks.changeCourtTitle": "Сменить корт блокировки",
   "admin.courtBlocks.changeCourtHint": "Текущий корт: {court}, {start}–{end}. Сервер проверит свободен ли выбранный корт на эти слоты.",
+  "admin.courtBlocks.changeCourtHintSimple": "Текущий корт: {court}. Сервер проверит, свободен ли выбранный корт на нужные слоты.",
   "admin.courtBlocks.courtChanged": "Корт блокировки изменён.",
   "admin.courtBlocks.opFailed": "Не удалось выполнить операцию.",
 
@@ -605,6 +606,11 @@ export const adminRu: Record<string, string> = {
   "admin.courtLoad.assigning": "Назначение…",
   "admin.courtLoad.assigned": "Корт назначен тренировке {group}.",
   "admin.courtLoad.assignFailed": "Не удалось назначить корт.",
+  "admin.courtLoad.cellMoveAria": "Корт {number}, {hour} — {state}. Сменить корт.",
+  "admin.courtLoad.autoAssign": "Назначить корты автоматически",
+  "admin.courtLoad.autoAssigning": "Назначение…",
+  "admin.courtLoad.autoAssignDone": "Назначено: {assigned}, пропущено: {skipped}.",
+  "admin.courtLoad.autoAssignFailed": "Не удалось назначить корты автоматически.",
 
   // ── Broadcasts page ───────────────────────────────────────────────────────
   "admin.broadcasts.title": "Рассылки",

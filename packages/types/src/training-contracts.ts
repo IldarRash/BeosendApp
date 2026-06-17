@@ -227,6 +227,24 @@ export type ChangeCapacityInput = z.infer<typeof changeCapacitySchema>;
 export const assignCourtSchema = z.object({ courtId: uuid }).strict();
 export type AssignCourtInput = z.infer<typeof assignCourtSchema>;
 
+/**
+ * Body for POST /trainings/assign-courts-auto (admin manager console). Auto-places
+ * every orphaned training on the given date onto a free court (each group's chosen
+ * court if free, else the lowest free court) under the 6-per-slot limit. Strict.
+ */
+export const autoAssignCourtsSchema = z.object({ date: dateString }).strict();
+export type AutoAssignCourtsInput = z.infer<typeof autoAssignCourtsSchema>;
+
+/**
+ * Outcome of an auto-assign run: orphans that got a court (`assigned`) and orphans
+ * left without one because every court was busy (`skipped`).
+ */
+export const autoAssignResultSchema = z.object({
+  assigned: z.number().int().nonnegative(),
+  skipped: z.number().int().nonnegative()
+});
+export type AutoAssignResult = z.infer<typeof autoAssignResultSchema>;
+
 /** Admin range query for trainings (GET /trainings). */
 export const listTrainingsQuerySchema = z.object({
   from: dateString,

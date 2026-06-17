@@ -12,6 +12,7 @@ import {
 } from "@nestjs/common";
 import {
   assignCourtSchema,
+  autoAssignCourtsSchema,
   availableSlotsQuerySchema,
   changeCapacitySchema,
   generateAllMonthSchema,
@@ -21,6 +22,7 @@ import {
   trainerTodayQuerySchema,
   trainerUpcomingQuerySchema,
   uuid,
+  type AutoAssignResult,
   type GenerateAllResult,
   type GenerationStatusItem,
   type SlotCard,
@@ -138,6 +140,17 @@ export class TrainingsController {
     const actorTelegramId = parseTelegramId(telegramIdHeader);
     const trainingId = validate(uuid, id);
     return this.trainings.deleteTraining(actorTelegramId, trainingId);
+  }
+
+  /** Admin: auto-place every orphaned training on a date onto a free court. Gated in the service. */
+  @Post("assign-courts-auto")
+  autoAssignCourts(
+    @Headers("x-telegram-id") telegramIdHeader: string | undefined,
+    @Body() body: unknown
+  ): Promise<AutoAssignResult> {
+    const actorTelegramId = parseTelegramId(telegramIdHeader);
+    const input = validate(autoAssignCourtsSchema, body ?? {});
+    return this.trainings.autoAssignOrphans(actorTelegramId, input);
   }
 
   /** Admin: reserve a court for an unassigned ("orphan") training. Gated in the service. */

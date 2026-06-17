@@ -76,7 +76,8 @@ export class CourtsService {
           startTime: cell.startTime,
           state: cell.state,
           requestId: cell.requestId,
-          trainingId: cell.trainingId
+          trainingId: cell.trainingId,
+          blockId: cell.blockId
         }))
       })),
       unassignedTrainings
