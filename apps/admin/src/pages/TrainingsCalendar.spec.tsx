@@ -8,7 +8,7 @@ const useTrainingsCalendar = vi.fn();
 const useTrainingDetail = vi.fn();
 const useGroups = vi.fn();
 const useTrainers = vi.fn();
-const useCancelTraining = vi.fn();
+const useDeleteTraining = vi.fn();
 const useRoster = vi.fn();
 
 vi.mock("../hooks/useTrainingsCalendar", () => ({
@@ -23,7 +23,7 @@ vi.mock("../hooks/useRoster", () => ({
 vi.mock("../hooks/useGroups", () => ({ useGroups: () => useGroups() }));
 vi.mock("../hooks/useTrainers", () => ({ useTrainers: () => useTrainers() }));
 vi.mock("../hooks/useTrainings", () => ({
-  useCancelTraining: () => useCancelTraining()
+  useDeleteTraining: () => useDeleteTraining()
 }));
 
 vi.mock("../i18n/LanguageProvider", async () => import("../i18n/test-utils"));
@@ -118,7 +118,7 @@ beforeEach(() => {
   useTrainingsCalendar.mockReturnValue(idleQuery([ITEM]));
   useTrainingDetail.mockReturnValue({ isPending: false, isError: false, error: null, data: null });
   useRoster.mockReturnValue(idleQuery(ROSTER));
-  useCancelTraining.mockReturnValue(mutation());
+  useDeleteTraining.mockReturnValue(mutation());
 });
 
 afterEach(() => {
@@ -196,28 +196,52 @@ describe("TrainingsCalendar", () => {
     expect(within(dialog).getByText("Разовая")).toBeTruthy();
   });
 
-  it("deletes (soft-cancels) a training from the detail modal after confirm", () => {
+  it("deletes a training from the detail modal after an in-modal confirm", () => {
     const mutate = vi.fn();
-    useCancelTraining.mockReturnValue(mutation({ mutate }));
+    useDeleteTraining.mockReturnValue(mutation({ mutate }));
     useTrainingDetail.mockReturnValue(idleQuery(ITEM));
     renderPage();
 
     fireEvent.click(screen.getByRole("button", { name: /2026-07-06 08:00–09:30/ }));
     const dialog = screen.getByRole("dialog", { name: "Тренировка" });
 
-    // First click reveals the confirm step (no mutation yet).
+    // First click reveals the confirm step (prompt + confirm button); no mutation yet.
     fireEvent.click(within(dialog).getByRole("button", { name: "Удалить тренировку" }));
     expect(within(dialog).getByText(/получат уведомление об отмене/)).toBeTruthy();
     expect(mutate).not.toHaveBeenCalled();
 
-    // The confirm button fires the cancel mutation with the training id.
+    // The confirm button fires the delete mutation with the training id (DELETE /trainings/:id).
     fireEvent.click(within(dialog).getByRole("button", { name: "Удалить тренировку" }));
     expect(mutate).toHaveBeenCalledTimes(1);
     expect(mutate.mock.calls[0][0]).toBe(ITEM.id);
   });
 
-  it("hides the delete action for an already-cancelled training", () => {
+  it("notifies on a successful delete from the calendar (no booked-count in the toast)", () => {
+    const mutate = vi.fn((_id, opts: { onSuccess: () => void }) => opts.onSuccess());
+    useDeleteTraining.mockReturnValue(mutation({ mutate }));
+    useTrainingDetail.mockReturnValue(idleQuery(ITEM));
+    renderPage();
+
+    fireEvent.click(screen.getByRole("button", { name: /2026-07-06 08:00–09:30/ }));
+    const dialog = screen.getByRole("dialog", { name: "Тренировка" });
+    fireEvent.click(within(dialog).getByRole("button", { name: "Удалить тренировку" }));
+    fireEvent.click(within(dialog).getByRole("button", { name: "Удалить тренировку" }));
+
+    // The success toast carries no {count} placeholder — just the deleted message.
+    const toast = screen.getByText("Тренировка удалена. Записанные клиенты уведомлены.");
+    expect(toast).toBeTruthy();
+  });
+
+  it("still offers the delete action for an already-cancelled training (now deletable)", () => {
     useTrainingDetail.mockReturnValue(idleQuery({ ...ITEM, status: "cancelled" }));
+    renderPage();
+    fireEvent.click(screen.getByRole("button", { name: /2026-07-06 08:00–09:30/ }));
+    const dialog = screen.getByRole("dialog", { name: "Тренировка" });
+    expect(within(dialog).getByRole("button", { name: "Удалить тренировку" })).toBeTruthy();
+  });
+
+  it("hides the delete action for a completed training", () => {
+    useTrainingDetail.mockReturnValue(idleQuery({ ...ITEM, status: "completed" }));
     renderPage();
     fireEvent.click(screen.getByRole("button", { name: /2026-07-06 08:00–09:30/ }));
     const dialog = screen.getByRole("dialog", { name: "Тренировка" });

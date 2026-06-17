@@ -28,6 +28,7 @@ export const adminRu: Record<string, string> = {
   "admin.nav.analytics": "Аналитика",
   "admin.nav.labels": "Тексты",
   "admin.nav.notificationTemplates": "Шаблоны уведомлений",
+  "admin.nav.connectors": "Коннекторы",
   "admin.nav.sectionsLabel": "Разделы",
   "admin.nav.soon": "скоро",
   "admin.nav.groupSchedule": "Расписание",
@@ -110,6 +111,8 @@ export const adminRu: Record<string, string> = {
   "admin.field.capacity": "Вместимость",
   "admin.field.telegramId": "Telegram ID",
   "admin.field.username": "Username",
+  "admin.field.phone": "Телефон",
+  "admin.field.note": "Заметка",
 
   // ── Day-of-week picker ────────────────────────────────────────────────────
   "admin.day.short.1": "Пн",
@@ -278,18 +281,18 @@ export const adminRu: Record<string, string> = {
   "admin.trainings.colStatus": "Статус",
   "admin.trainings.colActions": "Действия",
   "admin.trainings.actionCapacity": "Вместимость",
-  "admin.trainings.actionCancel": "Отменить",
+  "admin.trainings.actionDelete": "Удалить",
   "admin.trainings.statusOpen": "Открыта",
   "admin.trainings.statusFull": "Заполнена",
   "admin.trainings.statusCancelled": "Отменена",
   "admin.trainings.statusCompleted": "Завершена",
   "admin.trainings.opFailed": "Не удалось выполнить операцию.",
-  "admin.trainings.cancelTitle": "Отменить тренировку",
-  "admin.trainings.cancelKeep": "Не отменять",
-  "admin.trainings.cancelConfirm": "Отменить тренировку",
-  "admin.trainings.cancelling": "Отмена…",
-  "admin.trainings.cancelPrompt": "Отменить тренировку {date} {start}–{end}? Записанные клиенты ({count}) получат уведомление.",
-  "admin.trainings.cancelled": "Тренировка отменена. Уведомлено записанных: {count}.",
+  "admin.trainings.deleteTitle": "Удалить тренировку",
+  "admin.trainings.deleteKeep": "Не удалять",
+  "admin.trainings.deleteConfirm": "Удалить тренировку",
+  "admin.trainings.deleting": "Удаление…",
+  "admin.trainings.deletePrompt": "Удалить тренировку {date} {start}–{end}? Записанные клиенты ({count}) получат уведомление об отмене, а тренировка будет удалена безвозвратно.",
+  "admin.trainings.deleted": "Тренировка удалена. Записанные клиенты уведомлены.",
   "admin.trainings.genMonthTitle": "Сгенерировать месяц",
   "admin.trainings.generating": "Генерация…",
   "admin.trainings.genSubmit": "Сгенерировать",
@@ -374,7 +377,7 @@ export const adminRu: Record<string, string> = {
   "admin.calendar.deleteConfirm": "Удалить тренировку",
   "admin.calendar.deleting": "Удаление…",
   "admin.calendar.deletePrompt": "Удалить тренировку {date} {start}–{end}? Записанные клиенты получат уведомление об отмене. Действие необратимо.",
-  "admin.calendar.deleted": "Тренировка удалена. Уведомлено записанных: {count}.",
+  "admin.calendar.deleted": "Тренировка удалена. Записанные клиенты уведомлены.",
   "admin.calendar.deleteFailed": "Не удалось удалить тренировку.",
 
   // ── Attendance page ───────────────────────────────────────────────────────
@@ -453,6 +456,9 @@ export const adminRu: Record<string, string> = {
   "admin.clients.levelHint": "Необязательно.",
   "admin.clients.register": "Зарегистрировать",
   "admin.clients.saved": "Клиент сохранён: {name}",
+  "admin.clients.editTitle": "Изменить клиента",
+  "admin.clients.editAria": "Изменить клиента {name}",
+  "admin.clients.updated": "Клиент обновлён: {name}",
 
   // ── Subscriptions (payments) page ────────────────────────────────────────
   "admin.subscriptions.title": "Абонементы",
@@ -765,5 +771,132 @@ export const adminRu: Record<string, string> = {
   "admin.notificationTemplates.event.training-cancelled": "Тренировка отменена",
   "admin.notificationTemplates.event.booking-pending": "Запись ожидает подтверждения",
   "admin.notificationTemplates.event.booking-declined": "Запись отклонена",
-  "admin.notificationTemplates.event.waitlist-slot": "Освободилось место (лист ожидания)"
+  "admin.notificationTemplates.event.waitlist-slot": "Освободилось место (лист ожидания)",
+
+  // ── Connectors ────────────────────────────────────────────────────────────
+  "admin.connectors.title": "Коннекторы",
+  "admin.connectors.lead":
+    "Внешние интеграции: каналы уведомлений, веб-хуки, экспорт и календарные ленты. Включение и доставка решаются на сервере — консоль только отображает состояние.",
+
+  // Status panel
+  "admin.connectors.status.title": "Состояние коннекторов",
+  "admin.connectors.status.caption": "Список коннекторов и их состояние",
+  "admin.connectors.status.loading": "Загрузка состояния…",
+  "admin.connectors.status.error": "Не удалось загрузить состояние: {message}",
+  "admin.connectors.status.empty": "Коннекторы не найдены.",
+  "admin.connectors.status.colConnector": "Коннектор",
+  "admin.connectors.status.colConfigured": "Настроен",
+  "admin.connectors.status.colEnabled": "Включён",
+
+  // Badges
+  "admin.connectors.badge.configured": "настроен",
+  "admin.connectors.badge.unconfigured": "не настроен",
+  "admin.connectors.badge.enabled": "включён",
+  "admin.connectors.badge.disabled": "отключён",
+
+  // Connector ids
+  "admin.connectors.id.telegram": "Telegram",
+  "admin.connectors.id.email": "Email",
+  "admin.connectors.id.sms": "SMS",
+  "admin.connectors.id.calendar-ics": "Календарь (iCal)",
+  "admin.connectors.id.google-calendar": "Google Календарь",
+  "admin.connectors.id.webhooks": "Веб-хуки",
+  "admin.connectors.id.google-sheets": "Google Таблицы",
+  "admin.connectors.id.csv-export": "Экспорт CSV",
+
+  // Channels
+  "admin.connectors.channel.email": "Email",
+  "admin.connectors.channel.sms": "SMS",
+  "admin.connectors.channel.telegram": "Telegram",
+
+  // Test send
+  "admin.connectors.testSend.title": "Тестовая отправка",
+  "admin.connectors.testSend.lead":
+    "Отправьте тестовое сообщение, чтобы проверить настройку канала.",
+  "admin.connectors.testSend.channelLabel": "Канал",
+  "admin.connectors.testSend.toLabel": "Получатель",
+  "admin.connectors.testSend.toHint": "Email-адрес, номер телефона или Telegram ID.",
+  "admin.connectors.testSend.send": "Отправить тест",
+  "admin.connectors.testSend.sending": "Отправка…",
+  "admin.connectors.testSend.ok": "Тест отправлен через {channel}",
+  "admin.connectors.testSend.failed": "Не удалось отправить тест",
+
+  // Webhooks
+  "admin.connectors.webhooks.title": "Веб-хуки",
+  "admin.connectors.webhooks.caption": "Настроенные эндпойнты веб-хуков",
+  "admin.connectors.webhooks.new": "Новый эндпойнт",
+  "admin.connectors.webhooks.loading": "Загрузка эндпойнтов…",
+  "admin.connectors.webhooks.error": "Не удалось загрузить эндпойнты: {message}",
+  "admin.connectors.webhooks.empty": "Эндпойнты не настроены.",
+  "admin.connectors.webhooks.colUrl": "URL",
+  "admin.connectors.webhooks.colEvents": "События",
+  "admin.connectors.webhooks.colStatus": "Статус",
+  "admin.connectors.webhooks.colActions": "Действия",
+  "admin.connectors.webhooks.deliveries": "Доставки",
+  "admin.connectors.webhooks.createTitle": "Новый эндпойнт",
+  "admin.connectors.webhooks.editTitle": "Изменить эндпойнт",
+  "admin.connectors.webhooks.urlLabel": "URL эндпойнта",
+  "admin.connectors.webhooks.urlHint": "Сервер будет отправлять подписанные POST-запросы на этот адрес.",
+  "admin.connectors.webhooks.eventsLabel": "События",
+  "admin.connectors.webhooks.updated": "Эндпойнт обновлён",
+
+  // Events
+  "admin.connectors.event.booking.created": "Запись создана",
+  "admin.connectors.event.booking.declined": "Запись отклонена",
+  "admin.connectors.event.training.cancelled": "Тренировка отменена",
+  "admin.connectors.event.court-request.confirmed": "Заявка на корт подтверждена",
+  "admin.connectors.event.court-request.rejected": "Заявка на корт отклонена",
+
+  // Secret (shown once)
+  "admin.connectors.secret.title": "Секрет подписи",
+  "admin.connectors.secret.warning":
+    "Сохраните этот секрет сейчас — он показывается один раз и больше не будет доступен. Он используется для проверки подписи веб-хука (HMAC).",
+  "admin.connectors.secret.copy": "Скопировать секрет",
+  "admin.connectors.secret.copied": "Секрет скопирован",
+  "admin.connectors.secret.copyFailed": "Не удалось скопировать",
+  "admin.connectors.secret.done": "Готово",
+
+  // Delivery log
+  "admin.connectors.deliveries.title": "Журнал доставок",
+  "admin.connectors.deliveries.caption": "Доставки веб-хука для эндпойнта",
+  "admin.connectors.deliveries.loading": "Загрузка доставок…",
+  "admin.connectors.deliveries.error": "Не удалось загрузить доставки: {message}",
+  "admin.connectors.deliveries.empty": "Доставок пока нет.",
+  "admin.connectors.deliveries.colEvent": "Событие",
+  "admin.connectors.deliveries.colStatus": "Статус",
+  "admin.connectors.deliveries.colAttempts": "Попытки",
+  "admin.connectors.deliveries.colResponse": "Ответ",
+  "admin.connectors.deliveries.colError": "Ошибка",
+  "admin.connectors.deliveries.colActions": "Действия",
+  "admin.connectors.deliveries.retry": "Повторить",
+  "admin.connectors.deliveries.retried": "Доставка поставлена в очередь повторно",
+  "admin.connectors.deliveryStatus.pending": "ожидает",
+  "admin.connectors.deliveryStatus.delivered": "доставлено",
+  "admin.connectors.deliveryStatus.failed": "ошибка",
+
+  // Exports
+  "admin.connectors.exports.title": "Экспорт",
+  "admin.connectors.exports.lead":
+    "Скачайте данные в CSV или отправьте их в настроенную Google Таблицу.",
+  "admin.connectors.exports.clients": "Скачать clients.csv",
+  "admin.connectors.exports.bookings": "Скачать bookings.csv",
+  "admin.connectors.exports.sheets": "Отправить в Google Таблицу",
+  "admin.connectors.exports.syncing": "Отправка…",
+  "admin.connectors.exports.synced": "Данные отправлены в Google Таблицу",
+  "admin.connectors.exports.sheetsDisabled": "Google Таблицы не настроены.",
+
+  // Calendar feed
+  "admin.connectors.calendar.title": "Календарная лента",
+  "admin.connectors.calendar.lead":
+    "Получите подписанную ссылку на ленту тренировок тренера или клиента. Обновление ссылки отзывает старую.",
+  "admin.connectors.calendar.subjectLabel": "Кому",
+  "admin.connectors.calendar.subject.trainer": "Тренер",
+  "admin.connectors.calendar.subject.client": "Клиент",
+  "admin.connectors.calendar.idLabel": "Идентификатор",
+  "admin.connectors.calendar.idHint": "UUID тренера или клиента.",
+  "admin.connectors.calendar.get": "Получить ссылку",
+  "admin.connectors.calendar.rotate": "Обновить ссылку",
+  "admin.connectors.calendar.rotated": "Ссылка обновлена, старая отозвана",
+  "admin.connectors.calendar.copy": "Скопировать ссылку",
+  "admin.connectors.calendar.copied": "Ссылка скопирована"
 };

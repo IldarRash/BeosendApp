@@ -2,6 +2,7 @@ import {
   BadRequestException,
   Body,
   Controller,
+  Delete,
   Get,
   Headers,
   Param,
@@ -12,7 +13,6 @@ import {
 import {
   assignCourtSchema,
   availableSlotsQuerySchema,
-  cancelTrainingSchema,
   changeCapacitySchema,
   generateAllMonthSchema,
   generateMonthSchema,
@@ -129,17 +129,15 @@ export class TrainingsController {
     return this.trainings.getRoster(actorTelegramId, trainingId);
   }
 
-  /** Admin: cancel a training and notify its booked clients. Gated in the service. */
-  @Post(":id/cancel")
-  cancel(
+  /** Admin: hard-delete a training (purges its rows) and notify its booked clients. Gated in the service. */
+  @Delete(":id")
+  delete(
     @Headers("x-telegram-id") telegramIdHeader: string | undefined,
-    @Param("id") id: string,
-    @Body() body: unknown
-  ): Promise<Training> {
+    @Param("id") id: string
+  ): Promise<{ id: string }> {
     const actorTelegramId = parseTelegramId(telegramIdHeader);
     const trainingId = validate(uuid, id);
-    validate(cancelTrainingSchema, body ?? {});
-    return this.trainings.cancelTraining(actorTelegramId, trainingId);
+    return this.trainings.deleteTraining(actorTelegramId, trainingId);
   }
 
   /** Admin: reserve a court for an unassigned ("orphan") training. Gated in the service. */

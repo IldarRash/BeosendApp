@@ -246,11 +246,10 @@ export const botSr: Record<string, string> = {
   "bot.manager.noTrainings":
     "U narednih 30 dana nema treninga. Generišite raspored za mesec.",
   "bot.manager.overviewHeader": "Popunjenost treninga (30 dana):",
-  "bot.manager.pickCancel": "Koji trening otkazati?",
+  "bot.manager.pickCancel": "Koji trening obrisati?",
   "bot.manager.pickCap": "Kom treningu promeniti kapacitet?",
   "bot.manager.cancelDone":
-    "✅ Trening je otkazan. Prijavljeni klijenti su obavešteni, mesta su oslobođena.",
-  "bot.manager.cancelAlready": "Ovaj trening je već otkazan.",
+    "✅ Trening je obrisan. Prijavljeni klijenti su obavešteni, mesta su oslobođena.",
   "bot.manager.cancelNotFound": "Trening nije pronađen.",
   "bot.manager.capDone": "✅ Kapacitet je ažuriran.",
   "bot.manager.capBelowBooked":
@@ -261,13 +260,14 @@ export const botSr: Record<string, string> = {
   "bot.manager.status.completed": "završen",
   "bot.manager.btn.overview": "📊 Pregled popunjenosti",
   "bot.manager.btn.capacity": "🔢 Promeni kapacitet",
-  "bot.manager.btn.cancel": "🚫 Otkaži trening",
+  "bot.manager.btn.cancel": "🗑 Obriši trening",
   "bot.manager.btn.broadcasts": "📨 Obavesti",
   "bot.manager.btn.stats": "📈 Pregled škole",
   "bot.manager.overviewLine": "{booked}/{capacity} · {status}",
-  "bot.manager.cancelConfirmTitle": "Otkazati trening {date}, {start}–{end}?",
-  "bot.manager.cancelConfirmBody": "Prijavljeno: {booked}. Svi prijavljeni klijenti biće obavešteni.",
-  "bot.manager.cancelConfirmButton": "✅ Da, otkaži",
+  "bot.manager.cancelConfirmTitle": "Obrisati trening {date}, {start}–{end}?",
+  "bot.manager.cancelConfirmBody":
+    "Prijavljeno: {booked}. Trening će biti trajno obrisan, a svi prijavljeni klijenti biće obavešteni.",
+  "bot.manager.cancelConfirmButton": "✅ Da, obriši",
   "bot.manager.cancelButton": "🚫 {label}",
   "bot.manager.capButton": "🔢 {label}",
   "bot.manager.capPickTitle": "Trening {date}, {start}–{end}.",

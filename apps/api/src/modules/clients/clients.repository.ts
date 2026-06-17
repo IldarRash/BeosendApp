@@ -48,7 +48,7 @@ export class ClientsRepository {
    * multiple NULL telegram_ids uncontended.
    */
   async insertWalkIn(
-    values: { name: string; phone?: string; note?: string },
+    values: { name: string; phone?: string; email?: string; note?: string },
     tx: Database = this.database.db
   ): Promise<Client> {
     const [row] = await tx
@@ -59,6 +59,7 @@ export class ClientsRepository {
         telegramUsername: null,
         source: "walk_in",
         phone: values.phone ?? null,
+        email: values.email ?? null,
         note: values.note ?? null
       })
       .returning();
@@ -116,6 +117,58 @@ export class ClientsRepository {
     return row ? toClient(row) : undefined;
   }
 
+  /**
+   * Apply an admin profile patch (name/levelId/phone/note) to a client by primary
+   * key. Only the provided keys are written (a partial patch); a null clears the
+   * column. Returns the updated row, or undefined if no client has that id.
+   */
+  async updateById(
+    id: string,
+    patch: Partial<Pick<NewClientRow, "name" | "levelId" | "phone" | "email" | "note">>,
+    tx: Database = this.database.db
+  ): Promise<Client | undefined> {
+    const [row] = await tx
+      .update(tables.clients)
+      .set(patch)
+      .where(eq(tables.clients.id, id))
+      .returning();
+    return row ? toClient(row) : undefined;
+  }
+
+  /**
+   * The client's current calendar feed version (connectors §5.4), or undefined if no
+   * client has that id. Used to validate a signed feed token's `v` and to build a
+   * link at the live version. Kept off the entity contract — it's an internal counter.
+   */
+  async findCalendarFeedVersion(
+    id: string,
+    tx: Database = this.database.db
+  ): Promise<number | undefined> {
+    const [row] = await tx
+      .select({ version: tables.clients.calendarFeedVersion })
+      .from(tables.clients)
+      .where(eq(tables.clients.id, id))
+      .limit(1);
+    return row?.version;
+  }
+
+  /**
+   * Rotate a client's calendar feed: increment `calendarFeedVersion`, invalidating
+   * every previously issued feed token (connectors §5.4). Returns the new version, or
+   * undefined if no client has that id. No business rules — the service gates access.
+   */
+  async bumpCalendarFeedVersion(
+    id: string,
+    tx: Database = this.database.db
+  ): Promise<number | undefined> {
+    const [row] = await tx
+      .update(tables.clients)
+      .set({ calendarFeedVersion: sql`${tables.clients.calendarFeedVersion} + 1` })
+      .where(eq(tables.clients.id, id))
+      .returning({ version: tables.clients.calendarFeedVersion });
+    return row?.version;
+  }
+
   /** Set a client's per-user UI locale. Returns the updated row, or undefined if none. */
   async updateLanguage(
     telegramId: number,
@@ -141,6 +194,7 @@ function toClient(row: ClientRow): Client {
     levelId: row.levelId,
     source: clientSourceOf(row.source),
     phone: row.phone,
+    email: row.email,
     note: row.note,
     language: row.language,
     registeredAt: row.registeredAt.toISOString(),

@@ -62,7 +62,74 @@ const envSchema = z.object({
         .split(",")
         .map((part) => part.trim())
         .filter(Boolean)
-    )
+    ),
+
+  // --- External connectors (all optional: a missing provider is a normal
+  // "disabled" state, not a boot failure; but a malformed value still fails
+  // closed at startup). None is ever logged. See docs/product/features/connectors.md §4.
+
+  // Calendar
+  /** HMAC key for signed .ics feed tokens; min length so the signature has entropy. */
+  CALENDAR_FEED_SECRET: z.string().min(16).optional(),
+  /** Absolute base URL used to build the feed URLs shown to users. */
+  PUBLIC_BASE_URL: z.string().url().optional(),
+  GOOGLE_CALENDAR_ID: z.string().optional(),
+  /** Raw JSON or base64 of a Google service account; shared with Sheets. */
+  GOOGLE_SERVICE_ACCOUNT_JSON: z.string().optional(),
+
+  // Email
+  /** Absent => the email channel is disabled. */
+  EMAIL_PROVIDER: z.enum(["smtp", "sendgrid"]).optional(),
+  EMAIL_FROM: z.string().email().optional(),
+  /** smtp(s)://user:pass@host:port */
+  SMTP_URL: z.string().url().optional(),
+  SENDGRID_API_KEY: z.string().optional(),
+
+  // SMS (Twilio)
+  TWILIO_ACCOUNT_SID: z.string().optional(),
+  TWILIO_AUTH_TOKEN: z.string().optional(),
+  TWILIO_FROM_NUMBER: z.string().optional(),
+
+  // Webhooks / Sheets
+  WEBHOOK_MAX_ATTEMPTS: z.coerce.number().int().positive().default(6),
+  GOOGLE_SHEETS_ID: z.string().optional()
+  // (Google service account reused from GOOGLE_SERVICE_ACCOUNT_JSON)
+}).superRefine((env, ctx) => {
+  // A half-configured email channel must not boot: a chosen provider requires its
+  // creds and a from-address. (The channel adapter's isEnabled() gates on the same
+  // vars at runtime; this keeps a partial config from passing startup.)
+  if (env.EMAIL_PROVIDER === "smtp") {
+    if (!env.SMTP_URL) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ["SMTP_URL"],
+        message: "SMTP_URL is required when EMAIL_PROVIDER is 'smtp'"
+      });
+    }
+    if (!env.EMAIL_FROM) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ["EMAIL_FROM"],
+        message: "EMAIL_FROM is required when EMAIL_PROVIDER is 'smtp'"
+      });
+    }
+  }
+  if (env.EMAIL_PROVIDER === "sendgrid") {
+    if (!env.SENDGRID_API_KEY) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ["SENDGRID_API_KEY"],
+        message: "SENDGRID_API_KEY is required when EMAIL_PROVIDER is 'sendgrid'"
+      });
+    }
+    if (!env.EMAIL_FROM) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ["EMAIL_FROM"],
+        message: "EMAIL_FROM is required when EMAIL_PROVIDER is 'sendgrid'"
+      });
+    }
+  }
 });
 
 export type Env = z.infer<typeof envSchema>;

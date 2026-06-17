@@ -33,6 +33,7 @@ import {
 import type { Database } from "@beosand/db";
 import { ENV } from "../../config/config.module";
 import { ClientsRepository } from "../clients/clients.repository";
+import { DomainEventsService } from "../connectors/domain-events.service";
 import { GroupsRepository } from "../groups/groups.repository";
 import { NotificationsService } from "../notifications/notifications.service";
 import type { InlineKeyboardMarkup } from "../notifications/telegram-sender";
@@ -77,6 +78,7 @@ export class BookingsService {
     private readonly notifications: NotificationsService,
     private readonly waitlist: WaitlistService,
     private readonly trainers: TrainersRepository,
+    private readonly domainEvents: DomainEventsService,
     @Inject(ENV) private readonly env: Env
   ) {}
 
@@ -118,6 +120,10 @@ export class BookingsService {
     } else {
       await this.notifyPendingSafely(booking, trainerTelegramId);
     }
+    // Connector seam: emit the typed booking.created event (no listener yet).
+    await this.emitBookingCreatedSafely([
+      { id: booking.id, clientId: booking.clientId, trainingId: booking.trainingId, type: "single" }
+    ]);
 
     return bookingSchema.parse(booking);
   }
@@ -180,6 +186,10 @@ export class BookingsService {
         this.notifications.sendBookingConfirmation(input.clientId, input.trainingId)
       );
     }
+    // Connector seam: emit booking.created (fires for walk-ins too, no telegram DM).
+    await this.emitBookingCreatedSafely([
+      { id: booking.id, clientId: booking.clientId, trainingId: booking.trainingId, type: "single" }
+    ]);
 
     return bookingSchema.parse(booking);
   }
@@ -338,6 +348,15 @@ export class BookingsService {
           trainerTelegramId
         );
       }
+      // Connector seam: one booking.created per created instance of the batch.
+      await this.emitBookingCreatedSafely(
+        result.created.map((booking) => ({
+          id: booking.id,
+          clientId: booking.clientId,
+          trainingId: booking.trainingId,
+          type: "group" as const
+        }))
+      );
     }
 
     return groupBookingResultSchema.parse(result);
@@ -725,6 +744,15 @@ export class BookingsService {
     await this.sendConfirmationSafely(() =>
       this.notifications.sendBookingConfirmation(result.clientId, result.trainingId)
     );
+    // Connector seam: the trainer-confirmed booking is now created/final.
+    await this.emitBookingCreatedSafely([
+      {
+        id: result.updated.id,
+        clientId: result.clientId,
+        trainingId: result.trainingId,
+        type: "single"
+      }
+    ]);
 
     return bookingSchema.parse(result.updated);
   }
@@ -772,6 +800,10 @@ export class BookingsService {
     await this.sendConfirmationSafely(() =>
       this.notifications.sendBookingDeclined(result.clientId, result.trainingId)
     );
+    // Connector seam: emit booking.declined alongside the decline DM.
+    await this.emitBookingDeclinedSafely([
+      { id: result.updated.id, clientId: result.clientId, trainingId: result.trainingId }
+    ]);
     await this.promoteWaitlistSafely(result.trainingId);
 
     return bookingSchema.parse(result.updated);
@@ -805,12 +837,22 @@ export class BookingsService {
       );
       return {
         clientId: pending[0].clientId,
-        trainingIds: pending.map((row) => row.trainingId)
+        trainingIds: pending.map((row) => row.trainingId),
+        bookings: pending.map((row) => ({ id: row.id, trainingId: row.trainingId }))
       };
     });
 
     await this.sendConfirmationSafely(() =>
       this.notifications.sendGroupBookingConfirmation(result.clientId, result.trainingIds)
+    );
+    // Connector seam: one booking.created per confirmed instance of the batch.
+    await this.emitBookingCreatedSafely(
+      result.bookings.map((booking) => ({
+        id: booking.id,
+        clientId: result.clientId,
+        trainingId: booking.trainingId,
+        type: "group" as const
+      }))
     );
 
     return groupBookingResultSchema.parse({
@@ -855,7 +897,8 @@ export class BookingsService {
       );
       return {
         clientId: pending[0].clientId,
-        trainingIds: pending.map((row) => row.trainingId)
+        trainingIds: pending.map((row) => row.trainingId),
+        bookings: pending.map((row) => ({ id: row.id, trainingId: row.trainingId }))
       };
     });
 
@@ -863,6 +906,14 @@ export class BookingsService {
     const clientId = result.clientId;
     await this.sendConfirmationSafely(() =>
       this.notifications.sendGroupBookingDeclined(clientId, result.trainingIds)
+    );
+    // Connector seam: one booking.declined per declined instance of the batch.
+    await this.emitBookingDeclinedSafely(
+      result.bookings.map((booking) => ({
+        id: booking.id,
+        clientId,
+        trainingId: booking.trainingId
+      }))
     );
     for (const trainingId of result.trainingIds) {
       await this.promoteWaitlistSafely(trainingId);
@@ -1017,6 +1068,87 @@ export class BookingsService {
     } catch (error) {
       this.logger.error(
         "Waitlist promotion after cancel failed (cancellation stands): " +
+          (error instanceof Error ? error.message : String(error))
+      );
+    }
+  }
+
+  /**
+   * Post-commit: emit a typed `booking.created` domain event for connector listeners
+   * (webhooks/calendar, Slices A–C), alongside the existing direct Telegram
+   * confirmation. Resolves the client name + training render fields the payload
+   * contract needs. Best-effort and self-tolerant: a resolution/emit failure is
+   * logged and swallowed so a committed booking is never undone (DomainEventsService
+   * also swallows the emit itself). `bookings` is one or more bookings of the same
+   * client (a single booking, or one batch sharing a groupSubscriptionId).
+   */
+  private async emitBookingCreatedSafely(
+    bookings: { id: string; clientId: string; trainingId: string; type: "single" | "group" }[]
+  ): Promise<void> {
+    if (bookings.length === 0) {
+      return;
+    }
+    try {
+      const clientId = bookings[0].clientId;
+      const client = await this.clients.findById(clientId);
+      const refs = await this.bookings.findTrainingRefs(bookings.map((b) => b.trainingId));
+      for (const booking of bookings) {
+        const ref = refs.get(booking.trainingId);
+        if (!client || !ref) {
+          continue;
+        }
+        this.domainEvents.emitBookingCreated({
+          clientId,
+          clientName: client.name,
+          trainingId: booking.trainingId,
+          date: ref.date,
+          startTime: ref.startTime,
+          endTime: ref.endTime,
+          bookingId: booking.id,
+          type: booking.type
+        });
+      }
+    } catch (error) {
+      this.logger.error(
+        "booking.created event emission failed (booking stands): " +
+          (error instanceof Error ? error.message : String(error))
+      );
+    }
+  }
+
+  /**
+   * Post-commit: emit a typed `booking.declined` domain event for one declined
+   * booking, alongside the existing direct decline DM. Same best-effort tolerance as
+   * emitBookingCreatedSafely.
+   */
+  private async emitBookingDeclinedSafely(
+    bookings: { id: string; clientId: string; trainingId: string }[]
+  ): Promise<void> {
+    if (bookings.length === 0) {
+      return;
+    }
+    try {
+      const clientId = bookings[0].clientId;
+      const client = await this.clients.findById(clientId);
+      const refs = await this.bookings.findTrainingRefs(bookings.map((b) => b.trainingId));
+      for (const booking of bookings) {
+        const ref = refs.get(booking.trainingId);
+        if (!client || !ref) {
+          continue;
+        }
+        this.domainEvents.emitBookingDeclined({
+          clientId,
+          clientName: client.name,
+          trainingId: booking.trainingId,
+          date: ref.date,
+          startTime: ref.startTime,
+          endTime: ref.endTime,
+          bookingId: booking.id
+        });
+      }
+    } catch (error) {
+      this.logger.error(
+        "booking.declined event emission failed (decline stands): " +
           (error instanceof Error ? error.message : String(error))
       );
     }

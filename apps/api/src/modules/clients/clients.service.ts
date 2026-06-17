@@ -8,7 +8,13 @@ import {
 } from "@nestjs/common";
 import type { Env } from "@beosand/config";
 import { isAdmin } from "@beosand/config";
-import type { Client, CreateWalkInInput, ListClientsQuery, Locale } from "@beosand/types";
+import type {
+  Client,
+  CreateWalkInInput,
+  ListClientsQuery,
+  Locale,
+  UpdateClientInput
+} from "@beosand/types";
 import { ENV } from "../../config/config.module";
 import { DatabaseService } from "../../db/database.service";
 import { LevelsRepository } from "../levels/levels.repository";
@@ -144,6 +150,46 @@ export class ClientsService {
     const client = await this.clients.insertWalkIn(input);
     this.logger.log(`Created walk-in client ${client.id} (${client.name})`);
     return client;
+  }
+
+  /**
+   * Admin-only (manager console): edit a client's profile by primary key, so
+   * walk-ins (no telegram_id) are editable too. Only the provided keys are
+   * written (a partial patch); a null clears a nullable column. A changed
+   * `levelId` is validated against an active level, mirroring `onboard`. An empty
+   * patch is a no-op (the existing row is returned unchanged), mirroring
+   * GroupsService.update. Identity and the bot-owned language are not editable
+   * here (the contract already omits them).
+   */
+  async updateClient(
+    actorTelegramId: number,
+    id: string,
+    patch: UpdateClientInput
+  ): Promise<Client> {
+    this.assertAdmin(actorTelegramId);
+
+    const existing = await this.clients.findById(id);
+    if (!existing) {
+      throw new NotFoundException(`Client ${id} not found`);
+    }
+
+    if (patch.levelId != null) {
+      const level = await this.levels.findById(patch.levelId);
+      if (!level || level.status !== "active") {
+        throw new BadRequestException(`Level ${patch.levelId} is unknown or inactive`);
+      }
+    }
+
+    if (Object.keys(patch).length === 0) {
+      return existing;
+    }
+
+    const updated = await this.clients.updateById(id, patch);
+    if (!updated) {
+      throw new NotFoundException(`Client ${id} not found`);
+    }
+    this.logger.log(`Updated client ${id}`);
+    return updated;
   }
 
   /** A client may only act on its own record; admins may act on any. */

@@ -652,18 +652,18 @@ const trainingBody: Training = {
   status: "open"
 };
 
-describe("ApiClient.cancelTraining", () => {
+describe("ApiClient.deleteTraining", () => {
   afterEach(() => {
     vi.unstubAllGlobals();
   });
 
-  it("POSTs to /trainings/:id/cancel with the admin header and returns the training", async () => {
-    const fetchMock = mockFetch({ ...trainingBody, status: "cancelled" });
-    const result = await new ApiClient("http://api.test").cancelTraining(TRAINING_ID, 777);
-    expect(result).toEqual({ ok: true, training: { ...trainingBody, status: "cancelled" } });
+  it("DELETEs /trainings/:id with the admin header and returns the id", async () => {
+    const fetchMock = mockFetch({ id: TRAINING_ID });
+    const result = await new ApiClient("http://api.test").deleteTraining(TRAINING_ID, 777);
+    expect(result).toEqual({ ok: true, id: TRAINING_ID });
     const [rawUrl, init] = fetchMock.mock.calls[0] as [string, RequestInit];
-    expect(rawUrl).toBe(`http://api.test/trainings/${TRAINING_ID}/cancel`);
-    expect(init.method).toBe("POST");
+    expect(rawUrl).toBe(`http://api.test/trainings/${TRAINING_ID}`);
+    expect(init.method).toBe("DELETE");
     expect((init.headers as Record<string, string>)["x-telegram-id"]).toBe("777");
   });
 
@@ -671,25 +671,21 @@ describe("ApiClient.cancelTraining", () => {
   it("maps a 403 to forbidden", async () => {
     mockFetch({}, false, 403);
     await expect(
-      new ApiClient("http://api.test").cancelTraining(TRAINING_ID, 123)
+      new ApiClient("http://api.test").deleteTraining(TRAINING_ID, 123)
     ).resolves.toEqual({ ok: false, reason: "forbidden" });
   });
 
-  it("maps a 404 to notFound and a 409 to alreadyCancelled", async () => {
+  it("maps a 404 to notFound", async () => {
     mockFetch({}, false, 404);
     await expect(
-      new ApiClient("http://api.test").cancelTraining(TRAINING_ID, 777)
+      new ApiClient("http://api.test").deleteTraining(TRAINING_ID, 777)
     ).resolves.toEqual({ ok: false, reason: "notFound" });
-    mockFetch({}, false, 409);
-    await expect(
-      new ApiClient("http://api.test").cancelTraining(TRAINING_ID, 777)
-    ).resolves.toEqual({ ok: false, reason: "alreadyCancelled" });
   });
 
   it("throws on any other non-2xx", async () => {
     mockFetch({}, false, 500);
     await expect(
-      new ApiClient("http://api.test").cancelTraining(TRAINING_ID, 777)
+      new ApiClient("http://api.test").deleteTraining(TRAINING_ID, 777)
     ).rejects.toThrow(/500/);
   });
 });
@@ -749,6 +745,7 @@ const clientBody = {
   language: "sr" as const,
   source: "telegram" as const,
   phone: null,
+  email: null,
   note: null
 };
 

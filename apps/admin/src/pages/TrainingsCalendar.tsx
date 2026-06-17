@@ -18,7 +18,7 @@ import { useGroups } from "../hooks/useGroups";
 import { useTrainers } from "../hooks/useTrainers";
 import { useTrainingDetail } from "../hooks/useTrainingDetail";
 import { useTrainingsCalendar } from "../hooks/useTrainingsCalendar";
-import { useCancelTraining } from "../hooks/useTrainings";
+import { useDeleteTraining } from "../hooks/useTrainings";
 
 type Translate = (key: string, params?: Record<string, string | number>) => string;
 
@@ -286,10 +286,10 @@ export function TrainingsCalendar(): JSX.Element {
 /**
  * Detail popup for one calendar event. Fetches the joined detail (GET
  * /trainings/:id/detail) and renders the server-decided values via the shared
- * {@link TrainingDetailBody}. A destructive "Удалить тренировку" action soft-cancels
- * the training (POST /trainings/:id/cancel) behind an in-modal confirm; on success
- * the calendar refetches (the cancelled training is excluded server-side) and the
- * modal closes. A cancelled/completed training can no longer be deleted.
+ * {@link TrainingDetailBody}. A destructive "Удалить тренировку" action deletes
+ * the training (DELETE /trainings/:id) behind an in-modal confirm; on success the
+ * calendar refetches (the removed training is gone server-side) and the modal
+ * closes. A completed training can no longer be deleted; a cancelled one can.
  */
 function TrainingDetailModal({
   id,
@@ -302,7 +302,7 @@ function TrainingDetailModal({
 }): JSX.Element {
   const { notify } = useToast();
   const detail = useTrainingDetail(id);
-  const cancel = useCancelTraining();
+  const del = useDeleteTraining();
   const [confirming, setConfirming] = useState(false);
 
   // Reset the confirm step + any stale mutation error whenever a new event opens.
@@ -310,12 +310,11 @@ function TrainingDetailModal({
   if (id !== lastId) {
     setLastId(id);
     setConfirming(false);
-    cancel.reset();
+    del.reset();
   }
 
   const item = detail.data ?? null;
-  const deletable =
-    item !== null && item.status !== "cancelled" && item.status !== "completed";
+  const deletable = item !== null && item.status !== "completed";
 
   function close(): void {
     setConfirming(false);
@@ -324,9 +323,9 @@ function TrainingDetailModal({
 
   function submitDelete(): void {
     if (!item) return;
-    cancel.mutate(item.id, {
-      onSuccess: (updated) => {
-        notify(t("admin.calendar.deleted", { count: updated.bookedCount }), "success");
+    del.mutate(item.id, {
+      onSuccess: () => {
+        notify(t("admin.calendar.deleted"), "success");
         close();
       },
       onError: (error) =>
@@ -346,11 +345,11 @@ function TrainingDetailModal({
         deletable ? (
           confirming ? (
             <div className="cluster">
-              <Button variant="ghost" onClick={() => setConfirming(false)} disabled={cancel.isPending}>
+              <Button variant="ghost" onClick={() => setConfirming(false)} disabled={del.isPending}>
                 {t("admin.calendar.deleteKeep")}
               </Button>
-              <Button variant="danger" onClick={submitDelete} disabled={cancel.isPending}>
-                {cancel.isPending ? t("admin.calendar.deleting") : t("admin.calendar.deleteConfirm")}
+              <Button variant="danger" onClick={submitDelete} disabled={del.isPending}>
+                {del.isPending ? t("admin.calendar.deleting") : t("admin.calendar.deleteConfirm")}
               </Button>
             </div>
           ) : (

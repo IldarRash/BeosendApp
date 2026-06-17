@@ -19,10 +19,16 @@ import type {
   TrainingLockRow,
   TrainingsRepository
 } from "./trainings.repository";
+import type { DomainEventsService } from "../connectors/domain-events.service";
 import type { GroupsRepository } from "../groups/groups.repository";
 import type { NotificationsService } from "../notifications/notifications.service";
 import type { TrainersRepository } from "../trainers/trainers.repository";
 import type { Trainer } from "@beosand/types";
+
+/** No-op domain-events double: the connector emit seam is fire-and-forget here. */
+const fakeDomainEvents = {
+  emitTrainingCancelled: (): void => undefined
+} as unknown as DomainEventsService;
 
 const ADMIN_ID = 111;
 const NON_ADMIN_ID = 999;
@@ -171,6 +177,14 @@ class FakeTrainingsRepository {
       : undefined;
   }
 
+  // Render fields for the connectors training.cancelled domain-event payload.
+  async findRefById(
+    id: string
+  ): Promise<{ date: string; startTime: string; endTime: string } | undefined> {
+    const row = this.rows.find((r) => r.id === id);
+    return row ? { date: row.date, startTime: row.startTime, endTime: row.endTime } : undefined;
+  }
+
   // Full-training lock for the admin assign-court write.
   fullLock: Training | undefined;
   async findFullForUpdate(_tx: Database, id: string): Promise<Training | undefined> {
@@ -211,6 +225,22 @@ class FakeTrainingsRepository {
     this.cancelBookedCalls += 1;
     this.cancelBookedIds.push(id);
     return this.cancelledClientIdsByTraining.get(id) ?? this.cancelledClientIds;
+  }
+
+  // --- Hard-delete purge writes (deleteTraining), recorded in call order. ---
+  /** Ordered log of purge mutations, so a test can assert FK-safe ordering. */
+  purgeCalls: string[] = [];
+  async deleteNotificationsForTraining(_tx: Database, id: string): Promise<void> {
+    this.purgeCalls.push(`notifications:${id}`);
+  }
+  async deleteWaitlistForTraining(_tx: Database, id: string): Promise<void> {
+    this.purgeCalls.push(`waitlist:${id}`);
+  }
+  async deleteBookingsForTraining(_tx: Database, id: string): Promise<void> {
+    this.purgeCalls.push(`bookings:${id}`);
+  }
+  async deleteTrainingRow(_tx: Database, id: string): Promise<void> {
+    this.purgeCalls.push(`training:${id}`);
   }
 
   async updateCapacity(
@@ -365,6 +395,7 @@ describe("TrainingsService", () => {
       trainersRepo as unknown as TrainersRepository,
       notifications as unknown as NotificationsService,
       courtBlocksRepo as unknown as import("../courts/court-blocks.repository").CourtBlocksRepository,
+      fakeDomainEvents,
       env
     );
   });
@@ -793,136 +824,99 @@ describe("TrainingsService", () => {
     });
   });
 
-  describe("cancelTraining (A1 manager console)", () => {
+  describe("deleteTraining (hard-delete, admin-only)", () => {
     const TRAINING_ID = "aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa";
     const TRAINER_ID = "33333333-3333-3333-3333-333333333333";
 
-    it("cancels the training, flips its booked bookings, and notifies the affected clients", async () => {
-      trainingsRepo.lock = {
-        id: TRAINING_ID,
-        capacity: 12,
-        bookedCount: 3,
-        status: "open",
-        trainerId: TRAINER_ID
-      };
+    const openLock = (over: Partial<TrainingLockRow> = {}): TrainingLockRow => ({
+      id: TRAINING_ID,
+      capacity: 12,
+      bookedCount: 3,
+      status: "open",
+      trainerId: TRAINER_ID,
+      ...over
+    });
+
+    it("rejects a non-admin with 403 and purges nothing", async () => {
+      trainingsRepo.lock = openLock();
+      await expect(service.deleteTraining(NON_ADMIN_ID, TRAINING_ID)).rejects.toBeInstanceOf(
+        ForbiddenException
+      );
+      expect(trainingsRepo.cancelBookedCalls).toBe(0);
+      expect(trainingsRepo.purgeCalls).toEqual([]);
+      expect(notifications.sendTrainingCancelled).not.toHaveBeenCalled();
+    });
+
+    it("404s a missing training (findForUpdate → undefined) and purges nothing", async () => {
+      // No seeded lock and no stored row → findForUpdate returns undefined.
+      await expect(service.deleteTraining(ADMIN_ID, TRAINING_ID)).rejects.toBeInstanceOf(
+        NotFoundException
+      );
+      expect(trainingsRepo.purgeCalls).toEqual([]);
+      expect(notifications.sendTrainingCancelled).not.toHaveBeenCalled();
+    });
+
+    it("cancels a booked training, notifies the captured clients BEFORE the purge, then purges in FK order and returns {id}", async () => {
+      trainingsRepo.lock = openLock({ bookedCount: 3 });
       trainingsRepo.cancelledClientIds = ["client-a", "client-b", "client-c"];
+      // Mark the notify in the same ordered log so we can assert it runs while the
+      // training row still exists (i.e. strictly before `training:<id>` is purged).
+      notifications.sendTrainingCancelled.mockImplementationOnce(async () => {
+        trainingsRepo.purgeCalls.push(`notify:${TRAINING_ID}`);
+        return 0;
+      });
 
-      const result = await service.cancelTraining(ADMIN_ID, TRAINING_ID);
+      const result = await service.deleteTraining(ADMIN_ID, TRAINING_ID);
 
-      expect(result.status).toBe("cancelled");
+      expect(result).toEqual({ id: TRAINING_ID });
+      // tx1 cancelled the booked bookings, capturing the affected clientIds.
       expect(trainingsRepo.cancelBookedCalls).toBe(1);
-      // The clientIds captured inside the tx (before/while bookings flip) are passed
-      // to the fan-out, so the notify never runs against zero booked rows.
+      // Notify ran with the captured clientIds (never against zero rows post-purge).
       expect(notifications.sendTrainingCancelled).toHaveBeenCalledWith(TRAINING_ID, [
         "client-a",
         "client-b",
         "client-c"
       ]);
-    });
-
-    it("rejects a non-admin with 403 and changes nothing", async () => {
-      trainingsRepo.lock = {
-        id: TRAINING_ID,
-        capacity: 12,
-        bookedCount: 3,
-        status: "open",
-        trainerId: TRAINER_ID
-      };
-
-      await expect(service.cancelTraining(NON_ADMIN_ID, TRAINING_ID)).rejects.toBeInstanceOf(
-        ForbiddenException
-      );
-      expect(trainingsRepo.cancelBookedCalls).toBe(0);
-      expect(notifications.sendTrainingCancelled).not.toHaveBeenCalled();
-      expect(trainingsRepo.lock.status).toBe("open");
-    });
-
-    it("404s a missing training", async () => {
-      await expect(service.cancelTraining(ADMIN_ID, TRAINING_ID)).rejects.toBeInstanceOf(
-        NotFoundException
-      );
-    });
-
-    it("409s an already-cancelled training (idempotent guard)", async () => {
-      trainingsRepo.lock = {
-        id: TRAINING_ID,
-        capacity: 12,
-        bookedCount: 0,
-        status: "cancelled",
-        trainerId: TRAINER_ID
-      };
-
-      await expect(service.cancelTraining(ADMIN_ID, TRAINING_ID)).rejects.toBeInstanceOf(
-        ConflictException
-      );
-      expect(trainingsRepo.cancelBookedCalls).toBe(0);
-    });
-
-    it("keeps the committed cancel even when the notification send fails", async () => {
-      trainingsRepo.lock = {
-        id: TRAINING_ID,
-        capacity: 12,
-        bookedCount: 1,
-        status: "open",
-        trainerId: TRAINER_ID
-      };
-      notifications.sendTrainingCancelled.mockRejectedValue(new Error("telegram down"));
-
-      const result = await service.cancelTraining(ADMIN_ID, TRAINING_ID);
-
-      expect(result.status).toBe("cancelled");
-    });
-
-    it("T8 — deletes the training's auto-block (frees the court) on cancel", async () => {
-      trainingsRepo.lock = {
-        id: TRAINING_ID,
-        capacity: 12,
-        bookedCount: 0,
-        status: "open",
-        trainerId: TRAINER_ID
-      };
-
-      await service.cancelTraining(ADMIN_ID, TRAINING_ID);
-
-      expect(courtBlocksRepo.deletedTrainingIds).toEqual([TRAINING_ID]);
-    });
-
-    it("T9 — cancel is scoped to the single training: only that training's auto-block and booked bookings are touched (monthly-batch siblings untouched)", async () => {
-      // Regression guard for the group_subscription_id invariant: cancelling one date
-      // must never cascade to sibling dates of the same monthly batch. At this layer
-      // that means cancel deletes the block keyed by THIS training id only and flips
-      // bookings for THIS training id only — never a group-wide delete/cancel.
-      trainingsRepo.lock = {
-        id: TRAINING_ID,
-        capacity: 12,
-        bookedCount: 2,
-        status: "open",
-        trainerId: TRAINER_ID
-      };
-      trainingsRepo.cancelledClientIds = ["client-a", "client-b"];
-
-      await service.cancelTraining(ADMIN_ID, TRAINING_ID);
-
-      // Exactly one block delete, keyed by the cancelled training's id (not the group).
-      expect(courtBlocksRepo.deletedTrainingIds).toEqual([TRAINING_ID]);
-      // Booked-bookings flip ran exactly once (for this training), never group-wide.
-      expect(trainingsRepo.cancelBookedCalls).toBe(1);
-    });
-
-    it("T8 — auto-block delete is keyed by the specific training id, not the group", async () => {
-      const OTHER_TRAINING = "ffffffff-ffff-4fff-8fff-ffffffffffff";
-      trainingsRepo.lock = {
-        id: TRAINING_ID,
-        capacity: 12,
-        bookedCount: 0,
-        status: "open",
-        trainerId: TRAINER_ID
-      };
-
-      await service.cancelTraining(ADMIN_ID, TRAINING_ID);
-
+      // Notify happens BEFORE the purge (FK from notifications.training_id → trainings),
+      // then tx2 purges in FK order: notifications → waitlist → bookings → training row.
+      expect(trainingsRepo.purgeCalls).toEqual([
+        `notify:${TRAINING_ID}`,
+        `notifications:${TRAINING_ID}`,
+        `waitlist:${TRAINING_ID}`,
+        `bookings:${TRAINING_ID}`,
+        `training:${TRAINING_ID}`
+      ]);
+      // The court block keyed by this training is freed (cancelOneInTx + idempotent tx2 delete).
       expect(courtBlocksRepo.deletedTrainingIds).toContain(TRAINING_ID);
-      expect(courtBlocksRepo.deletedTrainingIds).not.toContain(OTHER_TRAINING);
+    });
+
+    it("does not cancel an already-cancelled training but still purges it and returns {id} (clientIds empty)", async () => {
+      trainingsRepo.lock = openLock({ bookedCount: 0, status: "cancelled" });
+
+      const result = await service.deleteTraining(ADMIN_ID, TRAINING_ID);
+
+      expect(result).toEqual({ id: TRAINING_ID });
+      // Already cancelled → cancelOneInTx is skipped (no re-flip of bookings).
+      expect(trainingsRepo.cancelBookedCalls).toBe(0);
+      // Notify is still called, with no affected clients (idempotent, never 500s).
+      expect(notifications.sendTrainingCancelled).toHaveBeenCalledWith(TRAINING_ID, []);
+      // The purge still runs in full FK order.
+      expect(trainingsRepo.purgeCalls).toEqual([
+        `notifications:${TRAINING_ID}`,
+        `waitlist:${TRAINING_ID}`,
+        `bookings:${TRAINING_ID}`,
+        `training:${TRAINING_ID}`
+      ]);
+    });
+
+    it("completes the delete even when the notification send fails (purge still runs)", async () => {
+      trainingsRepo.lock = openLock({ bookedCount: 1 });
+      notifications.sendTrainingCancelled.mockRejectedValueOnce(new Error("telegram down"));
+
+      const result = await service.deleteTraining(ADMIN_ID, TRAINING_ID);
+
+      expect(result).toEqual({ id: TRAINING_ID });
+      expect(trainingsRepo.purgeCalls).toContain(`training:${TRAINING_ID}`);
     });
   });
 

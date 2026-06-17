@@ -14,6 +14,8 @@ export const clientSchema = z.object({
   source: clientSource,
   /** Optional walk-in contact details. */
   phone: z.string().nullable(),
+  /** Optional email (connectors): walk-ins may have email/phone/both/neither. */
+  email: z.string().email().nullable(),
   note: z.string().nullable(),
   /** Per-user UI locale for the bot; defaults to "ru" server-side. */
   language: localeSchema,
@@ -43,6 +45,19 @@ export type Client = z.infer<typeof clientSchema>;
 export type OnboardClientInput = z.infer<typeof onboardClientSchema>;
 
 /**
+ * Admin client edit: a partial patch of the editable profile fields (name, level,
+ * phone, note). Identity (`telegramId`/`source`) and the bot-owned `language` are
+ * never editable here. `name` keeps its non-empty rule; `levelId`/`phone`/`note`
+ * stay nullable so a null clears them. Strict so stray fields are rejected. Empty
+ * patch is allowed (a no-op, handled server-side). Admin-only, enforced server-side.
+ */
+export const updateClientSchema = clientSchema
+  .pick({ name: true, levelId: true, phone: true, email: true, note: true })
+  .partial()
+  .strict();
+export type UpdateClientInput = z.infer<typeof updateClientSchema>;
+
+/**
  * Admin walk-in creation (Feature 5): a client by name with no Telegram id.
  * Phone/note optional. Strict so stray fields are rejected.
  */
@@ -50,6 +65,8 @@ export const createWalkInSchema = z
   .object({
     name: z.string().min(1),
     phone: z.string().min(1).optional(),
+    /** Optional email so a walk-in can be reached over the email channel. */
+    email: z.string().email().optional(),
     note: z.string().min(1).optional()
   })
   .strict();

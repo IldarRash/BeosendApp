@@ -1,9 +1,4 @@
-import {
-  BadRequestException,
-  ConflictException,
-  ForbiddenException,
-  NotFoundException
-} from "@nestjs/common";
+import { BadRequestException, ForbiddenException, NotFoundException } from "@nestjs/common";
 import type { Env } from "@beosand/config";
 import type { Group, Trainer, Training } from "@beosand/types";
 import { beforeEach, describe, expect, it, vi } from "vitest";
@@ -18,6 +13,7 @@ import type {
 } from "./trainings.repository";
 import type { GroupsRepository } from "../groups/groups.repository";
 import type { CourtBlocksRepository } from "../courts/court-blocks.repository";
+import type { DomainEventsService } from "../connectors/domain-events.service";
 import type { NotificationsService } from "../notifications/notifications.service";
 import type { TrainersRepository } from "../trainers/trainers.repository";
 
@@ -106,6 +102,11 @@ function makeNotifications(): NotificationsService {
   } as unknown as NotificationsService;
 }
 
+/** No-op domain-events double: the connector emit seam is fire-and-forget here. */
+function makeDomainEvents(): DomainEventsService {
+  return { emitTrainingCancelled: vi.fn() } as unknown as DomainEventsService;
+}
+
 /**
  * Controller-boundary tests for the admin-only trainings endpoints. The actor id
  * arrives only on the x-telegram-id header; a real service + fake repos exercises
@@ -128,6 +129,7 @@ describe("TrainingsController", () => {
         makeTrainersRepo(),
         makeNotifications(),
         makeCourtBlocksRepo(),
+        makeDomainEvents(),
         env
       )
     );
@@ -315,6 +317,7 @@ describe("Trainer-scoped reads (T2.3)", () => {
       trainersRepo,
       makeNotifications(),
       makeCourtBlocksRepo(),
+      makeDomainEvents(),
       env
     );
   }
@@ -433,7 +436,7 @@ describe("Trainer-scoped reads (T2.3)", () => {
 // x-telegram-id header; a real service + a fake repo whose lock mutators record
 // whether they ran exercises the genuine admin gate. The invariant: every manager
 // write is admin-gated in the service (never only in the controller / future admin
-// UI). The unsafe paths: a non-admin POST /trainings/:id/cancel or PATCH
+// UI). The unsafe paths: a non-admin DELETE /trainings/:id or PATCH
 // /trainings/:id/capacity is 403 and writes nothing; and PATCH .../capacity with a
 // value below the live bookedCount is 400 and changes nothing — never silently
 // applied. Header/body are parsed + Zod-validated before any service work.
@@ -479,6 +482,14 @@ describe("Admin manager writes (A1)", () => {
         lockRef.current = { ...lockRef.current, status: "cancelled" };
         return lockToTraining(lockRef.current);
       }),
+      deleteNotificationsForTraining: vi.fn(async () => undefined),
+      deleteWaitlistForTraining: vi.fn(async () => undefined),
+      deleteBookingsForTraining: vi.fn(async () => undefined),
+      deleteTrainingRow: vi.fn(async () => undefined),
+      // The cancel path emits the training.cancelled connector event via
+      // findRefById; returning undefined skips the emit cleanly (the event seam
+      // itself is covered in domain-events.service.spec, not this controller test).
+      findRefById: vi.fn(async () => undefined),
       updateCapacity: vi.fn(
         async (_tx: unknown, id: string, capacity: number, status: TrainingLockRow["status"]) => {
           if (!lockRef.current || lockRef.current.id !== id) throw new Error("lock not set");
@@ -506,6 +517,7 @@ describe("Admin manager writes (A1)", () => {
         makeTrainersRepo(),
         notifications,
         makeCourtBlocksRepo(),
+        makeDomainEvents(),
         env
       )
     );
@@ -520,20 +532,21 @@ describe("Admin manager writes (A1)", () => {
     trainerId: TRAINER_ID
   });
 
-  describe("POST /trainings/:id/cancel", () => {
-    it("an admin header cancels the training, flips its bookings, and notifies clients", async () => {
+  describe("DELETE /trainings/:id", () => {
+    it("an admin header deletes the training (cancels + notifies) and returns the deleted id", async () => {
       const { controller, lockRef, cancelBookedCalls, notify } = makeController(openLock());
-      const result = await controller.cancel(String(ADMIN_ID), TRAINING_ID, {});
-      expect(result.status).toBe("cancelled");
-      expect(lockRef.current?.status).toBe("cancelled");
+      const result = await controller.delete(String(ADMIN_ID), TRAINING_ID);
+      expect(result).toEqual({ id: TRAINING_ID });
+      // tx1 cancelled the booked bookings and notified the captured clients.
       expect(cancelBookedCalls()).toBe(1);
       expect(notify).toHaveBeenCalledWith(TRAINING_ID, ["client-a", "client-b"]);
+      expect(lockRef.current?.status).toBe("cancelled");
     });
 
-    // Unsafe path: a non-admin header is 403 and nothing is cancelled / notified.
+    // Unsafe path: a non-admin header is 403 and nothing is cancelled / notified / purged.
     it("rejects a non-admin header with 403 and changes nothing", async () => {
       const { controller, lockRef, cancelBookedCalls, notify } = makeController(openLock());
-      await expect(controller.cancel(String(NON_ADMIN_ID), TRAINING_ID, {})).rejects.toBeInstanceOf(
+      await expect(controller.delete(String(NON_ADMIN_ID), TRAINING_ID)).rejects.toBeInstanceOf(
         ForbiddenException
       );
       expect(lockRef.current?.status).toBe("open");
@@ -543,39 +556,33 @@ describe("Admin manager writes (A1)", () => {
 
     it("404s an unknown training", async () => {
       const { controller } = makeController(undefined);
-      await expect(controller.cancel(String(ADMIN_ID), TRAINING_ID, {})).rejects.toBeInstanceOf(
+      await expect(controller.delete(String(ADMIN_ID), TRAINING_ID)).rejects.toBeInstanceOf(
         NotFoundException
       );
     });
 
-    it("409s an already-cancelled training and flips no bookings", async () => {
-      const { controller, cancelBookedCalls } = makeController({
+    it("deletes an already-cancelled training without re-flipping bookings, returns the id", async () => {
+      const { controller, cancelBookedCalls, notify } = makeController({
         ...openLock(),
         status: "cancelled"
       });
-      await expect(controller.cancel(String(ADMIN_ID), TRAINING_ID, {})).rejects.toBeInstanceOf(
-        ConflictException
-      );
+      const result = await controller.delete(String(ADMIN_ID), TRAINING_ID);
+      expect(result).toEqual({ id: TRAINING_ID });
+      // An already-cancelled training is purged but its bookings are not re-flipped.
       expect(cancelBookedCalls()).toBe(0);
+      expect(notify).toHaveBeenCalledWith(TRAINING_ID, []);
     });
 
     it("rejects a missing/invalid x-telegram-id header (400) before any work", () => {
       const { controller, cancelBookedCalls } = makeController(openLock());
-      expect(() => controller.cancel(undefined, TRAINING_ID, {})).toThrow(BadRequestException);
-      expect(() => controller.cancel("not-a-number", TRAINING_ID, {})).toThrow(BadRequestException);
+      expect(() => controller.delete(undefined, TRAINING_ID)).toThrow(BadRequestException);
+      expect(() => controller.delete("not-a-number", TRAINING_ID)).toThrow(BadRequestException);
       expect(cancelBookedCalls()).toBe(0);
     });
 
     it("rejects a non-uuid path id (Zod) (400)", () => {
       const { controller } = makeController(openLock());
-      expect(() => controller.cancel(String(ADMIN_ID), "nope", {})).toThrow(BadRequestException);
-    });
-
-    it("rejects a non-empty body (cancel takes no fields) (400)", () => {
-      const { controller } = makeController(openLock());
-      expect(() => controller.cancel(String(ADMIN_ID), TRAINING_ID, { reason: "x" })).toThrow(
-        BadRequestException
-      );
+      expect(() => controller.delete(String(ADMIN_ID), "nope")).toThrow(BadRequestException);
     });
   });
 

@@ -3,7 +3,8 @@ import {
   clientSchema,
   createWalkInSchema,
   listClientsQuerySchema,
-  onboardClientSchema
+  onboardClientSchema,
+  updateClientSchema
 } from "./client-contracts";
 
 const UUID = "11111111-1111-4111-8111-111111111111";
@@ -101,6 +102,7 @@ describe("clientSchema (bot-facing client record)", () => {
       levelId: UUID,
       source: "telegram" as const,
       phone: null,
+      email: null,
       note: null,
       language: "ru" as const,
       registeredAt: "2026-01-01T00:00:00.000Z",
@@ -118,6 +120,7 @@ describe("clientSchema (bot-facing client record)", () => {
       levelId: null,
       source: "telegram" as const,
       phone: null,
+      email: null,
       note: null,
       language: "sr" as const,
       registeredAt: "2026-01-01T00:00:00.000Z",
@@ -135,6 +138,7 @@ describe("clientSchema (bot-facing client record)", () => {
       levelId: null,
       source: "walk_in" as const,
       phone: "+381601234567",
+      email: null,
       note: "via Instagram",
       language: "ru" as const,
       registeredAt: "2026-01-01T00:00:00.000Z",
@@ -198,6 +202,41 @@ describe("clientSchema (bot-facing client record)", () => {
   });
 });
 
+describe("updateClientSchema (PATCH /clients/:id body)", () => {
+  it("accepts an empty patch (a no-op)", () => {
+    expect(updateClientSchema.parse({})).toEqual({});
+  });
+
+  it("accepts a partial patch of name and phone", () => {
+    expect(updateClientSchema.parse({ name: "Marko", phone: "+381" })).toEqual({
+      name: "Marko",
+      phone: "+381"
+    });
+  });
+
+  it("accepts a null levelId / phone / note (clearing them)", () => {
+    expect(updateClientSchema.parse({ levelId: null, phone: null, note: null })).toEqual({
+      levelId: null,
+      phone: null,
+      note: null
+    });
+  });
+
+  it("rejects an empty name", () => {
+    expect(updateClientSchema.safeParse({ name: "" }).success).toBe(false);
+  });
+
+  it("rejects a non-uuid levelId", () => {
+    expect(updateClientSchema.safeParse({ levelId: "not-a-uuid" }).success).toBe(false);
+  });
+
+  it("rejects identity/unknown fields (strict)", () => {
+    expect(updateClientSchema.safeParse({ telegramId: 7 }).success).toBe(false);
+    expect(updateClientSchema.safeParse({ language: "ru" }).success).toBe(false);
+    expect(updateClientSchema.safeParse({ name: "Marko", page: 2 }).success).toBe(false);
+  });
+});
+
 describe("createWalkInSchema (POST /clients/walk-in body)", () => {
   it("accepts a name only", () => {
     expect(createWalkInSchema.parse({ name: "Marko" })).toEqual({ name: "Marko" });
@@ -206,6 +245,13 @@ describe("createWalkInSchema (POST /clients/walk-in body)", () => {
   it("accepts name + optional phone/note", () => {
     const parsed = createWalkInSchema.parse({ name: "Marko", phone: "+381", note: "IG" });
     expect(parsed).toEqual({ name: "Marko", phone: "+381", note: "IG" });
+  });
+
+  it("accepts an optional email and rejects a malformed one", () => {
+    expect(
+      createWalkInSchema.parse({ name: "Marko", email: "marko@example.com" })
+    ).toEqual({ name: "Marko", email: "marko@example.com" });
+    expect(createWalkInSchema.safeParse({ name: "Marko", email: "nope" }).success).toBe(false);
   });
 
   it("rejects a missing/empty name", () => {

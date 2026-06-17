@@ -8,6 +8,8 @@ function recipient(over: Partial<NotificationRecipient> = {}): NotificationRecip
     clientId: "client-1",
     trainingId: "training-1",
     telegramId: 555,
+    email: null,
+    phone: null,
     date: "2026-06-04",
     startTime: "18:00",
     endTime: "19:30",
@@ -19,6 +21,7 @@ function recipient(over: Partial<NotificationRecipient> = {}): NotificationRecip
 
 interface RepoMock {
   hasBeenSent: ReturnType<typeof vi.fn>;
+  sentChannels: ReturnType<typeof vi.fn>;
   logSent: ReturnType<typeof vi.fn>;
   findDueReminders: ReturnType<typeof vi.fn>;
   findRecipientsByClientIds: ReturnType<typeof vi.fn>;
@@ -32,6 +35,7 @@ interface TemplatesMock {
 function makeRepo(): RepoMock {
   return {
     hasBeenSent: vi.fn().mockResolvedValue(false),
+    sentChannels: vi.fn().mockResolvedValue(new Set<string>()),
     logSent: vi.fn().mockResolvedValue(undefined),
     findDueReminders: vi.fn().mockResolvedValue([]),
     findRecipientsByClientIds: vi.fn().mockResolvedValue([]),
@@ -43,6 +47,7 @@ describe("NotificationsService", () => {
   let repo: RepoMock;
   let sender: { sendMessage: ReturnType<typeof vi.fn> };
   let templates: TemplatesMock;
+  let dispatcher: { dispatch: ReturnType<typeof vi.fn> };
   let service: NotificationsService;
 
   beforeEach(() => {
@@ -50,8 +55,44 @@ describe("NotificationsService", () => {
     sender = { sendMessage: vi.fn().mockResolvedValue(undefined) };
     // No override by default: every send uses the code default template.
     templates = { findOverride: vi.fn().mockResolvedValue(undefined) };
+    // The dispatcher stands in for the connectors ChannelDispatcher: in Slice 0 it
+    // wraps a single TelegramChannel, so here it delegates to `sender.sendMessage`
+    // for a recipient with a telegram id and reports the telegram delivery result —
+    // keeping the existing send/log assertions behavior-equivalent.
+    dispatcher = {
+      dispatch: vi.fn(
+        async (
+          msg: { telegramId?: number | null; email?: string | null; phone?: string | null; text: string },
+          skip: ReadonlySet<string> = new Set()
+        ) => {
+          const results: { channelId: string; delivered: boolean }[] = [];
+          if (typeof msg.telegramId === "number" && !skip.has("telegram")) {
+            try {
+              await sender.sendMessage(msg.telegramId, msg.text);
+              results.push({ channelId: "telegram", delivered: true });
+            } catch {
+              results.push({ channelId: "telegram", delivered: false });
+            }
+          }
+          // Email/sms are "delivered" without touching `sender` (real adapters here
+          // are mocked); lets a walk-in (email/phone only) be reached and logged.
+          if (typeof msg.email === "string" && msg.email.length > 0 && !skip.has("email")) {
+            results.push({ channelId: "email", delivered: true });
+          }
+          if (typeof msg.phone === "string" && msg.phone.length > 0 && !skip.has("sms")) {
+            results.push({ channelId: "sms", delivered: true });
+          }
+          return results;
+        }
+      )
+    };
     // The service only uses the methods mocked above.
-    service = new NotificationsService(repo as never, sender as never, templates as never);
+    service = new NotificationsService(
+      repo as never,
+      sender as never,
+      templates as never,
+      dispatcher as never
+    );
   });
 
   describe("sendBookingConfirmation", () => {
@@ -64,7 +105,8 @@ describe("NotificationsService", () => {
       expect(repo.logSent).toHaveBeenCalledWith({
         type: "booking-confirmed",
         clientId: "client-1",
-        trainingId: "training-1"
+        trainingId: "training-1",
+        channel: "telegram"
       });
     });
 
@@ -93,6 +135,33 @@ describe("NotificationsService", () => {
 
       expect(sender.sendMessage).not.toHaveBeenCalled();
       expect(repo.logSent).not.toHaveBeenCalled();
+    });
+
+    it("reaches a walk-in with only an email/phone (no telegram) and logs each channel", async () => {
+      repo.findClientTrainingRecipients.mockResolvedValue([
+        recipient({ telegramId: null, email: "walkin@example.com", phone: "+381600000000" })
+      ]);
+
+      await service.sendBookingConfirmation("client-1", "training-1");
+
+      // No telegram DM (the walk-in has no Telegram), but email + sms are logged.
+      expect(sender.sendMessage).not.toHaveBeenCalled();
+      const channels = repo.logSent.mock.calls.map((call) => call[0].channel);
+      expect(new Set(channels)).toEqual(new Set(["email", "sms"]));
+    });
+
+    it("skips a channel already logged (per-channel idempotency)", async () => {
+      repo.findClientTrainingRecipients.mockResolvedValue([
+        recipient({ email: "x@example.com" })
+      ]);
+      // telegram already delivered for this (client, training, type) — only email left.
+      repo.sentChannels.mockResolvedValue(new Set(["telegram"]));
+
+      await service.sendBookingConfirmation("client-1", "training-1");
+
+      expect(sender.sendMessage).not.toHaveBeenCalled();
+      const channels = repo.logSent.mock.calls.map((call) => call[0].channel);
+      expect(channels).toEqual(["email"]);
     });
 
     it("uses the code default body when no override exists (Slice F)", async () => {
@@ -130,7 +199,8 @@ describe("NotificationsService", () => {
       expect(repo.logSent).toHaveBeenCalledWith({
         type: "booking-confirmed",
         clientId: "client-1",
-        trainingId: "t-early"
+        trainingId: "t-early",
+        channel: "telegram"
       });
     });
 
@@ -239,6 +309,7 @@ describe("NotificationsService", () => {
       levelId: null,
       source: "telegram",
       phone: null,
+      email: null,
       note: null,
       language: "ru",
       registeredAt: "2026-06-03T10:00:00.000Z",

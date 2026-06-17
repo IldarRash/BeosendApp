@@ -25,8 +25,8 @@ import { useTrainers } from "../hooks/useTrainers";
 import { useBookManual, useClientsList, useCreateWalkIn } from "../hooks/useClients";
 import { useGenerationStatus } from "../hooks/useGenerationStatus";
 import {
-  useCancelTraining,
   useChangeCapacity,
+  useDeleteTraining,
   useGenerateAllGroups,
   useGenerateMonth,
   useTrainings
@@ -71,7 +71,7 @@ function errorText(error: unknown, t: Translate): string {
 /**
  * M1 — Trainings management. A from/to (optionally group-scoped) range feeds
  * listTrainings into a DataTable showing the API's own booked/capacity and
- * status — no client recompute. Admin can generate a month for a group, cancel a
+ * status — no client recompute. Admin can generate a month for a group, delete a
  * training (behind a confirm), and change a training's capacity (the server
  * rejects a value below bookedCount; that error is rendered, never the floor).
  */
@@ -126,9 +126,9 @@ export function Trainings(): JSX.Element {
   const generateAll = useGenerateAllGroups();
   const [allResult, setAllResult] = useState<GenerateAllResult | null>(null);
 
-  // ── Cancel ─────────────────────────────────────────────────────────────
-  const [cancelTarget, setCancelTarget] = useState<Training | null>(null);
-  const cancel = useCancelTraining();
+  // ── Delete ─────────────────────────────────────────────────────────────
+  const [deleteTarget, setDeleteTarget] = useState<Training | null>(null);
+  const del = useDeleteTraining();
 
   // ── Change capacity ────────────────────────────────────────────────────
   const [capacityTarget, setCapacityTarget] = useState<Training | null>(null);
@@ -192,12 +192,12 @@ export function Trainings(): JSX.Element {
           <Button
             variant="danger"
             onClick={() => {
-              cancel.reset();
-              setCancelTarget(row);
+              del.reset();
+              setDeleteTarget(row);
             }}
-            disabled={row.status === "cancelled" || row.status === "completed"}
+            disabled={row.status === "completed"}
           >
-            {t("admin.trainings.actionCancel")}
+            {t("admin.trainings.actionDelete")}
           </Button>
         </div>
       )
@@ -335,48 +335,45 @@ export function Trainings(): JSX.Element {
       <GenerateAllResultModal result={allResult} onClose={() => setAllResult(null)} />
 
       <Modal
-        open={cancelTarget !== null}
-        title={t("admin.trainings.cancelTitle")}
-        onClose={() => setCancelTarget(null)}
+        open={deleteTarget !== null}
+        title={t("admin.trainings.deleteTitle")}
+        onClose={() => setDeleteTarget(null)}
         footer={
           <>
-            <Button variant="ghost" onClick={() => setCancelTarget(null)}>
-              {t("admin.trainings.cancelKeep")}
+            <Button variant="ghost" onClick={() => setDeleteTarget(null)}>
+              {t("admin.trainings.deleteKeep")}
             </Button>
             <Button
               variant="danger"
-              disabled={cancel.isPending}
+              disabled={del.isPending}
               onClick={() => {
-                if (!cancelTarget) return;
-                cancel.mutate(cancelTarget.id, {
-                  onSuccess: (updated) => {
-                    setCancelTarget(null);
-                    notify(
-                      t("admin.trainings.cancelled", { count: updated.bookedCount }),
-                      "success"
-                    );
+                if (!deleteTarget) return;
+                del.mutate(deleteTarget.id, {
+                  onSuccess: () => {
+                    setDeleteTarget(null);
+                    notify(t("admin.trainings.deleted"), "success");
                   }
                 });
               }}
             >
-              {cancel.isPending ? t("admin.trainings.cancelling") : t("admin.trainings.cancelConfirm")}
+              {del.isPending ? t("admin.trainings.deleting") : t("admin.trainings.deleteConfirm")}
             </Button>
           </>
         }
       >
-        {cancelTarget ? (
+        {deleteTarget ? (
           <p>
-            {t("admin.trainings.cancelPrompt", {
-              date: cancelTarget.date,
-              start: cancelTarget.startTime,
-              end: cancelTarget.endTime,
-              count: cancelTarget.bookedCount
+            {t("admin.trainings.deletePrompt", {
+              date: deleteTarget.date,
+              start: deleteTarget.startTime,
+              end: deleteTarget.endTime,
+              count: deleteTarget.bookedCount
             })}
           </p>
         ) : null}
-        {cancel.isError ? (
+        {del.isError ? (
           <p className="state state--error" role="alert">
-            {errorText(cancel.error, t)}
+            {errorText(del.error, t)}
           </p>
         ) : null}
       </Modal>

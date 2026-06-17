@@ -1,6 +1,8 @@
 import { Module } from "@nestjs/common";
+import { EventEmitterModule } from "@nestjs/event-emitter";
 import { ScheduleModule } from "@nestjs/schedule";
 import { ConfigModule } from "./config/config.module";
+import { ConnectorsModule } from "./modules/connectors/connectors.module";
 import { DbModule } from "./db/db.module";
 import { HealthModule } from "./health/health.module";
 import { AnalyticsModule } from "./modules/analytics/analytics.module";
@@ -29,8 +31,10 @@ import { WaitlistModule } from "./modules/waitlist/waitlist.module";
 @Module({
   imports: [
     ScheduleModule.forRoot(),
+    EventEmitterModule.forRoot(),
     ConfigModule,
     DbModule,
+    ConnectorsModule,
     HealthModule,
     AuthModule,
     LevelsModule,

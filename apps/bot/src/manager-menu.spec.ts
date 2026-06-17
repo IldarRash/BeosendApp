@@ -27,7 +27,6 @@ const ru = getStaticCatalog("ru");
 const NOT_ADMIN_TEXT = ru["bot.broadcast.notAdmin"];
 const CAP_BELOW_BOOKED_TEXT = ru["bot.manager.capBelowBooked"];
 const CAP_DONE_TEXT = ru["bot.manager.capDone"];
-const CANCEL_ALREADY_TEXT = ru["bot.manager.cancelAlready"];
 const CANCEL_DONE_TEXT = ru["bot.manager.cancelDone"];
 
 const TRAINING_ID = "11111111-1111-1111-1111-111111111111";
@@ -79,7 +78,7 @@ function makeApi(overrides: Partial<ManagerApi> = {}): ManagerApi {
   return {
     getAnalyticsSummary: vi.fn(async () => summary),
     listTrainings: vi.fn(async () => [openTraining, cancelledTraining]),
-    cancelTraining: vi.fn(async () => ({ ok: true, training: cancelledTraining }) as const),
+    deleteTraining: vi.fn(async () => ({ ok: true, id: TRAINING_ID }) as const),
     changeTrainingCapacity: vi.fn(
       async () => ({ ok: true, training: { ...openTraining, capacity: 10 } }) as const
     ),
@@ -250,7 +249,7 @@ describe("handleCancelPickList", () => {
 });
 
 describe("handleCancelDo (outcomes)", () => {
-  it("confirms a successful cancel and returns to the manager menu", async () => {
+  it("confirms a successful delete and returns to the manager menu", async () => {
     const { reply, replies } = makeCtx();
     await handleCancelDo({ reply }, makeApi(), ru, 999, TRAINING_ID);
     expect(replies[0]?.text).toBe(CANCEL_DONE_TEXT);
@@ -259,19 +258,10 @@ describe("handleCancelDo (outcomes)", () => {
   it("maps a 403 outcome to the managers-only message", async () => {
     const { reply, replies } = makeCtx();
     const api = makeApi({
-      cancelTraining: vi.fn(async () => ({ ok: false, reason: "forbidden" }) as const)
+      deleteTraining: vi.fn(async () => ({ ok: false, reason: "forbidden" }) as const)
     });
     await handleCancelDo({ reply }, api, ru, 123, TRAINING_ID);
     expect(replies[0]?.text).toBe(NOT_ADMIN_TEXT);
-  });
-
-  it("maps an already-cancelled outcome to its message", async () => {
-    const { reply, replies } = makeCtx();
-    const api = makeApi({
-      cancelTraining: vi.fn(async () => ({ ok: false, reason: "alreadyCancelled" }) as const)
-    });
-    await handleCancelDo({ reply }, api, ru, 999, TRAINING_ID);
-    expect(replies[0]?.text).toBe(CANCEL_ALREADY_TEXT);
   });
 });
 

@@ -307,7 +307,7 @@ export function capPickerKeyboard(catalog: Catalog, training: Training): InlineK
 /** The slice of ApiClient the manager handlers need. */
 export type ManagerApi = Pick<
   ApiClient,
-  "getAnalyticsSummary" | "listTrainings" | "cancelTraining" | "changeTrainingCapacity"
+  "getAnalyticsSummary" | "listTrainings" | "deleteTraining" | "changeTrainingCapacity"
 >;
 
 /**
@@ -413,10 +413,10 @@ export async function handleCancelConfirm(
 }
 
 /**
- * Cancel flow step 3: perform the cancel. The API gates the admin, flips the
- * status, moves booked bookings to cancelled and notifies clients — the bot only
+ * Delete flow step 3: perform the delete. The API gates the admin, cancels booked
+ * bookings, notifies clients, frees the court and removes the row — the bot only
  * forwards the id and maps the distinct outcomes to messages (forbidden / not
- * found / already cancelled / done).
+ * found / done). Delete is idempotent server-side.
  */
 export async function handleCancelDo(
   ctx: MenuReplyCtx,
@@ -429,14 +429,12 @@ export async function handleCancelDo(
     await showMainMenu(ctx, catalog);
     return;
   }
-  const result = await api.cancelTraining(trainingId, telegramId);
+  const result = await api.deleteTraining(trainingId, telegramId);
   if (!result.ok) {
     const text =
       result.reason === "forbidden"
         ? broadcastNotAdminText(catalog)
-        : result.reason === "notFound"
-          ? t(catalog, "bot.manager.cancelNotFound")
-          : t(catalog, "bot.manager.cancelAlready");
+        : t(catalog, "bot.manager.cancelNotFound");
     await ctx.reply(text, { reply_markup: backHomeKeyboard(catalog) });
     return;
   }
