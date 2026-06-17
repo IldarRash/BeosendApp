@@ -1,6 +1,6 @@
 import { Inject, Injectable, UnauthorizedException } from "@nestjs/common";
 import type { Env } from "@beosand/config";
-import { type CalendarSubject, BELGRADE_TZ, zonedWallClockToUtc } from "@beosand/types";
+import { type CalendarSubject, BELGRADE_TZ } from "@beosand/types";
 import ical from "ical-generator";
 import { ENV } from "../../../config/config.module";
 import { ClientsRepository } from "../../clients/clients.repository";
@@ -94,8 +94,8 @@ export class CalendarFeedService {
         // Suffixed by subject so a trainer and a client subscribing to the same
         // training don't collide if both feeds are imported into one calendar.
         id: `training-${item.trainingId}-${subject}@beosand`,
-        start: zonedWallClockToUtc(item.date, item.startTime, BELGRADE_TZ),
-        end: zonedWallClockToUtc(item.date, item.endTime, BELGRADE_TZ),
+        start: belgradeWallClock(item.date, item.startTime),
+        end: belgradeWallClock(item.date, item.endTime),
         summary: summaryOf(item)
       });
       event.timezone(BELGRADE_TZ);
@@ -114,6 +114,22 @@ export class CalendarFeedService {
   private get publicBaseUrl(): string | undefined {
     return this.env.PUBLIC_BASE_URL;
   }
+}
+
+/**
+ * A `Date` whose *local* fields equal the Belgrade wall-clock for `date`/`time`.
+ *
+ * ical-generator renders a timezoned event by reading the Date's local components
+ * (`getHours()`, …) verbatim and tagging them `TZID=Europe/Belgrade` — it does NOT
+ * convert from the absolute instant. So passing a UTC instant only produces the right
+ * wall-clock when the server's own clock is Belgrade time (true locally, false on the
+ * UTC CI/Railway hosts, which shifted every event by the offset). Building the Date
+ * straight from the wall-clock numbers makes the output server-timezone-independent.
+ */
+function belgradeWallClock(date: string, time: string): Date {
+  const [year, month, day] = date.split("-").map(Number);
+  const [hour, minute] = time.split(":").map(Number);
+  return new Date(year, month - 1, day, hour, minute, 0, 0);
 }
 
 /** Event title: level/group name + trainer; falls back gracefully when a name is null. */
