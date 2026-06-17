@@ -1,6 +1,6 @@
 import { Injectable } from "@nestjs/common";
 import { tables } from "@beosand/db";
-import type { NotificationType } from "@beosand/types";
+import type { NotificationChannelId, NotificationType } from "@beosand/types";
 import { and, asc, eq, gte, inArray, isNull, lte, sql } from "drizzle-orm";
 import { DatabaseService } from "../../db/database.service";
 
@@ -15,6 +15,10 @@ export interface NotificationRecipient {
   trainingId: string;
   /** Null for walk-in clients (no Telegram account); they are never DM'd. */
   telegramId: number | null;
+  /** Email address (walk-ins may have one); null when absent — email channel skipped. */
+  email: string | null;
+  /** Phone number (walk-ins may have one); null when absent — SMS channel skipped. */
+  phone: string | null;
   date: string;
   startTime: string;
   endTime: string;
@@ -53,16 +57,55 @@ export class NotificationsRepository {
     return row !== undefined;
   }
 
-  /** Insert one send-log row; `sentAt` defaults to now. */
+  /**
+   * The set of channels already logged for this (client, training, type) — the
+   * per-channel idempotency gate. `sendAndLog` skips any channel already present so
+   * a resend never duplicates a (client, training, type, channel) send. Legacy rows
+   * default to 'telegram' (the column default), so the existing telegram-shaped
+   * dedup is preserved.
+   */
+  async sentChannels(
+    clientId: string,
+    trainingId: string | null,
+    type: NotificationType
+  ): Promise<Set<NotificationChannelId>> {
+    const rows = await this.database.db
+      .select({ channel: tables.notifications.channel })
+      .from(tables.notifications)
+      .where(
+        and(
+          eq(tables.notifications.clientId, clientId),
+          trainingId === null
+            ? isNull(tables.notifications.trainingId)
+            : eq(tables.notifications.trainingId, trainingId),
+          eq(tables.notifications.type, type)
+        )
+      );
+    const channels = new Set<NotificationChannelId>();
+    for (const row of rows) {
+      // Null/legacy rows are telegram by the column default.
+      channels.add((row.channel ?? "telegram") as NotificationChannelId);
+    }
+    return channels;
+  }
+
+  /**
+   * Insert one send-log row; `sentAt` defaults to now. `channel` records which
+   * connector channel delivered the send (defaults to 'telegram' so the existing
+   * telegram-shaped anti-join idempotency is unchanged; email/sms log their own
+   * channel in Slice B).
+   */
   async logSent(values: {
     type: NotificationType;
     clientId: string;
     trainingId: string | null;
+    channel?: NotificationChannelId;
   }): Promise<void> {
     await this.database.db.insert(tables.notifications).values({
       type: values.type,
       clientId: values.clientId,
-      trainingId: values.trainingId
+      trainingId: values.trainingId,
+      channel: values.channel ?? "telegram"
     });
   }
 
@@ -92,6 +135,8 @@ export class NotificationsRepository {
         clientId: tables.bookings.clientId,
         trainingId: tables.trainings.id,
         telegramId: tables.clients.telegramId,
+        email: tables.clients.email,
+        phone: tables.clients.phone,
         date: tables.trainings.date,
         startTime: tables.trainings.startTime,
         endTime: tables.trainings.endTime,
@@ -119,8 +164,9 @@ export class NotificationsRepository {
           gte(startsAt, lower),
           lte(startsAt, upper),
           isNull(tables.notifications.id),
-          // Walk-ins (null telegram_id) have no Telegram channel; never select them.
-          sql`${tables.clients.telegramId} is not null`
+          // Reachable on at least one channel (telegram, email, or phone); a client
+          // with no contact target at all is never selected.
+          sql`(${tables.clients.telegramId} is not null or ${tables.clients.email} is not null or ${tables.clients.phone} is not null)`
         )
       );
 
@@ -145,6 +191,8 @@ export class NotificationsRepository {
         clientId: tables.bookings.clientId,
         trainingId: tables.trainings.id,
         telegramId: tables.clients.telegramId,
+        email: tables.clients.email,
+        phone: tables.clients.phone,
         date: tables.trainings.date,
         startTime: tables.trainings.startTime,
         endTime: tables.trainings.endTime,
@@ -190,6 +238,8 @@ export class NotificationsRepository {
         clientId: tables.clients.id,
         trainingId: tables.trainings.id,
         telegramId: tables.clients.telegramId,
+        email: tables.clients.email,
+        phone: tables.clients.phone,
         date: tables.trainings.date,
         startTime: tables.trainings.startTime,
         endTime: tables.trainings.endTime,
@@ -213,8 +263,9 @@ export class NotificationsRepository {
         and(
           eq(tables.trainings.id, trainingId),
           isNull(tables.notifications.id),
-          // Walk-ins (null telegram_id) have no Telegram channel; never select them.
-          sql`${tables.clients.telegramId} is not null`
+          // Reachable on at least one channel (telegram, email, or phone); a client
+          // with no contact target at all is never selected.
+          sql`(${tables.clients.telegramId} is not null or ${tables.clients.email} is not null or ${tables.clients.phone} is not null)`
         )
       );
 
@@ -240,6 +291,8 @@ export class NotificationsRepository {
         clientId: tables.clients.id,
         trainingId: tables.trainings.id,
         telegramId: tables.clients.telegramId,
+        email: tables.clients.email,
+        phone: tables.clients.phone,
         date: tables.trainings.date,
         startTime: tables.trainings.startTime,
         endTime: tables.trainings.endTime,
@@ -272,6 +325,8 @@ export class NotificationsRepository {
         clientId: tables.clients.id,
         trainingId: tables.trainings.id,
         telegramId: tables.clients.telegramId,
+        email: tables.clients.email,
+        phone: tables.clients.phone,
         date: tables.trainings.date,
         startTime: tables.trainings.startTime,
         endTime: tables.trainings.endTime,
@@ -293,6 +348,8 @@ interface RecipientRow {
   clientId: string;
   trainingId: string;
   telegramId: number | null;
+  email: string | null;
+  phone: string | null;
   date: string;
   startTime: string;
   endTime: string;
@@ -315,6 +372,8 @@ function normalizeRecipient(row: RecipientRow): NotificationRecipient {
     clientId: row.clientId,
     trainingId: row.trainingId,
     telegramId: row.telegramId,
+    email: row.email,
+    phone: row.phone,
     date: row.date,
     startTime: row.startTime.slice(0, 5),
     endTime: row.endTime.slice(0, 5),

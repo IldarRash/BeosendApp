@@ -232,6 +232,34 @@ export class BookingsRepository {
   }
 
   /**
+   * Date + start/end time for the given trainings (HH:MM), keyed by id. Drives the
+   * connectors domain-event payloads (date/start/end render fields) without joining
+   * the notification recipient path. No business rules; order is unspecified.
+   */
+  async findTrainingRefs(
+    trainingIds: string[]
+  ): Promise<Map<string, { date: string; startTime: string; endTime: string }>> {
+    if (trainingIds.length === 0) {
+      return new Map();
+    }
+    const rows = await this.database.db
+      .select({
+        id: tables.trainings.id,
+        date: tables.trainings.date,
+        startTime: tables.trainings.startTime,
+        endTime: tables.trainings.endTime
+      })
+      .from(tables.trainings)
+      .where(inArray(tables.trainings.id, trainingIds));
+    return new Map(
+      rows.map((row) => [
+        row.id,
+        { date: row.date, startTime: row.startTime.slice(0, 5), endTime: row.endTime.slice(0, 5) }
+      ])
+    );
+  }
+
+  /**
    * An existing seat-occupying booking ('booked' or 'pending') for this client +
    * training — drives the duplicate check. A `pending` booking holds a seat, so a
    * client awaiting trainer confirmation is already "on" the training and must not

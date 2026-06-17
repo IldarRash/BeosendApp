@@ -11,7 +11,8 @@ import type {
   CreateSingleBookingInput,
   CreateWalkInInput,
   ListClientsQuery,
-  OnboardClientInput
+  OnboardClientInput,
+  UpdateClientInput
 } from "@beosand/types";
 import { useApiClient } from "../api/ApiProvider";
 import { invalidateTrainings } from "./useTrainings";
@@ -51,6 +52,26 @@ export function useOnboardClient(): UseMutationResult<Client, Error, OnboardClie
   const queryClient = useQueryClient();
   return useMutation({
     mutationFn: (input: OnboardClientInput) => api.onboardClient(input),
+    onSuccess: () => {
+      void queryClient.invalidateQueries({ queryKey: CLIENTS_LIST_KEY });
+    }
+  });
+}
+
+/**
+ * Edit a client's profile (PATCH /clients/:id). The server owns validation and the
+ * admin gate; on success refresh the clients list so the edited row re-renders.
+ */
+export function useUpdateClient(): UseMutationResult<
+  Client,
+  Error,
+  { id: string; input: UpdateClientInput }
+> {
+  const api = useApiClient();
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: ({ id, input }: { id: string; input: UpdateClientInput }) =>
+      api.updateClient(id, input),
     onSuccess: () => {
       void queryClient.invalidateQueries({ queryKey: CLIENTS_LIST_KEY });
     }

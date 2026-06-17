@@ -7,7 +7,8 @@ import {
 import { describe, expect, it, vi } from "vitest";
 import type { Env } from "@beosand/config";
 import { COURT_CLOSE_HOUR, COURT_OPEN_HOUR, myCourtRequestItemSchema } from "@beosand/types";
-import type { CourtNotifier } from "./court-notifier";
+import type { ChannelDispatcher } from "../connectors/channels/channel-dispatcher.service";
+import type { DomainEventsService } from "../connectors/domain-events.service";
 import {
   CourtModerationTx,
   CourtRequestsRepository,
@@ -23,12 +24,25 @@ const date = "2026-06-10";
 const adminId = 9001;
 const env = { ADMIN_TELEGRAM_IDS: [String(adminId)] } as unknown as Env;
 
-function makeNotifier(): CourtNotifier {
-  return { notifyClient: vi.fn().mockResolvedValue(undefined) } as unknown as CourtNotifier;
+function makeDispatcher(): ChannelDispatcher {
+  return {
+    dispatch: vi.fn().mockResolvedValue([{ channelId: "telegram", delivered: true }])
+  } as unknown as ChannelDispatcher;
 }
 
-function makeService(repo: CourtRequestsRepository, notifier: CourtNotifier = makeNotifier()) {
-  return new CourtRequestsService(repo, env, notifier);
+function makeDomainEvents(): DomainEventsService {
+  return {
+    emitCourtRequestConfirmed: vi.fn(),
+    emitCourtRequestRejected: vi.fn()
+  } as unknown as DomainEventsService;
+}
+
+function makeService(
+  repo: CourtRequestsRepository,
+  dispatcher: ChannelDispatcher = makeDispatcher(),
+  domainEvents: DomainEventsService = makeDomainEvents()
+) {
+  return new CourtRequestsService(repo, env, dispatcher, domainEvents);
 }
 
 function makeRepo(input: {
@@ -617,8 +631,9 @@ describe("CourtRequestsService.confirmRequest (C4 admin)", () => {
 
   it("assigns the chosen court, flips to confirmed, stamps decided_*, and notifies", async () => {
     const { tx, decide } = makeTx({ request: makeRow() });
-    const notifier = makeNotifier();
-    const service = makeService(makeModerationRepo({ tx, courtNumber: 5 }), notifier);
+    const dispatcher = makeDispatcher();
+    const domainEvents = makeDomainEvents();
+    const service = makeService(makeModerationRepo({ tx, courtNumber: 5 }), dispatcher, domainEvents);
 
     const result = await service.confirmRequest(adminId, {
       requestId,
@@ -633,10 +648,14 @@ describe("CourtRequestsService.confirmRequest (C4 admin)", () => {
     expect(decide).toHaveBeenCalledWith(
       expect.objectContaining({ status: "confirmed", courtId: courtIdA, decidedBy: adminId })
     );
-    const notify = notifier.notifyClient as ReturnType<typeof vi.fn>;
-    expect(notify).toHaveBeenCalledTimes(1);
-    expect(notify.mock.calls[0][1]).toContain("Корт №5");
-    expect(notify.mock.calls[0][1]).toContain("4000 RSD");
+    const dispatch = dispatcher.dispatch as ReturnType<typeof vi.fn>;
+    expect(dispatch).toHaveBeenCalledTimes(1);
+    expect(dispatch.mock.calls[0][0].text).toContain("Корт №5");
+    expect(dispatch.mock.calls[0][0].text).toContain("4000 RSD");
+    // The confirmed domain event carries the assigned court number for listeners.
+    const emit = domainEvents.emitCourtRequestConfirmed as ReturnType<typeof vi.fn>;
+    expect(emit).toHaveBeenCalledTimes(1);
+    expect(emit.mock.calls[0][0]).toMatchObject({ courtNumber: 5 });
   });
 
   it("rejects confirming onto a court already taken for a covered slot", async () => {
@@ -776,8 +795,9 @@ describe("CourtRequestsService.rejectRequest (C4 admin)", () => {
 
   it("flips to rejected, stamps decided_*, and notifies the client to retry", async () => {
     const { tx, decide } = makeTx({ request: makeRow() });
-    const notifier = makeNotifier();
-    const service = makeService(makeModerationRepo({ tx }), notifier);
+    const dispatcher = makeDispatcher();
+    const domainEvents = makeDomainEvents();
+    const service = makeService(makeModerationRepo({ tx }), dispatcher, domainEvents);
 
     const result = await service.rejectRequest(adminId, { requestId, decidedBy: adminId });
 
@@ -787,9 +807,13 @@ describe("CourtRequestsService.rejectRequest (C4 admin)", () => {
     expect(decide).toHaveBeenCalledWith(
       expect.objectContaining({ status: "rejected", courtId: null })
     );
-    const notify = notifier.notifyClient as ReturnType<typeof vi.fn>;
-    expect(notify).toHaveBeenCalledTimes(1);
-    expect(notify.mock.calls[0][1]).toContain("другое время");
+    const dispatch = dispatcher.dispatch as ReturnType<typeof vi.fn>;
+    expect(dispatch).toHaveBeenCalledTimes(1);
+    expect(dispatch.mock.calls[0][0].text).toContain("другое время");
+    // A rejected event NEVER carries a court number (the request was never assigned).
+    const emit = domainEvents.emitCourtRequestRejected as ReturnType<typeof vi.fn>;
+    expect(emit).toHaveBeenCalledTimes(1);
+    expect(emit.mock.calls[0][0]).not.toHaveProperty("courtNumber");
   });
 
   it("refuses a non-pending request", async () => {

@@ -2,6 +2,12 @@ import { z } from "zod";
 import {
   adminMeSchema,
   adminSessionSchema,
+  calendarFeedLinkSchema,
+  connectorStatusListSchema,
+  createdWebhookEndpointSchema,
+  testSendResultSchema,
+  webhookDeliverySchema,
+  webhookEndpointSchema,
   labelCatalogSchema,
   labelEntrySchema,
   managerSchema,
@@ -36,6 +42,16 @@ import {
   trainingSchema,
   type AdminMe,
   type AdminSession,
+  type CalendarFeedLink,
+  type CalendarSubject,
+  type ConnectorStatusList,
+  type CreatedWebhookEndpoint,
+  type CreateWebhookEndpointInput,
+  type TestSendInput,
+  type TestSendResult,
+  type UpdateWebhookEndpointInput,
+  type WebhookDelivery,
+  type WebhookEndpoint,
   type AnalyticsRangeQuery,
   type AnalyticsSummary,
   type AssignCourtInput,
@@ -94,10 +110,12 @@ import {
   type TrainingRoster,
   type TransferGroupInput,
   type TransferGroupResult,
+  type UpdateClientInput,
   type UpdateGroupInput,
   type UpdateLevelInput,
   type UpdateManagerInput,
-  type UpdateTrainerInput
+  type UpdateTrainerInput,
+  uuid
 } from "@beosand/types";
 
 const healthSchema = z.object({ status: z.literal("ok"), service: z.string() });
@@ -117,6 +135,8 @@ const generationStatusSchema = z.array(generationStatusItemSchema);
 const subscriptionsSchema = z.array(subscriptionSummarySchema);
 const notificationTemplatesSchema = z.array(notificationTemplateSchema);
 const managersSchema = z.array(managerSchema);
+const webhookEndpointsSchema = z.array(webhookEndpointSchema);
+const webhookDeliveriesSchema = z.array(webhookDeliverySchema);
 
 /** Input for creating a level — just the name (schema is server-validated). */
 export interface CreateLevelInput {
@@ -578,12 +598,13 @@ export class ApiClient {
     return this.request(`/trainings/${id}/detail`, trainingCalendarItemSchema);
   }
 
-  /** Cancel a training (server notifies booked clients). */
-  cancelTraining(id: string): Promise<Training> {
-    return this.request(`/trainings/${id}/cancel`, trainingSchema, {
-      method: "POST",
-      body: JSON.stringify({})
-    });
+  /**
+   * Delete a training (DELETE /trainings/:id). The server cancels its bookings,
+   * notifies booked clients, and removes the row; returns just the deleted id. A
+   * cancelled training can be deleted too — the gate is the server's.
+   */
+  deleteTraining(id: string): Promise<{ id: string }> {
+    return this.request(`/trainings/${id}`, z.object({ id: uuid }), { method: "DELETE" });
   }
 
   /** Change a training's capacity (server rejects below booked, recomputes status). */
@@ -641,6 +662,18 @@ export class ApiClient {
   onboardClient(input: OnboardClientInput): Promise<Client> {
     return this.request("/clients/onboard", clientSchema, {
       method: "POST",
+      body: JSON.stringify(input)
+    });
+  }
+
+  /**
+   * Edit a client's profile (PATCH /clients/:id) — name/level/phone/note only; a
+   * null clears the field. Identity is never editable here. The server owns
+   * validation and the admin gate; the console renders the validated updated row.
+   */
+  updateClient(id: string, input: UpdateClientInput): Promise<Client> {
+    return this.request(`/clients/${id}`, clientSchema, {
+      method: "PATCH",
       body: JSON.stringify(input)
     });
   }
@@ -881,6 +914,160 @@ export class ApiClient {
       method: "POST",
       body: JSON.stringify({})
     });
+  }
+
+  // ── External connectors (Slice D) ───────────────────────────────────────────
+
+  /**
+   * Connector status list (GET /connectors) — one row per channel/connector with
+   * `enabled`/`configured` flags the settings screen renders as badges. The server
+   * owns the config-gating; the console only renders the validated state. Admin-only.
+   */
+  listConnectors(): Promise<ConnectorStatusList> {
+    return this.request("/connectors", connectorStatusListSchema);
+  }
+
+  /**
+   * Admin test-send (POST /connectors/test-send): deliver a fixed test message to
+   * one address over one channel (email/sms/telegram). The server decides whether
+   * the channel is enabled; a disabled/failed send surfaces as a thrown Error.
+   */
+  testSendConnector(input: TestSendInput): Promise<TestSendResult> {
+    return this.request("/connectors/test-send", testSendResultSchema, {
+      method: "POST",
+      body: JSON.stringify(input)
+    });
+  }
+
+  /**
+   * Trigger a Google Sheets append (POST /connectors/sheets/sync). Returns `{ ok }`
+   * when configured; a 409 (Sheets creds absent) surfaces as {@link ConflictError}
+   * carrying the server's message the screen renders verbatim. Admin-only.
+   */
+  syncSheets(): Promise<{ ok: boolean }> {
+    return this.request("/connectors/sheets/sync", z.object({ ok: z.boolean() }), {
+      method: "POST",
+      body: JSON.stringify({})
+    });
+  }
+
+  // ── Webhook endpoints (Slice D) ─────────────────────────────────────────────
+
+  /**
+   * Configured webhook endpoints (GET /connectors/webhooks). The per-endpoint
+   * signing secret is NEVER part of this entity — `webhookEndpointSchema` omits it,
+   * so a leak through a read response is impossible. Admin-only.
+   */
+  listWebhooks(): Promise<WebhookEndpoint[]> {
+    return this.request("/connectors/webhooks", webhookEndpointsSchema);
+  }
+
+  /**
+   * One webhook endpoint (GET /connectors/webhooks/:id) — again WITHOUT the secret.
+   * Admin-only; validated against the entity (secret-free) contract.
+   */
+  getWebhook(id: string): Promise<WebhookEndpoint> {
+    return this.request(`/connectors/webhooks/${id}`, webhookEndpointSchema);
+  }
+
+  /**
+   * Create a webhook endpoint (POST /connectors/webhooks). The create response is
+   * the ONLY place the generated `secret` is returned — shown to the admin once and
+   * never re-fetchable. Validated against `createdWebhookEndpointSchema`. Admin-only.
+   */
+  createWebhook(input: CreateWebhookEndpointInput): Promise<CreatedWebhookEndpoint> {
+    return this.request("/connectors/webhooks", createdWebhookEndpointSchema, {
+      method: "POST",
+      body: JSON.stringify(input)
+    });
+  }
+
+  /**
+   * Update a webhook endpoint (PATCH /connectors/webhooks/:id) — re-subscribe events
+   * and/or change status (e.g. disable). Returns the secret-free entity. Admin-only.
+   */
+  updateWebhook(id: string, input: UpdateWebhookEndpointInput): Promise<WebhookEndpoint> {
+    return this.request(`/connectors/webhooks/${id}`, webhookEndpointSchema, {
+      method: "PATCH",
+      body: JSON.stringify(input)
+    });
+  }
+
+  /**
+   * Per-endpoint delivery log (GET /connectors/webhooks/:id/deliveries) — event,
+   * status, attempts, last error, response status. The secret never appears here.
+   * Admin-only; each row validated by `webhookDeliverySchema`.
+   */
+  listWebhookDeliveries(endpointId: string): Promise<WebhookDelivery[]> {
+    return this.request(
+      `/connectors/webhooks/${endpointId}/deliveries`,
+      webhookDeliveriesSchema
+    );
+  }
+
+  /**
+   * Force a retry of one delivery (POST /connectors/webhooks/deliveries/:id/retry).
+   * The server re-POSTs and returns the updated delivery row. Admin-only.
+   */
+  retryWebhookDelivery(deliveryId: string): Promise<WebhookDelivery> {
+    return this.request(
+      `/connectors/webhooks/deliveries/${deliveryId}/retry`,
+      webhookDeliverySchema,
+      { method: "POST", body: JSON.stringify({}) }
+    );
+  }
+
+  // ── Calendar feed (Slice D) ─────────────────────────────────────────────────
+
+  /**
+   * The signed feed URL for a trainer/client (GET /connectors/calendar/link). The
+   * server builds the token + URL; the console only displays it. Admin-only.
+   */
+  calendarFeedLink(subject: CalendarSubject, id: string): Promise<CalendarFeedLink> {
+    const query = new URLSearchParams({ subject, id }).toString();
+    return this.request(`/connectors/calendar/link?${query}`, calendarFeedLinkSchema);
+  }
+
+  /**
+   * Rotate a subject's feed (POST /connectors/calendar/:subject/:id/rotate): bumps
+   * the version so old URLs 401, and returns the new signed link. Admin-only.
+   */
+  rotateCalendarFeed(subject: CalendarSubject, id: string): Promise<CalendarFeedLink> {
+    return this.request(`/connectors/calendar/${subject}/${id}/rotate`, calendarFeedLinkSchema, {
+      method: "POST",
+      body: JSON.stringify({})
+    });
+  }
+
+  // ── CSV exports (Slice D) ───────────────────────────────────────────────────
+
+  /**
+   * Download a CSV export (GET /connectors/export/clients.csv | bookings.csv). These
+   * return `text/csv`, not JSON, so they bypass the JSON `request()` validator: we
+   * fetch with the auth header, read the body as a blob, and trigger a browser
+   * download via a transient anchor. Admin-only; the server owns the row contents.
+   */
+  async downloadExport(kind: "clients" | "bookings"): Promise<void> {
+    const path = `/connectors/export/${kind}.csv`;
+    const res = await fetch(`${this.baseUrl}${path}`, { headers: this.authHeader() });
+    if (res.status === 401) {
+      throw new AuthError(`API ${path} rejected the session`);
+    }
+    if (!res.ok) {
+      throw await errorFromResponse(res, path);
+    }
+    const blob = await res.blob();
+    const url = URL.createObjectURL(blob);
+    try {
+      const anchor = document.createElement("a");
+      anchor.href = url;
+      anchor.download = `${kind}.csv`;
+      document.body.appendChild(anchor);
+      anchor.click();
+      anchor.remove();
+    } finally {
+      URL.revokeObjectURL(url);
+    }
   }
 }
 

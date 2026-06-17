@@ -1,12 +1,20 @@
-import { useEffect, useMemo, useState } from "react";
-import type { Client, EntityStatus, Level, ListClientsQuery, OnboardClientInput } from "@beosand/types";
+import { useEffect, useMemo, useState, type FormEvent } from "react";
+import type {
+  Client,
+  EntityStatus,
+  Level,
+  ListClientsQuery,
+  OnboardClientInput,
+  UpdateClientInput
+} from "@beosand/types";
 import { AppShell } from "../ui/AppShell";
 import { Button } from "../ui/Button";
 import { DataTable, type Column } from "../ui/DataTable";
+import { Modal } from "../ui/Modal";
 import { NumberField, SelectField, TextField } from "../ui/Field";
 import { useToast } from "../ui/Toast";
 import { useT } from "../i18n/LanguageProvider";
-import { useClientsList, useOnboardClient } from "../hooks/useClients";
+import { useClientsList, useOnboardClient, useUpdateClient } from "../hooks/useClients";
 import { useLevels } from "../hooks/useLevels";
 
 type StatusFilter = EntityStatus | "all";
@@ -21,6 +29,7 @@ export function Clients(): JSX.Element {
   const t = useT();
   const [search, setSearch] = useState("");
   const [statusFilter, setStatusFilter] = useState<StatusFilter>("all");
+  const [editClient, setEditClient] = useState<Client | null>(null);
 
   // Debounce the search so typing doesn't fire a request per keystroke; the
   // server does the actual matching against name + @username.
@@ -59,6 +68,21 @@ export function Clients(): JSX.Element {
         <span className={`tag ${c.status === "active" ? "tag--ok" : "tag--warn"}`}>
           {c.status === "active" ? t("admin.status.active") : t("admin.status.inactive")}
         </span>
+      )
+    },
+    {
+      key: "actions",
+      header: "",
+      render: (c) => (
+        <div style={{ display: "flex", gap: "8px", justifyContent: "flex-end" }}>
+          <Button
+            variant="ghost"
+            onClick={() => setEditClient(c)}
+            aria-label={t("admin.clients.editAria", { name: c.name })}
+          >
+            {t("admin.action.edit")}
+          </Button>
+        </div>
       )
     }
   ];
@@ -117,6 +141,13 @@ export function Clients(): JSX.Element {
 
         <OnboardForm levels={levels.data ?? []} levelsLoading={levels.isLoading} />
       </div>
+
+      <EditClientModal
+        client={editClient}
+        levels={levels.data ?? []}
+        levelsLoading={levels.isLoading}
+        onClose={() => setEditClient(null)}
+      />
     </AppShell>
   );
 }
@@ -218,5 +249,140 @@ function OnboardForm({ levels, levelsLoading }: OnboardFormProps): JSX.Element {
         </div>
       </form>
     </section>
+  );
+}
+
+interface EditClientModalProps {
+  client: Client | null;
+  levels: Level[];
+  levelsLoading: boolean;
+  onClose: () => void;
+}
+
+/** Editable client fields held in the form before submit. */
+interface ClientFormState {
+  name: string;
+  levelId: string;
+  phone: string;
+  note: string;
+}
+
+function formFromClient(client: Client): ClientFormState {
+  return {
+    name: client.name,
+    levelId: client.levelId ?? NO_LEVEL,
+    phone: client.phone ?? "",
+    note: client.note ?? ""
+  };
+}
+
+/**
+ * Edit a client's profile (name/level/phone/note). The API owns validation and the
+ * admin gate; this modal only collects the editable fields. An emptied phone/note is
+ * sent as null to clear it, and the "no level" option maps to levelId: null. Identity
+ * (telegramId/source/language) is never editable here.
+ */
+function EditClientModal({ client, levels, levelsLoading, onClose }: EditClientModalProps): JSX.Element {
+  const t = useT();
+  const { notify } = useToast();
+  const update = useUpdateClient();
+
+  const [form, setForm] = useState<ClientFormState>(() =>
+    client ? formFromClient(client) : { name: "", levelId: NO_LEVEL, phone: "", note: "" }
+  );
+
+  // Re-seed the form (and clear any stale error) whenever a different client opens.
+  const [seededFor, setSeededFor] = useState<string | null>(null);
+  if (client && seededFor !== client.id) {
+    setSeededFor(client.id);
+    setForm(formFromClient(client));
+    update.reset();
+  }
+
+  const levelOptions = useMemo(
+    () => [
+      { value: NO_LEVEL, label: t("admin.clients.noLevel") },
+      ...levels.map((level) => ({ value: level.id, label: level.name }))
+    ],
+    [levels, t]
+  );
+
+  function handleSubmit(event: FormEvent<HTMLFormElement>): void {
+    event.preventDefault();
+    if (!client) return;
+    const trimmedPhone = form.phone.trim();
+    const trimmedNote = form.note.trim();
+    const input: UpdateClientInput = {
+      name: form.name.trim(),
+      levelId: form.levelId === NO_LEVEL ? null : form.levelId,
+      phone: trimmedPhone === "" ? null : trimmedPhone,
+      note: trimmedNote === "" ? null : trimmedNote
+    };
+    update.mutate(
+      { id: client.id, input },
+      {
+        onSuccess: (updated) => {
+          notify(t("admin.clients.updated", { name: updated.name }), "success");
+          onClose();
+        }
+      }
+    );
+  }
+
+  return (
+    <Modal
+      open={client !== null}
+      onClose={onClose}
+      title={t("admin.clients.editTitle")}
+      footer={
+        <>
+          <Button variant="ghost" onClick={onClose} disabled={update.isPending}>
+            {t("admin.action.cancel")}
+          </Button>
+          <Button type="submit" form="client-edit-form" disabled={update.isPending}>
+            {update.isPending ? t("admin.action.saving") : t("admin.action.save")}
+          </Button>
+        </>
+      }
+    >
+      <form
+        id="client-edit-form"
+        onSubmit={handleSubmit}
+        noValidate
+        style={{ display: "flex", flexDirection: "column", gap: "16px" }}
+      >
+        <TextField
+          label={t("admin.field.personName")}
+          value={form.name}
+          onChange={(event) => setForm({ ...form, name: event.target.value })}
+          required
+          autoComplete="off"
+        />
+        <SelectField
+          label={t("admin.field.level")}
+          value={form.levelId}
+          onChange={(event) => setForm({ ...form, levelId: event.target.value })}
+          options={levelOptions}
+          disabled={levelsLoading}
+        />
+        <TextField
+          label={t("admin.field.phone")}
+          value={form.phone}
+          onChange={(event) => setForm({ ...form, phone: event.target.value })}
+          autoComplete="off"
+        />
+        <TextField
+          label={t("admin.field.note")}
+          value={form.note}
+          onChange={(event) => setForm({ ...form, note: event.target.value })}
+          autoComplete="off"
+        />
+        {update.isError ? (
+          <p className="state state--error" role="alert">
+            {update.error.message}
+          </p>
+        ) : null}
+      </form>
+    </Modal>
   );
 }

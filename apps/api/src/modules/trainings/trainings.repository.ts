@@ -91,6 +91,23 @@ export interface RosterRow {
   groupSubscriptionId: string | null;
 }
 
+/**
+ * One upcoming training shaped for the calendar (.ics) feed: date/time plus the
+ * display fields a VEVENT needs (level + group name, trainer name, court number when
+ * an auto-block assigned one). Drives both the trainer feed and the client feed via
+ * the same VEVENT builder. No business rules — the feed service applies none.
+ */
+export interface CalendarFeedItem {
+  trainingId: string;
+  date: string;
+  startTime: string;
+  endTime: string;
+  levelName: string | null;
+  groupName: string | null;
+  trainerName: string;
+  courtNumber: number | null;
+}
+
 /** Only place trainings DB access lives. Returns typed rows; no business rules. */
 @Injectable()
 export class TrainingsRepository {
@@ -168,6 +185,28 @@ export class TrainingsRepository {
   }
 
   /**
+   * Date + start/end time (HH:MM) for one training — drives the connectors
+   * `training.cancelled` domain-event payload without the heavy calendar join. No
+   * business rules; returns undefined if the training row no longer exists.
+   */
+  async findRefById(
+    id: string
+  ): Promise<{ date: string; startTime: string; endTime: string } | undefined> {
+    const [row] = await this.database.db
+      .select({
+        date: tables.trainings.date,
+        startTime: tables.trainings.startTime,
+        endTime: tables.trainings.endTime
+      })
+      .from(tables.trainings)
+      .where(eq(tables.trainings.id, id))
+      .limit(1);
+    return row
+      ? { date: row.date, startTime: row.startTime.slice(0, 5), endTime: row.endTime.slice(0, 5) }
+      : undefined;
+  }
+
+  /**
    * The full training row selected FOR UPDATE — used by the admin assign-court write,
    * which needs the date/times to insert the auto-block and the whole row to return.
    * Caller must hold a tx.
@@ -211,6 +250,29 @@ export class TrainingsRepository {
       )
       .returning({ clientId: tables.bookings.clientId });
     return rows.map((row) => row.clientId);
+  }
+
+  /**
+   * Hard-delete a training's dependent rows + the training itself inside the caller's
+   * transaction, used by the admin hard-delete. Each method takes the tx and the
+   * training id; the service calls them in FK order (notifications → waitlist →
+   * bookings → court block → training) so no FK constraint (notably the no-cascade
+   * notifications.training_id) is ever violated.
+   */
+  async deleteNotificationsForTraining(tx: Database, id: string): Promise<void> {
+    await tx.delete(tables.notifications).where(eq(tables.notifications.trainingId, id));
+  }
+
+  async deleteWaitlistForTraining(tx: Database, id: string): Promise<void> {
+    await tx.delete(tables.waitlist).where(eq(tables.waitlist.trainingId, id));
+  }
+
+  async deleteBookingsForTraining(tx: Database, id: string): Promise<void> {
+    await tx.delete(tables.bookings).where(eq(tables.bookings.trainingId, id));
+  }
+
+  async deleteTrainingRow(tx: Database, id: string): Promise<void> {
+    await tx.delete(tables.trainings).where(eq(tables.trainings.id, id));
   }
 
   /** Persist a new capacity + recomputed status onto the training inside the caller's tx. */
@@ -478,6 +540,68 @@ export class TrainingsRepository {
       )
       .orderBy(asc(tables.clients.name));
   }
+
+  /**
+   * A trainer's upcoming, non-cancelled trainings on/after `fromDate`, shaped for the
+   * calendar feed (connectors). Joined to the (nullable) group/level display names
+   * and the (nullable) auto-block court number. Ordered by date then start time; no
+   * business rules. Past and cancelled trainings are excluded from the feed.
+   */
+  async listUpcomingForTrainerFeed(
+    trainerId: string,
+    fromDate: string
+  ): Promise<CalendarFeedItem[]> {
+    const rows = await this.database.db
+      .select(feedSelection)
+      .from(tables.trainings)
+      .leftJoin(tables.groups, eq(tables.trainings.groupId, tables.groups.id))
+      .leftJoin(tables.levels, eq(tables.groups.levelId, tables.levels.id))
+      .innerJoin(tables.trainers, eq(tables.trainings.trainerId, tables.trainers.id))
+      .leftJoin(tables.courtBlocks, eq(tables.courtBlocks.groupTrainingId, tables.trainings.id))
+      .leftJoin(tables.courts, eq(tables.courts.id, tables.courtBlocks.courtId))
+      .where(
+        and(
+          eq(tables.trainings.trainerId, trainerId),
+          gte(tables.trainings.date, fromDate),
+          ne(tables.trainings.status, "cancelled")
+        )
+      )
+      .orderBy(asc(tables.trainings.date), asc(tables.trainings.startTime));
+
+    return rows.map(toFeedItem);
+  }
+
+  /**
+   * The upcoming trainings a client is actively booked into (booking status
+   * `booked`/`attended`, never `cancelled`/`waitlist`), on/after `fromDate`, shaped
+   * for the calendar feed (connectors). Same display joins as the trainer feed.
+   * Ordered by date then start time; no business rules.
+   */
+  async listUpcomingForClientFeed(
+    clientId: string,
+    fromDate: string
+  ): Promise<CalendarFeedItem[]> {
+    const rows = await this.database.db
+      .select(feedSelection)
+      .from(tables.bookings)
+      .innerJoin(tables.trainings, eq(tables.bookings.trainingId, tables.trainings.id))
+      .leftJoin(tables.groups, eq(tables.trainings.groupId, tables.groups.id))
+      .leftJoin(tables.levels, eq(tables.groups.levelId, tables.levels.id))
+      .innerJoin(tables.trainers, eq(tables.trainings.trainerId, tables.trainers.id))
+      .leftJoin(tables.courtBlocks, eq(tables.courtBlocks.groupTrainingId, tables.trainings.id))
+      .leftJoin(tables.courts, eq(tables.courts.id, tables.courtBlocks.courtId))
+      .where(
+        and(
+          eq(tables.bookings.clientId, clientId),
+          inArray(tables.bookings.status, ["booked", "attended"]),
+          gte(tables.trainings.date, fromDate),
+          ne(tables.trainings.status, "cancelled")
+        )
+      )
+      .orderBy(asc(tables.trainings.date), asc(tables.trainings.startTime));
+
+    return rows.map(toFeedItem);
+  }
 }
 
 /** Postgres `time` yields "HH:MM:SS"; the contract is "HH:MM". Normalize on read. */
@@ -519,6 +643,43 @@ type CalendarSelectionRow = {
   trainerName: string;
   number: number | null;
 };
+
+/** Column selection shared by the trainer and client calendar-feed reads. */
+const feedSelection = {
+  trainingId: tables.trainings.id,
+  date: tables.trainings.date,
+  startTime: tables.trainings.startTime,
+  endTime: tables.trainings.endTime,
+  levelName: tables.levels.name,
+  groupName: tables.groups.name,
+  trainerName: tables.trainers.name,
+  courtNumber: tables.courts.number
+} as const;
+
+type FeedSelectionRow = {
+  trainingId: string;
+  date: string;
+  startTime: string;
+  endTime: string;
+  levelName: string | null;
+  groupName: string | null;
+  trainerName: string;
+  courtNumber: number | null;
+};
+
+/** Shape a joined feed row to CalendarFeedItem, normalizing "HH:MM:SS" -> "HH:MM". */
+function toFeedItem(row: FeedSelectionRow): CalendarFeedItem {
+  return {
+    trainingId: row.trainingId,
+    date: row.date,
+    startTime: row.startTime.slice(0, 5),
+    endTime: row.endTime.slice(0, 5),
+    levelName: row.levelName ?? null,
+    groupName: row.groupName ?? null,
+    trainerName: row.trainerName,
+    courtNumber: row.courtNumber ?? null
+  };
+}
 
 /** Shape a joined calendar row to TrainingCalendarRow, normalizing times and nulls. */
 function toCalendarRow(row: CalendarSelectionRow): TrainingCalendarRow {

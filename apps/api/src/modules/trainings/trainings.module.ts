@@ -1,4 +1,5 @@
 import { forwardRef, Module } from "@nestjs/common";
+import { ConnectorsModule } from "../connectors/connectors.module";
 import { CourtsModule } from "../courts/courts.module";
 import { GroupsModule } from "../groups/groups.module";
 import { NotificationsModule } from "../notifications/notifications.module";
@@ -10,7 +11,13 @@ import { TrainingsService } from "./trainings.service";
 @Module({
   // forwardRef on GroupsModule: GroupsService now depends on TrainingsService and
   // TrainingsModule still needs GroupsRepository — a two-way module dependency.
-  imports: [forwardRef(() => GroupsModule), TrainersModule, NotificationsModule, CourtsModule],
+  imports: [
+    forwardRef(() => GroupsModule),
+    TrainersModule,
+    NotificationsModule,
+    CourtsModule,
+    ConnectorsModule
+  ],
   controllers: [TrainingsController, TrainerTodayController],
   providers: [TrainingsService, TrainingsRepository],
   exports: [TrainingsService]

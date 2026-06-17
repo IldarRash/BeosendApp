@@ -453,3 +453,42 @@ export function avatarInitialOf(name: string): string {
   const first = firstNameOf(name).charAt(0);
   return first ? first.toUpperCase() : "?";
 }
+
+/** The school's wall-clock timezone; calendar feeds render DTSTART/DTEND in it. */
+export const BELGRADE_TZ = "Europe/Belgrade";
+
+/**
+ * Convert a wall-clock date/time ("YYYY-MM-DD", "HH:MM") in a given IANA zone to the
+ * absolute UTC instant it denotes — DST-correct via `Intl`, no timezone library. The
+ * calendar feed pairs this instant with `TZID=Europe/Belgrade` so a VEVENT's DTSTART
+ * renders the original literal wall-clock regardless of viewer locale. Pure: usable
+ * without Nest/DB and unit-testable across the CET/CEST boundary.
+ */
+export function zonedWallClockToUtc(date: string, time: string, timeZone: string): Date {
+  const [year, month, day] = date.split("-").map(Number);
+  const [hour, minute] = time.split(":").map(Number);
+  // Treat the wall-clock as if it were UTC, then measure how far that instant's
+  // rendering in `timeZone` drifts from the wall-clock and subtract the offset.
+  const guess = Date.UTC(year, month - 1, day, hour, minute, 0);
+  const parts = new Intl.DateTimeFormat("en-US", {
+    timeZone,
+    hourCycle: "h23",
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+    hour: "2-digit",
+    minute: "2-digit",
+    second: "2-digit"
+  }).formatToParts(new Date(guess));
+  const at = (type: string): number => Number(parts.find((p) => p.type === type)?.value ?? "0");
+  const renderedAsUtc = Date.UTC(
+    at("year"),
+    at("month") - 1,
+    at("day"),
+    at("hour") % 24,
+    at("minute"),
+    at("second")
+  );
+  const offset = renderedAsUtc - guess;
+  return new Date(guess - offset);
+}

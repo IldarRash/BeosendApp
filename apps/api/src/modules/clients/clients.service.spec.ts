@@ -22,6 +22,7 @@ const existingClient: Client = {
   levelId: LEVEL_ID,
   source: "telegram",
   phone: null,
+  email: null,
   note: null,
   language: "ru",
   registeredAt: "2026-01-01T00:00:00.000Z",
@@ -36,6 +37,7 @@ const walkInClient: Client = {
   levelId: null,
   source: "walk_in",
   phone: "+381601234567",
+  email: null,
   note: "via Instagram",
   language: "ru",
   registeredAt: "2026-01-01T00:00:00.000Z",
@@ -77,6 +79,11 @@ function makeClientsRepo(overrides: Partial<ClientsRepository> = {}): ClientsRep
       note: values.note ?? null
     })),
     findById: vi.fn(async () => existingClient),
+    updateById: vi.fn(async (id: string, patch: Partial<Client>) => ({
+      ...existingClient,
+      id,
+      ...patch
+    })),
     ...overrides
   } as unknown as ClientsRepository;
 }
@@ -279,6 +286,70 @@ describe("ClientsService", () => {
         ForbiddenException
       );
       expect(clientsRepo.insertWalkIn).not.toHaveBeenCalled();
+    });
+  });
+
+  describe("updateClient (admin-only profile edit)", () => {
+    const CLIENT_ID = existingClient.id;
+
+    it("forbids a non-admin and writes nothing (403)", async () => {
+      await expect(
+        service.updateClient(TELEGRAM_ID, CLIENT_ID, { name: "New" })
+      ).rejects.toBeInstanceOf(ForbiddenException);
+      expect(clientsRepo.findById).not.toHaveBeenCalled();
+      expect(clientsRepo.updateById).not.toHaveBeenCalled();
+    });
+
+    it("404s a missing client and writes nothing", async () => {
+      clientsRepo = makeClientsRepo({ findById: vi.fn(async () => undefined) });
+      service = new ClientsService(clientsRepo, levelsRepo, makeDatabase(), makeStaffLinking(), env);
+      await expect(
+        service.updateClient(ADMIN_ID, CLIENT_ID, { name: "New" })
+      ).rejects.toBeInstanceOf(NotFoundException);
+      expect(clientsRepo.updateById).not.toHaveBeenCalled();
+    });
+
+    it("rejects an unknown levelId and writes nothing (400)", async () => {
+      levelsRepo = makeLevelsRepo({ findById: vi.fn(async () => undefined) });
+      service = new ClientsService(clientsRepo, levelsRepo, makeDatabase(), makeStaffLinking(), env);
+      await expect(
+        service.updateClient(ADMIN_ID, CLIENT_ID, { levelId: LEVEL_ID })
+      ).rejects.toBeInstanceOf(BadRequestException);
+      expect(clientsRepo.updateById).not.toHaveBeenCalled();
+    });
+
+    it("rejects an inactive levelId and writes nothing (400)", async () => {
+      levelsRepo = makeLevelsRepo({
+        findById: vi.fn(async () => ({ ...beginner, status: "inactive" }) as Level)
+      });
+      service = new ClientsService(clientsRepo, levelsRepo, makeDatabase(), makeStaffLinking(), env);
+      await expect(
+        service.updateClient(ADMIN_ID, CLIENT_ID, { levelId: LEVEL_ID })
+      ).rejects.toBeInstanceOf(BadRequestException);
+      expect(clientsRepo.updateById).not.toHaveBeenCalled();
+    });
+
+    it("returns the existing row unchanged for an empty patch and never writes", async () => {
+      const result = await service.updateClient(ADMIN_ID, CLIENT_ID, {});
+      expect(result).toEqual(existingClient);
+      expect(clientsRepo.updateById).not.toHaveBeenCalled();
+      // A null clearing levelId is never re-validated against levels for an empty patch.
+      expect(levelsRepo.findById).not.toHaveBeenCalled();
+    });
+
+    it("persists the patch and returns the updated client (happy path)", async () => {
+      const patch = { name: "Ana Renamed", phone: "+381601112233", note: "VIP" };
+      const result = await service.updateClient(ADMIN_ID, CLIENT_ID, patch);
+      expect(clientsRepo.updateById).toHaveBeenCalledWith(CLIENT_ID, patch);
+      expect(result).toMatchObject(patch);
+    });
+
+    it("clears a nullable field by passing null straight to the repo (no level check)", async () => {
+      const patch = { levelId: null, note: null };
+      await service.updateClient(ADMIN_ID, CLIENT_ID, patch);
+      // levelId === null clears the column; it must not be validated as an active level.
+      expect(levelsRepo.findById).not.toHaveBeenCalled();
+      expect(clientsRepo.updateById).toHaveBeenCalledWith(CLIENT_ID, patch);
     });
   });
 });

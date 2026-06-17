@@ -39,6 +39,7 @@ const EXISTING: Client = {
   levelId: null,
   source: "telegram",
   phone: null,
+  email: null,
   note: null,
   registeredAt: "2026-01-01T00:00:00.000Z",
   status: "active",

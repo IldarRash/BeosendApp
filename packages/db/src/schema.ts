@@ -75,6 +75,12 @@ export const courtRequestStatus = pgEnum("court_request_status", [
   "rejected",
   "cancelled"
 ]);
+/** Outbound webhook delivery lifecycle (connectors). */
+export const webhookDeliveryStatus = pgEnum("webhook_delivery_status", [
+  "pending",
+  "delivered",
+  "failed"
+]);
 /** UI locales (mirrors @beosand/i18n and packages/types localeSchema). */
 export const locale = pgEnum("locale", ["ru", "sr", "en"]);
 
@@ -96,7 +102,11 @@ export const trainers = pgTable(
     telegramId: bigint("telegram_id", { mode: "number" }),
     // Optional @username (normalized, no "@") to link a trainer added by tag
     // before their numeric id is known; backfilled on first contact.
-    telegramUsername: text("telegram_username")
+    telegramUsername: text("telegram_username"),
+    // Rotating counter that revokes a trainer's signed calendar feed token: a
+    // valid feed token must match the current version (connectors, account-light
+    // stateless feed). "Revoke / rotate" = increment this.
+    calendarFeedVersion: integer("calendar_feed_version").notNull().default(1)
   },
   (table) => ({
     // Partial unique: usernames are stored normalized (lowercased), so the column
@@ -151,11 +161,17 @@ export const clients = pgTable(
     source: text("source").notNull().default("telegram"),
     // Optional walk-in contact details (no Telegram channel for them).
     phone: text("phone"),
+    // Optional email (connectors): walk-ins may have email, phone, both, or
+    // neither. No unique constraint — a family can share an email.
+    email: text("email"),
     note: text("note"),
     // Per-user bot UI locale; defaults to RU (the authoritative locale).
     language: locale("language").notNull().default("ru"),
     registeredAt: timestamp("registered_at", { withTimezone: true }).notNull().defaultNow(),
-    status: entityStatus("status").notNull().default("active")
+    status: entityStatus("status").notNull().default("active"),
+    // Rotating counter that revokes a client's signed calendar feed token (see
+    // trainers.calendarFeedVersion). Account-light feed revocation, no token table.
+    calendarFeedVersion: integer("calendar_feed_version").notNull().default(1)
   },
   (table) => ({
     // Partial so multiple walk-ins (all NULL telegram_id) don't collide, while
@@ -259,6 +275,11 @@ export const notifications = pgTable("notifications", {
     .notNull()
     .references(() => clients.id),
   trainingId: uuid("training_id").references(() => trainings.id),
+  // Which channel logged this send (connectors). Defaults to 'telegram' so the
+  // existing telegram-shaped anti-join idempotency is unchanged; email/sms
+  // attempts are recorded with their own channel value. Free text constrained by
+  // the Zod NotificationChannel ids (telegram|email|sms); no dedicated pgEnum.
+  channel: text("channel").default("telegram"),
   sentAt: timestamp("sent_at", { withTimezone: true }).notNull().defaultNow()
 });
 
@@ -317,6 +338,48 @@ export const courtRequests = pgTable("court_requests", {
   decidedBy: bigint("decided_by", { mode: "number" })
 });
 
+// --- External connectors (webhooks) ---
+
+/**
+ * Admin-configured outbound webhook endpoints. On each subscribed domain event the
+ * connector layer signs and POSTs a JSON body to `url` (HMAC-SHA256 over the raw
+ * body using `secret`). The secret is generated server-side and NEVER returned in a
+ * list/get response contract. `events` is a subset of the domain-event enum.
+ */
+export const webhookEndpoints = pgTable("webhook_endpoints", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  url: text("url").notNull(),
+  // Per-endpoint HMAC key; returned once at creation, never in subsequent reads.
+  secret: text("secret").notNull(),
+  events: text("events").array().notNull(),
+  status: entityStatus("status").notNull().default("active"),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  // Acting admin's telegram id (mirrors courtRequests.decidedBy).
+  createdBy: bigint("created_by", { mode: "number" })
+});
+
+/**
+ * Per-attempt delivery log for outbound webhooks (operational, not domain truth).
+ * `payload` is the exact signed JSON body for replay/inspection. ON DELETE CASCADE
+ * on the endpoint: deleting an endpoint discards its delivery history.
+ */
+export const webhookDeliveries = pgTable("webhook_deliveries", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  endpointId: uuid("endpoint_id")
+    .notNull()
+    .references(() => webhookEndpoints.id, { onDelete: "cascade" }),
+  eventType: text("event_type").notNull(),
+  payload: text("payload").notNull(),
+  status: webhookDeliveryStatus("status").notNull().default("pending"),
+  attempts: integer("attempts").notNull().default(0),
+  lastError: text("last_error"),
+  responseStatus: integer("response_status"),
+  // Retry scheduling; null when delivered or exhausted.
+  nextAttemptAt: timestamp("next_attempt_at", { withTimezone: true }),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  deliveredAt: timestamp("delivered_at", { withTimezone: true })
+});
+
 // --- Localization (i18n) ---
 
 /**
@@ -372,6 +435,8 @@ export const schema = {
   courts,
   courtBlocks,
   courtRequests,
+  webhookEndpoints,
+  webhookDeliveries,
   uiLabels,
   notificationTemplates
 };

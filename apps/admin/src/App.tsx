@@ -9,6 +9,7 @@ import { Clients } from "./pages/Clients";
 import { CourtBlocks } from "./pages/CourtBlocks";
 import { CourtLoad } from "./pages/CourtLoad";
 import { CourtRequests } from "./pages/CourtRequests";
+import { Connectors } from "./pages/Connectors";
 import { Dashboard } from "./pages/Dashboard";
 import { Groups } from "./pages/Groups";
 import { Labels } from "./pages/Labels";
@@ -167,6 +168,14 @@ export function App(): JSX.Element {
                   element={
                     <RequireAuth>
                       <NotificationTemplates />
+                    </RequireAuth>
+                  }
+                />
+                <Route
+                  path="/connectors"
+                  element={
+                    <RequireAuth>
+                      <Connectors />
                     </RequireAuth>
                   }
                 />

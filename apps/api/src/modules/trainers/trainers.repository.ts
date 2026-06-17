@@ -1,7 +1,7 @@
 import { Injectable } from "@nestjs/common";
 import type { Trainer } from "@beosand/types";
-import { tables } from "@beosand/db";
-import { and, asc, eq, isNull } from "drizzle-orm";
+import { type Database, tables } from "@beosand/db";
+import { and, asc, eq, isNull, sql } from "drizzle-orm";
 import { DatabaseService } from "../../db/database.service";
 
 /** Only place trainers DB access lives. Returns typed rows; no business rules. */
@@ -64,6 +64,40 @@ export class TrainersRepository {
       .where(eq(tables.trainers.id, id))
       .returning();
     return row;
+  }
+
+  /**
+   * The trainer's current calendar feed version (connectors §5.4), or undefined if no
+   * trainer has that id. Used to validate a signed feed token's `v` and to build a
+   * link at the live version. Kept off the entity contract — it's an internal counter.
+   */
+  async findCalendarFeedVersion(
+    id: string,
+    tx: Database = this.database.db
+  ): Promise<number | undefined> {
+    const [row] = await tx
+      .select({ version: tables.trainers.calendarFeedVersion })
+      .from(tables.trainers)
+      .where(eq(tables.trainers.id, id))
+      .limit(1);
+    return row?.version;
+  }
+
+  /**
+   * Rotate a trainer's calendar feed: increment `calendarFeedVersion`, invalidating
+   * every previously issued feed token (connectors §5.4). Returns the new version, or
+   * undefined if no trainer has that id. No business rules — the service gates access.
+   */
+  async bumpCalendarFeedVersion(
+    id: string,
+    tx: Database = this.database.db
+  ): Promise<number | undefined> {
+    const [row] = await tx
+      .update(tables.trainers)
+      .set({ calendarFeedVersion: sql`${tables.trainers.calendarFeedVersion} + 1` })
+      .where(eq(tables.trainers.id, id))
+      .returning({ version: tables.trainers.calendarFeedVersion });
+    return row?.version;
   }
 
   /**

@@ -56,6 +56,7 @@ import {
 } from "@beosand/types";
 import { z } from "zod";
 import { ENV } from "../../config/config.module";
+import { DomainEventsService } from "../connectors/domain-events.service";
 import {
   CourtBlocksRepository,
   type CourtOccupancyRow
@@ -83,6 +84,7 @@ export class TrainingsService {
     private readonly trainers: TrainersRepository,
     private readonly notifications: NotificationsService,
     private readonly courtBlocks: CourtBlocksRepository,
+    private readonly domainEvents: DomainEventsService,
     @Inject(ENV) private readonly env: Env
   ) {}
 
@@ -552,33 +554,55 @@ export class TrainingsService {
   }
 
   /**
-   * Admin: cancel a training (manager console). In one transaction the training is
-   * locked FOR UPDATE (404 if missing), guarded against a double-cancel (409 if
-   * already cancelled), set to status="cancelled" (the row is kept, never deleted),
-   * and its still-`booked` bookings are flipped to "cancelled" (siblings of a
-   * monthly batch on other dates, plus attended/no_show, are untouched). After the
-   * commit the affected clients are notified; a Telegram failure is logged and
-   * swallowed so it never undoes the committed cancel.
+   * Admin: HARD-DELETE a training (manager console). This deliberately overrides the
+   * usual "rows are kept, never deleted" invariant — the training and all its
+   * dependent rows are purged so the session vanishes entirely.
+   *
+   * Ordering matters because of the FK from `notifications.training_id` to
+   * `trainings` (NO cascade): clients must be notified WHILE the training row still
+   * exists, because the cancelled-notification write inserts a notifications row
+   * carrying this trainingId. So we notify first, then purge.
+   *
+   * Two transactions on purpose:
+   *  - tx1 cancels the training the same way a normal cancel does (lock FOR UPDATE,
+   *    flip booked/pending bookings → cancelled, mark cancelled, free the court),
+   *    returning the affected clientIds. An already-cancelled training yields [].
+   *  - then notify those clients (training row still present → notification-log FK ok).
+   *  - tx2 is the committed delete: purge notifications → waitlist → bookings → court
+   *    block → training row, in FK order. If tx2 fails, the training is simply left
+   *    cancelled and the delete is safely retryable.
    */
-  async cancelTraining(actorTelegramId: number, id: string): Promise<Training> {
+  async deleteTraining(actorTelegramId: number, id: string): Promise<{ id: string }> {
     this.assertAdmin(actorTelegramId);
 
-    const { updated, cancelledClientIds } = await this.trainings.transaction(async (tx) => {
+    const clientIds = await this.trainings.transaction(async (tx) => {
       const locked = await this.trainings.findForUpdate(tx, id);
       if (!locked) {
         throw new NotFoundException(`Training ${id} not found`);
       }
       if (locked.status === "cancelled") {
-        throw new ConflictException("Training is already cancelled");
+        return [];
       }
-      const cancelledClientIds = await this.cancelOneInTx(tx, id);
-      const marked = await this.trainings.markCancelled(tx, id);
-      return { updated: marked, cancelledClientIds };
+      return this.cancelOneInTx(tx, id);
     });
 
-    await this.notifyCancelledSafely(id, cancelledClientIds);
+    // The training row still exists here, so the notification-log insert's FK to
+    // trainings holds. A Telegram/DB hiccup is logged and swallowed, never aborting
+    // the delete that follows.
+    await this.notifyCancelledSafely(id, clientIds);
 
-    return trainingSchema.parse(updated);
+    await this.trainings.transaction(async (tx) => {
+      await this.trainings.deleteNotificationsForTraining(tx, id);
+      await this.trainings.deleteWaitlistForTraining(tx, id);
+      await this.trainings.deleteBookingsForTraining(tx, id);
+      // Idempotent: tx1 already freed the court for a non-cancelled training; calling
+      // again also covers the already-cancelled branch (and the manual-block case is
+      // untouched — only the auto-block keyed by this trainingId is removed).
+      await this.courtBlocks.deleteByGroupTrainingId(id, tx);
+      await this.trainings.deleteTrainingRow(tx, id);
+    });
+
+    return { id };
   }
 
   /**
@@ -770,6 +794,28 @@ export class TrainingsService {
     } catch (error) {
       this.logger.error(
         "Training-cancelled notification failed (cancellation stands): " +
+          (error instanceof Error ? error.message : String(error))
+      );
+    }
+    // Connector seam: emit the typed training.cancelled event (no listener yet),
+    // alongside the direct Telegram fan-out above. Resolved + emitted best-effort:
+    // a failure is logged and swallowed so a committed cancel is never undone. In
+    // deleteTraining this runs while the training row still exists, so findRefById
+    // resolves the render fields the payload needs.
+    try {
+      const ref = await this.trainings.findRefById(trainingId);
+      if (ref) {
+        this.domainEvents.emitTrainingCancelled({
+          trainingId,
+          date: ref.date,
+          startTime: ref.startTime,
+          endTime: ref.endTime,
+          affectedClientIds: clientIds
+        });
+      }
+    } catch (error) {
+      this.logger.error(
+        "training.cancelled event emission failed (cancellation stands): " +
           (error instanceof Error ? error.message : String(error))
       );
     }

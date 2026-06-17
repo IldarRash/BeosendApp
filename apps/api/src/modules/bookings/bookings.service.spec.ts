@@ -16,6 +16,7 @@ import type {
   TrainingLockRow
 } from "./bookings.repository";
 import type { ClientsRepository } from "../clients/clients.repository";
+import type { DomainEventsService } from "../connectors/domain-events.service";
 import type { GroupsRepository } from "../groups/groups.repository";
 import type { NotificationsService } from "../notifications/notifications.service";
 import type { TrainersRepository } from "../trainers/trainers.repository";
@@ -31,6 +32,12 @@ const fakeNotifications = {
 const fakeWaitlist = {
   promoteNext: async (): Promise<void> => undefined
 } as unknown as WaitlistService;
+
+/** No-op domain-events double: the connector emit seam is fire-and-forget here. */
+const fakeDomainEvents = {
+  emitBookingCreated: (): void => undefined,
+  emitBookingDeclined: (): void => undefined
+} as unknown as DomainEventsService;
 
 const ADMIN_ID = 111;
 const OWNER_ID = 222;
@@ -57,6 +64,7 @@ const ownerClient: Client = {
   levelId: null,
   source: "telegram",
   phone: null,
+  email: null,
   note: null,
   language: "ru",
   registeredAt: new Date().toISOString(),
@@ -72,6 +80,7 @@ const walkInClient: Client = {
   levelId: null,
   source: "walk_in",
   phone: "+381601234567",
+  email: null,
   note: null,
   language: "ru",
   registeredAt: new Date().toISOString(),
@@ -122,6 +131,15 @@ class FakeBookingsRepository {
       return { ...source, trainerId: source.trainerId ?? TRAINER_ID };
     }
     return undefined;
+  }
+
+  /** Render fields for the connectors domain-event payloads (best-effort emit). */
+  async findTrainingRefs(
+    trainingIds: string[]
+  ): Promise<Map<string, { date: string; startTime: string; endTime: string }>> {
+    return new Map(
+      trainingIds.map((id) => [id, { date: "2099-06-08", startTime: "18:00", endTime: "19:30" }])
+    );
   }
 
   /** Source-group training instances the transfer cancels (locked then recomputed). */
@@ -412,6 +430,7 @@ describe("BookingsService.createSingle", () => {
       fakeNotifications,
       fakeWaitlist,
       new FakeTrainersRepository() as unknown as TrainersRepository,
+      fakeDomainEvents,
       env
     );
   });
@@ -556,6 +575,7 @@ describe("BookingsService.createGroupBooking", () => {
       fakeNotifications,
       fakeWaitlist,
       new FakeTrainersRepository() as unknown as TrainersRepository,
+      fakeDomainEvents,
       env
     );
   });
@@ -717,6 +737,7 @@ describe("BookingsService confirmation hook is failure-tolerant", () => {
       throwingNotifications,
       fakeWaitlist,
       new FakeTrainersRepository() as unknown as TrainersRepository,
+      fakeDomainEvents,
       env
     );
   });
@@ -780,6 +801,7 @@ describe("BookingsService.listMine", () => {
       fakeNotifications,
       fakeWaitlist,
       new FakeTrainersRepository() as unknown as TrainersRepository,
+      fakeDomainEvents,
       env
     );
   });
@@ -873,6 +895,7 @@ describe("BookingsService.cancelBooking", () => {
       fakeNotifications,
       fakeWaitlist,
       new FakeTrainersRepository() as unknown as TrainersRepository,
+      fakeDomainEvents,
       env
     );
   });
@@ -1047,6 +1070,7 @@ describe("BookingsService.markAttendance (T2.3)", () => {
       fakeNotifications,
       fakeWaitlist,
       trainersRepo as unknown as TrainersRepository,
+      fakeDomainEvents,
       env
     );
     bookingsRepo.trainingMeta[TRAINING_ID] = { trainerId: TRAINER_ID, date: yesterday };
@@ -1177,6 +1201,7 @@ describe("BookingsService.createManual (Feature 5 — admin/trainer manual booki
       notifications,
       fakeWaitlist,
       trainersRepo as unknown as TrainersRepository,
+      fakeDomainEvents,
       env
     );
     bookingsRepo.training = {
@@ -1225,6 +1250,7 @@ describe("BookingsService.createManual (Feature 5 — admin/trainer manual booki
       } as unknown as NotificationsService,
       fakeWaitlist,
       trainersRepo as unknown as TrainersRepository,
+      fakeDomainEvents,
       env
     );
 
@@ -1347,6 +1373,7 @@ describe("BookingsService.transferGroup (Item C — admin group transfer)", () =
       fakeNotifications,
       fakeWaitlist,
       new FakeTrainersRepository() as unknown as TrainersRepository,
+      fakeDomainEvents,
       env
     );
   });
@@ -1616,6 +1643,7 @@ describe("BookingsService.createSingle — pending vs auto-confirm (trainer-conf
       notifications.service,
       fakeWaitlist,
       trainersRepo as unknown as TrainersRepository,
+      fakeDomainEvents,
       env
     );
     bookingsRepo.training = {
@@ -1728,6 +1756,7 @@ describe("BookingsService.confirmBooking (trainer-confirmation)", () => {
       notifications.service,
       fakeWaitlist,
       trainersRepo as unknown as TrainersRepository,
+      fakeDomainEvents,
       env
     );
     bookingsRepo.training = {
@@ -1849,6 +1878,7 @@ describe("BookingsService.declineBooking (trainer-confirmation)", () => {
       notifications.service,
       waitlist,
       trainersRepo as unknown as TrainersRepository,
+      fakeDomainEvents,
       env
     );
   });
@@ -1997,6 +2027,7 @@ describe("BookingsService.confirm/declineSubscription (trainer-confirmation, mon
       notifications.service,
       waitlist,
       trainersRepo as unknown as TrainersRepository,
+      fakeDomainEvents,
       env
     );
     bookingsRepo.trainingsById = {

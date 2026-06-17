@@ -83,12 +83,12 @@ export function useGenerateAllGroups(): UseMutationResult<
   });
 }
 
-/** Cancel a training; refreshes the lists on success. */
-export function useCancelTraining(): UseMutationResult<Training, Error, string> {
+/** Delete a training; refreshes the lists on success. */
+export function useDeleteTraining(): UseMutationResult<{ id: string }, Error, string> {
   const api = useApiClient();
   const queryClient = useQueryClient();
   return useMutation({
-    mutationFn: (id: string) => api.cancelTraining(id),
+    mutationFn: (id: string) => api.deleteTraining(id),
     onSuccess: () => invalidateTrainings(queryClient)
   });
 }

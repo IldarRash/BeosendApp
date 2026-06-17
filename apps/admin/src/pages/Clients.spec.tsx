@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { act, cleanup, fireEvent, render, screen } from "@testing-library/react";
+import { act, cleanup, fireEvent, render, screen, within } from "@testing-library/react";
 import type { Client, Level } from "@beosand/types";
 import { MemoryRouter } from "react-router-dom";
 
@@ -19,9 +19,12 @@ vi.mock("../i18n/LanguageProvider", async () => import("../i18n/test-utils"));
 const useClientsList = vi.fn();
 const onboardMutate = vi.fn();
 const useOnboardClient = vi.fn();
+const updateMutate = vi.fn();
+const useUpdateClient = vi.fn();
 vi.mock("../hooks/useClients", () => ({
   useClientsList: (filters: unknown) => useClientsList(filters),
-  useOnboardClient: () => useOnboardClient()
+  useOnboardClient: () => useOnboardClient(),
+  useUpdateClient: () => useUpdateClient()
 }));
 
 const useLevels = vi.fn();
@@ -51,6 +54,7 @@ const anya: Client = {
   levelId: sampleLevels[0].id,
   source: "telegram",
   phone: null,
+  email: null,
   note: null,
   registeredAt: "2026-01-01T00:00:00.000Z",
   status: "active",
@@ -59,12 +63,26 @@ const anya: Client = {
 
 const listQuery = (data: Client[]) => ({ isPending: false, isError: false, error: null, data });
 
+/** The mutation shape the edit modal reads (mutate/reset/isPending/isError/error). */
+function idleUpdate(over: Record<string, unknown> = {}): Record<string, unknown> {
+  return {
+    mutate: updateMutate,
+    reset: vi.fn(),
+    isPending: false,
+    isError: false,
+    error: null,
+    ...over
+  };
+}
+
 beforeEach(() => {
   notify.mockReset();
   onboardMutate.mockReset();
+  updateMutate.mockReset();
   useClientsList.mockReset();
   useClientsList.mockReturnValue(listQuery([]));
   useOnboardClient.mockReturnValue({ mutate: onboardMutate, isPending: false, error: null });
+  useUpdateClient.mockReturnValue(idleUpdate());
   useLevels.mockReturnValue({ isLoading: false, isError: false, data: sampleLevels });
 });
 
@@ -168,5 +186,25 @@ describe("Clients page", () => {
     });
     renderPage();
     expect(screen.getByRole("alert").textContent).toContain("Telegram ID занят");
+  });
+
+  it("opens the edit modal from a row and submits the patch via updateClient", () => {
+    updateMutate.mockImplementation((_args, opts) => opts?.onSuccess?.(anya));
+    useClientsList.mockReturnValue(listQuery([anya]));
+    renderPage();
+
+    // The row's edit action opens the modal seeded with the client's fields.
+    fireEvent.click(screen.getByRole("button", { name: "Изменить клиента Аня" }));
+    const dialog = screen.getByRole("dialog", { name: "Изменить клиента" });
+
+    // Change the name and save; the mutation is called with { id, input }.
+    fireEvent.change(within(dialog).getByLabelText("Имя"), { target: { value: "Аня П." } });
+    fireEvent.click(within(dialog).getByRole("button", { name: "Сохранить" }));
+
+    expect(updateMutate).toHaveBeenCalledTimes(1);
+    const [args] = updateMutate.mock.calls[0];
+    expect((args as { id: string }).id).toBe(anya.id);
+    expect((args as { input: { name: string } }).input.name).toBe("Аня П.");
+    expect(notify).toHaveBeenCalledWith(expect.stringContaining("Аня"), "success");
   });
 });

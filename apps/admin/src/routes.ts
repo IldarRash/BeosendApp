@@ -39,7 +39,8 @@ export const NAV_ITEMS: readonly NavItem[] = [
   { path: "/broadcasts", labelKey: "admin.nav.broadcasts", live: true, group: "comms", iconKey: "broadcasts" },
   { path: "/analytics", labelKey: "admin.nav.analytics", live: true, group: "comms", iconKey: "analytics" },
   { path: "/labels", labelKey: "admin.nav.labels", live: true, group: "comms", iconKey: "labels" },
-  { path: "/notification-templates", labelKey: "admin.nav.notificationTemplates", live: true, group: "comms", iconKey: "notificationTemplates" }
+  { path: "/notification-templates", labelKey: "admin.nav.notificationTemplates", live: true, group: "comms", iconKey: "notificationTemplates" },
+  { path: "/connectors", labelKey: "admin.nav.connectors", live: true, group: "comms", iconKey: "connectors" }
 ] as const;
 
 export const LOGIN_PATH = "/login";

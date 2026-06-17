@@ -7,4 +7,7 @@ export * from "./court-contracts";
 export * from "./analytics-contracts";
 export * from "./i18n-contracts";
 export * from "./notification-template-contracts";
+export * from "./connector-contracts";
+export * from "./webhook-contracts";
+export * from "./calendar-contracts";
 export * from "./helpers";

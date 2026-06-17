@@ -252,11 +252,10 @@ export const botRu: Record<string, string> = {
   "bot.manager.noTrainings":
     "В ближайшие 30 дней нет тренировок. Сгенерируйте расписание на месяц.",
   "bot.manager.overviewHeader": "Заполненность тренировок (30 дней):",
-  "bot.manager.pickCancel": "Какую тренировку отменить?",
+  "bot.manager.pickCancel": "Какую тренировку удалить?",
   "bot.manager.pickCap": "У какой тренировки изменить вместимость?",
   "bot.manager.cancelDone":
-    "✅ Тренировка отменена. Записанные клиенты уведомлены, места освобождены.",
-  "bot.manager.cancelAlready": "Эта тренировка уже отменена.",
+    "✅ Тренировка удалена. Записанные клиенты уведомлены, места освобождены.",
   "bot.manager.cancelNotFound": "Тренировка не найдена.",
   "bot.manager.capDone": "✅ Вместимость обновлена.",
   "bot.manager.capBelowBooked":
@@ -267,13 +266,14 @@ export const botRu: Record<string, string> = {
   "bot.manager.status.completed": "завершена",
   "bot.manager.btn.overview": "📊 Обзор заполненности",
   "bot.manager.btn.capacity": "🔢 Изменить вместимость",
-  "bot.manager.btn.cancel": "🚫 Отменить тренировку",
+  "bot.manager.btn.cancel": "🗑 Удалить тренировку",
   "bot.manager.btn.broadcasts": "📨 Рассылки",
   "bot.manager.btn.stats": "📈 Сводка по школе",
   "bot.manager.overviewLine": "{booked}/{capacity} · {status}",
-  "bot.manager.cancelConfirmTitle": "Отменить тренировку {date}, {start}–{end}?",
-  "bot.manager.cancelConfirmBody": "Записано: {booked}. Все записанные клиенты будут уведомлены.",
-  "bot.manager.cancelConfirmButton": "✅ Да, отменить",
+  "bot.manager.cancelConfirmTitle": "Удалить тренировку {date}, {start}–{end}?",
+  "bot.manager.cancelConfirmBody":
+    "Записано: {booked}. Тренировка будет удалена без возможности восстановления, все записанные клиенты будут уведомлены.",
+  "bot.manager.cancelConfirmButton": "✅ Да, удалить",
   "bot.manager.cancelButton": "🚫 {label}",
   "bot.manager.capButton": "🔢 {label}",
   "bot.manager.capPickTitle": "Тренировка {date}, {start}–{end}.",

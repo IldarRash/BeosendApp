@@ -15,7 +15,9 @@ import {
   createWalkInSchema,
   listClientsQuerySchema,
   localeSchema,
-  onboardClientSchema
+  onboardClientSchema,
+  updateClientSchema,
+  uuid
 } from "@beosand/types";
 import type { ZodSchema } from "zod";
 import { z } from "zod";
@@ -95,6 +97,24 @@ export class ClientsController {
     const target = parseParamTelegramId(telegramId);
     const { language } = validate(setLanguageSchema, body ?? {});
     const client = await this.clients.setLanguage(actorTelegramId, target, language);
+    return validate(clientSchema, client);
+  }
+
+  /**
+   * Admin: edit a client's profile by client PK (so walk-ins are editable). The
+   * single-segment `:id` does not collide with the 3-segment
+   * `by-telegram/:telegramId/language` PATCH above. Admin-gated in the service.
+   */
+  @Patch(":id")
+  async update(
+    @Headers("x-telegram-id") telegramIdHeader: string | undefined,
+    @Param("id") id: string,
+    @Body() body: unknown
+  ): Promise<Client> {
+    const actorTelegramId = parseTelegramId(telegramIdHeader);
+    const clientId = validate(uuid, id);
+    const input = validate(updateClientSchema, body ?? {});
+    const client = await this.clients.updateClient(actorTelegramId, clientId, input);
     return validate(clientSchema, client);
   }
 }

@@ -36,6 +36,7 @@ const ONBOARDED: Client = {
   levelId: LEVEL.id,
   source: "telegram",
   phone: null,
+  email: null,
   note: null,
   language: "ru",
   registeredAt: "2026-06-05T10:00:00.000Z",

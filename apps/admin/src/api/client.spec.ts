@@ -396,6 +396,7 @@ describe("ApiClient error handling & clients", () => {
     levelId: null,
     source: "telegram",
     phone: null,
+    email: null,
     note: null,
     language: "ru",
     registeredAt: "2026-01-01T00:00:00.000Z",
@@ -584,6 +585,7 @@ describe("ApiClient walk-in & manual booking (Feature 5)", () => {
     levelId: null,
     source: "walk_in",
     phone: "+381601234567",
+    email: null,
     note: null,
     language: "ru",
     registeredAt: "2026-01-01T00:00:00.000Z",
@@ -860,5 +862,93 @@ describe("ApiClient court assignment & group delete (slices 4+5)", () => {
     const { name: _omit, ...withoutName } = group;
     mockFetchOnce(withoutName);
     await expect(new ApiClient("http://api.test").deleteGroup(GROUP_ID)).rejects.toThrow();
+  });
+});
+
+describe("ApiClient training delete & client edit", () => {
+  afterEach(() => {
+    vi.unstubAllGlobals();
+  });
+
+  const TRAINING_ID = "11111111-1111-1111-1111-111111111111";
+  const CLIENT_ID = "22222222-2222-4222-8222-222222222222";
+  const LEVEL_ID = "33333333-3333-4333-8333-333333333333";
+
+  const client = {
+    id: CLIENT_ID,
+    name: "Аня",
+    telegramId: 4242,
+    telegramUsername: "anya",
+    levelId: LEVEL_ID,
+    source: "telegram",
+    phone: "+381601112233",
+    email: null,
+    note: "VIP",
+    language: "ru",
+    registeredAt: "2026-01-01T00:00:00.000Z",
+    status: "active"
+  };
+
+  it("DELETEs the training path and validates the returned {id}", async () => {
+    const calls = mockFetchOnce({ id: TRAINING_ID });
+    const result = await new ApiClient("http://api.test").deleteTraining(TRAINING_ID);
+    expect(calls[0]?.url).toBe(`http://api.test/trainings/${TRAINING_ID}`);
+    expect(calls[0]?.init?.method).toBe("DELETE");
+    expect(result.id).toBe(TRAINING_ID);
+  });
+
+  it("rejects a malformed delete-training response (contract enforced)", async () => {
+    // The id must be a uuid; a non-uuid value fails the contract.
+    mockFetchOnce({ id: "not-a-uuid" });
+    await expect(
+      new ApiClient("http://api.test").deleteTraining(TRAINING_ID)
+    ).rejects.toThrow();
+  });
+
+  it("surfaces a 409 from delete-training as a typed ConflictError", async () => {
+    mockFetchOnce({ statusCode: 409, message: "Conflict" }, false, 409);
+    await expect(
+      new ApiClient("http://api.test").deleteTraining(TRAINING_ID)
+    ).rejects.toBeInstanceOf(ConflictError);
+  });
+
+  it("PATCHes a client edit with the partial body and validates the returned client", async () => {
+    const calls = mockFetchOnce(client);
+    const result = await new ApiClient("http://api.test").updateClient(CLIENT_ID, {
+      name: "Аня",
+      levelId: LEVEL_ID,
+      phone: "+381601112233",
+      note: "VIP"
+    });
+    expect(calls[0]?.url).toBe(`http://api.test/clients/${CLIENT_ID}`);
+    expect(calls[0]?.init?.method).toBe("PATCH");
+    expect(JSON.parse(calls[0]?.init?.body as string)).toEqual({
+      name: "Аня",
+      levelId: LEVEL_ID,
+      phone: "+381601112233",
+      note: "VIP"
+    });
+    expect(result.id).toBe(CLIENT_ID);
+    expect(result.note).toBe("VIP");
+  });
+
+  it("sends a null to clear a nullable field on a client edit", async () => {
+    const calls = mockFetchOnce({ ...client, levelId: null, note: null });
+    const result = await new ApiClient("http://api.test").updateClient(CLIENT_ID, {
+      levelId: null,
+      note: null
+    });
+    expect(JSON.parse(calls[0]?.init?.body as string)).toEqual({ levelId: null, note: null });
+    expect(result.levelId).toBeNull();
+    expect(result.note).toBeNull();
+  });
+
+  it("rejects a malformed update-client response (unsafe path, contract enforced)", async () => {
+    // A row missing the required `source` field must be rejected by the contract.
+    const { source: _omit, ...withoutSource } = client;
+    mockFetchOnce(withoutSource);
+    await expect(
+      new ApiClient("http://api.test").updateClient(CLIENT_ID, { name: "Аня" })
+    ).rejects.toThrow();
   });
 });

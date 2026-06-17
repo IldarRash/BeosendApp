@@ -43,7 +43,8 @@ import {
   type RejectCourtRequest
 } from "@beosand/types";
 import { ENV } from "../../config/config.module";
-import { CourtNotifier } from "./court-notifier";
+import { ChannelDispatcher } from "../connectors/channels/channel-dispatcher.service";
+import { DomainEventsService } from "../connectors/domain-events.service";
 import {
   CourtRequestsRepository,
   type CourtOccupancyRow,
@@ -66,7 +67,8 @@ export class CourtRequestsService {
   constructor(
     private readonly repository: CourtRequestsRepository,
     @Inject(ENV) private readonly env: Env,
-    private readonly notifier: CourtNotifier
+    private readonly dispatcher: ChannelDispatcher,
+    private readonly domainEvents: DomainEventsService
   ) {}
 
   /** Offerable 30-min slot starts for a date, with free-court counts per slot. */
@@ -319,7 +321,14 @@ export class CourtRequestsService {
     return this.toEntity(updated);
   }
 
-  /** Look up the client + court number then send the post-commit notification. */
+  /**
+   * Post-commit: look up the client + court number, notify the client via the
+   * connectors ChannelDispatcher (telegram-only in Slice 0, identical behavior to the
+   * removed CourtNotifier), and emit the typed domain event so connector listeners
+   * (Slices A–C) can consume the decision. Best-effort and self-tolerant: the
+   * dispatcher never throws and the emit is swallowed, so a committed decision is
+   * never undone. A rejected/pending payload never carries a court number.
+   */
   private async notifyDecision(
     request: CourtRequestRow,
     status: "confirmed" | "rejected",
@@ -331,22 +340,45 @@ export class CourtRequestsService {
       return;
     }
 
+    const duration = parseDuration(withClient.durationHours);
+    const endTime = this.endTimeFor(withClient.startTime, duration);
+
     if (status === "rejected") {
-      await this.notifier.notifyClient(
-        withClient.clientTelegramId,
-        "К сожалению, нет свободных мест на это время — выберите, пожалуйста, другое время."
-      );
+      await this.dispatcher.dispatch({
+        clientId: withClient.clientId,
+        telegramId: withClient.clientTelegramId,
+        text: "К сожалению, нет свободных мест на это время — выберите, пожалуйста, другое время.",
+        eventType: "court-request.rejected"
+      });
+      this.domainEvents.emitCourtRequestRejected({
+        clientId: withClient.clientId,
+        clientName: withClient.clientName,
+        requestId: withClient.id,
+        date: withClient.date,
+        startTime: withClient.startTime.slice(0, 5),
+        endTime
+      });
       return;
     }
 
     const courtNumber = courtId ? await this.repository.courtNumberById(courtId) : null;
-    const duration = parseDuration(withClient.durationHours);
-    const endTime = this.endTimeFor(withClient.startTime, duration);
     const courtLabel = courtNumber !== null ? `Корт №${courtNumber}` : "Корт";
-    await this.notifier.notifyClient(
-      withClient.clientTelegramId,
-      `${courtLabel}, ${withClient.date} ${withClient.startTime}–${endTime}, итог: ${withClient.priceRsd} RSD`
-    );
+    await this.dispatcher.dispatch({
+      clientId: withClient.clientId,
+      telegramId: withClient.clientTelegramId,
+      text: `${courtLabel}, ${withClient.date} ${withClient.startTime}–${endTime}, итог: ${withClient.priceRsd} RSD`,
+      eventType: "court-request.confirmed"
+    });
+    this.domainEvents.emitCourtRequestConfirmed({
+      clientId: withClient.clientId,
+      clientName: withClient.clientName,
+      requestId: withClient.id,
+      date: withClient.date,
+      startTime: withClient.startTime.slice(0, 5),
+      endTime,
+      priceRsd: withClient.priceRsd,
+      courtNumber
+    });
   }
 
   private assertAdmin(callerTelegramId: number, action: string): void {

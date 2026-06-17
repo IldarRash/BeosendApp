@@ -211,15 +211,6 @@ export const generationStatusItemSchema = z.object({
 export type GenerationStatusItem = z.infer<typeof generationStatusItemSchema>;
 
 /**
- * Body for POST /trainings/:id/cancel (admin manager console). The training id is
- * the path param; the body carries nothing today. Kept as an explicit `.strict()`
- * empty object so an accidental field is rejected and a future optional `reason`
- * can be added in one place.
- */
-export const cancelTrainingSchema = z.object({}).strict();
-export type CancelTrainingInput = z.infer<typeof cancelTrainingSchema>;
-
-/**
  * Body for PATCH /trainings/:id/capacity (admin manager console). A positive seat
  * count; the service rejects any value below the training's current bookedCount and
  * recomputes open/full from the new capacity. Strict so stray fields are rejected.
@@ -568,7 +559,7 @@ export type TransferGroupResult = z.infer<typeof transferGroupResultSchema>;
  * Body for POST /bookings/:id/confirm (trainer confirmation): moves a `pending`
  * booking to `booked`. The booking id is the path param and the trainer identity
  * comes from the x-telegram-id header, so the body carries nothing — kept as a
- * `.strict()` empty object so stray fields are rejected. Mirrors cancelTrainingSchema.
+ * `.strict()` empty object so stray fields are rejected.
  */
 export const confirmBookingSchema = z.object({}).strict();
 export type ConfirmBookingInput = z.infer<typeof confirmBookingSchema>;
@@ -576,7 +567,7 @@ export type ConfirmBookingInput = z.infer<typeof confirmBookingSchema>;
 /**
  * Body for POST /bookings/:id/decline (trainer confirmation): moves a `pending`
  * booking to `cancelled`, freeing its held seat. Path param + header identity, so
- * an empty `.strict()` body. Mirrors cancelTrainingSchema.
+ * an empty `.strict()` body.
  */
 export const declineBookingSchema = z.object({}).strict();
 export type DeclineBookingInput = z.infer<typeof declineBookingSchema>;

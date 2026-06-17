@@ -246,11 +246,10 @@ export const botEn: Record<string, string> = {
   "bot.manager.noTrainings":
     "There are no trainings in the next 30 days. Generate a monthly schedule.",
   "bot.manager.overviewHeader": "Training fill rate (30 days):",
-  "bot.manager.pickCancel": "Which training do you want to cancel?",
+  "bot.manager.pickCancel": "Which training do you want to delete?",
   "bot.manager.pickCap": "For which training do you want to change the capacity?",
   "bot.manager.cancelDone":
-    "✅ Training cancelled. Booked clients have been notified, seats freed.",
-  "bot.manager.cancelAlready": "This training is already cancelled.",
+    "✅ Training deleted. Booked clients have been notified, seats freed.",
   "bot.manager.cancelNotFound": "Training not found.",
   "bot.manager.capDone": "✅ Capacity updated.",
   "bot.manager.capBelowBooked":
@@ -261,13 +260,14 @@ export const botEn: Record<string, string> = {
   "bot.manager.status.completed": "completed",
   "bot.manager.btn.overview": "📊 Fill-rate overview",
   "bot.manager.btn.capacity": "🔢 Change capacity",
-  "bot.manager.btn.cancel": "🚫 Cancel training",
+  "bot.manager.btn.cancel": "🗑 Delete training",
   "bot.manager.btn.broadcasts": "📨 Broadcasts",
   "bot.manager.btn.stats": "📈 School summary",
   "bot.manager.overviewLine": "{booked}/{capacity} · {status}",
-  "bot.manager.cancelConfirmTitle": "Cancel training {date}, {start}–{end}?",
-  "bot.manager.cancelConfirmBody": "Booked: {booked}. All booked clients will be notified.",
-  "bot.manager.cancelConfirmButton": "✅ Yes, cancel",
+  "bot.manager.cancelConfirmTitle": "Delete training {date}, {start}–{end}?",
+  "bot.manager.cancelConfirmBody":
+    "Booked: {booked}. The training will be permanently deleted and all booked clients will be notified.",
+  "bot.manager.cancelConfirmButton": "✅ Yes, delete",
   "bot.manager.cancelButton": "🚫 {label}",
   "bot.manager.capButton": "🔢 {label}",
   "bot.manager.capPickTitle": "Training {date}, {start}–{end}.",

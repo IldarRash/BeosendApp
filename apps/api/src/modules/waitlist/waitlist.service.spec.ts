@@ -27,6 +27,7 @@ const ownerClient: Client = {
   levelId: null,
   source: "telegram",
   phone: null,
+  email: null,
   note: null,
   language: "ru",
   registeredAt: new Date().toISOString(),

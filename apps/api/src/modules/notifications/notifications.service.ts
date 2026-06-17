@@ -14,6 +14,7 @@ import {
   trainingCancelledMessage,
   waitlistSlotMessage
 } from "./notification-messages";
+import { ChannelDispatcher } from "../connectors/channels/channel-dispatcher.service";
 import { NotificationTemplatesRepository } from "../notification-templates/notification-templates.repository";
 import {
   type NotificationRecipient,
@@ -31,6 +32,11 @@ import { type InlineKeyboardMarkup, TelegramSender } from "./telegram-sender";
  * Nest Logger and swallowed, never rethrown into a committed booking flow and
  * never recorded in the log (so a later scan can retry). A committed booking is
  * never undone because Telegram was unreachable.
+ *
+ * Client-facing sends fan out through the connectors ChannelDispatcher (Slice 0:
+ * TelegramChannel only, so behavior is identical). The trainer-DM/keyboard sends
+ * stay on TelegramSender directly — they carry an inline keyboard and target a
+ * trainer, not a client the dispatcher fans out to.
  */
 @Injectable()
 export class NotificationsService {
@@ -39,7 +45,8 @@ export class NotificationsService {
   constructor(
     private readonly repo: NotificationsRepository,
     private readonly sender: TelegramSender,
-    private readonly templates: NotificationTemplatesRepository
+    private readonly templates: NotificationTemplatesRepository,
+    private readonly dispatcher: ChannelDispatcher
   ) {}
 
   /**
@@ -58,11 +65,9 @@ export class NotificationsService {
       );
       return;
     }
-    if (recipient.telegramId === null) {
-      // Walk-in client: no Telegram channel. Skip the send (the booking stands).
-      this.logger.debug(`Client ${clientId} has no telegram_id; skipping confirmation DM`);
-      return;
-    }
+    // No telegram-only early-return: a walk-in with an email/phone but no Telegram is
+    // still reached on the email/SMS channels (Slice B). sendAndLog skips a recipient
+    // with no reachable channel at all.
     const override = await this.templates.findOverride("booking-confirmed");
     await this.sendAndLog(
       recipient,
@@ -319,7 +324,8 @@ export class NotificationsService {
       await this.repo.logSent({
         type: "waitlist-slot",
         clientId: recipient.clientId,
-        trainingId: recipient.trainingId
+        trainingId: recipient.trainingId,
+        channel: "telegram"
       });
       return true;
     } catch (error) {
@@ -359,36 +365,48 @@ export class NotificationsService {
   }
 
   /**
-   * Send one message and, only on success, write the send-log row. A failure is
-   * logged and swallowed (no log row) so the operation is retried next time and
-   * never propagates into the caller. Returns whether the message was sent.
+   * Fan a message out to every channel the recipient can be reached on (telegram if a
+   * Telegram id, email if an email, sms if a phone) and log each channel that delivered
+   * with its own `channel` value (Slice B). Per-channel idempotency: the channels
+   * already logged for this (client, training, type) are passed to the dispatcher as a
+   * skip set, so a resend never re-delivers a channel that already succeeded. The
+   * telegram anti-join idempotency is unchanged — a telegram row is still written only
+   * when telegram delivered. The dispatcher tolerates per-channel failures and never
+   * throws, so a failed channel is simply not logged and is retried on the next call,
+   * and a committed booking is never undone because a channel was unreachable. Returns
+   * whether the telegram channel delivered (kept for the existing callers/assertions).
    */
   private async sendAndLog(
     recipient: NotificationRecipient,
     type: NotificationType,
     text: string
   ): Promise<boolean> {
-    if (recipient.telegramId === null) {
-      // Walk-in client: no Telegram channel. Never attempt a send or log a row.
-      this.logger.debug(
-        `Recipient client ${recipient.clientId} has no telegram_id; skipping ${type}`
-      );
-      return false;
-    }
-    try {
-      await this.sender.sendMessage(recipient.telegramId, text);
-      await this.repo.logSent({
-        type,
+    // Skip channels already logged for this (client, training, type) so a resend never
+    // duplicates a (client, training, type, channel) send. Legacy rows default to
+    // telegram (column default), preserving the telegram-shaped dedup.
+    const skip = await this.repo.sentChannels(recipient.clientId, recipient.trainingId, type);
+    const results = await this.dispatcher.dispatch(
+      {
         clientId: recipient.clientId,
-        trainingId: recipient.trainingId
-      });
-      return true;
-    } catch (error) {
-      this.logger.error(
-        `Notification ${type} to client ${recipient.clientId} (training ${recipient.trainingId}) failed: ` +
-          (error instanceof Error ? error.message : String(error))
-      );
-      return false;
+        telegramId: recipient.telegramId,
+        email: recipient.email,
+        phone: recipient.phone,
+        text
+      },
+      skip
+    );
+    // Log every channel that delivered, tagged by its channel so each (client, training,
+    // type, channel) is recorded at most once and a resend skips it next time.
+    for (const result of results) {
+      if (result.delivered) {
+        await this.repo.logSent({
+          type,
+          clientId: recipient.clientId,
+          trainingId: recipient.trainingId,
+          channel: result.channelId
+        });
+      }
     }
+    return results.some((result) => result.channelId === "telegram" && result.delivered);
   }
 }

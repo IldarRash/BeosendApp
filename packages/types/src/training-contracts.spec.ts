@@ -4,7 +4,6 @@ import {
   availableSlotsQuerySchema,
   bookingSchema,
   bookingStatus,
-  cancelTrainingSchema,
   changeCapacitySchema,
   confirmBookingSchema,
   createGroupBookingSchema,
@@ -47,16 +46,6 @@ const valid = {
   priceSingleRsd: 1500,
   priceMonthRsd: 10000
 };
-
-describe("cancelTrainingSchema", () => {
-  it("accepts an empty body (id is the path param)", () => {
-    expect(cancelTrainingSchema.safeParse({}).success).toBe(true);
-  });
-
-  it("rejects any extra field", () => {
-    expect(cancelTrainingSchema.safeParse({ reason: "x" }).success).toBe(false);
-  });
-});
 
 describe("changeCapacitySchema", () => {
   it("accepts a positive integer capacity", () => {

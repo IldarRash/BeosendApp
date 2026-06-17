@@ -14,7 +14,7 @@ import type {
 const useTrainings = vi.fn();
 const useGenerateMonth = vi.fn();
 const useGenerateAllGroups = vi.fn();
-const useCancelTraining = vi.fn();
+const useDeleteTraining = vi.fn();
 const useChangeCapacity = vi.fn();
 const useGroups = vi.fn();
 const useGenerationStatus = vi.fn();
@@ -30,7 +30,7 @@ vi.mock("../hooks/useTrainings", () => ({
   useTrainings: (...args: unknown[]) => useTrainings(...args),
   useGenerateMonth: () => useGenerateMonth(),
   useGenerateAllGroups: () => useGenerateAllGroups(),
-  useCancelTraining: () => useCancelTraining(),
+  useDeleteTraining: () => useDeleteTraining(),
   useChangeCapacity: () => useChangeCapacity()
 }));
 vi.mock("../hooks/useClients", () => ({
@@ -114,6 +114,7 @@ const CLIENT: Client = {
   levelId: null,
   source: "walk_in",
   phone: "+381601234567",
+  email: null,
   note: null,
   registeredAt: "2026-01-01T00:00:00.000Z",
   status: "active",
@@ -179,7 +180,7 @@ beforeEach(() => {
   useCourts.mockReturnValue({ data: COURTS });
   useGenerateMonth.mockReturnValue(idleMutation());
   useGenerateAllGroups.mockReturnValue(idleMutation());
-  useCancelTraining.mockReturnValue(idleMutation());
+  useDeleteTraining.mockReturnValue(idleMutation());
   useChangeCapacity.mockReturnValue(idleMutation());
   useClientsList.mockReturnValue(idleQuery([CLIENT]));
   useCreateWalkIn.mockReturnValue(idleMutation());
@@ -281,20 +282,65 @@ describe("Trainings page", () => {
     expect(within(maria).getByText("Абонемент")).toBeTruthy();
   });
 
-  it("prompts before cancelling and only calls the mutation on confirm", () => {
+  it("prompts before deleting and only calls the mutation (over the id) on confirm", () => {
     const mutate = vi.fn();
-    useCancelTraining.mockReturnValue({ ...idleMutation(), mutate });
+    useDeleteTraining.mockReturnValue({ ...idleMutation(), mutate });
     render(<Trainings />);
     setRange();
 
-    fireEvent.click(screen.getByRole("button", { name: "Отменить" }));
-    // The confirm dialog is shown; the mutation has not fired yet.
-    const dialog = screen.getByRole("dialog", { name: "Отменить тренировку" });
+    // The row action opens the confirm dialog; the mutation has not fired yet.
+    fireEvent.click(screen.getByRole("button", { name: "Удалить" }));
+    const dialog = screen.getByRole("dialog", { name: "Удалить тренировку" });
     expect(mutate).not.toHaveBeenCalled();
 
-    fireEvent.click(within(dialog).getByRole("button", { name: "Отменить тренировку" }));
+    fireEvent.click(within(dialog).getByRole("button", { name: "Удалить тренировку" }));
     expect(mutate).toHaveBeenCalledTimes(1);
+    // The delete mutation takes the training id directly (DELETE /trainings/:id).
     expect(mutate.mock.calls[0][0]).toBe(TRAINING.id);
+  });
+
+  it("notifies on a successful delete (no booked-count in the toast)", () => {
+    const mutate = vi.fn((_id, opts: { onSuccess: () => void }) => opts.onSuccess());
+    useDeleteTraining.mockReturnValue({ ...idleMutation(), mutate });
+    render(<Trainings />);
+    setRange();
+
+    fireEvent.click(screen.getByRole("button", { name: "Удалить" }));
+    const dialog = screen.getByRole("dialog", { name: "Удалить тренировку" });
+    fireEvent.click(within(dialog).getByRole("button", { name: "Удалить тренировку" }));
+
+    expect(notify).toHaveBeenCalledWith(
+      "Тренировка удалена. Записанные клиенты уведомлены.",
+      "success"
+    );
+  });
+
+  it("keeps the delete action enabled for a cancelled training (still deletable)", () => {
+    useTrainings.mockReturnValue({
+      isPending: false,
+      isError: false,
+      error: null,
+      data: [{ ...TRAINING, status: "cancelled" }]
+    });
+    render(<Trainings />);
+    setRange();
+    expect(
+      screen.getByRole("button", { name: "Удалить" }).hasAttribute("disabled")
+    ).toBe(false);
+  });
+
+  it("disables the delete action for a completed training (no longer removable)", () => {
+    useTrainings.mockReturnValue({
+      isPending: false,
+      isError: false,
+      error: null,
+      data: [{ ...TRAINING, status: "completed" }]
+    });
+    render(<Trainings />);
+    setRange();
+    expect(
+      screen.getByRole("button", { name: "Удалить" }).hasAttribute("disabled")
+    ).toBe(true);
   });
 
   it("generates a month with the chosen preferred court", () => {

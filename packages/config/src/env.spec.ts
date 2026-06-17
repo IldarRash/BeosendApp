@@ -67,6 +67,46 @@ describe("loadEnv", () => {
     expect(() => loadEnv({ ...base, MINIAPP_URL: "not-a-url" })).toThrow(/MINIAPP_URL/);
   });
 
+  it("boots with the whole connector block absent (all optional)", () => {
+    const env = loadEnv(base);
+    expect(env.CALENDAR_FEED_SECRET).toBeUndefined();
+    expect(env.EMAIL_PROVIDER).toBeUndefined();
+    expect(env.SMTP_URL).toBeUndefined();
+    expect(env.TWILIO_ACCOUNT_SID).toBeUndefined();
+    expect(env.GOOGLE_SHEETS_ID).toBeUndefined();
+    // Webhook attempts has a numeric default even with the block absent.
+    expect(env.WEBHOOK_MAX_ATTEMPTS).toBe(6);
+  });
+
+  it("accepts a fully-configured smtp email block", () => {
+    const env = loadEnv({
+      ...base,
+      EMAIL_PROVIDER: "smtp",
+      SMTP_URL: "smtp://user:pass@mail.example.com:587",
+      EMAIL_FROM: "school@example.com"
+    });
+    expect(env.EMAIL_PROVIDER).toBe("smtp");
+    expect(env.EMAIL_FROM).toBe("school@example.com");
+  });
+
+  it("fails closed when EMAIL_PROVIDER=smtp without SMTP_URL", () => {
+    expect(() =>
+      loadEnv({ ...base, EMAIL_PROVIDER: "smtp", EMAIL_FROM: "school@example.com" })
+    ).toThrow(/SMTP_URL/);
+  });
+
+  it("fails closed when EMAIL_PROVIDER=sendgrid without an API key", () => {
+    expect(() =>
+      loadEnv({ ...base, EMAIL_PROVIDER: "sendgrid", EMAIL_FROM: "school@example.com" })
+    ).toThrow(/SENDGRID_API_KEY/);
+  });
+
+  it("fails closed on a too-short calendar feed secret", () => {
+    expect(() => loadEnv({ ...base, CALENDAR_FEED_SECRET: "short" })).toThrow(
+      /CALENDAR_FEED_SECRET/
+    );
+  });
+
   it("isAdmin matches by numeric or string id", () => {
     const env = loadEnv({ ...base, ADMIN_TELEGRAM_IDS: "111,222" });
     expect(isAdmin(env, 111)).toBe(true);

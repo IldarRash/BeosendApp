@@ -125,15 +125,15 @@ export type TrainerDecisionResult =
   | { ok: false; reason: "alreadyDecided" | "notAuthorized" };
 
 /**
- * Outcome of an admin training cancel (A1). `forbidden` maps the 403 (caller not
- * an admin); `notFound` maps the 404 (no such training); `alreadyCancelled` maps
- * the 409 the service raises for an idempotent re-cancel, so the handler can show
- * a distinct message. The status flip to `cancelled`, the move of booked bookings
- * to `cancelled`, and the client notifications all happen server-side.
+ * Outcome of an admin training delete (A1). `forbidden` maps the 403 (caller not
+ * an admin); `notFound` maps the 404 (no such training). Deleting is idempotent
+ * server-side (an already-cancelled training still resolves to its id). The cancel
+ * of booked bookings, the client notifications and the permanent row removal all
+ * happen server-side; the bot only forwards the id and renders the outcome.
  */
-export type CancelTrainingResult =
-  | { ok: true; training: Training }
-  | { ok: false; reason: "forbidden" | "notFound" | "alreadyCancelled" };
+export type DeleteTrainingResult =
+  | { ok: true; id: string }
+  | { ok: false; reason: "forbidden" | "notFound" };
 
 const levelsSchema = z.array(levelSchema);
 const trainersSchema = z.array(trainerSchema);
@@ -573,24 +573,22 @@ export class ApiClient {
   }
 
   /**
-   * Admin-only (A1): cancel a training. The API gates the caller via
-   * ADMIN_TELEGRAM_IDS, flips the training to `cancelled`, moves its still-booked
-   * bookings to `cancelled` (never deletes them) and notifies the affected
-   * clients — all server-side. A 403 (not an admin) → `forbidden` so the bot can
-   * hide the action; a 404 → `notFound`; a 409 (already cancelled) →
-   * `alreadyCancelled`. The bot only forwards the id and renders the result.
+   * Admin-only (A1): permanently delete a training. The API gates the caller via
+   * ADMIN_TELEGRAM_IDS, cancels its still-booked bookings, notifies the affected
+   * clients, frees the court and removes the row — all server-side. A 403 (not an
+   * admin) → `forbidden` so the bot can hide the action; a 404 → `notFound`.
+   * Delete is idempotent server-side. The bot only forwards the id and renders the
+   * returned `{ id }`.
    */
-  async cancelTraining(
+  async deleteTraining(
     trainingId: string,
     adminTelegramId: number
-  ): Promise<CancelTrainingResult> {
-    const res = await fetch(`${this.baseUrl}/trainings/${trainingId}/cancel`, {
-      method: "POST",
+  ): Promise<DeleteTrainingResult> {
+    const res = await fetch(`${this.baseUrl}/trainings/${trainingId}`, {
+      method: "DELETE",
       headers: {
-        "content-type": "application/json",
         "x-telegram-id": String(adminTelegramId)
-      },
-      body: JSON.stringify({})
+      }
     });
     if (res.status === 403) {
       return { ok: false, reason: "forbidden" };
@@ -598,13 +596,11 @@ export class ApiClient {
     if (res.status === 404) {
       return { ok: false, reason: "notFound" };
     }
-    if (res.status === 409) {
-      return { ok: false, reason: "alreadyCancelled" };
-    }
     if (!res.ok) {
-      throw new Error(`API /trainings/${trainingId}/cancel failed: ${res.status}`);
+      throw new Error(`API DELETE /trainings/${trainingId} failed: ${res.status}`);
     }
-    return { ok: true, training: trainingSchema.parse(await res.json()) };
+    const { id } = z.object({ id: z.string().uuid() }).parse(await res.json());
+    return { ok: true, id };
   }
 
   /**
