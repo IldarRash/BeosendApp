@@ -44,29 +44,48 @@ export class CourtsRepository {
   }
 
   /**
-   * C6 — confirmed requests on a date with the court they hold (per-court
-   * occupancy). Only `confirmed` reserves a court; pending/rejected/cancelled do
-   * not. Same query body as `CourtRequestsRepository.confirmedCourtOccupancyForDate`
-   * so the grid and C3/C4 share one occupancy notion.
+   * C6 — CONFIRMED requests on a date with the court they hold (per-court occupancy),
+   * read from the join table `court_request_courts ⋈ court_requests`. A confirmed
+   * request is a grid `request` cell. Shares the join-table occupancy notion with
+   * `CourtRequestsRepository`, so the grid and C3/C4 agree.
    */
-  async confirmedCourtOccupancyForDate(date: string): Promise<CourtOccupancyRow[]> {
+  confirmedCourtOccupancyForDate(date: string): Promise<CourtOccupancyRow[]> {
+    return this.requestCourtOccupancy(date, "confirmed");
+  }
+
+  /**
+   * C6 — STILL-PENDING requests on a date with the court the client picked (held).
+   * A pending hold is a grid `hold` cell — the court is reserved until the admin
+   * decides. Read from the same join table.
+   */
+  heldCourtOccupancyForDate(date: string): Promise<CourtOccupancyRow[]> {
+    return this.requestCourtOccupancy(date, "pending");
+  }
+
+  /** Per-court occupancy on a date for requests in a single status, from the join table. */
+  private async requestCourtOccupancy(
+    date: string,
+    status: "pending" | "confirmed"
+  ): Promise<CourtOccupancyRow[]> {
     const rows = await this.database.db
       .select({
         requestId: tables.courtRequests.id,
-        courtId: tables.courtRequests.courtId,
+        courtId: tables.courtRequestCourts.courtId,
         startTime: tables.courtRequests.startTime,
         durationHours: tables.courtRequests.durationHours
       })
-      .from(tables.courtRequests)
-      .where(and(eq(tables.courtRequests.date, date), eq(tables.courtRequests.status, "confirmed")));
-    return rows
-      .filter((row): row is typeof row & { courtId: string } => row.courtId !== null)
-      .map((row) => ({
-        requestId: row.requestId,
-        courtId: row.courtId,
-        startTime: row.startTime.slice(0, 5),
-        durationMinutes: Number(row.durationHours) * 60
-      }));
+      .from(tables.courtRequestCourts)
+      .innerJoin(
+        tables.courtRequests,
+        eq(tables.courtRequestCourts.requestId, tables.courtRequests.id)
+      )
+      .where(and(eq(tables.courtRequests.date, date), eq(tables.courtRequests.status, status)));
+    return rows.map((row) => ({
+      requestId: row.requestId,
+      courtId: row.courtId,
+      startTime: row.startTime.slice(0, 5),
+      durationMinutes: Number(row.durationHours) * 60
+    }));
   }
 
   /**

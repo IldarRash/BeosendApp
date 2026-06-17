@@ -5,6 +5,7 @@ import type {
   CourtAvailability,
   CourtRequest,
   CourtRequestPreview,
+  FreeCourtNumbers,
   Group,
   GroupBookingResult,
   Level,
@@ -838,17 +839,62 @@ describe("MiniappApiClient.getCourtAvailability", () => {
   });
 });
 
+const FREE_COURTS: FreeCourtNumbers = {
+  date: "2026-06-10",
+  startTime: "08:00",
+  endTime: "09:30",
+  durationHours: 1.5,
+  courtNumbers: [1, 3, 5]
+};
+
+describe("MiniappApiClient.getFreeCourtNumbers", () => {
+  it("rides the slot in the query and validates the free court NUMBERS", async () => {
+    const fetchMock = vi.fn().mockResolvedValue(jsonResponse(200, FREE_COURTS));
+    vi.stubGlobal("fetch", fetchMock);
+    const client = new MiniappApiClient(BASE);
+
+    const result = await client.getFreeCourtNumbers({
+      date: "2026-06-10",
+      startTime: "08:00",
+      durationHours: 1.5
+    });
+
+    expect(result).toEqual(FREE_COURTS);
+    const url = new URL(fetchMock.mock.calls[0][0] as string);
+    expect(url.pathname).toBe("/court-requests/free-courts");
+    expect(url.searchParams.get("date")).toBe("2026-06-10");
+    expect(url.searchParams.get("startTime")).toBe("08:00");
+    expect(url.searchParams.get("durationHours")).toBe("1.5");
+  });
+
+  it("rejects a malformed free-courts response via the contract (unsafe path)", async () => {
+    // A court number out of the 1…6 range must be rejected before the picker can offer
+    // a court the server never sanctioned.
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockResolvedValue(jsonResponse(200, { ...FREE_COURTS, courtNumbers: [7] }))
+    );
+    const client = new MiniappApiClient(BASE);
+
+    await expect(
+      client.getFreeCourtNumbers({ date: "2026-06-10", startTime: "08:00", durationHours: 1.5 })
+    ).rejects.toThrow();
+  });
+});
+
 const COURT_PREVIEW: CourtRequestPreview = {
   date: "2026-06-10",
   startTime: "08:00",
   endTime: "09:30",
   durationHours: 1.5,
-  priceRsd: 3000,
+  priceRsd: 6000,
+  courtCount: 2,
+  courtNumbers: [1, 3],
   available: true
 };
 
 describe("MiniappApiClient.previewCourtRequest", () => {
-  it("POSTs the caller's OWN session telegramId (never a price/court id) and validates the preview", async () => {
+  it("POSTs the caller's OWN session telegramId + picked courts (never a price/court id) and validates the preview", async () => {
     const fetchMock = vi
       .fn()
       .mockResolvedValueOnce(jsonResponse(200, SESSION))
@@ -860,17 +906,24 @@ describe("MiniappApiClient.previewCourtRequest", () => {
     const result = await client.previewCourtRequest({
       date: "2026-06-10",
       startTime: "08:00",
-      durationHours: 1.5
+      durationHours: 1.5,
+      courtNumbers: [1, 3]
     });
 
     expect(result).toEqual(COURT_PREVIEW);
     const [url, init] = fetchMock.mock.calls[1];
     expect(url).toBe(`${BASE}/court-requests/preview`);
     expect((init as RequestInit).method).toBe("POST");
-    // The body carries the verified session's OWN telegramId (back-compat); the server
-    // re-derives the requester and rejects a mismatch. The client never sends a price.
+    // The body carries the verified session's OWN telegramId (back-compat) + the picked
+    // courts; the server re-derives the requester and computes the price. No price sent.
     const body = JSON.parse((init as RequestInit).body as string);
-    expect(body).toEqual({ telegramId: 42, date: "2026-06-10", startTime: "08:00", durationHours: 1.5 });
+    expect(body).toEqual({
+      telegramId: 42,
+      date: "2026-06-10",
+      startTime: "08:00",
+      durationHours: 1.5,
+      courtNumbers: [1, 3]
+    });
     expect(body).not.toHaveProperty("priceRsd");
     expect(body).not.toHaveProperty("courtId");
   });
@@ -905,16 +958,17 @@ const COURT_REQUEST: CourtRequest = {
   date: "2026-06-10",
   startTime: "08:00",
   durationHours: 1.5,
-  priceRsd: 3000,
+  priceRsd: 6000,
   status: "pending",
-  courtId: null,
+  courtCount: 2,
+  courtNumbers: [1, 3],
   createdAt: "2026-06-05T10:00:00.000Z",
   decidedAt: null,
   decidedBy: null
 };
 
 describe("MiniappApiClient.createCourtRequest", () => {
-  it("POSTs the caller's OWN session telegramId and validates a pending request (NO court assigned)", async () => {
+  it("POSTs the caller's OWN session telegramId + picked courts and validates a pending request", async () => {
     const fetchMock = vi
       .fn()
       .mockResolvedValueOnce(jsonResponse(200, SESSION))
@@ -926,18 +980,25 @@ describe("MiniappApiClient.createCourtRequest", () => {
     const result = await client.createCourtRequest({
       date: "2026-06-10",
       startTime: "08:00",
-      durationHours: 1.5
+      durationHours: 1.5,
+      courtNumbers: [1, 3]
     });
 
     expect(result).toEqual(COURT_REQUEST);
-    // The created request is pending with NO court assigned — the client never sees a court.
+    // The created request is pending; it now holds the client's picked courts.
     expect(result.status).toBe("pending");
-    expect(result.courtId).toBeNull();
+    expect(result.courtNumbers).toEqual([1, 3]);
     const [url, init] = fetchMock.mock.calls[1];
     expect(url).toBe(`${BASE}/court-requests`);
     expect((init as RequestInit).method).toBe("POST");
     const body = JSON.parse((init as RequestInit).body as string);
-    expect(body).toEqual({ telegramId: 42, date: "2026-06-10", startTime: "08:00", durationHours: 1.5 });
+    expect(body).toEqual({
+      telegramId: 42,
+      date: "2026-06-10",
+      startTime: "08:00",
+      durationHours: 1.5,
+      courtNumbers: [1, 3]
+    });
     expect(body).not.toHaveProperty("priceRsd");
     expect(body).not.toHaveProperty("courtId");
   });

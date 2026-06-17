@@ -1427,6 +1427,16 @@ button.load-seg:focus-visible {
   font-weight: 600;
 }
 
+/* A still-pending request holding this court: tentative, so it reads as a teal
+ * outline (dashed) on a faint fill rather than the solid confirmed-request tint. */
+.load-seg--hold {
+  border-style: dashed;
+  border-color: var(--teal);
+  background: color-mix(in srgb, var(--teal-soft) 55%, var(--paper));
+  color: var(--teal-ink);
+  font-weight: 600;
+}
+
 .load-seg--block {
   border-color: var(--amber);
   background: var(--amber-soft);
@@ -1443,6 +1453,7 @@ button.load-seg:focus-visible {
 
 .legend__swatch.load-seg--free,
 .legend__swatch.load-seg--request,
+.legend__swatch.load-seg--hold,
 .legend__swatch.load-seg--block,
 .legend__swatch.load-seg--training {
   flex: none;

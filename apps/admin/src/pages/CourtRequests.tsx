@@ -1,9 +1,5 @@
 import { useState } from "react";
-import type {
-  Court,
-  CourtRequestAdminView,
-  CourtRequestStatus
-} from "@beosand/types";
+import type { Court, CourtRequestAdminView, CourtRequestStatus } from "@beosand/types";
 import { ConflictError } from "../api/client";
 import { AppShell } from "../ui/AppShell";
 import { Button } from "../ui/Button";
@@ -13,7 +9,6 @@ import { useToast } from "../ui/Toast";
 import { useT } from "../i18n/LanguageProvider";
 import { formatRsd } from "../lib/format";
 import { useMe } from "../hooks/useSession";
-import { useCourts } from "../hooks/useCourts";
 import {
   useConfirmRequest,
   useCourtRequests,
@@ -49,19 +44,18 @@ function errorText(error: unknown, t: Translate): string {
 }
 
 /**
- * The assigned court number — shown ONLY for a confirmed request that carries a
- * courtId. A pending request has no court (courtId is null); we render "не
- * назначен" and never a number, per the court invariant. The number is resolved
- * from the courts list (the admin view carries only the courtId).
+ * The court column for one request. A request is for one OR MORE courts
+ * (`courtCount`); `courtNumbers` are the courts the request holds — the client's
+ * picks while pending, or the admin's final courts after confirmation. We render
+ * the held numbers (e.g. "№ 2, № 5") when present; a request with none (a legacy
+ * bot request the admin assigns at confirmation) shows "не назначен". All values
+ * are the server's — never a number this screen computed.
  */
-function courtCell(
-  request: CourtRequestAdminView,
-  numberByCourtId: Map<string, number>,
-  t: Translate
-): string {
-  if (request.status === "confirmed" && request.courtId !== null) {
-    const number = numberByCourtId.get(request.courtId);
-    return number !== undefined ? t("admin.courtRequests.courtNumber", { number }) : "—";
+function courtCell(request: CourtRequestAdminView, t: Translate): string {
+  if (request.courtNumbers.length > 0) {
+    return request.courtNumbers
+      .map((number) => t("admin.courtRequests.courtNumber", { number }))
+      .join(", ");
   }
   return t("admin.courtRequests.courtUnassigned");
 }
@@ -83,34 +77,57 @@ export function CourtRequests(): JSX.Element {
 
   const [status, setStatus] = useState<CourtRequestStatus>("pending");
   const [toConfirm, setToConfirm] = useState<CourtRequestAdminView | null>(null);
-  const [pickedCourtId, setPickedCourtId] = useState<string | null>(null);
+  // The courts the admin has picked in the confirm dialog. Confirm is enabled only
+  // when exactly `toConfirm.courtCount` are selected; the server re-checks freeness.
+  const [pickedCourtIds, setPickedCourtIds] = useState<string[]>([]);
 
   const requests = useCourtRequests(status);
-  const courts = useCourts();
   const freeCourts = useFreeCourts(toConfirm?.id ?? null);
   const confirm = useConfirmRequest();
   const reject = useRejectRequest();
 
-  // courtId → number lookup for rendering a confirmed request's assigned court
-  // (the admin view carries only the id). Empty until the courts list loads.
-  const numberByCourtId = new Map<string, number>(
-    (courts.data ?? []).map((c) => [c.id, c.number])
-  );
+  const required = toConfirm?.courtCount ?? 0;
+  const picked = pickedCourtIds.length;
+  const pickComplete = toConfirm !== null && picked === required;
+
+  function toggleCourt(courtId: string): void {
+    setPickedCourtIds((prev) =>
+      prev.includes(courtId) ? prev.filter((id) => id !== courtId) : [...prev, courtId]
+    );
+  }
 
   function openConfirm(request: CourtRequestAdminView): void {
     setToConfirm(request);
-    setPickedCourtId(null);
+    // Pre-check the client's currently-held courts when they appear in the free
+    // list; resolved once the free-courts read settles (see preselect effect below).
+    setPickedCourtIds([]);
   }
 
   function closeConfirm(): void {
     setToConfirm(null);
-    setPickedCourtId(null);
+    setPickedCourtIds([]);
+  }
+
+  // Pre-check the client's held courts (matched by number) once the free-courts
+  // read for the opened request settles. Runs render-phase, guarded so it sets the
+  // selection exactly once per opened request (and only while nothing is picked yet).
+  const [preselectedFor, setPreselectedFor] = useState<string | null>(null);
+  if (toConfirm !== null && preselectedFor !== toConfirm.id && freeCourts.data !== undefined) {
+    setPreselectedFor(toConfirm.id);
+    const held = new Set(toConfirm.courtNumbers);
+    const preselect = freeCourts.data.filter((c) => held.has(c.number)).map((c) => c.id);
+    if (preselect.length > 0) {
+      setPickedCourtIds(preselect);
+    }
+  }
+  if (toConfirm === null && preselectedFor !== null) {
+    setPreselectedFor(null);
   }
 
   function submitConfirm(): void {
-    if (!toConfirm || pickedCourtId === null || decidedBy === null) return;
+    if (!toConfirm || !pickComplete || decidedBy === null) return;
     confirm.mutate(
-      { id: toConfirm.id, input: { courtId: pickedCourtId, decidedBy } },
+      { id: toConfirm.id, input: { courtIds: pickedCourtIds, decidedBy } },
       {
         onSuccess: () => {
           notify(t("admin.courtRequests.confirmed", { client: toConfirm.clientName }), "success");
@@ -152,7 +169,13 @@ export function CourtRequests(): JSX.Element {
       render: (r) => t("admin.courtRequests.durationHours", { hours: r.durationHours })
     },
     { key: "price", header: t("admin.courtRequests.colPrice"), numeric: true, render: (r) => formatRsd(r.priceRsd) },
-    { key: "court", header: t("admin.courtRequests.colCourt"), render: (r) => courtCell(r, numberByCourtId, t) },
+    {
+      key: "count",
+      header: t("admin.courtRequests.colCount"),
+      numeric: true,
+      render: (r) => r.courtCount
+    },
+    { key: "court", header: t("admin.courtRequests.colCourt"), render: (r) => courtCell(r, t) },
     {
       key: "actions",
       header: "",
@@ -250,7 +273,7 @@ export function CourtRequests(): JSX.Element {
             </Button>
             <Button
               variant="primary"
-              disabled={pickedCourtId === null || decidedBy === null || confirm.isPending}
+              disabled={!pickComplete || decidedBy === null || confirm.isPending}
               onClick={submitConfirm}
             >
               {t("admin.action.confirm")}
@@ -266,6 +289,7 @@ export function CourtRequests(): JSX.Element {
                 start: toConfirm.startTime,
                 end: toConfirm.endTime,
                 hours: toConfirm.durationHours,
+                count: toConfirm.courtCount,
                 price: formatRsd(toConfirm.priceRsd)
               })}
             </p>
@@ -281,19 +305,29 @@ export function CourtRequests(): JSX.Element {
               </p>
             ) : (
               <fieldset className="stack">
-                <legend>{t("admin.courtRequests.pickCourt")}</legend>
-                {freeCourts.data.map((court: Court) => (
-                  <label key={court.id} className="cluster">
-                    <input
-                      type="radio"
-                      name="court-pick"
-                      value={court.id}
-                      checked={pickedCourtId === court.id}
-                      onChange={() => setPickedCourtId(court.id)}
-                    />
-                    {t("admin.courtRequests.courtOption", { number: court.number })}
-                  </label>
-                ))}
+                <legend>{t("admin.courtRequests.pickCourts", { count: required })}</legend>
+                <p className="state" role="status" aria-live="polite">
+                  {t("admin.courtRequests.pickProgress", { picked, count: required })}
+                </p>
+                {freeCourts.data.map((court: Court) => {
+                  const checked = pickedCourtIds.includes(court.id);
+                  // Block over-selection: once `count` are picked, the rest disable
+                  // (the server would reject a longer set anyway).
+                  const atLimit = !checked && pickComplete;
+                  return (
+                    <label key={court.id} className="cluster">
+                      <input
+                        type="checkbox"
+                        name="court-pick"
+                        value={court.id}
+                        checked={checked}
+                        disabled={atLimit}
+                        onChange={() => toggleCourt(court.id)}
+                      />
+                      {t("admin.courtRequests.courtOption", { number: court.number })}
+                    </label>
+                  );
+                })}
               </fieldset>
             )}
           </div>

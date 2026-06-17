@@ -424,7 +424,7 @@ describe("ApiClient error handling & clients", () => {
     const api = new ApiClient("http://api.test");
     await expect(
       api.confirmRequest("11111111-1111-1111-1111-111111111111", {
-        courtId: "22222222-2222-2222-2222-222222222222",
+        courtIds: ["22222222-2222-2222-2222-222222222222"],
         decidedBy: 99
       })
     ).rejects.toBeInstanceOf(ConflictError);
@@ -435,7 +435,7 @@ describe("ApiClient error handling & clients", () => {
     const api = new ApiClient("http://api.test");
     await expect(
       api.confirmRequest("11111111-1111-1111-1111-111111111111", {
-        courtId: "22222222-2222-2222-2222-222222222222",
+        courtIds: ["22222222-2222-2222-2222-222222222222"],
         decidedBy: 99
       })
     ).rejects.toThrow("No active court with that id.");
@@ -446,6 +446,46 @@ describe("ApiClient error handling & clients", () => {
     await expect(new ApiClient("http://api.test").listClients()).rejects.toThrow(
       "a is required; b must be a uuid"
     );
+  });
+
+  it("confirms a request with the full set of courtIds (multi-court body)", async () => {
+    const confirmed = {
+      id: "11111111-1111-1111-1111-111111111111",
+      clientId: "22222222-2222-2222-2222-222222222222",
+      date: "2026-06-10",
+      startTime: "10:00",
+      durationHours: 2,
+      priceRsd: 8000,
+      status: "confirmed",
+      courtCount: 2,
+      courtNumbers: [2, 5],
+      createdAt: "2026-06-04T08:00:00.000Z",
+      decidedAt: "2026-06-04T09:00:00.000Z",
+      decidedBy: 99
+    };
+    const calls = mockFetchOnce(confirmed);
+    const result = await new ApiClient("http://api.test").confirmRequest(
+      "11111111-1111-1111-1111-111111111111",
+      {
+        courtIds: [
+          "33333333-3333-3333-3333-333333333333",
+          "44444444-4444-4444-4444-444444444444"
+        ],
+        decidedBy: 99
+      }
+    );
+    expect(result.courtNumbers).toEqual([2, 5]);
+    expect(calls[0]?.url).toBe(
+      "http://api.test/court-requests/11111111-1111-1111-1111-111111111111/confirm"
+    );
+    expect(JSON.parse(calls[0]?.init?.body as string)).toEqual({
+      requestId: "11111111-1111-1111-1111-111111111111",
+      courtIds: [
+        "33333333-3333-3333-3333-333333333333",
+        "44444444-4444-4444-4444-444444444444"
+      ],
+      decidedBy: 99
+    });
   });
 
   it("lists clients and encodes the search/status filters into the query", async () => {

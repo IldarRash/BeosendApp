@@ -6,6 +6,7 @@ import {
   courtRequestPreviewSchema,
   courtRequestSchema,
   createCourtRequestSchema,
+  freeCourtNumbersSchema,
   createGroupBookingSchema,
   createSingleBookingSchema,
   createWaitlistEntrySchema,
@@ -29,6 +30,7 @@ import {
   type CourtDurationHours,
   type CourtRequest,
   type CourtRequestPreview,
+  type FreeCourtNumbers,
   type CreateGroupBookingInput,
   type CreateSingleBookingInput,
   type CreateWaitlistInput,
@@ -424,6 +426,24 @@ export class MiniappApiClient {
   }
 
   /**
+   * The SPECIFIC courts free for a desired slot (GET /court-requests/free-courts), so
+   * the Mini App can render a court picker (Edition 2.1 lets the client choose courts).
+   * Unlike the count-only availability read, this returns the free court NUMBERS. The
+   * caller's identity rides the Bearer session like every authed GET — the API bridges
+   * it to `x-client-telegram-id` server-side — so no identity is sent in the query. The
+   * response is validated against the shared {@link FreeCourtNumbers} contract before
+   * the picker renders it; only the returned numbers are selectable.
+   */
+  getFreeCourtNumbers(slot: CourtRequestInput): Promise<FreeCourtNumbers> {
+    const qs = new URLSearchParams({
+      date: slot.date,
+      startTime: slot.startTime,
+      durationHours: String(slot.durationHours)
+    }).toString();
+    return this.request(`/court-requests/free-courts?${qs}`, freeCourtNumbersSchema);
+  }
+
+  /**
    * Price + availability preview for a desired court slot (POST /court-requests/preview).
    * The body still carries the caller's OWN Telegram id (from the verified session via
    * {@link getMe}) for bot back-compat, but the server now authoritatively resolves the
@@ -478,14 +498,18 @@ export class MiniappApiClient {
 }
 
 /**
- * The caller's chosen court slot: a date, a 30-min-aligned start, and a duration. The
- * telegramId is NOT part of this input — the ApiClient supplies the caller's OWN id
- * from the verified session, never user input.
+ * The caller's chosen court slot: a date, a 30-min-aligned start, a duration, and the
+ * specific courts the client picked. The telegramId is NOT part of this input — the
+ * ApiClient supplies the caller's OWN id from the verified session, never user input.
+ * `courtNumbers` carries the picked courts (the price scales by their count); it is
+ * omitted on the legacy single-court path where the admin assigns the court.
  */
 export interface CourtRequestInput {
   date: string;
   startTime: string;
   durationHours: CourtDurationHours;
+  /** The specific courts the client picked (1…6). Omitted = single-court bot path. */
+  courtNumbers?: number[];
 }
 
 /**

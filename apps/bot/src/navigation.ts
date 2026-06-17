@@ -64,11 +64,11 @@ export async function showMainMenu(ctx: MenuReplyCtx, catalog: Catalog): Promise
 
 /**
  * Central routing table for the menu actions handled by the generic dispatcher.
- * The court rental entry (`menu:court`), the language switch (`menu:lang`) and
- * the back-to-menu action (`menu:home`) are routed by dedicated callbackQuery
- * handlers in index.ts before this table is consulted, so they are intentionally
- * absent here; `resolveCallback` falls back to the main menu for any action
- * without an entry. Routing is asserted in the spec.
+ * The language switch (`menu:lang`) and the back-to-menu action (`menu:home`)
+ * are routed by dedicated callbackQuery handlers in index.ts before this table
+ * is consulted, so they are intentionally absent here; `resolveCallback` falls
+ * back to the main menu for any action without an entry. Routing is asserted in
+ * the spec.
  */
 export const menuHandlers: Partial<Record<MenuAction, MenuHandler>> = {
   // Headline client flow (T1.5 + T3.2 filters): list only bookable slots,

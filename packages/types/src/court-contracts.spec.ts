@@ -8,6 +8,7 @@ import {
   courtRequestQueueQuerySchema,
   courtBlockSchema,
   courtBlocksListQuerySchema,
+  courtFreeCourtsQuerySchema,
   courtLoadCellSchema,
   courtSchema,
   createCourtRequestSchema,
@@ -105,6 +106,18 @@ describe("courtLoadCellSchema (carries the block id for move actions)", () => {
     expect(courtLoadCellSchema.safeParse({ ...base, blockId: null }).success).toBe(true);
   });
 
+  it("accepts a hold cell (a pending request holding the court) carrying its request id", () => {
+    expect(
+      courtLoadCellSchema.safeParse({
+        startTime: "10:00",
+        state: "hold",
+        requestId: "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb",
+        trainingId: null,
+        blockId: null
+      }).success
+    ).toBe(true);
+  });
+
   it("accepts a training cell carrying request/training/block ids", () => {
     expect(
       courtLoadCellSchema.safeParse({
@@ -176,20 +189,32 @@ describe("previewCourtRequestSchema (C2 request input — keyed off telegram id)
     );
   });
 
-  it("accepts the 1.5h duration on the 30-min grid", () => {
-    expect(previewCourtRequestSchema.safeParse({ ...validBody, durationHours: 1.5 }).success).toBe(
-      true
+  it("accepts half-hour durations on the 1…6h grid", () => {
+    for (const durationHours of [1, 1.5, 2.5, 3, 6]) {
+      expect(previewCourtRequestSchema.safeParse({ ...validBody, durationHours }).success).toBe(true);
+    }
+  });
+
+  it("rejects a duration off the 0.5h grid or outside 1…6h", () => {
+    expect(previewCourtRequestSchema.safeParse({ ...validBody, durationHours: 6.5 }).success).toBe(
+      false
+    );
+    expect(previewCourtRequestSchema.safeParse({ ...validBody, durationHours: 0.5 }).success).toBe(
+      false
+    );
+    expect(previewCourtRequestSchema.safeParse({ ...validBody, durationHours: 2.25 }).success).toBe(
+      false
     );
   });
 
-  it("rejects a duration outside {1, 1.5, 2}", () => {
-    expect(previewCourtRequestSchema.safeParse({ ...validBody, durationHours: 3 }).success).toBe(
+  it("accepts an optional courtNumbers list (Mini App court picks) within 1…6", () => {
+    expect(
+      previewCourtRequestSchema.safeParse({ ...validBody, courtNumbers: [1, 3, 5] }).success
+    ).toBe(true);
+    expect(previewCourtRequestSchema.safeParse({ ...validBody, courtNumbers: [] }).success).toBe(
       false
     );
-    expect(previewCourtRequestSchema.safeParse({ ...validBody, durationHours: 0 }).success).toBe(
-      false
-    );
-    expect(previewCourtRequestSchema.safeParse({ ...validBody, durationHours: 2.5 }).success).toBe(
+    expect(previewCourtRequestSchema.safeParse({ ...validBody, courtNumbers: [7] }).success).toBe(
       false
     );
   });
@@ -251,6 +276,36 @@ describe("createCourtRequestSchema (C2 submit input — same telegram-id shape, 
     if (!result.success) {
       expect(result.error.issues[0]?.code).toBe("unrecognized_keys");
     }
+  });
+});
+
+describe("courtFreeCourtsQuerySchema (client court-picker read — coerces query strings)", () => {
+  it("coerces a string durationHours from the query string", () => {
+    const parsed = courtFreeCourtsQuerySchema.safeParse({
+      date: "2026-06-18",
+      startTime: "14:00",
+      durationHours: "2"
+    });
+    expect(parsed.success).toBe(true);
+    if (parsed.success) expect(parsed.data.durationHours).toBe(2);
+  });
+
+  it("rejects an off-grid or out-of-range coerced duration", () => {
+    const base = { date: "2026-06-18", startTime: "14:00" };
+    expect(courtFreeCourtsQuerySchema.safeParse({ ...base, durationHours: "2.25" }).success).toBe(
+      false
+    );
+    expect(courtFreeCourtsQuerySchema.safeParse({ ...base, durationHours: "7" }).success).toBe(false);
+  });
+
+  it("rejects an off-grid start time", () => {
+    expect(
+      courtFreeCourtsQuerySchema.safeParse({
+        date: "2026-06-18",
+        startTime: "14:15",
+        durationHours: "2"
+      }).success
+    ).toBe(false);
   });
 });
 
@@ -340,21 +395,31 @@ const uuidA = "11111111-1111-4111-8111-111111111111";
 const uuidB = "22222222-2222-4222-8222-222222222222";
 
 describe("confirmCourtRequestSchema (C4 admin confirm input)", () => {
-  const validBody = { requestId: uuidA, courtId: uuidB, decidedBy: 9001 };
+  const validBody = { requestId: uuidA, courtIds: [uuidB], decidedBy: 9001 };
 
-  it("accepts a valid confirm body (request id + chosen court + admin id)", () => {
+  it("accepts a valid confirm body (request id + chosen courts + admin id)", () => {
     expect(confirmCourtRequestSchema.safeParse(validBody).success).toBe(true);
   });
 
-  it("requires the chosen courtId — confirming never auto-assigns a court", () => {
-    const { courtId: _courtId, ...withoutCourt } = validBody;
-    expect(confirmCourtRequestSchema.safeParse(withoutCourt).success).toBe(false);
+  it("accepts multiple chosen courts (a multi-court rental)", () => {
+    expect(
+      confirmCourtRequestSchema.safeParse({
+        ...validBody,
+        courtIds: [uuidB, "33333333-3333-4333-8333-333333333333"]
+      }).success
+    ).toBe(true);
+  });
+
+  it("requires at least one chosen court — confirming never auto-assigns a court", () => {
+    expect(confirmCourtRequestSchema.safeParse({ ...validBody, courtIds: [] }).success).toBe(false);
+    const { courtIds: _courtIds, ...withoutCourts } = validBody;
+    expect(confirmCourtRequestSchema.safeParse(withoutCourts).success).toBe(false);
   });
 
   it("rejects a non-uuid courtId and a non-integer decidedBy", () => {
-    expect(confirmCourtRequestSchema.safeParse({ ...validBody, courtId: "court-1" }).success).toBe(
-      false
-    );
+    expect(
+      confirmCourtRequestSchema.safeParse({ ...validBody, courtIds: ["court-1"] }).success
+    ).toBe(false);
     expect(confirmCourtRequestSchema.safeParse({ ...validBody, decidedBy: 1.5 }).success).toBe(
       false
     );
@@ -411,9 +476,10 @@ describe("courtRequestAdminViewSchema (C4 admin-only queue row)", () => {
     date: "2026-06-15",
     startTime: "14:00",
     durationHours: 2,
-    priceRsd: 4000,
+    priceRsd: 8000,
     status: "pending",
-    courtId: null,
+    courtCount: 2,
+    courtNumbers: [1, 2],
     createdAt: "2026-06-03T10:00:00.000Z",
     decidedAt: null,
     decidedBy: null,
@@ -426,16 +492,16 @@ describe("courtRequestAdminViewSchema (C4 admin-only queue row)", () => {
     expect(courtRequestAdminViewSchema.safeParse(validView).success).toBe(true);
   });
 
-  it("carries the assigned courtId for a confirmed request (admin-only surface)", () => {
+  it("carries the assigned court numbers for a confirmed request (admin-only surface)", () => {
     const confirmed = {
       ...validView,
       status: "confirmed",
-      courtId: "33333333-3333-4333-8333-333333333333",
+      courtNumbers: [3, 4],
       decidedAt: "2026-06-03T12:00:00.000Z",
       decidedBy: 9001
     };
     const parsed = courtRequestAdminViewSchema.parse(confirmed);
-    expect(parsed.courtId).toBe("33333333-3333-4333-8333-333333333333");
+    expect(parsed.courtNumbers).toEqual([3, 4]);
   });
 
   it("requires the joined clientName, clientTelegramId and derived endTime", () => {

@@ -19,6 +19,16 @@ export function formatRsd(amount: number): string {
   return amount.toLocaleString("en-US").replace(/,/g, " ");
 }
 
+/**
+ * A court duration in hours → a Russian-comma decimal string for the "{hours} ч"
+ * label, e.g. 1 → "1", 1.5 → "1,5", 2.5 → "2,5". Display only: the value is one of
+ * the server-sanctioned `COURT_DURATION_CHOICES`, never derived or validated here.
+ * The unit suffix is applied by the i18n string (`miniapp.court.durationHours`).
+ */
+export function formatDurationHours(hours: number): string {
+  return String(hours).replace(".", ",");
+}
+
 /** i18n key for a full weekday name, e.g. 1 → `miniapp.weekday.full.1` ("Понедельник"). */
 export function weekdayFullKey(day: DayOfWeek): string {
   return `miniapp.weekday.full.${day}`;

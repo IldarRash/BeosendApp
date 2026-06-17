@@ -86,14 +86,16 @@ function invalidateAfterDecision(queryClient: ReturnType<typeof useQueryClient>)
 }
 
 /**
- * C4 — confirm a request onto a chosen court; refreshes the queues and free-courts
- * reads on success. A 409 (slot filled meanwhile) surfaces as a thrown Error the
- * screen renders — never recomputed client-side.
+ * C4 — confirm a request onto a chosen set of courts; refreshes the queues and
+ * free-courts reads on success. `input.courtIds.length` must equal the request's
+ * `courtCount` (the screen enforces this before calling). A 409 (a court filled
+ * meanwhile) surfaces as a thrown Error the screen renders — never recomputed
+ * client-side.
  */
 export function useConfirmRequest(): UseMutationResult<
   CourtRequest,
   Error,
-  { id: string; input: { courtId: string; decidedBy: number } }
+  { id: string; input: { courtIds: string[]; decidedBy: number } }
 > {
   const api = useApiClient();
   const queryClient = useQueryClient();

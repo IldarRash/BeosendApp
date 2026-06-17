@@ -66,17 +66,26 @@ export class CourtBlocksRepository {
     return rows[0] ? normalizeBlock(rows[0]) : null;
   }
 
-  /** Confirmed requests assigned to a specific court on a date (for the overlap guard). */
+  /**
+   * Confirmed requests assigned to a specific court on a date (for the overlap guard),
+   * read from the join table `court_request_courts ⋈ court_requests` now that a
+   * request's courts live there. Confirmed only — a manual block can still be placed
+   * over a still-pending hold (blocks are admin-authoritative; behavior unchanged).
+   */
   async confirmedSpansForCourtAndDate(courtId: string, date: string): Promise<ConfirmedSpanRow[]> {
     const rows = await this.database.db
       .select({
         startTime: tables.courtRequests.startTime,
         durationHours: tables.courtRequests.durationHours
       })
-      .from(tables.courtRequests)
+      .from(tables.courtRequestCourts)
+      .innerJoin(
+        tables.courtRequests,
+        eq(tables.courtRequestCourts.requestId, tables.courtRequests.id)
+      )
       .where(
         and(
-          eq(tables.courtRequests.courtId, courtId),
+          eq(tables.courtRequestCourts.courtId, courtId),
           eq(tables.courtRequests.date, date),
           eq(tables.courtRequests.status, "confirmed")
         )
@@ -121,8 +130,9 @@ export class CourtBlocksRepository {
   }
 
   /**
-   * Confirmed requests on a date keyed by the court they hold (per-court occupancy).
-   * Same query body as `CourtRequestsRepository.confirmedCourtOccupancyForDate`.
+   * Confirmed requests on a date keyed by the court they hold (per-court occupancy),
+   * read from the join table `court_request_courts ⋈ court_requests`. Confirmed only —
+   * the auto-block court selection must still avoid a court a confirmed request holds.
    * Optionally runs inside a caller's transaction.
    */
   async confirmedOccupancyForDate(
@@ -132,20 +142,22 @@ export class CourtBlocksRepository {
     const rows = await db
       .select({
         requestId: tables.courtRequests.id,
-        courtId: tables.courtRequests.courtId,
+        courtId: tables.courtRequestCourts.courtId,
         startTime: tables.courtRequests.startTime,
         durationHours: tables.courtRequests.durationHours
       })
-      .from(tables.courtRequests)
+      .from(tables.courtRequestCourts)
+      .innerJoin(
+        tables.courtRequests,
+        eq(tables.courtRequestCourts.requestId, tables.courtRequests.id)
+      )
       .where(and(eq(tables.courtRequests.date, date), eq(tables.courtRequests.status, "confirmed")));
-    return rows
-      .filter((row): row is typeof row & { courtId: string } => row.courtId !== null)
-      .map((row) => ({
-        requestId: row.requestId,
-        courtId: row.courtId,
-        startTime: row.startTime.slice(0, 5),
-        durationMinutes: Number(row.durationHours) * 60
-      }));
+    return rows.map((row) => ({
+      requestId: row.requestId,
+      courtId: row.courtId,
+      startTime: row.startTime.slice(0, 5),
+      durationMinutes: Number(row.durationHours) * 60
+    }));
   }
 
   /**

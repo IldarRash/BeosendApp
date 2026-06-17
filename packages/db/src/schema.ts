@@ -6,6 +6,7 @@ import {
   numeric,
   pgEnum,
   pgTable,
+  primaryKey,
   text,
   time,
   timestamp,
@@ -327,16 +328,40 @@ export const courtRequests = pgTable("court_requests", {
     .references(() => clients.id),
   date: date("date").notNull(),
   startTime: time("start_time").notNull(),
-  /** 1 | 1.5 | 2 hours on the 30-min grid; numeric so 1.5 is storable. Drizzle reads it as a string. */
+  /** 1…6 hours on the 0.5h grid; numeric so half-hours are storable. Drizzle reads it as a string. */
   durationHours: numeric("duration_hours", { precision: 3, scale: 1 }).notNull(),
+  /** How many courts the request is for (≥1); the price scales by this. */
+  courtCount: integer("court_count").notNull().default(1),
   priceRsd: integer("price_rsd").notNull(),
   status: courtRequestStatus("status").notNull().default("pending"),
-  /** Assigned only on admin confirmation. */
-  courtId: uuid("court_id").references(() => courts.id),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
   decidedAt: timestamp("decided_at", { withTimezone: true }),
   decidedBy: bigint("decided_by", { mode: "number" })
 });
+
+/**
+ * The specific courts a request holds, the single source of court assignment for a
+ * request (the old single `court_requests.court_id` is superseded). While the request
+ * is `pending` these are the courts the client picked, held so no one else can take
+ * them for the overlapping time; after `confirmed` they are the admin's final courts
+ * (the admin may swap them at confirmation). Rows persist through reject/cancel — the
+ * occupancy reads filter by the parent request's status, so a non-active request stops
+ * holding its courts without deleting history.
+ */
+export const courtRequestCourts = pgTable(
+  "court_request_courts",
+  {
+    requestId: uuid("request_id")
+      .notNull()
+      .references(() => courtRequests.id, { onDelete: "cascade" }),
+    courtId: uuid("court_id")
+      .notNull()
+      .references(() => courts.id)
+  },
+  (table) => ({
+    pk: primaryKey({ columns: [table.requestId, table.courtId] })
+  })
+);
 
 // --- External connectors (webhooks) ---
 
@@ -435,6 +460,7 @@ export const schema = {
   courts,
   courtBlocks,
   courtRequests,
+  courtRequestCourts,
   webhookEndpoints,
   webhookDeliveries,
   uiLabels,

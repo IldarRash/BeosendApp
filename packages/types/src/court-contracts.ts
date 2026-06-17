@@ -8,9 +8,22 @@ export const COURT_RATE_RSD_PER_HOUR = 2000;
 /** Working hours of the courts (08:00–21:00); a start is valid only if start + duration ≤ 21:00. */
 export const COURT_OPEN_HOUR = 8;
 export const COURT_CLOSE_HOUR = 21;
-/** Court rental durations on the 30-minute grid: 1, 1.5 or 2 hours. */
-export const courtDurationHours = z.union([z.literal(1), z.literal(1.5), z.literal(2)]);
+/** Court rental durations: 1…6 hours on the 0.5-hour grid (a half-hour × 2000 stays whole RSD). */
+export const COURT_MIN_DURATION_HOURS = 1;
+export const COURT_MAX_DURATION_HOURS = 6;
+export const courtDurationHours = z
+  .number()
+  .min(COURT_MIN_DURATION_HOURS)
+  .max(COURT_MAX_DURATION_HOURS)
+  .refine((h) => Number.isInteger(h * 2), "duration must be on the 0.5-hour grid");
 export type CourtDurationHours = z.infer<typeof courtDurationHours>;
+/** The offerable durations in display order: 1, 1.5, … 6. Drives the Mini App picker. */
+export const COURT_DURATION_CHOICES: readonly number[] = Array.from(
+  { length: (COURT_MAX_DURATION_HOURS - COURT_MIN_DURATION_HOURS) * 2 + 1 },
+  (_, i) => COURT_MIN_DURATION_HOURS + i * 0.5
+);
+/** A court display number (1…6). Clients pick specific courts in the Mini App. */
+export const courtNumber = z.number().int().min(1).max(COURT_COUNT);
 
 /** A start time on the 30-minute grid (minute ∈ {0,30}). */
 export const slotAlignedTime = timeString.refine(
@@ -71,9 +84,10 @@ export type CourtRequestStatus = z.infer<typeof courtRequestStatus>;
 
 /**
  * One row in a client's own "My court requests" view, for the Mini App calendar.
- * Mirrors MyBookingItem in carrying a derived `endTime`. CRITICAL INVARIANT: this
- * client-facing shape MUST NEVER carry a court id/number — a client must never learn
- * which court was assigned, even after confirmation. The price is server-computed RSD.
+ * Mirrors MyBookingItem in carrying a derived `endTime`. Since Edition 2.1 a client
+ * picks specific courts in the Mini App, so this view now carries the client's own
+ * `courtNumbers` (and `courtCount`) — these are the courts the client chose/holds, or
+ * the admin's final courts after confirmation. The price is server-computed RSD.
  */
 export const myCourtRequestItemSchema = z.object({
   id: uuid,
@@ -82,7 +96,11 @@ export const myCourtRequestItemSchema = z.object({
   endTime: timeString,
   durationHours: z.number(),
   priceRsd: rsd,
-  status: courtRequestStatus
+  status: courtRequestStatus,
+  /** How many courts the request is for (≥1). */
+  courtCount: z.number().int().min(1),
+  /** The court numbers the client picked/holds (empty for a legacy bot request with none). */
+  courtNumbers: z.array(courtNumber)
 });
 export type MyCourtRequestItem = z.infer<typeof myCourtRequestItemSchema>;
 
@@ -94,8 +112,15 @@ export const courtRequestSchema = z.object({
   durationHours: courtDurationHours,
   priceRsd: rsd,
   status: courtRequestStatus,
-  /** Assigned only on admin confirmation. Clients never see/choose it. */
-  courtId: uuid.nullable(),
+  /** How many courts the request is for (≥1); the price scales by this. */
+  courtCount: z.number().int().min(1),
+  /**
+   * The courts the request holds: while `pending` these are the client's picked
+   * courts (held so no one else can take them); after `confirmed` they are the
+   * admin's final courts. Empty for a legacy bot request that picked none (the admin
+   * assigns at confirmation). Carries display numbers, not ids.
+   */
+  courtNumbers: z.array(courtNumber),
   createdAt: z.string().datetime(),
   decidedAt: z.string().datetime().nullable(),
   decidedBy: z.number().int().nullable()
@@ -109,13 +134,19 @@ export type CourtRequest = z.infer<typeof courtRequestSchema>;
  */
 export const telegramId = z.number().int();
 
-/** C2 — price + availability check for a desired slot. No write. */
+/**
+ * C2 — price + availability check for a desired slot. No write. `courtNumbers` is
+ * optional: the Mini App sends the specific courts the client picked (price scales by
+ * their count, and each must be free); the bot omits it (single court, count 1, the
+ * admin assigns the court at confirmation).
+ */
 export const previewCourtRequestSchema = z
   .object({
     telegramId,
     date: dateString,
     startTime: slotAlignedTime,
-    durationHours: courtDurationHours
+    durationHours: courtDurationHours,
+    courtNumbers: z.array(courtNumber).min(1).max(COURT_COUNT).optional()
   })
   .strict();
 export type PreviewCourtRequest = z.infer<typeof previewCourtRequestSchema>;
@@ -124,21 +155,58 @@ export type PreviewCourtRequest = z.infer<typeof previewCourtRequestSchema>;
 export const createCourtRequestSchema = previewCourtRequestSchema;
 export type CreateCourtRequest = z.infer<typeof createCourtRequestSchema>;
 
-/** C2 — server-computed preview the bot renders (price is authoritative). */
+/** C2 — server-computed preview the client renders (price is authoritative). */
 export const courtRequestPreviewSchema = z.object({
   date: dateString,
   startTime: timeString,
   endTime: timeString,
   durationHours: courtDurationHours,
   priceRsd: rsd,
+  /** How many courts the price is for (≥1; the picked count, or 1 for the bot path). */
+  courtCount: z.number().int().min(1),
+  /** The picked court numbers echoed back (empty for the bot single-court path). */
+  courtNumbers: z.array(courtNumber),
   /** Whether the slot is still offerable (every covered 30-min slot has a free court). */
   available: z.boolean()
 });
 export type CourtRequestPreview = z.infer<typeof courtRequestPreviewSchema>;
 
+/**
+ * C3.1 — client read of the SPECIFIC courts free for a desired slot, so the Mini App
+ * can render a court picker. Unlike the count-only availability read, this returns
+ * court NUMBERS the client may pick (Edition 2.1 lets the client choose courts).
+ */
+export const courtFreeCourtsQuerySchema = z.object({
+  date: dateString,
+  startTime: slotAlignedTime,
+  // Coerced: a GET query carries durationHours as a string ("2", "1.5"); coerce
+  // then apply the same 1…6 / 0.5-grid rule as courtDurationHours.
+  durationHours: z.coerce
+    .number()
+    .min(COURT_MIN_DURATION_HOURS)
+    .max(COURT_MAX_DURATION_HOURS)
+    .refine((h) => Number.isInteger(h * 2), "duration must be on the 0.5-hour grid")
+});
+export type CourtFreeCourtsQuery = z.infer<typeof courtFreeCourtsQuerySchema>;
+
+export const freeCourtNumbersSchema = z.object({
+  date: dateString,
+  startTime: timeString,
+  endTime: timeString,
+  durationHours: courtDurationHours,
+  /** Active courts with no confirmed request, pending hold, or block over the slot. */
+  courtNumbers: z.array(courtNumber)
+});
+export type FreeCourtNumbers = z.infer<typeof freeCourtNumbersSchema>;
+
+/**
+ * C4 — admin confirms a pending request onto a final set of courts. `courtIds` length
+ * must equal the request's `courtCount`; the admin may keep the client's picked courts
+ * or swap them for others (each must be active and free for every covered slot).
+ */
 export const confirmCourtRequestSchema = z.object({
   requestId: uuid,
-  courtId: uuid,
+  courtIds: z.array(uuid).min(1).max(COURT_COUNT),
   decidedBy: z.number().int()
 });
 export type ConfirmCourtRequest = z.infer<typeof confirmCourtRequestSchema>;
@@ -193,13 +261,15 @@ export type CourtAvailability = z.infer<typeof courtAvailabilitySchema>;
  * be returned on a client path. Reuse `courtAvailabilityQuerySchema` for the date
  * query; do not add a second date-only schema.
  */
-export const courtLoadCellState = z.enum(["free", "request", "block", "training"]);
+export const courtLoadCellState = z.enum(["free", "request", "hold", "block", "training"]);
 export type CourtLoadCellState = z.infer<typeof courtLoadCellState>;
 
 /**
  * One court/30-min-slot cell: what (if anything) holds it. For a `request` cell
  * this is the confirmed court request covering that court/slot (`requestId` set,
- * `trainingId` null), so the admin grid can link to its detail. A `training` cell
+ * `trainingId` null), so the admin grid can link to its detail. A `hold` cell is a
+ * still-pending request whose client picked this court (`requestId` set) — the court
+ * is held until the admin decides. A `training` cell
  * is an auto-block under a group training, carrying the covering training's id in
  * `trainingId` (so the grid can open its detail) with `requestId` null.
  * `free`/`block` cells carry both null (a block is not a request, a manual block

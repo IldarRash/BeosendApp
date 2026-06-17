@@ -41,24 +41,10 @@ import {
   parseLoadDate,
   COURT_LOAD_ACTIONS
 } from "./court-load";
-import {
-  courtDateKeyboard,
-  courtDateOptions,
-  courtDurationKeyboard,
-  courtNoSlotsText,
-  courtOpenText,
-  courtPickDurationText,
-  courtPickTimeText,
-  courtPreviewKeyboard,
-  courtPreviewText,
-  courtSubmittedText,
-  courtTimeKeyboard,
-  parseConfirm,
-  parseDate,
-  parseDuration,
-  parseTime,
-  COURT_ACTIONS
-} from "./court";
+// Court rental moved to the Mini App only; the bot keeps only the shared date
+// helper used by the admin court-load grid (C6). The client court-request flow
+// (date → time → duration → submit) and its keyboards/parsers were removed.
+import { courtDateOptions } from "./court";
 import { resolveCallback } from "./navigation";
 import { handleBookConfirm, handleBookStart } from "./booking";
 import { handleWaitlistAccept, handleWaitlistJoin } from "./waitlist";
@@ -235,66 +221,6 @@ async function main(): Promise<void> {
     await handleStatsMenu(ctx, api, catalog, ctx.from?.id);
   });
 
-  // --- Court rental request flow (Edition 2, C2). 2–3 taps: date → time →
-  // duration (price preview) → submit. The bot never renders a court number and
-  // never computes price/availability; all of that comes from the API. ---
-
-  // Entry: from the main menu or "back to dates" inside the flow.
-  bot.callbackQuery([MENU_ACTIONS.rentCourt, COURT_ACTIONS.open], async (ctx) => {
-    await ctx.answerCallbackQuery();
-    const catalog = await resolveCatalog(ctx.from.id);
-    await ctx.reply(courtOpenText(catalog), {
-      reply_markup: courtDateKeyboard(catalog, courtDateOptions(new Date()))
-    });
-  });
-
-  // Date picked → fetch offerable start times for that date.
-  bot.callbackQuery(new RegExp(`^${COURT_ACTIONS.datePrefix}`), async (ctx) => {
-    await ctx.answerCallbackQuery();
-    const catalog = await resolveCatalog(ctx.from.id);
-    const date = parseDate(ctx.callbackQuery.data);
-    const availability = await api.getCourtAvailability(date);
-    if (availability.slots.every((s) => s.freeCourts <= 0)) {
-      await ctx.reply(courtNoSlotsText(catalog), {
-        reply_markup: courtDateKeyboard(catalog, courtDateOptions(new Date()))
-      });
-      return;
-    }
-    await ctx.reply(courtPickTimeText(catalog), {
-      reply_markup: courtTimeKeyboard(catalog, availability)
-    });
-  });
-
-  // Start time picked → offer the 1h / 1.5h / 2h durations.
-  bot.callbackQuery(new RegExp(`^${COURT_ACTIONS.timePrefix}`), async (ctx) => {
-    await ctx.answerCallbackQuery();
-    const catalog = await resolveCatalog(ctx.from.id);
-    const { startTime, date } = parseTime(ctx.callbackQuery.data);
-    await ctx.reply(courtPickDurationText(catalog), {
-      reply_markup: courtDurationKeyboard(catalog, date, startTime)
-    });
-  });
-
-  // Duration picked → server price + availability preview.
-  bot.callbackQuery(new RegExp(`^${COURT_ACTIONS.durationPrefix}`), async (ctx) => {
-    await ctx.answerCallbackQuery();
-    const catalog = await resolveCatalog(ctx.from.id);
-    const { durationHours, date, startTime } = parseDuration(ctx.callbackQuery.data);
-    const preview = await api.previewCourtRequest(ctx.from.id, date, startTime, durationHours);
-    await ctx.reply(courtPreviewText(catalog, preview), {
-      reply_markup: courtPreviewKeyboard(catalog, preview)
-    });
-  });
-
-  // Submit → API creates a pending request (no court assigned, server price).
-  bot.callbackQuery(new RegExp(`^${COURT_ACTIONS.confirmPrefix}`), async (ctx) => {
-    await ctx.answerCallbackQuery();
-    const catalog = await resolveCatalog(ctx.from.id);
-    const { date, startTime, durationHours } = parseConfirm(ctx.callbackQuery.data);
-    await api.createCourtRequest(ctx.from.id, date, startTime, durationHours);
-    await ctx.reply(courtSubmittedText(catalog), { reply_markup: mainMenuKeyboard(catalog) });
-  });
-
   // --- C4 court moderation (admin). The bot only renders the API-returned queue
   // and free courts and calls confirm/reject; the API enforces the admin gate,
   // re-checks the per-slot limit and chosen-court freeness, assigns the court, and
@@ -364,7 +290,7 @@ async function main(): Promise<void> {
       });
       return;
     }
-    await api.confirmCourtRequest(ctx.from.id, requestId, court.id);
+    await api.confirmCourtRequest(ctx.from.id, requestId, [court.id]);
     freeCourtsCache.delete(cacheKey(ctx.from.id, requestId));
     await ctx.reply(courtModConfirmedText(catalog), {
       reply_markup: courtModQueueKeyboard(catalog, [])

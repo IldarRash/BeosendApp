@@ -1,13 +1,19 @@
 import { useEffect, useMemo, useState } from "react";
-import type {
-  CourtAvailability,
-  CourtDurationHours,
-  CourtRequestPreview,
-  SlotAvailability
+import {
+  COURT_DURATION_CHOICES,
+  type CourtAvailability,
+  type CourtDurationHours,
+  type CourtRequestPreview,
+  type SlotAvailability
 } from "@beosand/types";
 import { ConflictError, type CourtRequestInput } from "../api/client";
 import { resolveErrorMessage } from "../api/errors";
-import { useCourtAvailability, useCourtPreview, useCreateCourtRequest } from "../api/hooks";
+import {
+  useCourtAvailability,
+  useCourtFreeCourts,
+  useCourtPreview,
+  useCreateCourtRequest
+} from "../api/hooks";
 import { useT, type TranslateFn } from "../i18n/LanguageProvider";
 import { useNav } from "../router/NavProvider";
 import { hapticSelection, hapticSuccess, useMainButton } from "../tg/buttons";
@@ -18,6 +24,7 @@ import { EmptyState, ErrorState, LoadingState } from "../ui/StateView";
 import {
   dayOfWeekFromDate,
   formatDayMonth,
+  formatDurationHours,
   formatRsd,
   formatTimeRange,
   offeredDates,
@@ -26,32 +33,45 @@ import {
 } from "../ui/format";
 
 /**
- * The court-rental request journey (S9). One screen, five derived steps:
+ * The court-rental request journey (S9). One screen, six derived steps:
  *
  *   date     → pick a day from the offered window (.datestrip / .dchip)
  *   time     → pick an offerable start (.timegrid / .tcell; each shows a free COUNT)
- *   duration → pick 1 / 1.5 / 2 hours (OptionList)
- *   preview  → review the SERVER's price + availability, then submit (.sumrow)
- *   pending  → the created request (pending; NO court assigned, role="status")
+ *   duration → pick 1…6 hours on the 0.5 grid (OptionList)
+ *   courts   → pick ONE OR MORE specific free courts (.courtgrid / .ccell)
+ *   preview  → review the SERVER's price (= 2000 × hours × count) + availability (.sumrow)
+ *   pending  → the created request (pending; the picked court numbers ARE shown)
  *
- * Interaction layer only: the client requests a TIME + DURATION and NEVER sees or
- * chooses a court number — the contracts carry no court id, and none is rendered at
- * any step. The 6-courts-per-hour limit is server-enforced and already reflected in
- * the offered times. The price is the server's `preview.priceRsd`, shown read-only;
- * the client never sends or computes a price.
+ * Interaction layer only: the client picks a TIME + DURATION + COURTS; the server owns
+ * the price (`preview.priceRsd`, shown read-only) and which courts are free (only the
+ * server-returned numbers are selectable). The 6-courts-per-hour limit is server-enforced.
  */
 export function CourtRequestScreen(): JSX.Element {
   const [date, setDate] = useState<string | undefined>(undefined);
   const [startTime, setStartTime] = useState<string | undefined>(undefined);
   const [durationHours, setDurationHours] = useState<CourtDurationHours | undefined>(undefined);
+  const [courtNumbers, setCourtNumbers] = useState<number[] | undefined>(undefined);
 
-  if (date && startTime && durationHours) {
+  if (date && startTime && durationHours && courtNumbers) {
     return (
       <CourtPreviewFlow
-        slot={{ date, startTime, durationHours }}
+        slot={{ date, startTime, durationHours, courtNumbers }}
         onPickAnotherTime={() => {
           setStartTime(undefined);
           setDurationHours(undefined);
+          setCourtNumbers(undefined);
+        }}
+      />
+    );
+  }
+
+  if (date && startTime && durationHours) {
+    return (
+      <CourtStep
+        slot={{ date, startTime, durationHours }}
+        onConfirm={(picked) => {
+          hapticSelection();
+          setCourtNumbers(picked);
         }}
       />
     );
@@ -195,8 +215,8 @@ function TimeCell({ slot, onPick }: { slot: SlotAvailability; onPick: () => void
 }
 
 /**
- * Step 3 — pick a duration (1 / 1.5 / 2 hours). The chosen date + start time are
- * echoed as summary rows; the OptionList selection IS the action (no MainButton).
+ * Step 3 — pick a duration (1…6 hours on the 0.5 grid). The chosen date + start time
+ * are echoed as summary rows; the OptionList selection IS the action (no MainButton).
  */
 function DurationStep({
   date,
@@ -210,10 +230,9 @@ function DurationStep({
   const t = useT();
   const dow = dayOfWeekFromDate(date);
 
-  const options: ReadonlyArray<Option<number | undefined>> = DURATION_CHOICES.map((value) => ({
-    value,
-    label: t(durationKey(value))
-  }));
+  const options: ReadonlyArray<Option<number | undefined>> = COURT_DURATION_CHOICES.map(
+    (value) => ({ value, label: durationLabel(value, t) })
+  );
 
   return (
     <div className="screen">
@@ -245,9 +264,145 @@ function DurationStep({
 }
 
 /**
- * Steps 4/5 — fetch the server preview for the chosen slot, then submit. The price
- * shown is the server's; the client computes nothing. On success the request is
- * created (pending), and the pending state shows NO court number.
+ * Step 4 — pick one or more SPECIFIC courts. The server returns the courts free for
+ * the chosen date+start+duration (`useCourtFreeCourts`); only those numbers are
+ * selectable, every other court (1…6) renders disabled/greyed. The client may pick
+ * one or more; the native MainButton (and an in-screen fallback) proceeds to the
+ * preview once ≥1 is selected. Accessible: role="group", aria-pressed per chip.
+ */
+function CourtStep({
+  slot,
+  onConfirm
+}: {
+  slot: CourtRequestInput;
+  onConfirm: (courtNumbers: number[]) => void;
+}): JSX.Element {
+  const t = useT();
+  const free = useCourtFreeCourts(slot);
+  const [selected, setSelected] = useState<number[]>([]);
+
+  const dow = dayOfWeekFromDate(slot.date);
+  const freeSet = useMemo(
+    () => new Set(free.data?.courtNumbers ?? []),
+    [free.data?.courtNumbers]
+  );
+
+  const canContinue = selected.length > 0;
+  const confirm = (): void => {
+    if (canContinue) {
+      onConfirm([...selected].sort((a, b) => a - b));
+    }
+  };
+
+  // Drive the MainButton once a court is picked; it stays disabled until then.
+  useMainButton({
+    text: t("miniapp.court.continue"),
+    onClick: confirm,
+    isEnabled: canContinue
+  });
+
+  if (free.isLoading) {
+    return (
+      <div className="screen screen__center">
+        <LoadingState />
+      </div>
+    );
+  }
+  if (free.error || free.data === undefined) {
+    const message = free.error instanceof Error ? free.error.message : undefined;
+    return (
+      <div className="screen screen__center">
+        <ErrorState message={message} />
+      </div>
+    );
+  }
+  if (free.data.courtNumbers.length === 0) {
+    return (
+      <div className="screen screen__center">
+        <EmptyState titleKey="miniapp.court.noCourtsTitle" bodyKey="miniapp.court.noCourtsBody" />
+      </div>
+    );
+  }
+
+  const toggle = (n: number): void => {
+    hapticSelection();
+    setSelected((prev) =>
+      prev.includes(n) ? prev.filter((x) => x !== n) : [...prev, n]
+    );
+  };
+
+  // Render every court 1…6 so the picker is a stable grid; free ones are selectable.
+  const allCourts = Array.from({ length: 6 }, (_, i) => i + 1);
+
+  return (
+    <div className="screen">
+      {/* Echo of the chosen slot */}
+      <div className="card">
+        <div className="sumrow">
+          <span className="sumrow__k">{t("miniapp.booking.dateLabel")}</span>
+          <span className="sumrow__v">{`${t(weekdayFullKey(dow))}, ${formatDayMonth(slot.date)}`}</span>
+        </div>
+        <div className="sumrow">
+          <span className="sumrow__k">{t("miniapp.booking.timeLabel")}</span>
+          <span className="sumrow__v">
+            {formatTimeRange(free.data.startTime, free.data.endTime)}
+          </span>
+        </div>
+        <div className="sumrow">
+          <span className="sumrow__k">{t("miniapp.court.durationLabel")}</span>
+          <span className="sumrow__v">{durationLabel(slot.durationHours, t)}</span>
+        </div>
+      </div>
+
+      <div className="tg-sech">{t("miniapp.court.pickCourts")}</div>
+      <div
+        className="courtgrid"
+        role="group"
+        aria-label={t("miniapp.court.pickCourts")}
+      >
+        {allCourts.map((n) => {
+          const isFree = freeSet.has(n);
+          const isOn = selected.includes(n);
+          const label = isFree
+            ? t("miniapp.court.courtN", { n })
+            : t("miniapp.court.courtTaken", { n });
+          return (
+            <button
+              key={n}
+              type="button"
+              className={isOn ? "ccell is-on" : "ccell"}
+              disabled={!isFree}
+              aria-pressed={isFree ? isOn : undefined}
+              aria-disabled={!isFree || undefined}
+              aria-label={label}
+              onClick={() => isFree && toggle(n)}
+            >
+              <div className="ccell__n">{n}</div>
+              <div className="ccell__label">{t("miniapp.court.courtsLabel")}</div>
+            </button>
+          );
+        })}
+      </div>
+
+      <div className="tg-sech" style={{ paddingTop: 8 }} aria-live="polite">
+        {canContinue
+          ? t("miniapp.court.selectedCount", { count: selected.length })
+          : t("miniapp.court.pickCourtsHint")}
+      </div>
+
+      <FallbackButton
+        text={t("miniapp.court.continue")}
+        onClick={confirm}
+        disabled={!canContinue}
+      />
+    </div>
+  );
+}
+
+/**
+ * Steps 5/6 — fetch the server preview for the chosen slot (incl. the picked courts),
+ * then submit. The price shown is the server's; the client computes nothing. On success
+ * the request is created (pending), and the pending state shows the PICKED court numbers.
  */
 function CourtPreviewFlow({
   slot,
@@ -261,7 +416,7 @@ function CourtPreviewFlow({
   const preview = useCourtPreview();
   const create = useCreateCourtRequest();
 
-  const slotKey = `${slot.date}|${slot.startTime}|${slot.durationHours}`;
+  const slotKey = `${slot.date}|${slot.startTime}|${slot.durationHours}|${(slot.courtNumbers ?? []).join(",")}`;
   useEffect(() => {
     preview.reset();
     preview.mutate(slot);
@@ -269,7 +424,7 @@ function CourtPreviewFlow({
   }, [slotKey]);
 
   if (create.isSuccess) {
-    return <CourtPending onHome={() => nav.pop()} />;
+    return <CourtPending courtNumbers={create.data.courtNumbers} onHome={() => nav.pop()} />;
   }
 
   if (preview.isPending || !preview.data) {
@@ -324,6 +479,7 @@ function CourtPreview({
 }): JSX.Element {
   const t = useT();
   const dow = dayOfWeekFromDate(preview.date);
+  const courtsLabel = formatCourtNumbers(preview.courtNumbers);
 
   useMainButton({
     text: t("miniapp.court.submit"),
@@ -350,6 +506,14 @@ function CourtPreview({
           <span className="sumrow__k">{t("miniapp.court.durationLabel")}</span>
           <span className="sumrow__v">{durationLabel(preview.durationHours, t)}</span>
         </div>
+        {preview.courtNumbers.length > 0 && (
+          <div className="sumrow">
+            <span className="sumrow__k">
+              {t("miniapp.court.courtsLabel")} ({preview.courtCount})
+            </span>
+            <span className="sumrow__v">{courtsLabel}</span>
+          </div>
+        )}
         <div className="sumrow">
           <span className="sumrow__k">{t("miniapp.booking.priceLabel")}</span>
           <span className="sumrow__v sumrow__v--big">
@@ -379,10 +543,17 @@ function CourtPreview({
 }
 
 /**
- * The pending-success state: the request reached the admin queue. NO court number is
- * shown (none is assigned). Calm `role="status"`.
+ * The pending-success state: the request reached the admin queue. The client's PICKED
+ * court numbers ARE shown now (the owner approved clients seeing their picked courts).
+ * Calm `role="status"`.
  */
-function CourtPending({ onHome }: { onHome: () => void }): JSX.Element {
+function CourtPending({
+  courtNumbers,
+  onHome
+}: {
+  courtNumbers: number[];
+  onHome: () => void;
+}): JSX.Element {
   const t = useT();
 
   useMainButton({
@@ -396,6 +567,11 @@ function CourtPending({ onHome }: { onHome: () => void }): JSX.Element {
         <span className="success-badge" aria-hidden="true">✓</span>
         <div className="stateview__title">{t("miniapp.court.sentTitle")}</div>
         <div className="stateview__sub">{t("miniapp.court.sentBody")}</div>
+        {courtNumbers.length > 0 && (
+          <div className="stateview__sub">
+            {t("miniapp.court.sentCourts", { courts: formatCourtNumbers(courtNumbers) })}
+          </div>
+        )}
       </div>
       <FallbackButton text={t("miniapp.court.toHome")} onClick={onHome} />
     </div>
@@ -434,15 +610,12 @@ function CourtUnavailable({
   );
 }
 
-/** The three offerable court durations, in display order. */
-const DURATION_CHOICES: readonly CourtDurationHours[] = [1, 1.5, 2];
-
-function durationKey(duration: CourtDurationHours): string {
-  if (duration === 1) return "miniapp.court.duration1";
-  if (duration === 1.5) return "miniapp.court.duration1_5";
-  return "miniapp.court.duration2";
+/** "{hours} ч" label for a court duration (russian comma decimal: "1,5 ч"). */
+function durationLabel(duration: CourtDurationHours, t: TranslateFn): string {
+  return t("miniapp.court.durationHours", { hours: formatDurationHours(duration) });
 }
 
-function durationLabel(duration: CourtDurationHours, t: TranslateFn): string {
-  return t(durationKey(duration));
+/** Sorted, comma-joined court numbers for a summary line, e.g. [3,1] → "1, 3". */
+function formatCourtNumbers(courtNumbers: number[]): string {
+  return [...courtNumbers].sort((a, b) => a - b).join(", ");
 }

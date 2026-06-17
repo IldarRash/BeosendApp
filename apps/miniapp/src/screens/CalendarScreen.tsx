@@ -418,8 +418,10 @@ function TrainingRow({ item }: { item: MyBookingItem }): JSX.Element {
 }
 
 /**
- * One court-request agenda row: kind tag, time, status chip, and the server price.
- * NEVER a court number — the {@link MyCourtRequestItem} contract carries none.
+ * One court-request agenda row: kind tag, time, status chip, the server price, and —
+ * since Edition 2.1 — the client's PICKED court numbers (the owner approved clients
+ * seeing their picked courts). Shown only when the contract carries numbers; a legacy
+ * bot request with none simply omits the line.
  */
 function CourtRow({ item }: { item: MyCourtRequestItem }): JSX.Element {
   const t = useT();
@@ -427,12 +429,26 @@ function CourtRow({ item }: { item: MyCourtRequestItem }): JSX.Element {
   const statusLabel = t(courtStatusKey(item.status));
   const timeRange = formatTimeRange(item.startTime, item.endTime);
   const priceLabel = t("miniapp.browse.price", { price: formatRsd(item.priceRsd) });
+  const courtsLabel =
+    item.courtNumbers.length > 0
+      ? t("miniapp.court.sentCourts", {
+          courts: [...item.courtNumbers].sort((a, b) => a - b).join(", ")
+        })
+      : undefined;
 
   return (
     <div
       className="lrow"
       role="listitem"
-      aria-label={`${t("miniapp.calendar.kindCourt")}. ${timeRange}. ${statusLabel}. ${priceLabel}`}
+      aria-label={[
+        t("miniapp.calendar.kindCourt"),
+        timeRange,
+        statusLabel,
+        priceLabel,
+        courtsLabel
+      ]
+        .filter(Boolean)
+        .join(". ")}
     >
       <div className="lrow__main">
         <div className="cal-row__top">
@@ -440,6 +456,7 @@ function CourtRow({ item }: { item: MyCourtRequestItem }): JSX.Element {
           <span className="lrow__title">{timeRange}</span>
         </div>
         <div className="lrow__sub">{priceLabel}</div>
+        {courtsLabel && <div className="lrow__sub">{courtsLabel}</div>}
         <div style={{ marginTop: 6 }}>
           <span className={`schip schip--${variant}`}>
             <span className="dot" aria-hidden="true" />
