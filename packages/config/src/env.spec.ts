@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it } from "vitest";
-import { isAdmin, loadEnv, setDbAdminIds } from "./env";
+import { adminTelegramIds, isAdmin, loadEnv, setDbAdminIds } from "./env";
 
 const base = {
   DATABASE_URL: "postgres://u:p@localhost:5432/db",
@@ -142,5 +142,25 @@ describe("isAdmin DB-backed admin set (setDbAdminIds)", () => {
     expect(isAdmin(env, "777")).toBe(true);
     setDbAdminIds(["888"]);
     expect(isAdmin(env, 888)).toBe(true);
+  });
+});
+
+describe("adminTelegramIds (recipient union for admin DMs)", () => {
+  afterEach(() => setDbAdminIds([]));
+
+  it("returns the numeric env ids when no DB managers are set", () => {
+    const env = loadEnv({ ...base, ADMIN_TELEGRAM_IDS: "111,222" });
+    expect(adminTelegramIds(env)).toEqual([111, 222]);
+  });
+
+  it("is the de-duped union of env ids and DB-backed managers", () => {
+    const env = loadEnv({ ...base, ADMIN_TELEGRAM_IDS: "111,222" });
+    setDbAdminIds([222, 333]); // 222 overlaps env → de-duped
+    expect(adminTelegramIds(env).sort((a, b) => a - b)).toEqual([111, 222, 333]);
+  });
+
+  it("is empty when neither env nor DB has any admin", () => {
+    const env = loadEnv({ ...base, ADMIN_TELEGRAM_IDS: "" });
+    expect(adminTelegramIds(env)).toEqual([]);
   });
 });

@@ -1,5 +1,5 @@
 import { useEffect, useRef } from "react";
-import { useNavigate } from "react-router-dom";
+import { useLocation, useNavigate } from "react-router-dom";
 import { telegramLoginPayloadSchema, type TelegramLoginPayload } from "@beosand/types";
 import { useLogin } from "../hooks/useSession";
 import { useToast } from "../ui/Toast";
@@ -19,10 +19,13 @@ declare global {
  * VITE_TELEGRAM_BOT_USERNAME). On `onauth` the raw widget payload is validated
  * against telegramLoginPayloadSchema, then exchanged for a session at
  * POST /auth/telegram. The browser proves identity; the API verifies the HMAC and
- * the admin gate. On success we store the JWT and route to the dashboard.
+ * the admin gate. On success we store the JWT and route to the page the admin
+ * was sent here from (a deep-link button in a Telegram DM, captured as
+ * `state.from` by RequireAuth), falling back to the dashboard.
  */
 export function Login(): JSX.Element {
   const navigate = useNavigate();
+  const location = useLocation();
   const login = useLogin();
   const { notify } = useToast();
   const t = useT();
@@ -63,7 +66,8 @@ export function Login(): JSX.Element {
   function handleLogin(payload: TelegramLoginPayload): void {
     login.mutate(payload, {
       onSuccess: () => {
-        navigate("/", { replace: true });
+        const from = (location.state as { from?: string } | null)?.from;
+        navigate(from ?? "/", { replace: true });
       },
       onError: (error: Error) => {
         notify(loginErrorMessage(error, t), "error");
