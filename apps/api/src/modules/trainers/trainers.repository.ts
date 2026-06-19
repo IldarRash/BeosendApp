@@ -1,5 +1,5 @@
 import { Injectable } from "@nestjs/common";
-import type { Trainer } from "@beosand/types";
+import type { Locale, Trainer } from "@beosand/types";
 import { type Database, tables } from "@beosand/db";
 import { and, asc, eq, isNull, sql } from "drizzle-orm";
 import { DatabaseService } from "../../db/database.service";
@@ -24,6 +24,19 @@ export class TrainersRepository {
       .where(eq(tables.trainers.id, id))
       .limit(1);
     return row;
+  }
+
+  /**
+   * The notification locale of the trainer owning this Telegram id, or undefined
+   * when no trainer has it. Drives staff-DM language resolution (after managers).
+   */
+  async findLanguageByTelegramId(telegramId: number): Promise<Locale | undefined> {
+    const [row] = await this.database.db
+      .select({ language: tables.trainers.language })
+      .from(tables.trainers)
+      .where(eq(tables.trainers.telegramId, telegramId))
+      .limit(1);
+    return row?.language;
   }
 
   /** The active trainer owning this Telegram id, if any — resolves the actor for T2.3. */

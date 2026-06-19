@@ -44,13 +44,25 @@ function makeNotifications(): NotificationsService {
   } as unknown as NotificationsService;
 }
 
+/** Templates repo stub: no overrides, so decision DMs use the per-locale code default. */
+function makeTemplates(): { findOverride: ReturnType<typeof vi.fn> } {
+  return { findOverride: vi.fn().mockResolvedValue(undefined) };
+}
+
 function makeService(
   repo: CourtRequestsRepository,
   dispatcher: ChannelDispatcher = makeDispatcher(),
   domainEvents: DomainEventsService = makeDomainEvents(),
   notifications: NotificationsService = makeNotifications()
 ) {
-  return new CourtRequestsService(repo, env, dispatcher, domainEvents, notifications);
+  return new CourtRequestsService(
+    repo,
+    env,
+    dispatcher,
+    domainEvents,
+    notifications,
+    makeTemplates() as never
+  );
 }
 
 const clientId = "11111111-1111-4111-8111-111111111111";
@@ -526,6 +538,7 @@ function adminRow(overrides: Partial<CourtRequestAdminRow> = {}): CourtRequestAd
     ...makeRow(),
     clientName: "Ana",
     clientTelegramId: 7001,
+    clientLanguage: "ru",
     ...overrides
   };
 }
@@ -938,6 +951,92 @@ describe("CourtRequestsService.rejectRequest (C4 admin)", () => {
     await expect(
       service.rejectRequest(adminId, { requestId, decidedBy: adminId })
     ).rejects.toBeInstanceOf(ConflictException);
+  });
+});
+
+describe("CourtRequestsService.notifyDecision locale (client's language)", () => {
+  it("renders the SR court-request-confirmed template for an SR client", async () => {
+    const { tx } = makeTx({
+      request: makeRow({ courtCount: 1 }),
+      activeNumbers: [{ id: courtIdA, number: 5 }],
+      activeCourtIds: [courtIdA, courtIdB]
+    });
+    const dispatcher = makeDispatcher();
+    const repo = makeModerationRepo({ tx });
+    (repo.findWithClientById as ReturnType<typeof vi.fn>).mockResolvedValue(
+      adminRow({ courtCount: 1, courtNumbers: [5], clientLanguage: "sr", priceRsd: 4000 })
+    );
+    const service = makeService(repo, dispatcher);
+
+    await service.confirmRequest(adminId, { requestId, courtIds: [courtIdA], decidedBy: adminId });
+
+    const text = (dispatcher.dispatch as ReturnType<typeof vi.fn>).mock.calls[0][0].text as string;
+    // SR confirmed wording carries "ukupno:" (RU uses "итог:", EN "total:").
+    expect(text).toContain("ukupno:");
+    expect(text).toContain("2026-06-10 14:00–16:00");
+    expect(text).toContain("4000 RSD");
+  });
+
+  it("renders the RU court-request-confirmed template for an RU client", async () => {
+    const { tx } = makeTx({
+      request: makeRow({ courtCount: 1 }),
+      activeNumbers: [{ id: courtIdA, number: 5 }],
+      activeCourtIds: [courtIdA, courtIdB]
+    });
+    const dispatcher = makeDispatcher();
+    const repo = makeModerationRepo({ tx });
+    (repo.findWithClientById as ReturnType<typeof vi.fn>).mockResolvedValue(
+      adminRow({ courtCount: 1, courtNumbers: [5], clientLanguage: "ru" })
+    );
+    const service = makeService(repo, dispatcher);
+
+    await service.confirmRequest(adminId, { requestId, courtIds: [courtIdA], decidedBy: adminId });
+
+    const text = (dispatcher.dispatch as ReturnType<typeof vi.fn>).mock.calls[0][0].text as string;
+    expect(text).toContain("итог:");
+    expect(text).not.toContain("ukupno:");
+  });
+
+  it("renders the SR court-request-rejected template for an SR client", async () => {
+    const { tx } = makeTx({ request: makeRow({ courtCount: 1, courtNumbers: [1] }) });
+    const dispatcher = makeDispatcher();
+    const repo = makeModerationRepo({ tx });
+    (repo.findWithClientById as ReturnType<typeof vi.fn>).mockResolvedValue(
+      adminRow({ clientLanguage: "sr" })
+    );
+    const service = makeService(repo, dispatcher);
+
+    await service.rejectRequest(adminId, { requestId, decidedBy: adminId });
+
+    const text = (dispatcher.dispatch as ReturnType<typeof vi.fn>).mock.calls[0][0].text as string;
+    expect(text).toContain("izaberite, molimo, drugo vreme");
+    expect(text).not.toContain("другое время");
+  });
+
+  it("respects a per-locale override on the rejected template (SR override, RU default)", async () => {
+    const templates = { findOverride: vi.fn(async (key: string, locale: string) =>
+      key === "court-request-rejected" && locale === "sr" ? "SR custom za {date}" : undefined
+    ) };
+    const { tx } = makeTx({ request: makeRow({ courtCount: 1 }) });
+    const dispatcher = makeDispatcher();
+    const repo = makeModerationRepo({ tx });
+    (repo.findWithClientById as ReturnType<typeof vi.fn>).mockResolvedValue(
+      adminRow({ clientLanguage: "sr" })
+    );
+    const service = new CourtRequestsService(
+      repo,
+      env,
+      dispatcher,
+      makeDomainEvents(),
+      makeNotifications(),
+      templates as never
+    );
+
+    await service.rejectRequest(adminId, { requestId, decidedBy: adminId });
+
+    const text = (dispatcher.dispatch as ReturnType<typeof vi.fn>).mock.calls[0][0].text as string;
+    expect(text).toBe("SR custom za 2026-06-10");
+    expect(templates.findOverride).toHaveBeenCalledWith("court-request-rejected", "sr");
   });
 });
 

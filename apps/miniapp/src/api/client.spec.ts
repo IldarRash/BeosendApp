@@ -289,7 +289,8 @@ const TRAINER: Trainer = {
   type: "main",
   status: "active",
   telegramId: 99,
-  telegramUsername: null
+  telegramUsername: null,
+  language: "ru"
 };
 
 describe("MiniappApiClient.listTrainers", () => {

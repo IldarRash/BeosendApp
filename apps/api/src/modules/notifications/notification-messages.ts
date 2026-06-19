@@ -1,4 +1,4 @@
-import type { Client, NotificationTemplateKey, Trainer } from "@beosand/types";
+import type { Locale, NotificationTemplateKey } from "@beosand/types";
 import type { NotificationRecipient } from "./notifications.repository";
 
 /** Minutes either side of a reminder target a training start must fall in to fire. */
@@ -31,22 +31,97 @@ function trainingLine(recipient: NotificationRecipient): string {
 }
 
 /**
- * Code defaults for the 7 admin-editable client-facing single-training
- * notifications (Slice F). Each is the CURRENT RU wording re-expressed with
- * placeholders; a missing override row falls back to these, so wording never
- * regresses. `{training}` is the full training line; `{windowMinutes}` is only
- * meaningful for waitlist-slot.
+ * Code defaults for all 12 admin-editable notification events, per locale. Each
+ * is the CURRENT RU wording re-expressed with placeholders plus SR/EN
+ * translations; a missing override row falls back to these (and a missing locale
+ * falls back to RU via `resolveTemplateBody`), so wording never regresses.
+ *
+ * Resolution order mirrors @beosand/i18n: override → locale default → RU default.
+ * The batch/group summary messages (groupBookingConfirmed/Declined,
+ * groupPendingAdmin) are intentionally NOT templated — they stay RU-only.
  */
-export const DEFAULT_TEMPLATES: Record<NotificationTemplateKey, string> = {
-  "booking-confirmed": "Запись подтверждена ✅\n{training}",
-  "reminder-24h": "Напоминание: тренировка завтра ⏰\n{training}",
-  "reminder-3h": "Напоминание: тренировка через 3 часа ⏰\n{training}",
-  "training-cancelled": "Тренировка отменена ❌\n{training}",
-  "booking-pending": "Заявка отправлена ⏳\n{training}\nОжидаем подтверждения тренера.",
-  "booking-declined": "Заявка отклонена ❌\n{training}\nК сожалению, тренер не подтвердил запись.",
-  "waitlist-slot":
-    "Освободилось место 🎉\n{training}\nПодтвердите запись в течение {windowMinutes} мин."
+export const DEFAULT_TEMPLATES: Record<Locale, Record<NotificationTemplateKey, string>> = {
+  ru: {
+    "booking-confirmed": "Запись подтверждена ✅\n{training}",
+    "reminder-24h": "Напоминание: тренировка завтра ⏰\n{training}",
+    "reminder-3h": "Напоминание: тренировка через 3 часа ⏰\n{training}",
+    "training-cancelled": "Тренировка отменена ❌\n{training}",
+    "booking-pending": "Заявка отправлена ⏳\n{training}\nОжидаем подтверждения тренера.",
+    "booking-declined":
+      "Заявка отклонена ❌\n{training}\nК сожалению, тренер не подтвердил запись.",
+    "waitlist-slot":
+      "Освободилось место 🎉\n{training}\nПодтвердите запись в течение {windowMinutes} мин.",
+    "court-request-confirmed": "{courtLabel}, {date} {startTime}–{endTime}, итог: {priceRsd} RSD",
+    "court-request-rejected":
+      "К сожалению, нет свободных мест на это время — выберите, пожалуйста, другое время.",
+    "booking-pending-admin":
+      "Новая заявка на запись ⏳\n{clientName}\n{training}\nПодтвердите или отклоните запись.",
+    "individual-request-admin":
+      "Заявка на индивидуальную тренировку 🏐\nКлиент: {clientName}\nТренер: {trainerName}\n" +
+      "Свяжитесь с клиентом и согласуйте тренировку.",
+    "court-request-created-admin":
+      "🎾 Новая заявка на корт\n{clientName} (id {clientTelegramId})\n" +
+      "{date}, {startTime}–{endTime} ({durationHours} ч)\nКортов: {courtCount} · {priceRsd} RSD"
+  },
+  sr: {
+    "booking-confirmed": "Termin potvrđen ✅\n{training}",
+    "reminder-24h": "Podsetnik: trening je sutra ⏰\n{training}",
+    "reminder-3h": "Podsetnik: trening za 3 sata ⏰\n{training}",
+    "training-cancelled": "Trening je otkazan ❌\n{training}",
+    "booking-pending": "Zahtev je poslat ⏳\n{training}\nČekamo potvrdu trenera.",
+    "booking-declined":
+      "Zahtev je odbijen ❌\n{training}\nNažalost, trener nije potvrdio termin.",
+    "waitlist-slot":
+      "Oslobodilo se mesto 🎉\n{training}\nPotvrdite termin u roku od {windowMinutes} min.",
+    "court-request-confirmed": "{courtLabel}, {date} {startTime}–{endTime}, ukupno: {priceRsd} RSD",
+    "court-request-rejected":
+      "Nažalost, nema slobodnih mesta u to vreme — izaberite, molimo, drugo vreme.",
+    "booking-pending-admin":
+      "Novi zahtev za termin ⏳\n{clientName}\n{training}\nPotvrdite ili odbijte termin.",
+    "individual-request-admin":
+      "Zahtev za individualni trening 🏐\nKlijent: {clientName}\nTrener: {trainerName}\n" +
+      "Kontaktirajte klijenta i dogovorite trening.",
+    "court-request-created-admin":
+      "🎾 Novi zahtev za teren\n{clientName} (id {clientTelegramId})\n" +
+      "{date}, {startTime}–{endTime} ({durationHours} č)\nTerena: {courtCount} · {priceRsd} RSD"
+  },
+  en: {
+    "booking-confirmed": "Booking confirmed ✅\n{training}",
+    "reminder-24h": "Reminder: training tomorrow ⏰\n{training}",
+    "reminder-3h": "Reminder: training in 3 hours ⏰\n{training}",
+    "training-cancelled": "Training cancelled ❌\n{training}",
+    "booking-pending": "Request sent ⏳\n{training}\nAwaiting the trainer's confirmation.",
+    "booking-declined":
+      "Request declined ❌\n{training}\nUnfortunately, the trainer did not confirm the booking.",
+    "waitlist-slot":
+      "A spot opened up 🎉\n{training}\nConfirm your booking within {windowMinutes} min.",
+    "court-request-confirmed": "{courtLabel}, {date} {startTime}–{endTime}, total: {priceRsd} RSD",
+    "court-request-rejected":
+      "Unfortunately, there are no free courts at that time — please pick another time.",
+    "booking-pending-admin":
+      "New booking request ⏳\n{clientName}\n{training}\nConfirm or decline the booking.",
+    "individual-request-admin":
+      "Individual training request 🏐\nClient: {clientName}\nTrainer: {trainerName}\n" +
+      "Please contact the client and arrange the training.",
+    "court-request-created-admin":
+      "🎾 New court request\n{clientName} (id {clientTelegramId})\n" +
+      "{date}, {startTime}–{endTime} ({durationHours} h)\nCourts: {courtCount} · {priceRsd} RSD"
+  }
 };
+
+/**
+ * The effective body for `eventKey` in `locale`: an admin override if set, else
+ * the locale's code default, else the RU code default. Mirrors the @beosand/i18n
+ * resolve order (override → locale → RU) so notification bodies behave like the
+ * rest of the localized UI.
+ */
+export function resolveTemplateBody(
+  eventKey: NotificationTemplateKey,
+  locale: Locale,
+  override?: string
+): string {
+  return override ?? DEFAULT_TEMPLATES[locale]?.[eventKey] ?? DEFAULT_TEMPLATES.ru[eventKey];
+}
 
 /**
  * Substitute `{token}` placeholders with their (stringified) values; an unknown
@@ -85,13 +160,14 @@ export function buildTemplateVars(
   return vars;
 }
 
-/** Booking confirmation message (single booking; UX §14). */
+/** Booking confirmation message (single booking; UX §14), in the client's locale. */
 export function bookingConfirmedMessage(
   recipient: NotificationRecipient,
+  locale: Locale,
   override?: string
 ): string {
   return renderNotificationTemplate(
-    override ?? DEFAULT_TEMPLATES["booking-confirmed"],
+    resolveTemplateBody("booking-confirmed", locale, override),
     buildTemplateVars(recipient)
   );
 }
@@ -99,6 +175,7 @@ export function bookingConfirmedMessage(
 /**
  * Batch (monthly group) confirmation: one summary message listing the booked
  * dates so the client is not flooded with N messages (one row per date).
+ * Intentionally RU-only and NOT templated (product decision "без batch").
  */
 export function groupBookingConfirmedMessage(recipients: NotificationRecipient[]): string {
   const lines = recipients
@@ -110,31 +187,33 @@ export function groupBookingConfirmedMessage(recipients: NotificationRecipient[]
   return `Абонемент оформлен ✅ (${recipients.length} тренировок)\n${lines}`;
 }
 
-/** 24h / 3h reminder message (UX §14). */
+/** 24h / 3h reminder message (UX §14), in the client's locale. */
 export function reminderMessage(
   type: "reminder-24h" | "reminder-3h",
   recipient: NotificationRecipient,
+  locale: Locale,
   override?: string
 ): string {
   return renderNotificationTemplate(
-    override ?? DEFAULT_TEMPLATES[type],
+    resolveTemplateBody(type, locale, override),
     buildTemplateVars(recipient)
   );
 }
 
-/** Training-cancelled message (UX §14). */
+/** Training-cancelled message (UX §14), in the client's locale. */
 export function trainingCancelledMessage(
   recipient: NotificationRecipient,
+  locale: Locale,
   override?: string
 ): string {
   return renderNotificationTemplate(
-    override ?? DEFAULT_TEMPLATES["training-cancelled"],
+    resolveTemplateBody("training-cancelled", locale, override),
     buildTemplateVars(recipient)
   );
 }
 
-/** Escape the HTML-significant characters so a client name is safe inside an HTML mention. */
-function escapeHtml(value: string): string {
+/** Escape the HTML-significant characters so a name is safe inside an HTML mention. */
+export function escapeHtml(value: string): string {
   return value
     .replace(/&/g, "&amp;")
     .replace(/</g, "&lt;")
@@ -142,62 +221,60 @@ function escapeHtml(value: string): string {
 }
 
 /**
- * Individual-training request DM (Feature 8), sent to the admin. Names the
- * requested trainer and carries a clickable link to the client: a `t.me/<username>`
- * link when the client has a username, else a `tg://user?id=<id>` HTML mention so
- * the admin can still reach a username-less client. Falls back to the plain
- * (escaped) name for a client with neither (a walk-in, not reachable via the bot
- * path). RU string, composed server-side; sent with parse_mode HTML.
+ * The clickable client link used in staff DMs: a `t.me/<username>` link when the
+ * client has a username, else a `tg://user?id=<id>` HTML mention so the admin can
+ * still reach a username-less client, else the plain (escaped) name (a walk-in not
+ * reachable via the bot path). The result is HTML, sent with parse_mode HTML.
  */
-export function individualRequestAdminMessage(client: Client, trainer: Trainer): string {
+export function clientMentionLink(client: {
+  name: string;
+  telegramUsername: string | null;
+  telegramId: number | null;
+}): string {
   const safeName = escapeHtml(client.name);
-  let link: string;
   if (client.telegramUsername) {
-    link = `https://t.me/${client.telegramUsername}`;
-  } else if (client.telegramId !== null) {
-    link = `<a href="tg://user?id=${client.telegramId}">${safeName}</a>`;
-  } else {
-    link = safeName;
+    return `https://t.me/${client.telegramUsername}`;
   }
-  return (
-    `Заявка на индивидуальную тренировку 🏐\n` +
-    `Клиент: ${link}\n` +
-    `Тренер: ${escapeHtml(trainer.name)}\n` +
-    `Свяжитесь с клиентом и согласуйте тренировку.`
-  );
+  if (client.telegramId !== null) {
+    return `<a href="tg://user?id=${client.telegramId}">${safeName}</a>`;
+  }
+  return safeName;
 }
 
 /**
  * Client acknowledgement that a booking request was placed and is awaiting the
- * trainer's confirmation (the seat is held meanwhile). UX §14 style.
+ * trainer's confirmation (the seat is held meanwhile), in the client's locale.
  */
 export function bookingPendingMessage(
   recipient: NotificationRecipient,
+  locale: Locale,
   override?: string
 ): string {
   return renderNotificationTemplate(
-    override ?? DEFAULT_TEMPLATES["booking-pending"],
+    resolveTemplateBody("booking-pending", locale, override),
     buildTemplateVars(recipient)
   );
 }
 
 /**
  * Client notice that the trainer declined the booking request and the held seat
- * was released. UX §14 style.
+ * was released, in the client's locale.
  */
 export function bookingDeclinedMessage(
   recipient: NotificationRecipient,
+  locale: Locale,
   override?: string
 ): string {
   return renderNotificationTemplate(
-    override ?? DEFAULT_TEMPLATES["booking-declined"],
+    resolveTemplateBody("booking-declined", locale, override),
     buildTemplateVars(recipient)
   );
 }
 
 /**
  * Client notice that the trainer declined a monthly-subscription batch: one
- * summary listing the declined dates so the client is not flooded. UX §14 style.
+ * summary listing the declined dates so the client is not flooded. Intentionally
+ * RU-only and NOT templated (product decision "без batch").
  */
 export function groupBookingDeclinedMessage(recipients: NotificationRecipient[]): string {
   const lines = recipients
@@ -207,25 +284,10 @@ export function groupBookingDeclinedMessage(recipients: NotificationRecipient[])
 }
 
 /**
- * Admin DM for a single pending booking request (notification-only, no log
- * row — modeled on individualRequestAdminMessage). Names the client and the
- * session; the inline confirm/decline keyboard is attached by the service. RU
- * string, HTML-safe client name.
- */
-export function bookingPendingAdminMessage(
-  recipient: NotificationRecipient,
-  clientName: string
-): string {
-  return (
-    `Новая заявка на запись ⏳\n${escapeHtml(clientName)}\n${trainingLine(recipient)}\n` +
-    `Подтвердите или отклоните запись.`
-  );
-}
-
-/**
  * Admin DM for a monthly-subscription batch of pending requests: one DM
  * listing the requested dates with a single confirm/decline keyboard (attached
- * by the service). Notification-only, no log row. RU string, HTML-safe name.
+ * by the service). Notification-only, no log row. Intentionally RU-only and NOT
+ * templated (product decision "без batch").
  */
 export function groupPendingAdminMessage(
   recipients: NotificationRecipient[],
@@ -243,15 +305,17 @@ export function groupPendingAdminMessage(
 /**
  * Waitlist-slot message (T2.1): a seat freed up on a training the client is
  * waiting for. Carries an inline "Подтвердить" button (added by the service) and
- * states the confirmation window so the client knows it is time-limited.
+ * states the confirmation window so the client knows it is time-limited. In the
+ * client's locale.
  */
 export function waitlistSlotMessage(
   recipient: NotificationRecipient,
   windowMinutes: number,
+  locale: Locale,
   override?: string
 ): string {
   return renderNotificationTemplate(
-    override ?? DEFAULT_TEMPLATES["waitlist-slot"],
+    resolveTemplateBody("waitlist-slot", locale, override),
     buildTemplateVars(recipient, { windowMinutes })
   );
 }

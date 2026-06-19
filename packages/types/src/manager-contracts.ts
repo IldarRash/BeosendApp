@@ -1,5 +1,6 @@
 import { z } from "zod";
 import { entityStatus, telegramUsername, uuid } from "./common";
+import { localeSchema } from "./i18n-contracts";
 
 /**
  * A manager (admin) record managed in the admin console. Authorization is the
@@ -14,7 +15,9 @@ export const managerSchema = z.object({
   telegramId: z.number().int().nullable(),
   /** Normalized @username (no "@"); the link target until telegramId is set. */
   telegramUsername: z.string().nullable(),
-  status: entityStatus
+  status: entityStatus,
+  /** Staff DM locale; drives the language of manager/admin-facing notifications. */
+  language: localeSchema
 });
 export type Manager = z.infer<typeof managerSchema>;
 
@@ -27,7 +30,8 @@ export const createManagerSchema = z
   .object({
     name: z.string().min(1).optional(),
     telegramId: z.number().int().positive().optional(),
-    telegramUsername: telegramUsername.optional()
+    telegramUsername: telegramUsername.optional(),
+    language: localeSchema.optional()
   })
   .refine((value) => value.telegramId != null || value.telegramUsername != null, {
     message: "Provide a Telegram id or @username",
@@ -41,7 +45,8 @@ export const updateManagerSchema = z
     name: z.string().min(1).nullable(),
     telegramId: z.number().int().positive().nullable(),
     telegramUsername: telegramUsername.nullable(),
-    status: entityStatus
+    status: entityStatus,
+    language: localeSchema.optional()
   })
   .partial();
 export type UpdateManagerInput = z.infer<typeof updateManagerSchema>;

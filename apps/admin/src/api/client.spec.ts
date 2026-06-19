@@ -576,17 +576,19 @@ describe("ApiClient notification templates (Slice F)", () => {
 
   const row = {
     eventKey: "booking-confirmed",
+    audience: "client",
     body: "Запись подтверждена: {training}",
     isOverridden: false,
     defaultBody: "Запись подтверждена: {training}",
     placeholders: ["{training}", "{date}"]
   };
 
-  it("lists the templates and validates each row", async () => {
+  it("lists the templates for a locale and validates each row", async () => {
     const calls = mockFetchOnce([row]);
-    const result = await new ApiClient("http://api.test").listNotificationTemplates();
-    expect(calls[0]?.url).toBe("http://api.test/notification-templates");
+    const result = await new ApiClient("http://api.test").listNotificationTemplates("sr");
+    expect(calls[0]?.url).toBe("http://api.test/notification-templates?locale=sr");
     expect(result[0].eventKey).toBe("booking-confirmed");
+    expect(result[0].audience).toBe("client");
     expect(result[0].isOverridden).toBe(false);
   });
 
@@ -595,34 +597,41 @@ describe("ApiClient notification templates (Slice F)", () => {
     mockFetchOnce([
       {
         eventKey: "booking-confirmed",
+        audience: "client",
         body: "x",
         isOverridden: false,
         defaultBody: "x"
       }
     ]);
     await expect(
-      new ApiClient("http://api.test").listNotificationTemplates()
+      new ApiClient("http://api.test").listNotificationTemplates("ru")
     ).rejects.toThrow();
   });
 
-  it("PATCHes an override body for one event", async () => {
+  it("PATCHes an override body for one event in a locale", async () => {
     const calls = mockFetchOnce({ ...row, body: "Новый", isOverridden: true });
     const result = await new ApiClient("http://api.test").updateNotificationTemplate(
       "booking-confirmed",
+      "en",
       "Новый"
     );
-    expect(calls[0]?.url).toBe("http://api.test/notification-templates/booking-confirmed");
+    expect(calls[0]?.url).toBe(
+      "http://api.test/notification-templates/booking-confirmed?locale=en"
+    );
     expect(calls[0]?.init?.method).toBe("PATCH");
     expect(calls[0]?.init?.body).toBe(JSON.stringify({ body: "Новый" }));
     expect(result.isOverridden).toBe(true);
   });
 
-  it("POSTs a reset for one event", async () => {
+  it("POSTs a reset for one event in a locale", async () => {
     const calls = mockFetchOnce(row);
     const result = await new ApiClient("http://api.test").resetNotificationTemplate(
-      "booking-confirmed"
+      "booking-confirmed",
+      "sr"
     );
-    expect(calls[0]?.url).toBe("http://api.test/notification-templates/booking-confirmed/reset");
+    expect(calls[0]?.url).toBe(
+      "http://api.test/notification-templates/booking-confirmed/reset?locale=sr"
+    );
     expect(calls[0]?.init?.method).toBe("POST");
     expect(result.isOverridden).toBe(false);
   });

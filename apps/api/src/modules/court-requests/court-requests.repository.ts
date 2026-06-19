@@ -1,5 +1,6 @@
 import { Injectable } from "@nestjs/common";
 import { and, asc, eq, inArray, isNotNull, sql, tables, type Database } from "@beosand/db";
+import type { Locale } from "@beosand/types";
 import { DatabaseService } from "../../db/database.service";
 
 /**
@@ -21,6 +22,8 @@ export interface CourtOccupancyRow {
 export interface CourtRequestAdminRow extends CourtRequestRow {
   clientName: string;
   clientTelegramId: number;
+  /** The client's notification locale; drives the decision-DM language. */
+  clientLanguage: Locale;
 }
 
 /**
@@ -160,7 +163,8 @@ export class CourtRequestsRepository {
         ...courtRequestColumns,
         courtNumbers: courtNumbersAgg,
         clientName: tables.clients.name,
-        clientTelegramId: tables.clients.telegramId
+        clientTelegramId: tables.clients.telegramId,
+        clientLanguage: tables.clients.language
       })
       .from(tables.courtRequests)
       .innerJoin(tables.clients, eq(tables.courtRequests.clientId, tables.clients.id))
@@ -172,7 +176,12 @@ export class CourtRequestsRepository {
       // Court requests are always made by a bot (telegram) client; a walk-in (null
       // telegram_id) can never have one, so the queue excludes them defensively.
       .where(and(eq(tables.courtRequests.status, status), isNotNull(tables.clients.telegramId)))
-      .groupBy(tables.courtRequests.id, tables.clients.name, tables.clients.telegramId)
+      .groupBy(
+        tables.courtRequests.id,
+        tables.clients.name,
+        tables.clients.telegramId,
+        tables.clients.language
+      )
       .orderBy(asc(tables.courtRequests.date), asc(tables.courtRequests.startTime));
     return rows.map((row) => toAdminRow(row));
   }
@@ -250,7 +259,8 @@ export class CourtRequestsRepository {
         ...courtRequestColumns,
         courtNumbers: courtNumbersAgg,
         clientName: tables.clients.name,
-        clientTelegramId: tables.clients.telegramId
+        clientTelegramId: tables.clients.telegramId,
+        clientLanguage: tables.clients.language
       })
       .from(tables.courtRequests)
       .innerJoin(tables.clients, eq(tables.courtRequests.clientId, tables.clients.id))
@@ -260,7 +270,12 @@ export class CourtRequestsRepository {
       )
       .leftJoin(tables.courts, eq(tables.courtRequestCourts.courtId, tables.courts.id))
       .where(and(eq(tables.courtRequests.id, id), isNotNull(tables.clients.telegramId)))
-      .groupBy(tables.courtRequests.id, tables.clients.name, tables.clients.telegramId)
+      .groupBy(
+        tables.courtRequests.id,
+        tables.clients.name,
+        tables.clients.telegramId,
+        tables.clients.language
+      )
       .limit(1);
     const row = rows[0];
     return row ? toAdminRow(row) : null;
@@ -372,12 +387,17 @@ type TxDb = Parameters<Parameters<Database["transaction"]>[0]>[0];
  * column is narrowed to the non-null `clientTelegramId` the contract requires.
  */
 function toAdminRow(
-  row: RawRequestRow & { clientName: string; clientTelegramId: number | null }
+  row: RawRequestRow & {
+    clientName: string;
+    clientTelegramId: number | null;
+    clientLanguage: Locale;
+  }
 ): CourtRequestAdminRow {
   return {
     ...toRequestRow(row),
     clientName: row.clientName,
-    clientTelegramId: row.clientTelegramId ?? 0
+    clientTelegramId: row.clientTelegramId ?? 0,
+    clientLanguage: row.clientLanguage
   };
 }
 

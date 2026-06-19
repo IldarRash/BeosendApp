@@ -782,6 +782,14 @@ export const adminRu: Record<string, string> = {
   "admin.notificationTemplates.event.booking-pending": "Запись ожидает подтверждения",
   "admin.notificationTemplates.event.booking-declined": "Запись отклонена",
   "admin.notificationTemplates.event.waitlist-slot": "Освободилось место (лист ожидания)",
+  "admin.notificationTemplates.event.court-request-confirmed": "Заявка на корт подтверждена",
+  "admin.notificationTemplates.event.court-request-rejected": "Заявка на корт отклонена",
+  "admin.notificationTemplates.event.booking-pending-admin": "Новая запись (для администратора)",
+  "admin.notificationTemplates.event.individual-request-admin": "Индивидуальная заявка (для администратора)",
+  "admin.notificationTemplates.event.court-request-created-admin": "Новая заявка на корт (для администратора)",
+  "admin.notificationTemplates.localeLabel": "Язык уведомлений",
+  "admin.notificationTemplates.sectionClient": "Клиентские",
+  "admin.notificationTemplates.sectionStaff": "Служебные",
 
   // ── Connectors ────────────────────────────────────────────────────────────
   "admin.connectors.title": "Коннекторы",

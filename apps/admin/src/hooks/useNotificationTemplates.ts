@@ -5,29 +5,32 @@ import {
   type UseMutationResult,
   type UseQueryResult
 } from "@tanstack/react-query";
-import type { NotificationTemplate, NotificationTemplateKey } from "@beosand/types";
+import type { Locale, NotificationTemplate, NotificationTemplateKey } from "@beosand/types";
 import { useApiClient } from "../api/ApiProvider";
 
-/** Query key for the notification-template editor rows. */
-export function notificationTemplatesKey(): readonly [string, string] {
-  return ["notification-templates", "list"];
+/** Query key for the notification-template editor rows of one locale. */
+export function notificationTemplatesKey(locale: Locale): readonly [string, string, Locale] {
+  return ["notification-templates", "list", locale];
 }
 
-/** Editor rows (GET /notification-templates), validated by the ApiClient. */
-export function useNotificationTemplates(): UseQueryResult<NotificationTemplate[], Error> {
+/** Editor rows for a locale (GET /notification-templates), validated by the ApiClient. */
+export function useNotificationTemplates(
+  locale: Locale
+): UseQueryResult<NotificationTemplate[], Error> {
   const api = useApiClient();
   return useQuery({
-    queryKey: notificationTemplatesKey(),
-    queryFn: () => api.listNotificationTemplates()
+    queryKey: notificationTemplatesKey(locale),
+    queryFn: () => api.listNotificationTemplates(locale)
   });
 }
 
 interface UpdateTemplateInput {
   eventKey: NotificationTemplateKey;
+  locale: Locale;
   body: string;
 }
 
-/** Upsert one event's override body; refreshes the editor rows on success. */
+/** Upsert one event's override body for a locale; refreshes that locale's rows on success. */
 export function useUpdateNotificationTemplate(): UseMutationResult<
   NotificationTemplate,
   Error,
@@ -36,22 +39,30 @@ export function useUpdateNotificationTemplate(): UseMutationResult<
   const api = useApiClient();
   const queryClient = useQueryClient();
   return useMutation({
-    mutationFn: ({ eventKey, body }: UpdateTemplateInput) =>
-      api.updateNotificationTemplate(eventKey, body),
-    onSuccess: () => queryClient.invalidateQueries({ queryKey: notificationTemplatesKey() })
+    mutationFn: ({ eventKey, locale, body }: UpdateTemplateInput) =>
+      api.updateNotificationTemplate(eventKey, locale, body),
+    onSuccess: (_data, { locale }) =>
+      queryClient.invalidateQueries({ queryKey: notificationTemplatesKey(locale) })
   });
 }
 
-/** Reset one event to its code default; refreshes the editor rows on success. */
+interface ResetTemplateInput {
+  eventKey: NotificationTemplateKey;
+  locale: Locale;
+}
+
+/** Reset one event to its code default for a locale; refreshes that locale's rows. */
 export function useResetNotificationTemplate(): UseMutationResult<
   NotificationTemplate,
   Error,
-  NotificationTemplateKey
+  ResetTemplateInput
 > {
   const api = useApiClient();
   const queryClient = useQueryClient();
   return useMutation({
-    mutationFn: (eventKey: NotificationTemplateKey) => api.resetNotificationTemplate(eventKey),
-    onSuccess: () => queryClient.invalidateQueries({ queryKey: notificationTemplatesKey() })
+    mutationFn: ({ eventKey, locale }: ResetTemplateInput) =>
+      api.resetNotificationTemplate(eventKey, locale),
+    onSuccess: (_data, { locale }) =>
+      queryClient.invalidateQueries({ queryKey: notificationTemplatesKey(locale) })
   });
 }

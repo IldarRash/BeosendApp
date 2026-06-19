@@ -1,5 +1,5 @@
 import { Injectable } from "@nestjs/common";
-import type { Manager } from "@beosand/types";
+import type { Locale, Manager } from "@beosand/types";
 import { tables } from "@beosand/db";
 import { and, asc, eq, isNotNull, isNull } from "drizzle-orm";
 import { DatabaseService } from "../../db/database.service";
@@ -10,7 +10,8 @@ const managerColumns = {
   name: tables.managers.name,
   telegramId: tables.managers.telegramId,
   telegramUsername: tables.managers.telegramUsername,
-  status: tables.managers.status
+  status: tables.managers.status,
+  language: tables.managers.language
 } as const;
 
 /** Only place managers DB access lives. Returns typed rows; no business rules. */
@@ -39,6 +40,19 @@ export class ManagersRepository {
     return rows
       .map((row) => row.telegramId)
       .filter((id): id is number => id !== null);
+  }
+
+  /**
+   * The notification locale of the manager owning this Telegram id, or undefined
+   * when no manager has it. Drives staff-DM language resolution (managers first).
+   */
+  async findLanguageByTelegramId(telegramId: number): Promise<Locale | undefined> {
+    const [row] = await this.database.db
+      .select({ language: tables.managers.language })
+      .from(tables.managers)
+      .where(eq(tables.managers.telegramId, telegramId))
+      .limit(1);
+    return row?.language;
   }
 
   async findById(id: string): Promise<Manager | undefined> {

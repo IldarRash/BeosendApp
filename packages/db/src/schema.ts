@@ -68,7 +68,12 @@ export const notificationTemplateKey = pgEnum("notification_template_key", [
   "training-cancelled",
   "booking-pending",
   "booking-declined",
-  "waitlist-slot"
+  "waitlist-slot",
+  "court-request-confirmed",
+  "court-request-rejected",
+  "booking-pending-admin",
+  "individual-request-admin",
+  "court-request-created-admin"
 ]);
 export const courtRequestStatus = pgEnum("court_request_status", [
   "pending",
@@ -104,6 +109,9 @@ export const trainers = pgTable(
     // Optional @username (normalized, no "@") to link a trainer added by tag
     // before their numeric id is known; backfilled on first contact.
     telegramUsername: text("telegram_username"),
+    // Staff DM locale; defaults to SR (the primary staff language). Drives the
+    // locale of trainer-facing notifications.
+    language: locale("language").notNull().default("sr"),
     // Rotating counter that revokes a trainer's signed calendar feed token: a
     // valid feed token must match the current version (connectors, account-light
     // stateless feed). "Revoke / rotate" = increment this.
@@ -133,6 +141,9 @@ export const managers = pgTable(
     telegramId: bigint("telegram_id", { mode: "number" }),
     telegramUsername: text("telegram_username"),
     status: entityStatus("status").notNull().default("active"),
+    // Staff DM locale; defaults to SR (the primary staff language). Drives the
+    // locale of manager/admin-facing notifications.
+    language: locale("language").notNull().default("sr"),
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow()
   },
   (table) => ({
@@ -427,22 +438,27 @@ export const uiLabels = pgTable(
 );
 
 /**
- * Admin-editable body text for the 7 client-facing single-training
- * notifications (Slice F). One row per event_key (unique); a MISSING row means
- * "use the code default" in apps/api notification-messages.ts. Placeholders like
- * {training} / {date} are substituted server-side at send time. No locale
- * dimension: notifications are RU-only (multi-locale templates are a follow-up).
+ * Admin-editable body text for the client- and staff-facing single-training
+ * notifications. One row per (event_key, language); a MISSING row means "use the
+ * code default" in apps/api notification-messages.ts. Placeholders like
+ * {training} / {date} are substituted server-side at send time. Client
+ * notifications use the client's language; staff DMs use the staff member's
+ * language.
  */
 export const notificationTemplates = pgTable(
   "notification_templates",
   {
     id: uuid("id").primaryKey().defaultRandom(),
     eventKey: notificationTemplateKey("event_key").notNull(),
+    language: locale("language").notNull().default("ru"),
     body: text("body").notNull(),
     updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow()
   },
   (table) => ({
-    eventKeyIdx: uniqueIndex("notification_templates_event_key_idx").on(table.eventKey)
+    eventKeyLanguageIdx: uniqueIndex("notification_templates_event_key_language_idx").on(
+      table.eventKey,
+      table.language
+    )
   })
 );
 

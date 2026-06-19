@@ -4,9 +4,9 @@ import { NotificationTemplatesRepository } from "./notification-templates.reposi
 import { NotificationTemplatesService } from "./notification-templates.service";
 
 /**
- * Admin-editable body text for the 7 client-facing single-training
- * notifications (Slice F). Exports the repository so NotificationsService can
- * read the override map at send time (the only cross-module dependency).
+ * Admin-editable, per-locale body text for all 12 notification events (client +
+ * staff). Exports the repository so NotificationsService and CourtRequestsService
+ * can read a per-(event, locale) override at send time.
  */
 @Module({
   controllers: [NotificationTemplatesController],

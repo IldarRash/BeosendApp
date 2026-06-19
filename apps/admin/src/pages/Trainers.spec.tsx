@@ -44,7 +44,8 @@ const sampleTrainers: Trainer[] = [
     type: "main",
     status: "active",
     telegramId: 4242,
-    telegramUsername: null
+    telegramUsername: null,
+    language: "sr"
   },
   {
     id: "22222222-2222-2222-2222-222222222222",
@@ -52,7 +53,8 @@ const sampleTrainers: Trainer[] = [
     type: "guest",
     status: "active",
     telegramId: null,
-    telegramUsername: "danilo"
+    telegramUsername: "danilo",
+    language: "ru"
   }
 ];
 
@@ -112,7 +114,8 @@ describe("Trainers page", () => {
       name: "Анна",
       type: "guest",
       telegramId: 777,
-      telegramUsername: "anna"
+      telegramUsername: "anna",
+      language: "sr"
     });
   });
 
@@ -126,7 +129,8 @@ describe("Trainers page", () => {
       name: "Без бота",
       type: "main",
       telegramId: null,
-      telegramUsername: null
+      telegramUsername: null,
+      language: "sr"
     });
   });
 
@@ -144,7 +148,8 @@ describe("Trainers page", () => {
         type: "main",
         status: "inactive",
         telegramId: 4242,
-        telegramUsername: null
+        telegramUsername: null,
+        language: "sr"
       }
     });
   });

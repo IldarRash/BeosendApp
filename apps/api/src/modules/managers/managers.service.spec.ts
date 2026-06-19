@@ -15,7 +15,8 @@ const manager: Manager = {
   name: "Ivan",
   telegramId: null,
   telegramUsername: "ivan",
-  status: "active"
+  status: "active",
+  language: "ru"
 };
 
 describe("ManagersService", () => {

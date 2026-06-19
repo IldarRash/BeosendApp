@@ -67,7 +67,8 @@ const TRAINER: Trainer = {
   type: "main",
   status: "active",
   telegramId: null,
-  telegramUsername: null
+  telegramUsername: null,
+  language: "sr"
 };
 
 /** A calendar item on a fixed July 2026 date the test month is pinned to. */

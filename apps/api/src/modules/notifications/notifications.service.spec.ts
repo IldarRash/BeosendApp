@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import type { Client } from "@beosand/types";
+import type { Client, Locale } from "@beosand/types";
 import type { NotificationRecipient } from "./notifications.repository";
 import { NotificationsService } from "./notifications.service";
 
@@ -10,6 +10,7 @@ function recipient(over: Partial<NotificationRecipient> = {}): NotificationRecip
     telegramId: 555,
     email: null,
     phone: null,
+    language: "ru",
     date: "2026-06-04",
     startTime: "18:00",
     endTime: "19:30",
@@ -17,6 +18,16 @@ function recipient(over: Partial<NotificationRecipient> = {}): NotificationRecip
     levelName: "Beginner",
     ...over
   };
+}
+
+/** Managers repo stub: admins resolve to RU locale (keeps RU-text assertions valid). */
+function makeManagers(): { findLanguageByTelegramId: ReturnType<typeof vi.fn> } {
+  return { findLanguageByTelegramId: vi.fn().mockResolvedValue("ru") };
+}
+
+/** Trainers repo stub: no trainer locale rows (manager resolves first). */
+function makeTrainers(): { findLanguageByTelegramId: ReturnType<typeof vi.fn> } {
+  return { findLanguageByTelegramId: vi.fn().mockResolvedValue(undefined) };
 }
 
 interface RepoMock {
@@ -94,6 +105,8 @@ describe("NotificationsService", () => {
       sender as never,
       templates as never,
       dispatcher as never,
+      makeManagers() as never,
+      makeTrainers() as never,
       baseEnv as never
     );
   });
@@ -186,6 +199,45 @@ describe("NotificationsService", () => {
 
       const text = sender.sendMessage.mock.calls[0][1] as string;
       expect(text).toBe("Готово! 2026-06-04 в 18:00 — Ana");
+    });
+
+    it("renders the SR body for a client whose language is 'sr' (no override)", async () => {
+      repo.findClientTrainingRecipients.mockResolvedValue([recipient({ language: "sr" })]);
+
+      await service.sendBookingConfirmation("client-1", "training-1");
+
+      const text = sender.sendMessage.mock.calls[0][1] as string;
+      expect(text).toBe("Termin potvrđen ✅\n2026-06-04 18:00–19:30 · Beginner · Ana");
+      // The override lookup is keyed by the recipient's language, not a fixed default.
+      expect(templates.findOverride).toHaveBeenCalledWith("booking-confirmed", "sr");
+    });
+
+    it("renders the EN body for a client whose language is 'en' (no override)", async () => {
+      repo.findClientTrainingRecipients.mockResolvedValue([recipient({ language: "en" })]);
+
+      await service.sendBookingConfirmation("client-1", "training-1");
+
+      const text = sender.sendMessage.mock.calls[0][1] as string;
+      expect(text).toBe("Booking confirmed ✅\n2026-06-04 18:00–19:30 · Beginner · Ana");
+      expect(templates.findOverride).toHaveBeenCalledWith("booking-confirmed", "en");
+    });
+
+    it("applies a per-locale override: SR client gets the SR override, RU client the RU default", async () => {
+      // Only the SR (event, locale) pair has an override row; RU resolves to its code default.
+      templates.findOverride.mockImplementation(async (key: string, locale: string) =>
+        key === "booking-confirmed" && locale === "sr" ? "SR custom {trainerName}" : undefined
+      );
+
+      repo.findClientTrainingRecipients.mockResolvedValue([recipient({ language: "sr" })]);
+      await service.sendBookingConfirmation("client-sr", "training-1");
+      expect(sender.sendMessage.mock.calls[0][1]).toBe("SR custom Ana");
+
+      sender.sendMessage.mockClear();
+      repo.findClientTrainingRecipients.mockResolvedValue([recipient({ language: "ru" })]);
+      await service.sendBookingConfirmation("client-ru", "training-1");
+      expect(sender.sendMessage.mock.calls[0][1]).toBe(
+        "Запись подтверждена ✅\n2026-06-04 18:00–19:30 · Beginner · Ana"
+      );
     });
   });
 
@@ -302,7 +354,8 @@ describe("NotificationsService", () => {
       type: "main" as const,
       status: "active" as const,
       telegramId: 555 as number | null,
-      telegramUsername: null
+      telegramUsername: null,
+      language: "ru" as const
     };
     const client: Client = {
       id: "client-1",
@@ -377,6 +430,8 @@ describe("NotificationsService.sendCourtRequestCreatedToAdmins", () => {
       sender as never,
       { findOverride: vi.fn().mockResolvedValue(undefined) } as never,
       { dispatch: vi.fn() } as never,
+      makeManagers() as never,
+      makeTrainers() as never,
       env as never
     );
     return { service, sender };
@@ -453,6 +508,8 @@ describe("NotificationsService admin pending DMs (confirm/decline + deep-link)",
       sender as never,
       { findOverride: vi.fn().mockResolvedValue(undefined) } as never,
       { dispatch: vi.fn() } as never,
+      makeManagers() as never,
+      makeTrainers() as never,
       env as never
     );
     return { service, sender };
@@ -502,5 +559,92 @@ describe("NotificationsService admin pending DMs (confirm/decline + deep-link)",
     expect(markup.inline_keyboard.at(-1)).toEqual([
       { text: "Открыть в админке", url: "https://admin.beosand.example/subscriptions" }
     ]);
+  });
+});
+
+describe("NotificationsService staff DM locale (resolveStaffLocale per admin)", () => {
+  // manager language by telegram id; trainer is consulted only when no manager row.
+  const MANAGER_LANG: Record<number, Locale> = { 111: "ru", 222: "sr" };
+  const TRAINER_LANG: Record<number, Locale> = { 333: "en" };
+
+  function makeService(env: { ADMIN_TELEGRAM_IDS: string[]; ADMIN_URL?: string }): {
+    service: NotificationsService;
+    sender: { sendMessage: ReturnType<typeof vi.fn> };
+  } {
+    const sender = { sendMessage: vi.fn().mockResolvedValue(undefined) };
+    const repo = {
+      findWaitlistRecipient: vi.fn().mockResolvedValue(recipient()),
+      findClientTrainingRenderFields: vi.fn().mockResolvedValue([recipient()])
+    };
+    const managers = {
+      findLanguageByTelegramId: vi.fn(async (id: number) => MANAGER_LANG[id])
+    };
+    const trainers = {
+      findLanguageByTelegramId: vi.fn(async (id: number) => TRAINER_LANG[id])
+    };
+    const service = new NotificationsService(
+      repo as never,
+      sender as never,
+      { findOverride: vi.fn().mockResolvedValue(undefined) } as never,
+      { dispatch: vi.fn() } as never,
+      managers as never,
+      trainers as never,
+      env as never
+    );
+    return { service, sender };
+  }
+
+  it("DMs each admin the booking-pending-admin text in their own resolved locale", async () => {
+    const { service, sender } = makeService({ ADMIN_TELEGRAM_IDS: [] });
+    const keyboard = { inline_keyboard: [[{ text: "ok", callback_data: "x" }]] };
+
+    // 111 → manager RU, 222 → manager SR, 333 → trainer EN, 444 → env-only (no row) → SR fallback.
+    await service.sendBookingPendingToAdmins(
+      [111, 222, 333, 444],
+      "client-1",
+      "training-1",
+      "Ivan",
+      keyboard
+    );
+
+    const byAdmin = new Map<number, string>(
+      sender.sendMessage.mock.calls.map((c) => [c[0] as number, c[1] as string])
+    );
+    expect(byAdmin.get(111)).toContain("Новая заявка на запись"); // RU
+    expect(byAdmin.get(222)).toContain("Novi zahtev za termin"); // SR
+    expect(byAdmin.get(333)).toContain("New booking request"); // EN (trainer locale)
+    // env-only admin (no managers/trainers row) falls back to the staff default SR.
+    expect(byAdmin.get(444)).toContain("Novi zahtev za termin");
+    // The four DMs are not all the same string — each admin reads their own locale.
+    expect(new Set(byAdmin.values()).size).toBe(3);
+  });
+
+  it("DMs each admin the court-request-created text in their own resolved locale", async () => {
+    const { service, sender } = makeService({ ADMIN_TELEGRAM_IDS: ["111", "222", "444"] });
+
+    await service.sendCourtRequestCreatedToAdmins({
+      clientName: "Ana",
+      clientTelegramId: 7001,
+      date: "2026-06-10",
+      startTime: "14:00",
+      endTime: "16:00",
+      durationHours: 2,
+      courtCount: 2,
+      priceRsd: 8000
+    });
+
+    const byAdmin = new Map<number, string>(
+      sender.sendMessage.mock.calls.map((c) => [c[0] as number, c[1] as string])
+    );
+    expect(byAdmin.get(111)).toContain("Новая заявка на корт"); // RU
+    expect(byAdmin.get(222)).toContain("Novi zahtev za teren"); // SR
+    expect(byAdmin.get(444)).toContain("Novi zahtev za teren"); // env-only → SR fallback
+  });
+
+  it("resolveStaffLocale: manager wins, then trainer, then SR fallback", async () => {
+    const { service } = makeService({ ADMIN_TELEGRAM_IDS: [] });
+    await expect(service.resolveStaffLocale(111)).resolves.toBe("ru"); // manager row
+    await expect(service.resolveStaffLocale(333)).resolves.toBe("en"); // no manager, trainer row
+    await expect(service.resolveStaffLocale(999)).resolves.toBe("sr"); // neither → fallback
   });
 });
