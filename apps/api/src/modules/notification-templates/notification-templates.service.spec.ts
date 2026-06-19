@@ -1,6 +1,5 @@
 import { ForbiddenException } from "@nestjs/common";
 import type { Env } from "@beosand/config";
-import type { NotificationTemplateKey } from "@beosand/types";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { NotificationTemplatesRepository } from "./notification-templates.repository";
 import { NotificationTemplatesService } from "./notification-templates.service";
@@ -40,19 +39,19 @@ describe("NotificationTemplatesService", () => {
 
   describe("admin gate", () => {
     it("rejects a non-admin list", async () => {
-      await expect(service.list(NON_ADMIN_ID)).rejects.toBeInstanceOf(ForbiddenException);
+      await expect(service.list(NON_ADMIN_ID, "ru")).rejects.toBeInstanceOf(ForbiddenException);
       expect(repo.listOverrides).not.toHaveBeenCalled();
     });
 
     it("rejects a non-admin update (no write)", async () => {
       await expect(
-        service.update(NON_ADMIN_ID, "booking-confirmed", "x")
+        service.update(NON_ADMIN_ID, "booking-confirmed", "ru", "x")
       ).rejects.toBeInstanceOf(ForbiddenException);
       expect(repo.upsert).not.toHaveBeenCalled();
     });
 
     it("rejects a non-admin reset (no delete)", async () => {
-      await expect(service.reset(NON_ADMIN_ID, "booking-confirmed")).rejects.toBeInstanceOf(
+      await expect(service.reset(NON_ADMIN_ID, "booking-confirmed", "ru")).rejects.toBeInstanceOf(
         ForbiddenException
       );
       expect(repo.remove).not.toHaveBeenCalled();
@@ -60,24 +59,34 @@ describe("NotificationTemplatesService", () => {
   });
 
   describe("list", () => {
-    it("returns all 7 events with default + isOverridden + placeholders", async () => {
-      const entries = await service.list(ADMIN_ID);
-      expect(entries).toHaveLength(7);
+    it("returns all 12 events with default + audience + isOverridden + placeholders", async () => {
+      const entries = await service.list(ADMIN_ID, "ru");
+      expect(entries).toHaveLength(12);
       const confirmed = entries.find((e) => e.eventKey === "booking-confirmed");
+      expect(confirmed?.audience).toBe("client");
       expect(confirmed?.isOverridden).toBe(false);
       expect(confirmed?.body).toBe(confirmed?.defaultBody);
       expect(confirmed?.defaultBody).toBe("Запись подтверждена ✅\n{training}");
       expect(confirmed?.placeholders).toContain("{training}");
 
+      const adminEvent = entries.find((e) => e.eventKey === "booking-pending-admin");
+      expect(adminEvent?.audience).toBe("staff");
+
       const waitlist = entries.find((e) => e.eventKey === "waitlist-slot");
       expect(waitlist?.placeholders).toContain("{windowMinutes}");
     });
 
-    it("marks an event overridden and serves the override body", async () => {
+    it("serves the locale default body when no override is set", async () => {
+      const entries = await service.list(ADMIN_ID, "en");
+      const confirmed = entries.find((e) => e.eventKey === "booking-confirmed");
+      expect(confirmed?.defaultBody).toBe("Booking confirmed ✅\n{training}");
+    });
+
+    it("marks an event overridden and serves the override body for its locale", async () => {
       repo.listOverrides.mockResolvedValue(
-        new Map<NotificationTemplateKey, string>([["booking-confirmed", "Custom {training}"]])
+        new Map<string, string>([["booking-confirmed:ru", "Custom {training}"]])
       );
-      const entries = await service.list(ADMIN_ID);
+      const entries = await service.list(ADMIN_ID, "ru");
       const confirmed = entries.find((e) => e.eventKey === "booking-confirmed");
       expect(confirmed?.isOverridden).toBe(true);
       expect(confirmed?.body).toBe("Custom {training}");
@@ -87,9 +96,13 @@ describe("NotificationTemplatesService", () => {
 
   describe("update", () => {
     it("upserts and returns the new effective (overridden) template", async () => {
-      repo.upsert.mockResolvedValue({ eventKey: "booking-confirmed", body: "New {training}" });
-      const result = await service.update(ADMIN_ID, "booking-confirmed", "New {training}");
-      expect(repo.upsert).toHaveBeenCalledWith("booking-confirmed", "New {training}");
+      repo.upsert.mockResolvedValue({
+        eventKey: "booking-confirmed",
+        language: "ru",
+        body: "New {training}"
+      });
+      const result = await service.update(ADMIN_ID, "booking-confirmed", "ru", "New {training}");
+      expect(repo.upsert).toHaveBeenCalledWith("booking-confirmed", "ru", "New {training}");
       expect(result.isOverridden).toBe(true);
       expect(result.body).toBe("New {training}");
     });
@@ -97,8 +110,8 @@ describe("NotificationTemplatesService", () => {
 
   describe("reset", () => {
     it("removes the override and returns the default template", async () => {
-      const result = await service.reset(ADMIN_ID, "booking-confirmed");
-      expect(repo.remove).toHaveBeenCalledWith("booking-confirmed");
+      const result = await service.reset(ADMIN_ID, "booking-confirmed", "ru");
+      expect(repo.remove).toHaveBeenCalledWith("booking-confirmed", "ru");
       expect(result.isOverridden).toBe(false);
       expect(result.body).toBe("Запись подтверждена ✅\n{training}");
     });

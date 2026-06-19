@@ -46,7 +46,8 @@ const TRAINER: Trainer = {
   type: "main",
   status: "active",
   telegramId: null,
-  telegramUsername: null
+  telegramUsername: null,
+  language: "sr"
 };
 const GROUP: Group = {
   id: "33333333-3333-3333-3333-333333333333",

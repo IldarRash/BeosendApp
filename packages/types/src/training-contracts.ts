@@ -10,6 +10,7 @@ import {
   timeString,
   uuid
 } from "./common";
+import { localeSchema } from "./i18n-contracts";
 
 // --- Levels (3.2) ---
 export const levelSchema = z.object({
@@ -40,13 +41,16 @@ export const trainerSchema = z.object({
    * before their numeric id is known. The numeric telegramId is backfilled when
    * they first contact the bot/Mini App; until then trainer-UI access is inactive.
    */
-  telegramUsername: z.string().nullable()
+  telegramUsername: z.string().nullable(),
+  /** Staff DM locale; drives the language of trainer-facing notifications. */
+  language: localeSchema
 });
 // Identity is optional: a trainer can exist as reference data (shown in slots)
 // with neither id nor username, and gain bot access once either is linked.
 export const createTrainerSchema = trainerSchema.pick({ name: true, type: true }).extend({
   telegramId: z.number().int().nullable().optional(),
-  telegramUsername: telegramUsername.nullable().optional()
+  telegramUsername: telegramUsername.nullable().optional(),
+  language: localeSchema.optional()
 });
 export const updateTrainerSchema = z
   .object({
@@ -54,7 +58,8 @@ export const updateTrainerSchema = z
     type: trainerType,
     status: entityStatus,
     telegramId: z.number().int().nullable(),
-    telegramUsername: telegramUsername.nullable()
+    telegramUsername: telegramUsername.nullable(),
+    language: localeSchema.optional()
   })
   .partial();
 export type Trainer = z.infer<typeof trainerSchema>;

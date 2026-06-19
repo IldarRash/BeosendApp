@@ -694,6 +694,7 @@ describe("TrainingsService", () => {
       status: "active",
       telegramId: TRAINER_TG,
       telegramUsername: null,
+      language: "ru",
       ...over
     });
 
@@ -754,7 +755,8 @@ describe("TrainingsService", () => {
           type: "main",
           status: "active",
           telegramId: TRAINER_TG,
-          telegramUsername: null
+          telegramUsername: null,
+          language: "ru"
         },
         {
           id: "44444444-4444-4444-4444-444444444444",
@@ -762,7 +764,8 @@ describe("TrainingsService", () => {
           type: "main",
           status: "active",
           telegramId: OTHER_TG,
-          telegramUsername: null
+          telegramUsername: null,
+          language: "ru"
         }
       ];
       trainingsRepo.headers = [

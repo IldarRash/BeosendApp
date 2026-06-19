@@ -1,5 +1,6 @@
 import { useState } from "react";
-import type { CreateManagerInput, Manager, UpdateManagerInput } from "@beosand/types";
+import type { CreateManagerInput, Locale, Manager, UpdateManagerInput } from "@beosand/types";
+import { LOCALES, localeLabel } from "@beosand/i18n";
 import { AppShell } from "../ui/AppShell";
 import { Button } from "../ui/Button";
 import { DataTable, type Column } from "../ui/DataTable";
@@ -135,6 +136,9 @@ function ManagerEditor({ state, onClose }: ManagerEditorProps): JSX.Element {
   const [status, setStatus] = useState<Manager["status"]>(
     isEdit ? state.manager.status : "active"
   );
+  const [language, setLanguage] = useState<Locale>(isEdit ? state.manager.language : "sr");
+
+  const languageOptions = LOCALES.map((value) => ({ value, label: localeLabel[value] }));
 
   const pending = create.isPending || update.isPending;
   const error = create.error ?? update.error;
@@ -147,7 +151,8 @@ function ManagerEditor({ state, onClose }: ManagerEditorProps): JSX.Element {
         name: trimmedName.length > 0 ? trimmedName : null,
         telegramId,
         telegramUsername: usernameValue(username),
-        status
+        status,
+        language
       };
       update.mutate(
         { id: state.manager.id, input },
@@ -160,7 +165,7 @@ function ManagerEditor({ state, onClose }: ManagerEditorProps): JSX.Element {
       );
     } else {
       // Send only the identities provided; the API enforces "at least one".
-      const input: CreateManagerInput = {};
+      const input: CreateManagerInput = { language };
       if (trimmedName.length > 0) {
         input.name = trimmedName;
       }
@@ -215,6 +220,12 @@ function ManagerEditor({ state, onClose }: ManagerEditorProps): JSX.Element {
           onChange={(event) => setUsername(event.target.value)}
           autoComplete="off"
           hint={t("admin.managers.usernameHint")}
+        />
+        <SelectField
+          label={t("admin.labels.localeLabel")}
+          value={language}
+          onChange={(event) => setLanguage(event.target.value as Locale)}
+          options={languageOptions}
         />
         {isEdit ? (
           <SelectField

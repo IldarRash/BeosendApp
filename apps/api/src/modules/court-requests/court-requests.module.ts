@@ -1,5 +1,6 @@
 import { Module } from "@nestjs/common";
 import { ConnectorsModule } from "../connectors/connectors.module";
+import { NotificationTemplatesModule } from "../notification-templates/notification-templates.module";
 import { NotificationsModule } from "../notifications/notifications.module";
 import { CourtRequestsController } from "./court-requests.controller";
 import { CourtRequestsRepository } from "./court-requests.repository";
@@ -10,10 +11,11 @@ import { CourtRequestsService } from "./court-requests.service";
  * through the connectors ChannelDispatcher (replacing the removed in-module
  * CourtNotifier) and emit typed domain events via DomainEventsService, so Slices A–C
  * can consume court decisions. Imports ConnectorsModule for both, and
- * NotificationsModule for the operational admin DM on a new court request.
+ * NotificationsModule for the operational admin DM on a new court request, and
+ * NotificationTemplatesModule for the admin-editable, per-locale decision-DM bodies.
  */
 @Module({
-  imports: [ConnectorsModule, NotificationsModule],
+  imports: [ConnectorsModule, NotificationsModule, NotificationTemplatesModule],
   controllers: [CourtRequestsController],
   providers: [CourtRequestsService, CourtRequestsRepository]
 })

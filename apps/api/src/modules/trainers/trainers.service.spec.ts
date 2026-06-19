@@ -49,7 +49,8 @@ const milena: Trainer = {
   type: "main",
   status: "active",
   telegramId: null,
-  telegramUsername: null
+  telegramUsername: null,
+  language: "ru"
 };
 
 function makeRepo(overrides: Partial<TrainersRepository> = {}): TrainersRepository {

@@ -1,6 +1,6 @@
 import { Injectable } from "@nestjs/common";
 import { tables } from "@beosand/db";
-import type { NotificationChannelId, NotificationType } from "@beosand/types";
+import type { Locale, NotificationChannelId, NotificationType } from "@beosand/types";
 import { and, asc, eq, gte, inArray, isNull, lte, sql } from "drizzle-orm";
 import { DatabaseService } from "../../db/database.service";
 
@@ -19,6 +19,8 @@ export interface NotificationRecipient {
   email: string | null;
   /** Phone number (walk-ins may have one); null when absent — SMS channel skipped. */
   phone: string | null;
+  /** The client's notification locale; drives which template body is rendered. */
+  language: Locale;
   date: string;
   startTime: string;
   endTime: string;
@@ -137,6 +139,7 @@ export class NotificationsRepository {
         telegramId: tables.clients.telegramId,
         email: tables.clients.email,
         phone: tables.clients.phone,
+        language: tables.clients.language,
         date: tables.trainings.date,
         startTime: tables.trainings.startTime,
         endTime: tables.trainings.endTime,
@@ -193,6 +196,7 @@ export class NotificationsRepository {
         telegramId: tables.clients.telegramId,
         email: tables.clients.email,
         phone: tables.clients.phone,
+        language: tables.clients.language,
         date: tables.trainings.date,
         startTime: tables.trainings.startTime,
         endTime: tables.trainings.endTime,
@@ -240,6 +244,7 @@ export class NotificationsRepository {
         telegramId: tables.clients.telegramId,
         email: tables.clients.email,
         phone: tables.clients.phone,
+        language: tables.clients.language,
         date: tables.trainings.date,
         startTime: tables.trainings.startTime,
         endTime: tables.trainings.endTime,
@@ -293,6 +298,7 @@ export class NotificationsRepository {
         telegramId: tables.clients.telegramId,
         email: tables.clients.email,
         phone: tables.clients.phone,
+        language: tables.clients.language,
         date: tables.trainings.date,
         startTime: tables.trainings.startTime,
         endTime: tables.trainings.endTime,
@@ -327,6 +333,7 @@ export class NotificationsRepository {
         telegramId: tables.clients.telegramId,
         email: tables.clients.email,
         phone: tables.clients.phone,
+        language: tables.clients.language,
         date: tables.trainings.date,
         startTime: tables.trainings.startTime,
         endTime: tables.trainings.endTime,
@@ -350,6 +357,7 @@ interface RecipientRow {
   telegramId: number | null;
   email: string | null;
   phone: string | null;
+  language: Locale;
   date: string;
   startTime: string;
   endTime: string;
@@ -374,6 +382,7 @@ function normalizeRecipient(row: RecipientRow): NotificationRecipient {
     telegramId: row.telegramId,
     email: row.email,
     phone: row.phone,
+    language: row.language,
     date: row.date,
     startTime: row.startTime.slice(0, 5),
     endTime: row.endTime.slice(0, 5),

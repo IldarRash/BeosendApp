@@ -266,6 +266,7 @@ describe("Trainer-scoped reads (T2.3)", () => {
     status: "active",
     telegramId: TRAINER_TG,
     telegramUsername: null,
+    language: "ru",
     ...over
   });
 

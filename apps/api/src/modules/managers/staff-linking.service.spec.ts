@@ -8,7 +8,14 @@ import type { AdminRegistryService } from "./admin-registry.service";
 const TG_ID = 4242;
 
 function makeManager(): Manager {
-  return { id: "m1", name: "Ivan", telegramId: TG_ID, telegramUsername: "ivan", status: "active" };
+  return {
+    id: "m1",
+    name: "Ivan",
+    telegramId: TG_ID,
+    telegramUsername: "ivan",
+    status: "active",
+    language: "ru"
+  };
 }
 function makeTrainer(): Trainer {
   return {
@@ -17,7 +24,8 @@ function makeTrainer(): Trainer {
     type: "main",
     status: "active",
     telegramId: TG_ID,
-    telegramUsername: "ivan"
+    telegramUsername: "ivan",
+    language: "ru"
   };
 }
 

@@ -1,6 +1,8 @@
 import { forwardRef, Module } from "@nestjs/common";
 import { ConnectorsModule } from "../connectors/connectors.module";
+import { ManagersRepository } from "../managers/managers.repository";
 import { NotificationTemplatesModule } from "../notification-templates/notification-templates.module";
+import { TrainersRepository } from "../trainers/trainers.repository";
 import { NotificationsRepository } from "./notifications.repository";
 import { NotificationsScheduler } from "./notifications.scheduler";
 import { NotificationsService } from "./notifications.service";
@@ -17,6 +19,11 @@ import { TelegramSender } from "./telegram-sender";
  * and ConnectorsModule (forwardRef — ConnectorsModule wraps this module's
  * TelegramSender) for the ChannelDispatcher. TelegramSender stays exported for the
  * trainer-DM/keyboard sends and the broadcasts module.
+ *
+ * ManagersRepository/TrainersRepository (each depends only on DatabaseService) are
+ * provided directly to resolve a staff recipient's notification locale at admin-DM
+ * time — mirroring how ManagersModule provides TrainersRepository — without importing
+ * those modules (TrainersModule already imports this one).
  */
 @Module({
   imports: [NotificationTemplatesModule, forwardRef(() => ConnectorsModule)],
@@ -24,7 +31,9 @@ import { TelegramSender } from "./telegram-sender";
     NotificationsService,
     NotificationsRepository,
     TelegramSender,
-    NotificationsScheduler
+    NotificationsScheduler,
+    ManagersRepository,
+    TrainersRepository
   ],
   exports: [NotificationsService, TelegramSender]
 })

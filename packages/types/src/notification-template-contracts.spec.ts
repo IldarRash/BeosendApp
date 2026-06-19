@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
+  NOTIFICATION_TEMPLATE_AUDIENCE,
   NOTIFICATION_TEMPLATE_PLACEHOLDERS,
   notificationTemplateKey,
   notificationTemplateSchema,
@@ -7,7 +8,7 @@ import {
 } from "./notification-template-contracts";
 
 describe("notification template contracts", () => {
-  it("enumerates exactly the 7 editable event keys", () => {
+  it("enumerates exactly the editable event keys", () => {
     expect(notificationTemplateKey.options).toEqual([
       "booking-confirmed",
       "reminder-24h",
@@ -15,17 +16,29 @@ describe("notification template contracts", () => {
       "training-cancelled",
       "booking-pending",
       "booking-declined",
-      "waitlist-slot"
+      "waitlist-slot",
+      "court-request-confirmed",
+      "court-request-rejected",
+      "booking-pending-admin",
+      "individual-request-admin",
+      "court-request-created-admin"
     ]);
   });
 
-  it("offers a placeholder list for every key, with windowMinutes only on waitlist-slot", () => {
+  it("offers a non-empty placeholder list for every key, with windowMinutes only on waitlist-slot", () => {
     for (const key of notificationTemplateKey.options) {
       const placeholders = NOTIFICATION_TEMPLATE_PLACEHOLDERS[key];
-      expect(placeholders).toContain("{training}");
-      expect(placeholders).toContain("{trainerName}");
+      expect(placeholders.length).toBeGreaterThan(0);
       const hasWindow = placeholders.includes("{windowMinutes}");
       expect(hasWindow).toBe(key === "waitlist-slot");
+    }
+  });
+
+  it("classifies every key as client or staff, with the *-admin keys as staff", () => {
+    for (const key of notificationTemplateKey.options) {
+      const audience = NOTIFICATION_TEMPLATE_AUDIENCE[key];
+      expect(["client", "staff"]).toContain(audience);
+      expect(audience).toBe(key.endsWith("-admin") ? "staff" : "client");
     }
   });
 
@@ -33,6 +46,7 @@ describe("notification template contracts", () => {
     expect(
       notificationTemplateSchema.parse({
         eventKey: "booking-confirmed",
+        audience: "client",
         body: "Запись подтверждена ✅\n{training}",
         isOverridden: false,
         defaultBody: "Запись подтверждена ✅\n{training}",

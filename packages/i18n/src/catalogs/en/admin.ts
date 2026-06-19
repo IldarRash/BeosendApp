@@ -773,6 +773,14 @@ export const adminEn: Record<string, string> = {
   "admin.notificationTemplates.event.booking-pending": "Booking pending",
   "admin.notificationTemplates.event.booking-declined": "Booking declined",
   "admin.notificationTemplates.event.waitlist-slot": "Slot freed (waitlist)",
+  "admin.notificationTemplates.event.court-request-confirmed": "Court request confirmed",
+  "admin.notificationTemplates.event.court-request-rejected": "Court request rejected",
+  "admin.notificationTemplates.event.booking-pending-admin": "New booking (for admin)",
+  "admin.notificationTemplates.event.individual-request-admin": "Individual request (for admin)",
+  "admin.notificationTemplates.event.court-request-created-admin": "New court request (for admin)",
+  "admin.notificationTemplates.localeLabel": "Notification language",
+  "admin.notificationTemplates.sectionClient": "Client",
+  "admin.notificationTemplates.sectionStaff": "Staff",
 
   // ── Connectors ────────────────────────────────────────────────────────────
   "admin.connectors.title": "Connectors",

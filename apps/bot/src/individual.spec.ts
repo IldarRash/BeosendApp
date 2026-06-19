@@ -18,14 +18,15 @@ const ru = getStaticCatalog("ru");
 const trainerId = "33333333-3333-3333-3333-333333333333";
 
 const trainers: Trainer[] = [
-  { id: trainerId, name: "Jovana", type: "main", telegramId: 555, status: "active", telegramUsername: null },
+  { id: trainerId, name: "Jovana", type: "main", telegramId: 555, status: "active", telegramUsername: null, language: "ru" },
   {
     id: "44444444-4444-4444-4444-444444444444",
     name: "Милена",
     type: "main",
     telegramId: null,
     status: "active",
-    telegramUsername: null
+    telegramUsername: null,
+    language: "ru"
   }
 ];
 

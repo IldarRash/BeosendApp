@@ -40,6 +40,7 @@ function renderPage(): void {
 const sample: NotificationTemplate[] = [
   {
     eventKey: "booking-confirmed",
+    audience: "client",
     body: "Запись подтверждена: {training}",
     isOverridden: false,
     defaultBody: "Запись подтверждена: {training}",
@@ -47,10 +48,19 @@ const sample: NotificationTemplate[] = [
   },
   {
     eventKey: "waitlist-slot",
+    audience: "client",
     body: "Освободилось место, подтвердите за {windowMinutes} минут",
     isOverridden: true,
     defaultBody: "Место освободилось",
     placeholders: ["{training}", "{windowMinutes}"]
+  },
+  {
+    eventKey: "court-request-created-admin",
+    audience: "staff",
+    body: "Новая заявка от {clientName}",
+    isOverridden: false,
+    defaultBody: "Новая заявка от {clientName}",
+    placeholders: ["{clientName}"]
   }
 ];
 
@@ -71,8 +81,12 @@ describe("NotificationTemplates page", () => {
     expect(screen.getByText("Запись подтверждена")).toBeTruthy();
     expect(screen.getByText("Освободилось место (лист ожидания)")).toBeTruthy();
     // Overridden row shows the "overridden" badge; the default row shows "default".
-    expect(screen.getByText("изменено")).toBeTruthy();
-    expect(screen.getByText("по умолчанию")).toBeTruthy();
+    const confirmed = screen.getByText("Запись подтверждена").closest("article") as HTMLElement;
+    const waitlist = screen
+      .getByText("Освободилось место (лист ожидания)")
+      .closest("article") as HTMLElement;
+    expect(within(waitlist).getByText("изменено")).toBeTruthy();
+    expect(within(confirmed).getByText("по умолчанию")).toBeTruthy();
   });
 
   it("substitutes sample values in the live preview", () => {
@@ -98,6 +112,7 @@ describe("NotificationTemplates page", () => {
     expect(updateMutate).toHaveBeenCalledTimes(1);
     expect(updateMutate.mock.calls[0][0]).toEqual({
       eventKey: "booking-confirmed",
+      locale: "ru",
       body: "Новый текст {training}"
     });
   });
@@ -120,13 +135,34 @@ describe("NotificationTemplates page", () => {
     const dialog = screen.getByRole("dialog");
     fireEvent.click(within(dialog).getByRole("button", { name: "Сбросить" }));
     expect(resetMutate).toHaveBeenCalledTimes(1);
-    expect(resetMutate.mock.calls[0][0]).toBe("waitlist-slot");
+    expect(resetMutate.mock.calls[0][0]).toEqual({
+      eventKey: "waitlist-slot",
+      locale: "ru"
+    });
   });
 
   it("does not show a reset action for a non-overridden template", () => {
     renderPage();
     const card = screen.getByText("Запись подтверждена").closest("article") as HTMLElement;
     expect(within(card).queryByRole("button", { name: "Сбросить" })).toBeNull();
+  });
+
+  it("groups cards into client and staff sections", () => {
+    renderPage();
+    expect(screen.getByText("Клиентские")).toBeTruthy();
+    expect(screen.getByText("Служебные")).toBeTruthy();
+    // The staff event lands in the staff section (its fallback label renders).
+    expect(screen.getByText("Новая заявка на корт (для администратора)")).toBeTruthy();
+  });
+
+  it("offers a keyboard-operable locale switcher with one tab per locale", () => {
+    renderPage();
+    const tablist = screen.getByRole("tablist");
+    const tabs = within(tablist).getAllByRole("tab");
+    expect(tabs).toHaveLength(3);
+    // Default UI locale (RU) is the initially selected tab.
+    const russian = within(tablist).getByRole("tab", { name: "Русский" });
+    expect(russian.getAttribute("aria-selected")).toBe("true");
   });
 
   it("surfaces a load error", () => {

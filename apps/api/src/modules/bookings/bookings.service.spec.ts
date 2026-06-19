@@ -1047,6 +1047,7 @@ describe("BookingsService.markAttendance (T2.3)", () => {
     status: "active",
     telegramId: TRAINER_TG,
     telegramUsername: null,
+    language: "ru",
     ...over
   });
 
@@ -1185,7 +1186,8 @@ describe("BookingsService.createManual (Feature 5 — admin/trainer manual booki
         type: "main",
         status: "active",
         telegramId: TRAINER_ID_TG,
-        telegramUsername: null
+        telegramUsername: null,
+        language: "ru"
       },
       {
         id: OTHER_TRAINER_DB_ID,
@@ -1193,7 +1195,8 @@ describe("BookingsService.createManual (Feature 5 — admin/trainer manual booki
         type: "main",
         status: "active",
         telegramId: OTHER_TRAINER_ID_TG,
-        telegramUsername: null
+        telegramUsername: null,
+        language: "ru"
       }
     ];
     confirmationCalls = [];
@@ -1622,7 +1625,8 @@ const TRAINER_WITH_TG: Trainer = {
   type: "main",
   status: "active",
   telegramId: TRAINER_ID_TG,
-  telegramUsername: null
+  telegramUsername: null,
+  language: "ru"
 };
 
 describe("BookingsService.createSingle — pending vs auto-confirm (admin-confirmation)", () => {
@@ -1750,7 +1754,8 @@ describe("BookingsService.confirmBooking (trainer-confirmation)", () => {
         type: "main",
         status: "active",
         telegramId: OTHER_TRAINER_ID_TG,
-        telegramUsername: null
+        telegramUsername: null,
+        language: "ru"
       }
     ];
     notifications = makeNotificationsSpy();
@@ -1866,7 +1871,8 @@ describe("BookingsService.declineBooking (trainer-confirmation)", () => {
         type: "main",
         status: "active",
         telegramId: OTHER_TRAINER_ID_TG,
-        telegramUsername: null
+        telegramUsername: null,
+        language: "ru"
       }
     ];
     notifications = makeNotificationsSpy();
@@ -2015,7 +2021,8 @@ describe("BookingsService.confirm/declineSubscription (trainer-confirmation, mon
         type: "main",
         status: "active",
         telegramId: OTHER_TRAINER_ID_TG,
-        telegramUsername: null
+        telegramUsername: null,
+        language: "ru"
       }
     ];
     notifications = makeNotificationsSpy();

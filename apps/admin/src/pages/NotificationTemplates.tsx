@@ -1,10 +1,11 @@
 import { useRef, useState } from "react";
-import type { NotificationTemplate, NotificationTemplateKey } from "@beosand/types";
+import type { Locale, NotificationTemplate, NotificationTemplateKey } from "@beosand/types";
+import { LOCALES, localeLabel } from "@beosand/i18n";
 import { AppShell } from "../ui/AppShell";
 import { Button } from "../ui/Button";
 import { Modal } from "../ui/Modal";
 import { useToast } from "../ui/Toast";
-import { useT } from "../i18n/LanguageProvider";
+import { useLanguage } from "../i18n/LanguageProvider";
 import {
   useNotificationTemplates,
   useResetNotificationTemplate,
@@ -12,15 +13,23 @@ import {
 } from "../hooks/useNotificationTemplates";
 
 /**
- * Шаблоны уведомлений — the owner edits the client-facing notification texts (e.g.
- * booking confirmation) and inserts `{placeholders}` for request details. No domain
- * logic here: the page renders the validated server rows, collects an override body,
- * and shows a presentation-only preview by substituting sample values for the
+ * Шаблоны уведомлений — the owner edits the notification texts per locale (e.g.
+ * booking confirmation) and inserts `{placeholders}` for request details. Templates
+ * are split by audience (client- vs staff-facing). No domain logic here: the page
+ * renders the validated server rows for the selected locale, collects an override
+ * body, and shows a presentation-only preview by substituting sample values for the
  * placeholders. The server owns validation, the defaults, and the real interpolation.
  */
 export function NotificationTemplates(): JSX.Element {
-  const t = useT();
-  const templates = useNotificationTemplates();
+  const { t, locale: uiLocale } = useLanguage();
+  // The locale being *edited* — independent of the admin's UI language. Defaults to
+  // the active UI locale so the editor opens on what the admin is already reading.
+  const [locale, setLocale] = useState<Locale>(uiLocale);
+  const templates = useNotificationTemplates(locale);
+
+  const rows = templates.data ?? [];
+  const clientRows = rows.filter((row) => row.audience === "client");
+  const staffRows = rows.filter((row) => row.audience === "staff");
 
   return (
     <AppShell>
@@ -32,25 +41,79 @@ export function NotificationTemplates(): JSX.Element {
       </header>
 
       <div className="stack">
-        {templates.isLoading ? (
-          <p className="state state--loading">{t("admin.notificationTemplates.loading")}</p>
-        ) : templates.isError ? (
-          <p className="state state--error" role="alert">
-            {t("admin.notificationTemplates.error", { message: templates.error.message })}
-          </p>
-        ) : (templates.data ?? []).length === 0 ? (
-          <p className="state">{t("admin.notificationTemplates.empty")}</p>
-        ) : (
-          <ul className="tpl-list">
-            {(templates.data ?? []).map((template) => (
-              <li key={template.eventKey}>
-                <TemplateCard template={template} />
-              </li>
-            ))}
-          </ul>
-        )}
+        <div
+          role="tablist"
+          aria-label={t("admin.notificationTemplates.localeLabel")}
+          className="tabs"
+        >
+          {LOCALES.map((value) => {
+            const selected = value === locale;
+            return (
+              <button
+                key={value}
+                type="button"
+                role="tab"
+                id={`tpl-locale-${value}`}
+                aria-selected={selected}
+                aria-controls="tpl-panel"
+                className={selected ? "tab tab--active" : "tab"}
+                onClick={() => setLocale(value)}
+              >
+                {localeLabel[value]}
+              </button>
+            );
+          })}
+        </div>
+
+        <div id="tpl-panel" role="tabpanel" aria-labelledby={`tpl-locale-${locale}`}>
+          {templates.isLoading ? (
+            <p className="state state--loading">{t("admin.notificationTemplates.loading")}</p>
+          ) : templates.isError ? (
+            <p className="state state--error" role="alert">
+              {t("admin.notificationTemplates.error", { message: templates.error.message })}
+            </p>
+          ) : rows.length === 0 ? (
+            <p className="state">{t("admin.notificationTemplates.empty")}</p>
+          ) : (
+            <div className="stack">
+              <TemplateSection
+                heading={t("admin.notificationTemplates.sectionClient")}
+                rows={clientRows}
+                locale={locale}
+              />
+              <TemplateSection
+                heading={t("admin.notificationTemplates.sectionStaff")}
+                rows={staffRows}
+                locale={locale}
+              />
+            </div>
+          )}
+        </div>
       </div>
     </AppShell>
+  );
+}
+
+interface TemplateSectionProps {
+  heading: string;
+  rows: NotificationTemplate[];
+  locale: Locale;
+}
+
+/** One audience group of template cards under a labelled heading. */
+function TemplateSection({ heading, rows, locale }: TemplateSectionProps): JSX.Element | null {
+  if (rows.length === 0) return null;
+  return (
+    <section className="stack" aria-label={heading}>
+      <h2 className="tpl-section__title">{heading}</h2>
+      <ul className="tpl-list">
+        {rows.map((template) => (
+          <li key={template.eventKey}>
+            <TemplateCard template={template} locale={locale} />
+          </li>
+        ))}
+      </ul>
+    </section>
   );
 }
 
@@ -62,7 +125,13 @@ const PREVIEW_SAMPLES: Record<string, string> = {
   "{endTime}": "19:30",
   "{levelName}": "Начинающий",
   "{trainerName}": "Милена",
-  "{windowMinutes}": "15"
+  "{windowMinutes}": "15",
+  "{clientName}": "Анна",
+  "{clientTelegramId}": "123456789",
+  "{courtLabel}": "Корт 3",
+  "{priceRsd}": "2400",
+  "{durationHours}": "2",
+  "{courtCount}": "1"
 };
 
 /**
@@ -79,11 +148,12 @@ function renderPreview(body: string): string {
 
 interface TemplateCardProps {
   template: NotificationTemplate;
+  locale: Locale;
 }
 
 /** One template row: human label, override badge, editable body, placeholder chips, preview. */
-function TemplateCard({ template }: TemplateCardProps): JSX.Element {
-  const t = useT();
+function TemplateCard({ template, locale }: TemplateCardProps): JSX.Element {
+  const t = useLanguage().t;
   const toast = useToast();
   const update = useUpdateNotificationTemplate();
   const reset = useResetNotificationTemplate();
@@ -119,7 +189,7 @@ function TemplateCard({ template }: TemplateCardProps): JSX.Element {
   function handleSave(): void {
     if (!canSave) return;
     update.mutate(
-      { eventKey: template.eventKey, body: trimmed },
+      { eventKey: template.eventKey, locale, body: trimmed },
       {
         onSuccess: () => toast.notify(t("admin.notificationTemplates.saved"), "success")
       }
@@ -127,13 +197,16 @@ function TemplateCard({ template }: TemplateCardProps): JSX.Element {
   }
 
   function handleReset(): void {
-    reset.mutate(template.eventKey, {
-      onSuccess: (row) => {
-        setBody(row.body);
-        setConfirmingReset(false);
-        toast.notify(t("admin.notificationTemplates.resetDone"), "success");
+    reset.mutate(
+      { eventKey: template.eventKey, locale },
+      {
+        onSuccess: (row) => {
+          setBody(row.body);
+          setConfirmingReset(false);
+          toast.notify(t("admin.notificationTemplates.resetDone"), "success");
+        }
       }
-    });
+    );
   }
 
   const eventLabel = t(`admin.notificationTemplates.event.${template.eventKey}`);
@@ -143,7 +216,7 @@ function TemplateCard({ template }: TemplateCardProps): JSX.Element {
     <article className="card tpl-card">
       <div className="tpl-card__head">
         <div className="tpl-card__heading">
-          <h2 className="tpl-card__title">{eventLabel}</h2>
+          <h3 className="tpl-card__title">{eventLabel}</h3>
           <code className="tpl-card__key">{template.eventKey}</code>
         </div>
         <span
@@ -219,9 +292,7 @@ function TemplateCard({ template }: TemplateCardProps): JSX.Element {
           </Button>
         ) : null}
         <Button onClick={handleSave} disabled={!canSave}>
-          {update.isPending
-            ? t("admin.action.saving")
-            : t("admin.action.save")}
+          {update.isPending ? t("admin.action.saving") : t("admin.action.save")}
         </Button>
       </div>
 

@@ -1,5 +1,6 @@
 import { useState } from "react";
-import type { Trainer } from "@beosand/types";
+import type { Locale, Trainer } from "@beosand/types";
+import { LOCALES, localeLabel } from "@beosand/i18n";
 import { AppShell } from "../ui/AppShell";
 import { Button } from "../ui/Button";
 import { DataTable, type Column } from "../ui/DataTable";
@@ -117,6 +118,9 @@ function TrainerEditor({ state, onClose }: TrainerEditorProps): JSX.Element {
   const [status, setStatus] = useState<Trainer["status"]>(
     isEdit ? state.trainer.status : "active"
   );
+  const [language, setLanguage] = useState<Locale>(isEdit ? state.trainer.language : "sr");
+
+  const languageOptions = LOCALES.map((value) => ({ value, label: localeLabel[value] }));
 
   const pending = create.isPending || update.isPending;
   const error = create.error ?? update.error;
@@ -127,7 +131,10 @@ function TrainerEditor({ state, onClose }: TrainerEditorProps): JSX.Element {
     const telegramUsername = trimmedUsername.length > 0 ? trimmedUsername : null;
     if (isEdit) {
       update.mutate(
-        { id: state.trainer.id, input: { name, type, status, telegramId, telegramUsername } },
+        {
+          id: state.trainer.id,
+          input: { name, type, status, telegramId, telegramUsername, language }
+        },
         {
           onSuccess: () => {
             toast.notify(t("admin.trainers.updated"), "success");
@@ -137,7 +144,7 @@ function TrainerEditor({ state, onClose }: TrainerEditorProps): JSX.Element {
       );
     } else {
       create.mutate(
-        { name, type, telegramId, telegramUsername },
+        { name, type, telegramId, telegramUsername, language },
         {
           onSuccess: () => {
             toast.notify(t("admin.trainers.created"), "success");
@@ -193,6 +200,12 @@ function TrainerEditor({ state, onClose }: TrainerEditorProps): JSX.Element {
           onChange={(event) => setUsername(event.target.value)}
           autoComplete="off"
           hint={t("admin.trainers.usernameHint")}
+        />
+        <SelectField
+          label={t("admin.labels.localeLabel")}
+          value={language}
+          onChange={(event) => setLanguage(event.target.value as Locale)}
+          options={languageOptions}
         />
         {isEdit ? (
           <SelectField

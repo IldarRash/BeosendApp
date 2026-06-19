@@ -44,14 +44,16 @@ const sampleManagers: Manager[] = [
     name: "Милена",
     telegramId: 4242,
     telegramUsername: "milena",
-    status: "active"
+    status: "active",
+    language: "sr"
   },
   {
     id: "22222222-2222-2222-2222-222222222222",
     name: null,
     telegramId: null,
     telegramUsername: "danilo",
-    status: "active"
+    status: "active",
+    language: "ru"
   }
 ];
 
@@ -107,6 +109,7 @@ describe("Managers page", () => {
     // No telegramId typed → it is omitted (not sent as null) so the API's
     // "at least one identity" rule sees the @username.
     expect(createMutate.mock.calls[0][0]).toEqual({
+      language: "sr",
       name: "Анна",
       telegramUsername: "anna"
     });
@@ -118,7 +121,7 @@ describe("Managers page", () => {
     const dialog = screen.getByRole("dialog");
     fireEvent.change(within(dialog).getByLabelText("Telegram ID"), { target: { value: "555" } });
     fireEvent.click(within(dialog).getByRole("button", { name: "Сохранить" }));
-    expect(createMutate.mock.calls[0][0]).toEqual({ telegramId: 555 });
+    expect(createMutate.mock.calls[0][0]).toEqual({ language: "sr", telegramId: 555 });
   });
 
   it("edits a manager, sending name/status/telegramId/telegramUsername", () => {
@@ -134,7 +137,8 @@ describe("Managers page", () => {
         name: "Милена",
         telegramId: 4242,
         telegramUsername: "milena",
-        status: "inactive"
+        status: "inactive",
+        language: "sr"
       }
     });
   });
@@ -177,7 +181,8 @@ describe("ApiClient.listManagers", () => {
         name: "Милена",
         telegramId: 4242,
         telegramUsername: "milena",
-        status: "active"
+        status: "active",
+        language: "sr"
       }
     ]);
     const result = await new ApiClient("http://api.test").listManagers();

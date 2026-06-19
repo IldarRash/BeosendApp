@@ -773,6 +773,14 @@ export const adminSr: Record<string, string> = {
   "admin.notificationTemplates.event.booking-pending": "Prijava čeka potvrdu",
   "admin.notificationTemplates.event.booking-declined": "Prijava odbijena",
   "admin.notificationTemplates.event.waitlist-slot": "Oslobođeno mesto (lista čekanja)",
+  "admin.notificationTemplates.event.court-request-confirmed": "Zahtev za teren potvrđen",
+  "admin.notificationTemplates.event.court-request-rejected": "Zahtev za teren odbijen",
+  "admin.notificationTemplates.event.booking-pending-admin": "Novi termin (za administratora)",
+  "admin.notificationTemplates.event.individual-request-admin": "Individualni zahtev (za administratora)",
+  "admin.notificationTemplates.event.court-request-created-admin": "Novi zahtev za teren (za administratora)",
+  "admin.notificationTemplates.localeLabel": "Jezik obaveštenja",
+  "admin.notificationTemplates.sectionClient": "Klijentska",
+  "admin.notificationTemplates.sectionStaff": "Službena",
 
   // ── Connectors ────────────────────────────────────────────────────────────
   "admin.connectors.title": "Konektori",

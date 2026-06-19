@@ -48,7 +48,12 @@ import {
 import { ENV } from "../../config/config.module";
 import { ChannelDispatcher } from "../connectors/channels/channel-dispatcher.service";
 import { DomainEventsService } from "../connectors/domain-events.service";
+import {
+  renderNotificationTemplate,
+  resolveTemplateBody
+} from "../notifications/notification-messages";
 import { NotificationsService } from "../notifications/notifications.service";
+import { NotificationTemplatesRepository } from "../notification-templates/notification-templates.repository";
 import {
   CourtRequestsRepository,
   type CourtOccupancyRow,
@@ -74,7 +79,8 @@ export class CourtRequestsService {
     @Inject(ENV) private readonly env: Env,
     private readonly dispatcher: ChannelDispatcher,
     private readonly domainEvents: DomainEventsService,
-    private readonly notifications: NotificationsService
+    private readonly notifications: NotificationsService,
+    private readonly templates: NotificationTemplatesRepository
   ) {}
 
   /** Offerable 30-min slot starts for a date, with free-court counts per slot. */
@@ -485,13 +491,20 @@ export class CourtRequestsService {
     }
 
     const duration = parseDuration(withClient.durationHours);
+    const startTime = withClient.startTime.slice(0, 5);
     const endTime = this.endTimeFor(withClient.startTime, duration);
+    const locale = withClient.clientLanguage;
 
     if (status === "rejected") {
+      const override = await this.templates.findOverride("court-request-rejected", locale);
+      const text = renderNotificationTemplate(
+        resolveTemplateBody("court-request-rejected", locale, override),
+        { date: withClient.date, startTime, endTime }
+      );
       await this.dispatcher.dispatch({
         clientId: withClient.clientId,
         telegramId: withClient.clientTelegramId,
-        text: "К сожалению, нет свободных мест на это время — выберите, пожалуйста, другое время.",
+        text,
         eventType: "court-request.rejected"
       });
       this.domainEvents.emitCourtRequestRejected({
@@ -499,7 +512,7 @@ export class CourtRequestsService {
         clientName: withClient.clientName,
         requestId: withClient.id,
         date: withClient.date,
-        startTime: withClient.startTime.slice(0, 5),
+        startTime,
         endTime
       });
       return;
@@ -510,10 +523,21 @@ export class CourtRequestsService {
       courtNumbers.length > 0
         ? `Корты №${courtNumbers.join(", ")}`
         : "Корт";
+    const override = await this.templates.findOverride("court-request-confirmed", locale);
+    const text = renderNotificationTemplate(
+      resolveTemplateBody("court-request-confirmed", locale, override),
+      {
+        courtLabel,
+        date: withClient.date,
+        startTime,
+        endTime,
+        priceRsd: withClient.priceRsd
+      }
+    );
     await this.dispatcher.dispatch({
       clientId: withClient.clientId,
       telegramId: withClient.clientTelegramId,
-      text: `${courtLabel}, ${withClient.date} ${withClient.startTime}–${endTime}, итог: ${withClient.priceRsd} RSD`,
+      text,
       eventType: "court-request.confirmed"
     });
     // The connector event contract carries a single `courtNumber`; emit the first
@@ -524,7 +548,7 @@ export class CourtRequestsService {
       clientName: withClient.clientName,
       requestId: withClient.id,
       date: withClient.date,
-      startTime: withClient.startTime.slice(0, 5),
+      startTime,
       endTime,
       priceRsd: withClient.priceRsd,
       courtNumber: courtNumbers[0] ?? null

@@ -36,6 +36,9 @@ interface LanguageContextValue {
   t: (key: string, params?: Record<string, string | number>) => string;
 }
 
+/** The active-locale translator signature, shared by consumers that pass it down. */
+export type Translate = (key: string, params?: Record<string, string | number>) => string;
+
 const LanguageContext = createContext<LanguageContextValue | null>(null);
 
 /** Read the persisted locale from sessionStorage, defaulting to RU. */

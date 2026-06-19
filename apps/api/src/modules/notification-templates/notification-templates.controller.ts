@@ -6,15 +6,19 @@ import {
   Headers,
   Param,
   Patch,
-  Post
+  Post,
+  Query
 } from "@nestjs/common";
 import {
+  type Locale,
+  localeSchema,
   type NotificationTemplate,
   type NotificationTemplateKey,
   notificationTemplateKey,
   notificationTemplateSchema,
   updateNotificationTemplateSchema
 } from "@beosand/types";
+import { DEFAULT_LOCALE } from "@beosand/i18n";
 import type { ZodSchema } from "zod";
 import { NotificationTemplatesService } from "./notification-templates.service";
 
@@ -23,51 +27,59 @@ import { NotificationTemplatesService } from "./notification-templates.service";
 export class NotificationTemplatesController {
   constructor(private readonly templates: NotificationTemplatesService) {}
 
-  /** Admin: every editable event with default + override + placeholders. */
+  /** Admin: every editable event for a locale with default + override + placeholders. */
   @Get()
   async list(
-    @Headers("x-telegram-id") telegramIdHeader: string | undefined
+    @Headers("x-telegram-id") telegramIdHeader: string | undefined,
+    @Query("locale") locale: string | undefined
   ): Promise<NotificationTemplate[]> {
     const actorTelegramId = parseTelegramId(telegramIdHeader);
-    const entries = await this.templates.list(actorTelegramId);
+    const parsed = parseLocale(locale);
+    const entries = await this.templates.list(actorTelegramId, parsed);
     return entries.map((entry) => validate(notificationTemplateSchema, entry));
   }
 
-  /** Admin: one event's effective template. */
+  /** Admin: one event's effective template for a locale. */
   @Get(":eventKey")
   async getOne(
     @Headers("x-telegram-id") telegramIdHeader: string | undefined,
-    @Param("eventKey") eventKey: string
+    @Param("eventKey") eventKey: string,
+    @Query("locale") locale: string | undefined
   ): Promise<NotificationTemplate> {
     const actorTelegramId = parseTelegramId(telegramIdHeader);
     const key = parseEventKey(eventKey);
-    const entry = await this.templates.getOne(actorTelegramId, key);
+    const parsed = parseLocale(locale);
+    const entry = await this.templates.getOne(actorTelegramId, key, parsed);
     return validate(notificationTemplateSchema, entry);
   }
 
-  /** Admin: upsert one event's override body. */
+  /** Admin: upsert one (event, locale) override body. */
   @Patch(":eventKey")
   async update(
     @Headers("x-telegram-id") telegramIdHeader: string | undefined,
     @Param("eventKey") eventKey: string,
+    @Query("locale") locale: string | undefined,
     @Body() body: unknown
   ): Promise<NotificationTemplate> {
     const actorTelegramId = parseTelegramId(telegramIdHeader);
     const key = parseEventKey(eventKey);
+    const parsed = parseLocale(locale);
     const { body: text } = validate(updateNotificationTemplateSchema, body ?? {});
-    const entry = await this.templates.update(actorTelegramId, key, text);
+    const entry = await this.templates.update(actorTelegramId, key, parsed, text);
     return validate(notificationTemplateSchema, entry);
   }
 
-  /** Admin: reset one event's override to the code default. */
+  /** Admin: reset one (event, locale) override to the code default. */
   @Post(":eventKey/reset")
   async reset(
     @Headers("x-telegram-id") telegramIdHeader: string | undefined,
-    @Param("eventKey") eventKey: string
+    @Param("eventKey") eventKey: string,
+    @Query("locale") locale: string | undefined
   ): Promise<NotificationTemplate> {
     const actorTelegramId = parseTelegramId(telegramIdHeader);
     const key = parseEventKey(eventKey);
-    const entry = await this.templates.reset(actorTelegramId, key);
+    const parsed = parseLocale(locale);
+    const entry = await this.templates.reset(actorTelegramId, key, parsed);
     return validate(notificationTemplateSchema, entry);
   }
 }
@@ -79,6 +91,11 @@ function parseTelegramId(header: string | undefined): number {
     throw new BadRequestException("Missing or invalid x-telegram-id header");
   }
   return value;
+}
+
+/** Validate the locale query param against the contract enum; default to RU. */
+function parseLocale(value: string | undefined): Locale {
+  return validate(localeSchema, value ?? DEFAULT_LOCALE);
 }
 
 /** Validate the path param against the contract enum; 400 on an unknown key. */

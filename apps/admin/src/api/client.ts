@@ -904,40 +904,56 @@ export class ApiClient {
   // ── Notification templates (Slice F) ────────────────────────────────────────
 
   /**
-   * The editable client-facing notification templates (GET /notification-templates)
-   * — one row per event, each carrying its current effective body, whether it is
-   * overridden, the code default for reference/reset, and the allowed placeholders.
-   * Admin-only server-side; every row is validated by `notificationTemplateSchema`.
+   * The editable notification templates for one locale (GET /notification-templates
+   * ?locale=…) — one row per event, each carrying its current effective body, whether
+   * it is overridden, the code default for reference/reset, the allowed placeholders,
+   * and its `audience` (client/staff). Admin-only server-side; every row is validated
+   * by `notificationTemplateSchema`.
    */
-  listNotificationTemplates(): Promise<NotificationTemplate[]> {
-    return this.request("/notification-templates", notificationTemplatesSchema);
+  listNotificationTemplates(locale: Locale): Promise<NotificationTemplate[]> {
+    const query = new URLSearchParams({ locale }).toString();
+    return this.request(`/notification-templates?${query}`, notificationTemplatesSchema);
   }
 
   /**
-   * Set one event's override body (PATCH /notification-templates/:eventKey, body
-   * `{ body }`). The server validates a non-empty body and returns the updated row;
-   * unknown `{tokens}` render literally rather than being rejected. Admin-only.
+   * Set one event's override body for a locale (PATCH /notification-templates/:eventKey
+   * ?locale=…, body `{ body }`). The server validates a non-empty body and returns the
+   * updated row; unknown `{tokens}` render literally rather than being rejected. Admin-only.
    */
   updateNotificationTemplate(
     eventKey: NotificationTemplateKey,
+    locale: Locale,
     body: string
   ): Promise<NotificationTemplate> {
-    return this.request(`/notification-templates/${eventKey}`, notificationTemplateSchema, {
-      method: "PATCH",
-      body: JSON.stringify({ body })
-    });
+    const query = new URLSearchParams({ locale }).toString();
+    return this.request(
+      `/notification-templates/${eventKey}?${query}`,
+      notificationTemplateSchema,
+      {
+        method: "PATCH",
+        body: JSON.stringify({ body })
+      }
+    );
   }
 
   /**
-   * Reset one event to its code default (POST /notification-templates/:eventKey/reset),
-   * removing any override. Idempotent; returns the row with `isOverridden: false`.
-   * Admin-only.
+   * Reset one event to its code default for a locale (POST /notification-templates/
+   * :eventKey/reset?locale=…), removing any override. Idempotent; returns the row with
+   * `isOverridden: false`. Admin-only.
    */
-  resetNotificationTemplate(eventKey: NotificationTemplateKey): Promise<NotificationTemplate> {
-    return this.request(`/notification-templates/${eventKey}/reset`, notificationTemplateSchema, {
-      method: "POST",
-      body: JSON.stringify({})
-    });
+  resetNotificationTemplate(
+    eventKey: NotificationTemplateKey,
+    locale: Locale
+  ): Promise<NotificationTemplate> {
+    const query = new URLSearchParams({ locale }).toString();
+    return this.request(
+      `/notification-templates/${eventKey}/reset?${query}`,
+      notificationTemplateSchema,
+      {
+        method: "POST",
+        body: JSON.stringify({})
+      }
+    );
   }
 
   // ── External connectors (Slice D) ───────────────────────────────────────────

@@ -1690,6 +1690,15 @@ button.load-seg:focus-visible {
 
 /* ── Notification templates editor ─────────────────────────────────────── */
 
+.tpl-section__title {
+  margin: 0;
+  font-size: 13px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--ink-500);
+}
+
 .tpl-list {
   list-style: none;
   margin: 0;

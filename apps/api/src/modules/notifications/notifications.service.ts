@@ -1,29 +1,37 @@
 import { Inject, Injectable, Logger } from "@nestjs/common";
 import type { Env } from "@beosand/config";
 import { adminTelegramIds } from "@beosand/config";
-import type { Client, NotificationType, Trainer } from "@beosand/types";
+import type { Client, Locale, NotificationType, Trainer } from "@beosand/types";
 import {
   bookingConfirmedMessage,
   bookingDeclinedMessage,
-  bookingPendingAdminMessage,
   bookingPendingMessage,
+  buildTemplateVars,
+  clientMentionLink,
+  escapeHtml,
   groupBookingConfirmedMessage,
   groupBookingDeclinedMessage,
   groupPendingAdminMessage,
-  individualRequestAdminMessage,
+  renderNotificationTemplate,
   reminderMessage,
   reminderWindow,
+  resolveTemplateBody,
   trainingCancelledMessage,
   waitlistSlotMessage
 } from "./notification-messages";
 import { ChannelDispatcher } from "../connectors/channels/channel-dispatcher.service";
+import { ManagersRepository } from "../managers/managers.repository";
 import { NotificationTemplatesRepository } from "../notification-templates/notification-templates.repository";
+import { TrainersRepository } from "../trainers/trainers.repository";
 import {
   type NotificationRecipient,
   NotificationsRepository
 } from "./notifications.repository";
 import { type InlineButton, type InlineKeyboardMarkup, TelegramSender } from "./telegram-sender";
 import { ENV } from "../../config/config.module";
+
+/** The staff-DM fallback locale (SR) when a recipient is neither manager nor trainer. */
+const STAFF_FALLBACK_LOCALE: Locale = "sr";
 
 /**
  * Owns every outbound domain notification (T2.2). Sends are server-side here —
@@ -51,8 +59,26 @@ export class NotificationsService {
     private readonly sender: TelegramSender,
     private readonly templates: NotificationTemplatesRepository,
     private readonly dispatcher: ChannelDispatcher,
+    private readonly managers: ManagersRepository,
+    private readonly trainers: TrainersRepository,
     @Inject(ENV) private readonly env: Env
   ) {}
+
+  /**
+   * The notification locale for a staff recipient: the manager row's language,
+   * else the trainer row's, else SR (the primary staff language). A staff member
+   * is identified solely by Telegram id (env admins with no DB row also fall back
+   * to SR). Reused by every admin-DM loop so each admin reads the template in their
+   * own language.
+   */
+  async resolveStaffLocale(telegramId: number): Promise<Locale> {
+    const manager = await this.managers.findLanguageByTelegramId(telegramId);
+    if (manager) {
+      return manager;
+    }
+    const trainer = await this.trainers.findLanguageByTelegramId(telegramId);
+    return trainer ?? STAFF_FALLBACK_LOCALE;
+  }
 
   /**
    * Confirm a single booking, idempotent per (clientId, trainingId,
@@ -73,11 +99,11 @@ export class NotificationsService {
     // No telegram-only early-return: a walk-in with an email/phone but no Telegram is
     // still reached on the email/SMS channels (Slice B). sendAndLog skips a recipient
     // with no reachable channel at all.
-    const override = await this.templates.findOverride("booking-confirmed");
+    const override = await this.templates.findOverride("booking-confirmed", recipient.language);
     await this.sendAndLog(
       recipient,
       "booking-confirmed",
-      bookingConfirmedMessage(recipient, override)
+      bookingConfirmedMessage(recipient, recipient.language, override)
     );
   }
 
@@ -122,8 +148,12 @@ export class NotificationsService {
       this.logger.warn(`No training ${trainingId} render fields for client ${clientId}; skipping pending ack`);
       return;
     }
-    const override = await this.templates.findOverride("booking-pending");
-    await this.sendAndLog(recipient, "booking-pending", bookingPendingMessage(recipient, override));
+    const override = await this.templates.findOverride("booking-pending", recipient.language);
+    await this.sendAndLog(
+      recipient,
+      "booking-pending",
+      bookingPendingMessage(recipient, recipient.language, override)
+    );
   }
 
   /**
@@ -141,11 +171,11 @@ export class NotificationsService {
       this.logger.warn(`No training ${trainingId} render fields for client ${clientId}; skipping decline DM`);
       return;
     }
-    const override = await this.templates.findOverride("booking-declined");
+    const override = await this.templates.findOverride("booking-declined", recipient.language);
     await this.sendAndLog(
       recipient,
       "booking-declined",
-      bookingDeclinedMessage(recipient, override)
+      bookingDeclinedMessage(recipient, recipient.language, override)
     );
   }
 
@@ -223,10 +253,16 @@ export class NotificationsService {
       this.logger.warn(`No training ${trainingId} render fields; skipping admin pending DM`);
       return;
     }
-    const text = bookingPendingAdminMessage(recipient, clientName);
     const replyMarkup = this.withAdminDeepLink(actionKeyboard, "/trainings", "Открыть в админке");
+    const vars = { ...buildTemplateVars(recipient), clientName: escapeHtml(clientName) };
     for (const adminId of adminIds) {
       try {
+        const locale = await this.resolveStaffLocale(adminId);
+        const override = await this.templates.findOverride("booking-pending-admin", locale);
+        const text = renderNotificationTemplate(
+          resolveTemplateBody("booking-pending-admin", locale, override),
+          vars
+        );
         await this.sender.sendMessage(adminId, text, replyMarkup);
       } catch (error) {
         this.logger.warn(
@@ -286,11 +322,15 @@ export class NotificationsService {
   async sendDueReminders(type: "reminder-24h" | "reminder-3h", now: Date): Promise<number> {
     const { start, end } = reminderWindow(type, now);
     const recipients = await this.repo.findDueReminders(type, start, end);
-    // Fetch the override once for the whole batch (tiny table; one read per scan).
-    const override = await this.templates.findOverride(type);
     let sent = 0;
     for (const recipient of recipients) {
-      const ok = await this.sendAndLog(recipient, type, reminderMessage(type, recipient, override));
+      // Override is locale-keyed, so resolve per recipient's language (tiny table).
+      const override = await this.templates.findOverride(type, recipient.language);
+      const ok = await this.sendAndLog(
+        recipient,
+        type,
+        reminderMessage(type, recipient, recipient.language, override)
+      );
       if (ok) {
         sent += 1;
       }
@@ -312,13 +352,16 @@ export class NotificationsService {
       clientIds,
       "training-cancelled"
     );
-    const override = await this.templates.findOverride("training-cancelled");
     let sent = 0;
     for (const recipient of recipients) {
+      const override = await this.templates.findOverride(
+        "training-cancelled",
+        recipient.language
+      );
       const ok = await this.sendAndLog(
         recipient,
         "training-cancelled",
-        trainingCancelledMessage(recipient, override)
+        trainingCancelledMessage(recipient, recipient.language, override)
       );
       if (ok) {
         sent += 1;
@@ -353,11 +396,11 @@ export class NotificationsService {
       this.logger.debug(`Client ${clientId} has no telegram_id; skipping waitlist-slot`);
       return false;
     }
-    const override = await this.templates.findOverride("waitlist-slot");
+    const override = await this.templates.findOverride("waitlist-slot", recipient.language);
     try {
       await this.sender.sendMessage(
         recipient.telegramId,
-        waitlistSlotMessage(recipient, windowMinutes, override),
+        waitlistSlotMessage(recipient, windowMinutes, recipient.language, override),
         replyMarkup
       );
       await this.repo.logSent({
@@ -393,11 +436,21 @@ export class NotificationsService {
     if (adminIds.length === 0) {
       return false;
     }
-    const text = individualRequestAdminMessage(client, trainer);
     const replyMarkup = this.adminDeepLinkMarkup("/trainings", "Открыть в админке");
+    // The client name is a clickable HTML mention/link; the trainer name is escaped.
+    const vars = {
+      clientName: clientMentionLink(client),
+      trainerName: escapeHtml(trainer.name)
+    };
     let delivered = false;
     for (const adminId of adminIds) {
       try {
+        const locale = await this.resolveStaffLocale(adminId);
+        const override = await this.templates.findOverride("individual-request-admin", locale);
+        const text = renderNotificationTemplate(
+          resolveTemplateBody("individual-request-admin", locale, override),
+          vars
+        );
         await this.sender.sendMessage(adminId, text, replyMarkup);
         delivered = true;
       } catch (error) {
@@ -436,16 +489,26 @@ export class NotificationsService {
       return;
     }
 
-    const text =
-      `🎾 Новая заявка на корт\n` +
-      `${input.clientName} (id ${input.clientTelegramId})\n` +
-      `${input.date}, ${input.startTime}–${input.endTime} (${input.durationHours} ч)\n` +
-      `Кортов: ${input.courtCount} · ${input.priceRsd} RSD`;
-
     const replyMarkup = this.adminDeepLinkMarkup("/court-requests", "Открыть заявку");
+    const vars = {
+      clientName: escapeHtml(input.clientName),
+      clientTelegramId: input.clientTelegramId,
+      date: input.date,
+      startTime: input.startTime,
+      endTime: input.endTime,
+      durationHours: input.durationHours,
+      courtCount: input.courtCount,
+      priceRsd: input.priceRsd
+    };
 
     for (const adminId of adminIds) {
       try {
+        const locale = await this.resolveStaffLocale(adminId);
+        const override = await this.templates.findOverride("court-request-created-admin", locale);
+        const text = renderNotificationTemplate(
+          resolveTemplateBody("court-request-created-admin", locale, override),
+          vars
+        );
         await this.sender.sendMessage(adminId, text, replyMarkup);
       } catch (error) {
         this.logger.warn(
