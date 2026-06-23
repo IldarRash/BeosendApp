@@ -56,7 +56,8 @@ const client: Client = {
   note: null,
   language: "ru",
   registeredAt: new Date().toISOString(),
-  status: "active"
+  status: "active",
+  bonusTrainingCredits: 0
 };
 
 function makeClients(overrides: Partial<ClientsRepository> = {}): ClientsRepository {

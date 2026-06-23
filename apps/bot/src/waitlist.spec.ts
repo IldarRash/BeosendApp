@@ -30,6 +30,7 @@ const entry: WaitlistEntry = {
   clientId: CLIENT_ID,
   trainingId: TRAINING_ID,
   position: 2,
+  groupSubscriptionId: null,
   status: "waiting",
   addedAt: "2026-06-03T10:00:00.000Z",
   notifiedAt: null

@@ -106,7 +106,8 @@ describe("clientSchema (bot-facing client record)", () => {
       note: null,
       language: "ru" as const,
       registeredAt: "2026-01-01T00:00:00.000Z",
-      status: "active" as const
+      status: "active" as const,
+      bonusTrainingCredits: 0
     };
     expect(clientSchema.parse(client)).toEqual(client);
   });
@@ -124,7 +125,8 @@ describe("clientSchema (bot-facing client record)", () => {
       note: null,
       language: "sr" as const,
       registeredAt: "2026-01-01T00:00:00.000Z",
-      status: "active" as const
+      status: "active" as const,
+      bonusTrainingCredits: 5
     };
     expect(clientSchema.parse(client)).toEqual(client);
   });
@@ -142,7 +144,8 @@ describe("clientSchema (bot-facing client record)", () => {
       note: "via Instagram",
       language: "ru" as const,
       registeredAt: "2026-01-01T00:00:00.000Z",
-      status: "active" as const
+      status: "active" as const,
+      bonusTrainingCredits: 0
     };
     expect(clientSchema.parse(client)).toEqual(client);
   });

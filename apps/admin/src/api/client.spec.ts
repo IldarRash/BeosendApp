@@ -416,7 +416,8 @@ describe("ApiClient error handling & clients", () => {
     note: null,
     language: "ru",
     registeredAt: "2026-01-01T00:00:00.000Z",
-    status: "active"
+    status: "active",
+    bonusTrainingCredits: 0
   };
 
   it("maps a 409 to a typed ConflictError carrying the server message", async () => {
@@ -654,7 +655,8 @@ describe("ApiClient walk-in & manual booking (Feature 5)", () => {
     note: null,
     language: "ru",
     registeredAt: "2026-01-01T00:00:00.000Z",
-    status: "active"
+    status: "active",
+    bonusTrainingCredits: 0
   };
 
   it("creates a walk-in client and validates the returned record", async () => {
@@ -689,7 +691,8 @@ describe("ApiClient walk-in & manual booking (Feature 5)", () => {
     const calls = mockFetchOnce(booking);
     const result = await new ApiClient("http://api.test").bookManual({
       clientId: walkIn.id,
-      trainingId: booking.trainingId
+      trainingId: booking.trainingId,
+      useBonusCredit: false
     });
     expect(calls[0]?.url).toBe("http://api.test/bookings/manual");
     expect(calls[0]?.init?.method).toBe("POST");
@@ -951,7 +954,8 @@ describe("ApiClient training delete & client edit", () => {
     note: "VIP",
     language: "ru",
     registeredAt: "2026-01-01T00:00:00.000Z",
-    status: "active"
+    status: "active",
+    bonusTrainingCredits: 2
   };
 
   it("DELETEs the training path and validates the returned {id}", async () => {
@@ -1015,5 +1019,172 @@ describe("ApiClient training delete & client edit", () => {
     await expect(
       new ApiClient("http://api.test").updateClient(CLIENT_ID, { name: "Аня" })
     ).rejects.toThrow();
+  });
+
+  it("posts a bonus-credits adjustment and validates the updated client", async () => {
+    const calls = mockFetchOnce({ ...client, bonusTrainingCredits: 5 });
+    const result = await new ApiClient("http://api.test").adjustBonusCredits(CLIENT_ID, {
+      delta: 3,
+      reason: "Компенсация за отменённую тренировку"
+    });
+    expect(calls[0]?.url).toBe(`http://api.test/clients/${CLIENT_ID}/bonus-credits`);
+    expect(calls[0]?.init?.method).toBe("POST");
+    expect(JSON.parse(calls[0]?.init?.body as string)).toEqual({
+      delta: 3,
+      reason: "Компенсация за отменённую тренировку"
+    });
+    expect(result.bonusTrainingCredits).toBe(5);
+  });
+
+  it("rejects a malformed bonus-credits response (unsafe path, contract enforced)", async () => {
+    // A negative balance violates the clientSchema (nonnegative) contract.
+    mockFetchOnce({ ...client, bonusTrainingCredits: -1 });
+    await expect(
+      new ApiClient("http://api.test").adjustBonusCredits(CLIENT_ID, { delta: -9 })
+    ).rejects.toThrow();
+  });
+
+  it("passes the optional useBonusCredit flag through a manual booking body", async () => {
+    const booking = {
+      id: "55555555-5555-4555-8555-555555555555",
+      clientId: CLIENT_ID,
+      trainingId: TRAINING_ID,
+      type: "single",
+      groupSubscriptionId: null,
+      createdAt: "2026-06-01T00:00:00.000Z",
+      status: "booked",
+      source: "admin",
+      paymentStatus: "paid",
+      paidAt: "2026-06-01T00:00:00.000Z",
+      paidBy: 42
+    };
+    const calls = mockFetchOnce(booking);
+    await new ApiClient("http://api.test").bookManual({
+      clientId: CLIENT_ID,
+      trainingId: TRAINING_ID,
+      useBonusCredit: true
+    });
+    expect(JSON.parse(calls[0]?.init?.body as string)).toEqual({
+      clientId: CLIENT_ID,
+      trainingId: TRAINING_ID,
+      useBonusCredit: true
+    });
+  });
+});
+
+describe("ApiClient waitlist admin tools", () => {
+  afterEach(() => {
+    vi.unstubAllGlobals();
+  });
+
+  const ENTRY_ID = "11111111-1111-4111-8111-111111111111";
+  const CLIENT_ID = "22222222-2222-4222-8222-222222222222";
+  const TRAINING_ID = "33333333-3333-4333-8333-333333333333";
+  const GROUP_ID = "44444444-4444-4444-4444-444444444444";
+  const SUB_ID = "55555555-5555-4555-8555-555555555555";
+  const BOOKING_ID = "66666666-6666-4666-8666-666666666666";
+
+  const entry = {
+    id: ENTRY_ID,
+    clientId: CLIENT_ID,
+    trainingId: TRAINING_ID,
+    position: 1,
+    groupSubscriptionId: SUB_ID,
+    status: "waiting",
+    addedAt: "2026-06-01T00:00:00.000Z",
+    notifiedAt: null
+  };
+
+  const adminItem = {
+    ...entry,
+    clientName: "Аня",
+    date: "2026-06-10",
+    startTime: "18:00",
+    endTime: "19:30",
+    trainingStatus: "full",
+    groupName: "Утренняя группа"
+  };
+
+  const booking = {
+    id: BOOKING_ID,
+    clientId: CLIENT_ID,
+    trainingId: TRAINING_ID,
+    type: "group",
+    groupSubscriptionId: SUB_ID,
+    createdAt: "2026-06-01T00:00:00.000Z",
+    status: "booked",
+    source: "admin",
+    paymentStatus: "unpaid",
+    paidAt: null,
+    paidBy: null
+  };
+
+  it("encodes the group waitlist query and validates the enriched rows", async () => {
+    const calls = mockFetchOnce([adminItem]);
+    const result = await new ApiClient("http://api.test").listGroupWaitlist({
+      groupId: GROUP_ID,
+      year: 2026,
+      month: 6
+    });
+    expect(calls[0]?.url).toBe(
+      `http://api.test/waitlist/group?groupId=${GROUP_ID}&year=2026&month=6`
+    );
+    expect(result[0].clientName).toBe("Аня");
+    expect(result[0].groupName).toBe("Утренняя группа");
+  });
+
+  it("rejects a malformed waitlist admin row (unsafe path — missing joined clientName)", async () => {
+    const { clientName: _omit, ...withoutName } = adminItem;
+    mockFetchOnce([withoutName]);
+    await expect(
+      new ApiClient("http://api.test").listGroupWaitlist({ groupId: GROUP_ID, year: 2026, month: 6 })
+    ).rejects.toThrow();
+  });
+
+  it("reads a training's waitlist and validates the rows", async () => {
+    const calls = mockFetchOnce([adminItem]);
+    const result = await new ApiClient("http://api.test").listTrainingWaitlist(TRAINING_ID);
+    expect(calls[0]?.url).toBe(`http://api.test/waitlist/training/${TRAINING_ID}`);
+    expect(result).toHaveLength(1);
+  });
+
+  it("promotes an entry and validates the returned booking", async () => {
+    const calls = mockFetchOnce(booking);
+    const result = await new ApiClient("http://api.test").promoteWaitlistEntry(ENTRY_ID);
+    expect(calls[0]?.url).toBe(`http://api.test/waitlist/${ENTRY_ID}/promote`);
+    expect(calls[0]?.init?.method).toBe("POST");
+    expect(JSON.parse(calls[0]?.init?.body as string)).toEqual({});
+    expect(result.id).toBe(BOOKING_ID);
+  });
+
+  it("maps a 409 from promote (training filled) to a typed ConflictError", async () => {
+    mockFetchOnce({ message: "Тренировка заполнена" }, false, 409);
+    await expect(
+      new ApiClient("http://api.test").promoteWaitlistEntry(ENTRY_ID)
+    ).rejects.toBeInstanceOf(ConflictError);
+  });
+
+  it("swaps an entry ahead of a booking and validates the result pair", async () => {
+    const calls = mockFetchOnce({ promoted: booking, displaced: entry });
+    const result = await new ApiClient("http://api.test").swapWaitlistEntry(ENTRY_ID, BOOKING_ID);
+    expect(calls[0]?.url).toBe(`http://api.test/waitlist/${ENTRY_ID}/swap`);
+    expect(JSON.parse(calls[0]?.init?.body as string)).toEqual({ replacesBookingId: BOOKING_ID });
+    expect(result.promoted.id).toBe(BOOKING_ID);
+    expect(result.displaced.id).toBe(ENTRY_ID);
+  });
+
+  it("rejects a malformed swap result (unsafe path — promoted not a booking)", async () => {
+    mockFetchOnce({ promoted: { id: BOOKING_ID }, displaced: entry });
+    await expect(
+      new ApiClient("http://api.test").swapWaitlistEntry(ENTRY_ID, BOOKING_ID)
+    ).rejects.toThrow();
+  });
+
+  it("removes an entry and validates the returned waitlist entry", async () => {
+    const calls = mockFetchOnce({ ...entry, status: "cancelled" });
+    const result = await new ApiClient("http://api.test").removeWaitlistEntry(ENTRY_ID);
+    expect(calls[0]?.url).toBe(`http://api.test/waitlist/${ENTRY_ID}/remove`);
+    expect(calls[0]?.init?.method).toBe("POST");
+    expect(result.status).toBe("cancelled");
   });
 });

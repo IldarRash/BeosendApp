@@ -20,7 +20,13 @@ export const clientSchema = z.object({
   /** Per-user UI locale for the bot; defaults to "ru" server-side. */
   language: localeSchema,
   registeredAt: z.string().datetime(),
-  status: entityStatus
+  status: entityStatus,
+  /**
+   * Admin-honoured bonus-training balance: granted when a monthly subscription
+   * waitlists a date, redeemed by an admin. Server-managed (never accepted on
+   * create/update).
+   */
+  bonusTrainingCredits: z.number().int().nonnegative()
 });
 export const onboardClientSchema = z.object({
   telegramId: z.number().int(),

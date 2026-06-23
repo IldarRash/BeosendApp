@@ -134,6 +134,9 @@ export const botSr: Record<string, string> = {
   "bot.group.confirmButton": "✅ Potvrdi prijavu",
   "bot.group.successTitle": "✅ Prijavljeni ste u grupu za ceo mesec!",
   "bot.group.successBooked": "Prijavljeno treninga: {count}",
+  "bot.group.successWaitlisted":
+    "Na listi čekanja ste za {count} dan(a) — javićemo čim se oslobodi mesto.",
+  "bot.group.successBonus": "Dodeljeno bonus treninga: {count}.",
   "bot.group.successSkippedHeader": "Nije bilo moguće prijaviti (nema mesta):",
   "bot.group.successReminder": "Poslaćemo podsetnik pre svakog treninga.",
   "bot.group.notFound": "Ova grupa više nije dostupna. Izaberite drugu sa liste.",

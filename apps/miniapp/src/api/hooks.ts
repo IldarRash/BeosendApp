@@ -24,6 +24,7 @@ import type {
   OnboardClientInput,
   SlotCard,
   Trainer,
+  WaitlistAdminItem,
   WaitlistEntry
 } from "@beosand/types";
 import type { Locale } from "@beosand/i18n";
@@ -266,6 +267,28 @@ export function useMyBookings(scope: MyBookingScope): UseQueryResult<MyBookingIt
     queryKey: myBookingsQueryKey(clientId ?? "", scope),
     enabled: clientId != null,
     queryFn: () => apiClient.listMyBookings(clientId!, scope)
+  });
+}
+
+/** The query key for the caller's own active waitlist entries, keyed by clientId. */
+export function myWaitlistQueryKey(clientId: string): readonly [string, string] {
+  return ["my-waitlist", clientId] as const;
+}
+
+/**
+ * The caller's own active waitlist entries (GET /waitlist/mine) — the dates they are
+ * queued on, each with its server-assigned position. Mirrors {@link useMyBookings}:
+ * the server resolves the requester from the verified session and returns only their
+ * own entries (no identity in the call). Keyed by the resolved clientId so it caches
+ * per user and is disabled until the client resolves. The Mini App does no queue math.
+ */
+export function useMyWaitlist(): UseQueryResult<WaitlistAdminItem[]> {
+  const apiClient = useApiClient();
+  const clientId = useResolvedClientId();
+  return useQuery<WaitlistAdminItem[]>({
+    queryKey: myWaitlistQueryKey(clientId ?? ""),
+    enabled: clientId != null,
+    queryFn: () => apiClient.getMyWaitlist()
   });
 }
 

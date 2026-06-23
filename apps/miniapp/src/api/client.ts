@@ -22,6 +22,7 @@ import {
   previewCourtRequestSchema,
   slotCardSchema,
   trainerSchema,
+  waitlistAdminItemSchema,
   waitlistEntrySchema,
   type AvailableSlotsQuery,
   type Booking,
@@ -47,6 +48,7 @@ import {
   type OnboardClientInput,
   type SlotCard,
   type Trainer,
+  type WaitlistAdminItem,
   type WaitlistEntry
 } from "@beosand/types";
 import type { Locale } from "@beosand/i18n";
@@ -56,6 +58,7 @@ const slotCardsSchema = z.array(slotCardSchema);
 const trainersSchema = z.array(trainerSchema);
 const myBookingItemsSchema = z.array(myBookingItemSchema);
 const myCourtRequestItemsSchema = z.array(myCourtRequestItemSchema);
+const myWaitlistItemsSchema = z.array(waitlistAdminItemSchema);
 const groupsSchema = z.array(groupSchema);
 
 /**
@@ -348,6 +351,18 @@ export class MiniappApiClient {
   listMyBookings(clientId: string, scope: MyBookingScope): Promise<MyBookingItem[]> {
     const qs = new URLSearchParams({ clientId, scope }).toString();
     return this.request(`/bookings/mine?${qs}`, myBookingItemsSchema);
+  }
+
+  /**
+   * The caller's own active waitlist entries (GET /waitlist/mine) — the `waiting`
+   * and `notified` dates they are queued on, each with its server-assigned position.
+   * Identity is resolved server-side from the verified session exactly like
+   * {@link listMyBookings} (no clientId in the call). The response is validated against
+   * the shared {@link waitlistAdminItemSchema} array contract before render; the joined
+   * date/time/group fields are display-only and the Mini App does no queue math.
+   */
+  getMyWaitlist(): Promise<WaitlistAdminItem[]> {
+    return this.request("/waitlist/mine", myWaitlistItemsSchema);
   }
 
   /**

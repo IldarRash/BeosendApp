@@ -255,6 +255,7 @@ const waitlistEntry = {
   clientId: CLIENT_ID,
   trainingId: TRAINING_ID,
   position: 2,
+  groupSubscriptionId: null,
   status: "waiting" as const,
   addedAt: "2026-06-03T10:00:00.000Z",
   notifiedAt: null
@@ -471,7 +472,8 @@ const clientBody = {
   source: "telegram" as const,
   phone: null,
   email: null,
-  note: null
+  note: null,
+  bonusTrainingCredits: 0
 };
 
 describe("ApiClient.requestIndividualSession", () => {

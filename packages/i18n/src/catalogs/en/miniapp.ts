@@ -47,6 +47,8 @@ export const miniappEn: Record<string, string> = {
   "miniapp.profile.level": "Level",
   "miniapp.profile.levelNone": "Not set",
   "miniapp.profile.language": "Interface language",
+  "miniapp.profile.bonusCredits": "Bonus trainings",
+  "miniapp.profile.bonusCreditsValue": "Bonus trainings: {count}",
 
   // --- Common states ---
   "miniapp.common.loading": "Loading…",
@@ -156,6 +158,8 @@ export const miniappEn: Record<string, string> = {
   "miniapp.myBookings.cancelConflict":
     "Couldn't cancel the booking. It may already be cancelled or no longer cancellable.",
   "miniapp.myBookings.errorBody": "Couldn't load your bookings. Please try again.",
+  "miniapp.myBookings.waitlistTitle": "On the waitlist",
+  "miniapp.myBookings.waitlistPosition": "queued, position {position}",
 
   // --- Group monthly subscription (S7) ---
   "miniapp.group.listTitle": "Groups",
@@ -176,6 +180,8 @@ export const miniappEn: Record<string, string> = {
   "miniapp.group.createdCount": "You're booked for {count} trainings",
   "miniapp.group.pendingTitle": "Request sent",
   "miniapp.group.pendingCount": "Awaiting confirmation for {count} trainings",
+  "miniapp.group.waitlistedHeader": "Queued: {count}",
+  "miniapp.group.waitlistedNote": "The month is paid. These dates were full — you're queued, we'll notify you.",
   "miniapp.group.skippedHeader": "Skipped dates (no seats)",
   "miniapp.group.toMyBookings": "My bookings",
   "miniapp.group.toHome": "Home",

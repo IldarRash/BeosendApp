@@ -292,7 +292,8 @@ describe("GroupsService.listMembers (group monthly roster)", () => {
     note: null,
     language: "ru",
     registeredAt: new Date().toISOString(),
-    status: "active"
+    status: "active",
+    bonusTrainingCredits: 0
   });
 
   let repo: FakeGroupsRepository;

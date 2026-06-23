@@ -166,6 +166,7 @@ describe("renderSuccessText", () => {
   const base: GroupBookingResult = {
     groupSubscriptionId: "44444444-4444-4444-4444-444444444444",
     created: [],
+    waitlisted: [],
     skipped: []
   };
 
@@ -189,6 +190,26 @@ describe("renderSuccessText", () => {
     expect(text).toContain("Записано тренировок: 1");
     expect(text).toContain("2026-06-10");
     expect(text).toContain("2026-06-17");
+  });
+
+  it("reports waitlisted days and the bonus-credit grant, omitted when none", () => {
+    const result: GroupBookingResult = {
+      ...base,
+      created: [{} as never],
+      waitlisted: [
+        { date: "2026-06-10", position: 1 },
+        { date: "2026-06-17", position: 2 }
+      ]
+    };
+    const text = renderSuccessText(ru, result);
+    expect(text).toContain("Записано тренировок: 1");
+    // Both the waitlist line and the bonus line carry the queued-day count (2).
+    expect(text).toContain("листе ожидания на 2");
+    expect(text).toContain("бонусных тренировок: 2");
+
+    const none = renderSuccessText(ru, { ...base, created: [{} as never] });
+    expect(none).not.toContain("листе ожидания");
+    expect(none).not.toContain("бонусных тренировок");
   });
 });
 

@@ -140,6 +140,9 @@ export const botRu: Record<string, string> = {
   "bot.group.confirmButton": "✅ Подтвердить запись",
   "bot.group.successTitle": "✅ Вы записаны в группу на месяц!",
   "bot.group.successBooked": "Записано тренировок: {count}",
+  "bot.group.successWaitlisted":
+    "Вы в листе ожидания на {count} дн. — сообщим, как только освободится место.",
+  "bot.group.successBonus": "Начислено бонусных тренировок: {count}.",
   "bot.group.successSkippedHeader": "Не удалось записать (нет мест):",
   "bot.group.successReminder": "Мы пришлём напоминание перед каждой тренировкой.",
   "bot.group.notFound": "Эта группа больше недоступна. Выберите другую из списка.",

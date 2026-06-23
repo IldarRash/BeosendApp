@@ -325,6 +325,17 @@ export const createSingleBookingSchema = z
   })
   .strict();
 export type CreateSingleBookingInput = z.infer<typeof createSingleBookingSchema>;
+
+/**
+ * Body for POST /bookings/manual (admin/trainer): the single-booking fields plus
+ * an opt-in to redeem one of the client's bonus-training credits for this seat.
+ * Bonus redemption is admin-only, so the flag lives here and never on the
+ * client-facing /single schema. Strict.
+ */
+export const createManualBookingSchema = createSingleBookingSchema.extend({
+  useBonusCredit: z.boolean().optional().default(false)
+});
+export type CreateManualBookingInput = z.infer<typeof createManualBookingSchema>;
 export const createGroupBookingSchema = z
   .object({
     clientId: uuid,
@@ -336,13 +347,16 @@ export const createGroupBookingSchema = z
 export type CreateGroupBookingInput = z.infer<typeof createGroupBookingSchema>;
 
 /**
- * Result of a monthly group booking (T1.9): the shared subscription id, the
- * bookings created (one per bookable training instance), and the dates skipped
- * because the training had no free seat (full) — reported, never fatal.
+ * Result of a monthly group booking (T1.9): the shared subscription id and a
+ * per-date breakdown. `created` = dates booked (one booking per bookable training
+ * instance); `waitlisted` = full dates the client was queued on (each with its
+ * queue position); `skipped` = dates truly passed over (cancelled / completed /
+ * already booked). All reported, never fatal.
  */
 export const groupBookingResultSchema = z.object({
   groupSubscriptionId: uuid,
   created: z.array(bookingSchema),
+  waitlisted: z.array(z.object({ date: dateString, position: z.number().int() })),
   skipped: z.array(dateString)
 });
 export type GroupBookingResult = z.infer<typeof groupBookingResultSchema>;
@@ -602,7 +616,16 @@ export const waitlistEntrySchema = z.object({
   id: uuid,
   clientId: uuid,
   trainingId: uuid,
-  position: z.number().int().positive(),
+  /**
+   * Internal ordering, not a 1-based rank: a swap can place a client ahead of the
+   * head, so positions may be zero or negative. Required, lowest = next in line.
+   */
+  position: z.number().int(),
+  /**
+   * Links a queue entry created by a monthly subscription so promotion rebooks it
+   * as a `group` booking; null for a plain single-training waitlist.
+   */
+  groupSubscriptionId: uuid.nullable(),
   status: waitlistStatus,
   addedAt: z.string().datetime(),
   /** When the confirmation window opened (the entry became `notified`); null until then. */
@@ -618,6 +641,82 @@ export const createWaitlistEntrySchema = z
   })
   .strict();
 export type CreateWaitlistInput = z.infer<typeof createWaitlistEntrySchema>;
+
+// --- Waitlist admin tools (subscription waitlisting + bonus credits) ---
+
+/**
+ * A waitlist entry enriched with the read-only joined fields the admin console
+ * renders: the client's name and the training's date/time, status, and group
+ * name. The joined fields are display-only and never accepted on a write.
+ */
+export const waitlistAdminItemSchema = waitlistEntrySchema.extend({
+  clientName: z.string(),
+  date: dateString,
+  startTime: timeString,
+  endTime: timeString,
+  trainingStatus,
+  groupName: z.string().nullable()
+});
+export type WaitlistAdminItem = z.infer<typeof waitlistAdminItemSchema>;
+
+/**
+ * Query for the admin "group waitlist for a month" view. Reuses the year/month
+ * primitives of createGroupBookingSchema so the window can't drift. Strict.
+ */
+export const groupWaitlistQuerySchema = z
+  .object({
+    groupId: uuid,
+    year: z.number().int().min(2024),
+    month: z.number().int().min(1).max(12)
+  })
+  .strict();
+export type GroupWaitlistQuery = z.infer<typeof groupWaitlistQuerySchema>;
+
+/**
+ * Body for swapping a waitlist entry ahead of an existing booking (admin): the
+ * entry id is the path param, the body names the booking it replaces. Strict.
+ */
+export const swapWaitlistEntrySchema = z.object({ replacesBookingId: uuid }).strict();
+export type SwapWaitlistEntryInput = z.infer<typeof swapWaitlistEntrySchema>;
+
+/**
+ * Body for promoting a waitlist entry to a booking (admin): the entry id is the
+ * path param, so an empty strict body (mirrors confirmBookingSchema).
+ */
+export const promoteWaitlistEntrySchema = z.object({}).strict();
+export type PromoteWaitlistEntryInput = z.infer<typeof promoteWaitlistEntrySchema>;
+
+/**
+ * Body for removing (cancelling) a waitlist entry (admin): the entry id is the
+ * path param, so an empty strict body. Kept distinct from
+ * promoteWaitlistEntrySchema so the two endpoints stay decoupled even though both
+ * bodies are currently empty.
+ */
+export const removeWaitlistEntrySchema = z.object({}).strict();
+export type RemoveWaitlistEntryInput = z.infer<typeof removeWaitlistEntrySchema>;
+
+/**
+ * Result of a swap: the booking the promoted entry became and the booking's
+ * former holder pushed back onto the waitlist.
+ */
+export const swapWaitlistResultSchema = z.object({
+  promoted: bookingSchema,
+  displaced: waitlistEntrySchema
+});
+export type SwapWaitlistResult = z.infer<typeof swapWaitlistResultSchema>;
+
+/**
+ * Body for adjusting a client's bonus-training balance (admin): a signed delta
+ * (credit or debit) with an optional reason for the audit trail. The result is
+ * the updated clientSchema. Strict.
+ */
+export const adjustBonusCreditsSchema = z
+  .object({
+    delta: z.number().int(),
+    reason: z.string().max(200).optional()
+  })
+  .strict();
+export type AdjustBonusCreditsInput = z.infer<typeof adjustBonusCreditsSchema>;
 
 // --- Broadcasts (section 12) ---
 export const broadcastType = z.enum(["today", "tomorrow", "week", "freed-up"]);

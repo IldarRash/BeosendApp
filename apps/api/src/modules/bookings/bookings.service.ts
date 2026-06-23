@@ -12,6 +12,7 @@ import type { Env } from "@beosand/config";
 import { adminTelegramIds, isAdmin } from "@beosand/config";
 import type {
   Booking,
+  CreateManualBookingInput,
   GroupBookingResult,
   MarkAttendanceInput,
   MyBookingItem,
@@ -44,6 +45,17 @@ import { BookingsRepository, type TrainingLockRow } from "./bookings.repository"
 interface CreateSingleInput {
   clientId: string;
   trainingId: string;
+}
+
+/**
+ * Payment stamp for a comped seat (a redeemed bonus credit): the booking is marked
+ * paid with the redemption time and the acting admin, mirroring the subscription
+ * mark-paid stamp. Absent ⇒ the booking is left unpaid (the default).
+ */
+interface BookingPayment {
+  paymentStatus: "paid";
+  paidAt: Date;
+  paidBy: number;
 }
 
 interface CreateGroupInput {
@@ -139,8 +151,15 @@ export class BookingsService {
    * - source = "walk_in" when the booked client has no telegram_id, else "admin".
    * - A walk-in (no telegram_id) is never sent a Telegram DM: the post-commit
    *   confirmation is skipped entirely for it (and tolerated for everyone).
+   * - Bonus redemption (`useBonusCredit`) is ADMIN-ONLY: a trainer may book manually
+   *   but may not redeem a client's bonus credit. When set, IN THE SAME transaction as
+   *   the seat write the caller must be an admin (else a typed 403) and the client must
+   *   have a positive bonus balance (else a typed 400 and nothing is written); the
+   *   balance is decremented by exactly 1 (the >0 guard keeps it non-negative), and the
+   *   booking is stamped paid/now/actor (a comped seat — mirrors the subscription
+   *   mark-paid stamp). When the flag is absent the booking is unpaid, exactly as before.
    */
-  async createManual(actorTelegramId: number, input: CreateSingleInput): Promise<Booking> {
+  async createManual(actorTelegramId: number, input: CreateManualBookingInput): Promise<Booking> {
     // Captured inside the tx (after authorization) for the post-commit notification
     // decision, so an unauthorized caller can't use this endpoint as a client oracle.
     let recipientTelegramId: number | null = null;
@@ -164,6 +183,25 @@ export class BookingsService {
       // source = "walk_in" when the booked client has no telegram_id, else "admin".
       source = client.telegramId === null ? "walk_in" : "admin";
 
+      // Redeem one bonus credit (admin-only opt-in): inside this tx, require admin
+      // (a trainer-of-the-training may book manually but may NOT redeem a client's
+      // bonus credit — the contract reserves redemption for admins), then require a
+      // positive balance, decrement by 1, and comp the seat (paid/now/actor). Every
+      // guard runs BEFORE any seat write, so a forbidden or no-credits redemption
+      // throws and rolls back the whole tx — no seat consumed, no negative balance.
+      // addBonusCredits is the same atomic +/- used to grant credits, here with -1.
+      let payment: BookingPayment | undefined;
+      if (input.useBonusCredit) {
+        if (!isAdmin(this.env, actorTelegramId)) {
+          throw new ForbiddenException("Only an admin may redeem bonus credits");
+        }
+        if (client.bonusTrainingCredits <= 0) {
+          throw new BadRequestException("Client has no bonus credits");
+        }
+        await this.clients.addBonusCredits(tx, input.clientId, -1);
+        payment = { paymentStatus: "paid", paidAt: new Date(), paidBy: actorTelegramId };
+      }
+
       // Auto-confirm ('booked'): an admin/trainer booking from the console is the
       // decision itself — there is no separate confirmation step to wait on.
       return this.bookSeat(tx, {
@@ -171,7 +209,8 @@ export class BookingsService {
         training,
         type: "single",
         source,
-        status: "booked"
+        status: "booked",
+        payment
       });
     });
 
@@ -204,6 +243,10 @@ export class BookingsService {
    * confirmation, 'booked' for an auto-confirmed path (manual/walk-in/no-admin-
    * configured). EITHER status holds a seat: bookedCount is incremented identically,
    * so recompute / free-seats / open⇔full are unchanged by the pending hold.
+   *
+   * `payment` (optional) comps the inserted booking (paid/now/actor) for a redeemed
+   * bonus credit; absent ⇒ the booking is unpaid (the column default). Payment never
+   * affects the seat math.
    */
   private async bookSeat(
     tx: Database,
@@ -213,9 +256,10 @@ export class BookingsService {
       type: "single" | "group";
       source: BookingSource;
       status: "booked" | "pending";
+      payment?: BookingPayment;
     }
   ): Promise<Booking> {
-    const { clientId, training, type, source, status } = params;
+    const { clientId, training, type, source, status, payment } = params;
 
     if (
       !isBookable({
@@ -239,7 +283,10 @@ export class BookingsService {
       type,
       groupSubscriptionId: null,
       status,
-      source
+      source,
+      // Comp the seat when a bonus credit was redeemed; otherwise let the column
+      // default (unpaid) stand — never pass paid fields the redemption didn't set.
+      ...(payment ?? {})
     });
 
     const newCount = training.bookedCount + 1;
@@ -302,14 +349,17 @@ export class BookingsService {
     const batchStatus: "booked" | "pending" = adminIds.length > 0 ? "pending" : "booked";
 
     const result = await this.bookings.transaction(async (tx) => {
-      const { created, skipped, trainingCount } = await this.bookGroupMonth(tx, {
+      const { created, waitlisted, skipped, trainingCount } = await this.bookGroupMonth(tx, {
         clientId: input.clientId,
         groupId: input.groupId,
         fromClamped,
         to,
         groupSubscriptionId,
         status: batchStatus,
-        source: "telegram"
+        source: "telegram",
+        // A monthly subscription always succeeds: full dates are waitlisted + a
+        // bonus credit granted, never silently dropped.
+        waitlistFullDates: true
       });
 
       if (trainingCount === 0) {
@@ -319,12 +369,13 @@ export class BookingsService {
         );
       }
 
-      return { groupSubscriptionId, created: created.map((c) => c.booking), skipped };
+      return { groupSubscriptionId, created: created.map((c) => c.booking), waitlisted, skipped };
     });
 
     this.logger.log(
       `Group booking ${groupSubscriptionId} for client ${input.clientId} on group ${input.groupId} ` +
-        `${input.year}-${input.month}: ${result.created.length} created, ${result.skipped.length} skipped`
+        `${input.year}-${input.month}: ${result.created.length} created, ` +
+        `${result.waitlisted.length} waitlisted, ${result.skipped.length} skipped`
     );
 
     const createdTrainingIds = result.created.map((booking) => booking.trainingId);
@@ -363,11 +414,20 @@ export class BookingsService {
    * Book a client onto every bookable instance of a group's month inside the
    * caller's transaction, linking each to `groupSubscriptionId`. Shared by the
    * client monthly booking (createGroupBooking) and the admin transfer
-   * (transferGroup). Re-locks the month's trainings FOR UPDATE; a non-bookable
-   * instance and a per-client duplicate active booking are SKIPPED (recorded by
-   * date), not fatal, and bookedCount/status are recomputed per instance so the
-   * batch can never oversell. No money math. `created` carries each booking with
-   * the date of its instance for date-keyed reporting.
+   * (transferGroup). Re-locks the month's trainings FOR UPDATE; bookedCount/status
+   * are recomputed per instance so the batch can never oversell. No money math.
+   * `created` carries each booking with the date of its instance for date-keyed
+   * reporting. A monthly subscription must ALWAYS succeed, so a date that can't be
+   * booked is never silently lost — each non-bookable instance is classified:
+   * - FULL (open with no free seats, or already `full`): the client is appended to
+   *   that training's waitlist linked to `groupSubscriptionId` (so promotion later
+   *   rebooks it as a `group` booking) and the date is recorded in `waitlisted`. A
+   *   client who already holds an active waitlist entry, or an active booking, on
+   *   the instance is NOT re-queued (recorded in `skipped`) so a re-run is safe.
+   * - cancelled/completed: nothing to offer — the date goes to `skipped`.
+   * The seat counters of a full instance are untouched (waitlisting holds no seat).
+   * The caller grants +1 bonus-training credit per `waitlisted` date (the school's
+   * make-good for a month it couldn't fully honour).
    */
   private async bookGroupMonth(
     tx: Database,
@@ -382,9 +442,17 @@ export class BookingsService {
        *  is final (auto-confirm or the admin transfer). The seat is held either way. */
       status: "booked" | "pending";
       source: BookingSource;
+      /**
+       * When true (the client monthly subscription), a full date queues the client
+       * on the waitlist (linked to the subscription) and grants a bonus credit, so
+       * the subscription always succeeds. When false (the admin transfer), a full
+       * target date is simply `skipped` — a move never queues or grants credit.
+       */
+      waitlistFullDates: boolean;
     }
   ): Promise<{
     created: Array<{ booking: Booking; date: string }>;
+    waitlisted: Array<{ date: string; position: number }>;
     skipped: string[];
     trainingCount: number;
   }> {
@@ -398,6 +466,7 @@ export class BookingsService {
     );
 
     const created: Array<{ booking: Booking; date: string }> = [];
+    const waitlisted: Array<{ date: string; position: number }> = [];
     const skipped: string[] = [];
 
     for (const training of trainings) {
@@ -406,8 +475,41 @@ export class BookingsService {
         bookedCount: training.bookedCount,
         status: training.status
       });
+
       if (!bookable) {
-        skipped.push(training.date);
+        // A cancelled/completed instance, or the transfer path (waitlistFullDates
+        // false), has nothing to offer — record the date as skipped.
+        if (
+          !params.waitlistFullDates ||
+          training.status === "cancelled" ||
+          training.status === "completed"
+        ) {
+          skipped.push(training.date);
+          continue;
+        }
+        // The instance is FULL. An existing active booking means the client is
+        // already on this date (e.g. a prior single booking) — skip, don't queue.
+        const bookedAlready = await this.bookings.findActiveBookingForClient(
+          tx,
+          clientId,
+          training.id
+        );
+        if (bookedAlready) {
+          skipped.push(training.date);
+          continue;
+        }
+        // Queue the client on the full date, linked to the subscription. A return
+        // of undefined means an active waitlist entry already exists (re-run) — skip.
+        const entry = await this.waitlist.appendSubscriptionEntry(tx, {
+          clientId,
+          trainingId: training.id,
+          groupSubscriptionId
+        });
+        if (entry) {
+          waitlisted.push({ date: training.date, position: entry.position });
+        } else {
+          skipped.push(training.date);
+        }
         continue;
       }
 
@@ -438,7 +540,13 @@ export class BookingsService {
       created.push({ booking, date: training.date });
     }
 
-    return { created, skipped, trainingCount: trainings.length };
+    // Grant the bonus-training make-good once: +1 credit per waitlisted date, in
+    // the same transaction so the credits and the queue entries commit together.
+    if (waitlisted.length > 0) {
+      await this.clients.addBonusCredits(tx, clientId, waitlisted.length);
+    }
+
+    return { created, waitlisted, skipped, trainingCount: trainings.length };
   }
 
   /**
@@ -507,6 +615,16 @@ export class BookingsService {
         cancelledDates.push(row.date);
       }
 
+      // 1b) Also cancel the client's active waitlist entries on the SOURCE group's
+      //     trainings for the month — a full source date may have queued them, and a
+      //     move must never strand them on the old group's queue. Same tx + clamp.
+      await this.waitlist.cancelClientGroupEntriesForMonth(tx, {
+        clientId: input.clientId,
+        groupId: input.fromGroupId,
+        from: fromClamped,
+        to: monthLast
+      });
+
       // 2) Re-book onto the target group.
       const { created, skipped } = await this.bookGroupMonth(tx, {
         clientId: input.clientId,
@@ -516,7 +634,9 @@ export class BookingsService {
         groupSubscriptionId,
         // Admin-initiated move: seats are final, no trainer confirmation step.
         status: "booked",
-        source: "admin"
+        source: "admin",
+        // A move never queues or grants credit: a full target date is just skipped.
+        waitlistFullDates: false
       });
 
       // 3) All-or-nothing: a target with no bookable future training rolls back
@@ -855,6 +975,7 @@ export class BookingsService {
     return groupBookingResultSchema.parse({
       groupSubscriptionId,
       created: [],
+      waitlisted: [],
       skipped: []
     });
   }
@@ -919,6 +1040,7 @@ export class BookingsService {
     return groupBookingResultSchema.parse({
       groupSubscriptionId,
       created: [],
+      waitlisted: [],
       skipped: []
     });
   }

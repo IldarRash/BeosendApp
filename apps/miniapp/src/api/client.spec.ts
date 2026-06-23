@@ -36,7 +36,8 @@ const CLIENT: Client = {
   note: null,
   language: "ru",
   registeredAt: "2026-06-05T10:00:00.000Z",
-  status: "active"
+  status: "active",
+  bonusTrainingCredits: 0
 };
 
 /** A fetch Response stub good enough for the client's status/json handling. */
@@ -446,6 +447,7 @@ const WAITLIST_ENTRY: WaitlistEntry = {
   clientId: CLIENT.id,
   trainingId: SLOT.trainingId,
   position: 2,
+  groupSubscriptionId: null,
   status: "waiting",
   addedAt: "2026-06-05T10:00:00.000Z",
   notifiedAt: null
@@ -474,10 +476,11 @@ describe("MiniappApiClient.joinWaitlist", () => {
   });
 
   it("rejects a malformed waitlist entry via the contract (unsafe path)", async () => {
-    // `position` must be a positive integer; a zero/negative value is rejected, not rendered.
+    // `position` is an integer (zero/negative are valid orderings); a non-integer is
+    // malformed and must be rejected by the contract, not rendered.
     vi.stubGlobal(
       "fetch",
-      vi.fn().mockResolvedValue(jsonResponse(200, { ...WAITLIST_ENTRY, position: 0 }))
+      vi.fn().mockResolvedValue(jsonResponse(200, { ...WAITLIST_ENTRY, position: 1.5 }))
     );
     const client = new MiniappApiClient(BASE);
 
@@ -717,6 +720,7 @@ const GROUP_BOOKING_RESULT: GroupBookingResult = {
     { ...BOOKING, id: "aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa", type: "group" },
     { ...BOOKING, id: "bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb", type: "group" }
   ],
+  waitlisted: [],
   skipped: ["2026-07-15"]
 };
 

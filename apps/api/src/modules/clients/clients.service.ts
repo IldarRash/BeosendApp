@@ -9,6 +9,7 @@ import {
 import type { Env } from "@beosand/config";
 import { isAdmin } from "@beosand/config";
 import type {
+  AdjustBonusCreditsInput,
   Client,
   CreateWalkInInput,
   ListClientsQuery,
@@ -189,6 +190,34 @@ export class ClientsService {
       throw new NotFoundException(`Client ${id} not found`);
     }
     this.logger.log(`Updated client ${id}`);
+    return updated;
+  }
+
+  /**
+   * Admin-only: adjust a client's bonus-training balance by a signed delta (a
+   * manual credit or debit). The new balance is floored at zero — a negative delta
+   * can never drive it below 0 — and the clamp is applied atomically in a single
+   * `GREATEST(0, col + delta)` write, so concurrent adjustments cannot lose an
+   * update. The signed delta is taken as-is from the contract; nothing about the
+   * amount is trusted from a client-supplied total. The adjustment is logged
+   * (actor, client, delta, reason) for the audit trail. Returns the refreshed client.
+   */
+  async adjustBonusCredits(
+    actorTelegramId: number,
+    clientId: string,
+    input: AdjustBonusCreditsInput
+  ): Promise<Client> {
+    this.assertAdmin(actorTelegramId);
+
+    const updated = await this.clients.adjustBonusCredits(clientId, input.delta);
+    if (!updated) {
+      throw new NotFoundException(`Client ${clientId} not found`);
+    }
+    this.logger.log(
+      `Admin ${actorTelegramId} adjusted bonus credits of client ${clientId} by ${input.delta} ` +
+        `(new balance ${updated.bonusTrainingCredits})` +
+        (input.reason ? `: ${input.reason}` : "")
+    );
     return updated;
   }
 

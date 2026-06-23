@@ -11,6 +11,7 @@ import {
 } from "@nestjs/common";
 import {
   type Client,
+  adjustBonusCreditsSchema,
   clientSchema,
   createWalkInSchema,
   listClientsQuerySchema,
@@ -97,6 +98,26 @@ export class ClientsController {
     const target = parseParamTelegramId(telegramId);
     const { language } = validate(setLanguageSchema, body ?? {});
     const client = await this.clients.setLanguage(actorTelegramId, target, language);
+    return validate(clientSchema, client);
+  }
+
+  /**
+   * Admin: adjust a client's bonus-training balance by a signed delta (manual
+   * credit/debit). The two-segment `:id/bonus-credits` does not collide with the
+   * single-segment `:id` PATCH or the literal POST routes (walk-in/onboard). The
+   * service enforces the admin gate, floors the balance at zero, and logs the
+   * change; the refreshed client is validated before return.
+   */
+  @Post(":id/bonus-credits")
+  async adjustBonusCredits(
+    @Headers("x-telegram-id") telegramIdHeader: string | undefined,
+    @Param("id") id: string,
+    @Body() body: unknown
+  ): Promise<Client> {
+    const actorTelegramId = parseTelegramId(telegramIdHeader);
+    const clientId = validate(uuid, id);
+    const input = validate(adjustBonusCreditsSchema, body ?? {});
+    const client = await this.clients.adjustBonusCredits(actorTelegramId, clientId, input);
     return validate(clientSchema, client);
   }
 

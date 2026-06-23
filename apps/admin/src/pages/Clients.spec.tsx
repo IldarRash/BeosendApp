@@ -21,10 +21,13 @@ const onboardMutate = vi.fn();
 const useOnboardClient = vi.fn();
 const updateMutate = vi.fn();
 const useUpdateClient = vi.fn();
+const bonusMutate = vi.fn();
+const useAdjustBonusCredits = vi.fn();
 vi.mock("../hooks/useClients", () => ({
   useClientsList: (filters: unknown) => useClientsList(filters),
   useOnboardClient: () => useOnboardClient(),
-  useUpdateClient: () => useUpdateClient()
+  useUpdateClient: () => useUpdateClient(),
+  useAdjustBonusCredits: () => useAdjustBonusCredits()
 }));
 
 const useLevels = vi.fn();
@@ -58,7 +61,8 @@ const anya: Client = {
   note: null,
   registeredAt: "2026-01-01T00:00:00.000Z",
   status: "active",
-  language: "ru"
+  language: "ru",
+  bonusTrainingCredits: 2
 };
 
 const listQuery = (data: Client[]) => ({ isPending: false, isError: false, error: null, data });
@@ -79,10 +83,12 @@ beforeEach(() => {
   notify.mockReset();
   onboardMutate.mockReset();
   updateMutate.mockReset();
+  bonusMutate.mockReset();
   useClientsList.mockReset();
   useClientsList.mockReturnValue(listQuery([]));
   useOnboardClient.mockReturnValue({ mutate: onboardMutate, isPending: false, error: null });
   useUpdateClient.mockReturnValue(idleUpdate());
+  useAdjustBonusCredits.mockReturnValue(idleUpdate({ mutate: bonusMutate }));
   useLevels.mockReturnValue({ isLoading: false, isError: false, data: sampleLevels });
 });
 
@@ -206,5 +212,48 @@ describe("Clients page", () => {
     expect((args as { id: string }).id).toBe(anya.id);
     expect((args as { input: { name: string } }).input.name).toBe("Аня П.");
     expect(notify).toHaveBeenCalledWith(expect.stringContaining("Аня"), "success");
+  });
+
+  it("renders the bonus balance and adjusts it with a signed delta + reason", () => {
+    bonusMutate.mockImplementation((_args, opts) =>
+      opts?.onSuccess?.({ ...anya, bonusTrainingCredits: 5 })
+    );
+    useClientsList.mockReturnValue(listQuery([anya]));
+    renderPage();
+
+    // The bonus balance appears as a badge in the row (value "2").
+    expect(screen.getByText("2")).toBeTruthy();
+
+    // Open the adjust modal, enter a delta + reason, and save.
+    fireEvent.click(screen.getByRole("button", { name: "Изменить бонусы клиента Аня" }));
+    const dialog = screen.getByRole("dialog", { name: "Бонусные тренировки" });
+    fireEvent.change(within(dialog).getByLabelText("Изменение"), { target: { value: "3" } });
+    fireEvent.change(within(dialog).getByLabelText("Причина"), {
+      target: { value: "Компенсация" }
+    });
+    fireEvent.click(within(dialog).getByRole("button", { name: "Сохранить" }));
+
+    expect(bonusMutate).toHaveBeenCalledTimes(1);
+    const [args] = bonusMutate.mock.calls[0];
+    expect((args as { clientId: string }).clientId).toBe(anya.id);
+    expect((args as { input: { delta: number; reason?: string } }).input).toEqual({
+      delta: 3,
+      reason: "Компенсация"
+    });
+    expect(notify).toHaveBeenCalledWith(expect.stringContaining("Аня"), "success");
+  });
+
+  it("disables save for a zero or empty bonus delta (no-op)", () => {
+    useClientsList.mockReturnValue(listQuery([anya]));
+    renderPage();
+    fireEvent.click(screen.getByRole("button", { name: "Изменить бонусы клиента Аня" }));
+    const dialog = screen.getByRole("dialog", { name: "Бонусные тренировки" });
+    const save = within(dialog).getByRole("button", { name: "Сохранить" });
+    // Empty delta → disabled.
+    expect((save as HTMLButtonElement).disabled).toBe(true);
+    // Zero delta → still disabled (a no-op the screen blocks before calling the API).
+    fireEvent.change(within(dialog).getByLabelText("Изменение"), { target: { value: "0" } });
+    expect((save as HTMLButtonElement).disabled).toBe(true);
+    expect(bonusMutate).not.toHaveBeenCalled();
   });
 });

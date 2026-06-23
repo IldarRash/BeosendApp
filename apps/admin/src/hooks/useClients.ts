@@ -6,9 +6,10 @@ import {
   type UseQueryResult
 } from "@tanstack/react-query";
 import type {
+  AdjustBonusCreditsInput,
   Booking,
   Client,
-  CreateSingleBookingInput,
+  CreateManualBookingInput,
   CreateWalkInInput,
   ListClientsQuery,
   OnboardClientInput,
@@ -92,15 +93,42 @@ export function useCreateWalkIn(): UseMutationResult<Client, Error, CreateWalkIn
 }
 
 /**
- * Feature 5 — admin/trainer manual booking onto a training. The server owns
- * capacity/status/duplicate math and authorization; on success refresh the
- * trainings lists so the row's bookedCount/status reflect the new seat.
+ * Feature 5 — admin/trainer manual booking onto a training. The optional
+ * `useBonusCredit` redeems one of the client's bonus-training credits for the
+ * seat. The server owns capacity/status/duplicate/credit math and authorization;
+ * on success refresh the trainings lists so the row's bookedCount/status reflect
+ * the new seat, and the clients list so the redeemed bonus balance re-renders.
  */
-export function useBookManual(): UseMutationResult<Booking, Error, CreateSingleBookingInput> {
+export function useBookManual(): UseMutationResult<Booking, Error, CreateManualBookingInput> {
   const api = useApiClient();
   const queryClient = useQueryClient();
   return useMutation({
-    mutationFn: (input: CreateSingleBookingInput) => api.bookManual(input),
-    onSuccess: () => invalidateTrainings(queryClient)
+    mutationFn: (input: CreateManualBookingInput) => api.bookManual(input),
+    onSuccess: () => {
+      invalidateTrainings(queryClient);
+      void queryClient.invalidateQueries({ queryKey: CLIENTS_LIST_KEY });
+    }
+  });
+}
+
+/**
+ * Adjust a client's bonus-training balance by a signed delta (POST
+ * /clients/:id/bonus-credits). The balance is server-managed (non-negative floor,
+ * audit trail); on success refresh the clients list so the updated balance
+ * re-renders under any active filter.
+ */
+export function useAdjustBonusCredits(): UseMutationResult<
+  Client,
+  Error,
+  { clientId: string; input: AdjustBonusCreditsInput }
+> {
+  const api = useApiClient();
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: ({ clientId, input }: { clientId: string; input: AdjustBonusCreditsInput }) =>
+      api.adjustBonusCredits(clientId, input),
+    onSuccess: () => {
+      void queryClient.invalidateQueries({ queryKey: CLIENTS_LIST_KEY });
+    }
   });
 }

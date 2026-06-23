@@ -119,7 +119,8 @@ const CLIENT: Client = {
   note: null,
   registeredAt: "2026-01-01T00:00:00.000Z",
   status: "active",
-  language: "ru"
+  language: "ru",
+  bonusTrainingCredits: 0
 };
 
 const DETAIL: TrainingCalendarItem = {
@@ -461,7 +462,37 @@ describe("Trainings page", () => {
     fireEvent.click(within(dialog).getByRole("button", { name: "Записать" }));
 
     expect(mutate).toHaveBeenCalledTimes(1);
-    expect(mutate.mock.calls[0][0]).toEqual({ clientId: CLIENT.id, trainingId: TRAINING.id });
+    // The bonus checkbox is hidden for a zero-balance client, so the flag is false.
+    expect(mutate.mock.calls[0][0]).toEqual({
+      clientId: CLIENT.id,
+      trainingId: TRAINING.id,
+      useBonusCredit: false
+    });
+  });
+
+  it("redeems a bonus credit when the box is checked for a balance-bearing client", () => {
+    const bonusClient: Client = { ...CLIENT, source: "telegram", bonusTrainingCredits: 3 };
+    const mutate = vi.fn();
+    useClientsList.mockReturnValue(idleQuery([bonusClient]));
+    useBookManual.mockReturnValue({ ...idleMutation(), mutate });
+    render(<Trainings />);
+    setRange();
+
+    fireEvent.click(screen.getByRole("button", { name: "Добавить человека" }));
+    const dialog = screen.getByRole("dialog", { name: "Добавить человека на тренировку" });
+    fireEvent.change(within(dialog).getByLabelText("Выберите клиента"), {
+      target: { value: bonusClient.id }
+    });
+    // The bonus checkbox only appears for a client with a balance; tick it.
+    fireEvent.click(within(dialog).getByLabelText("Использовать бонус (доступно: 3)"));
+    fireEvent.click(within(dialog).getByRole("button", { name: "Записать" }));
+
+    expect(mutate).toHaveBeenCalledTimes(1);
+    expect(mutate.mock.calls[0][0]).toEqual({
+      clientId: bonusClient.id,
+      trainingId: TRAINING.id,
+      useBonusCredit: true
+    });
   });
 
   it("creates a walk-in then books the returned client", () => {
@@ -489,8 +520,13 @@ describe("Trainings page", () => {
     expect(createMutate).toHaveBeenCalledTimes(1);
     expect(createMutate.mock.calls[0][0]).toEqual({ name: "Марко", phone: "+381601234567" });
     // The walk-in is created, then the returned client is booked onto the training.
+    // A walk-in never has a bonus balance, so the redeem flag is always false.
     expect(bookMutate).toHaveBeenCalledTimes(1);
-    expect(bookMutate.mock.calls[0][0]).toEqual({ clientId: CLIENT.id, trainingId: TRAINING.id });
+    expect(bookMutate.mock.calls[0][0]).toEqual({
+      clientId: CLIENT.id,
+      trainingId: TRAINING.id,
+      useBonusCredit: false
+    });
   });
 
   it("renders the server's 409 message when a manual booking is rejected", () => {

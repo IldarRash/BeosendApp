@@ -226,6 +226,14 @@ export function renderSuccessText(catalog: Catalog, result: GroupBookingResult):
     "",
     t(catalog, "bot.group.successBooked", { count: result.created.length })
   ];
+  if (result.waitlisted.length > 0) {
+    const count = result.waitlisted.length;
+    lines.push(
+      "",
+      t(catalog, "bot.group.successWaitlisted", { count }),
+      t(catalog, "bot.group.successBonus", { count })
+    );
+  }
   if (result.skipped.length > 0) {
     lines.push(
       "",

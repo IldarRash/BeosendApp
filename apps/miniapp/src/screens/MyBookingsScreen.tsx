@@ -1,6 +1,6 @@
 import { useState } from "react";
 import type { MyBookingItem, MyBookingScope } from "@beosand/types";
-import { useCancelBooking, useMyBookings } from "../api/hooks";
+import { useCancelBooking, useMyBookings, useMyWaitlist } from "../api/hooks";
 import { resolveErrorMessage } from "../api/errors";
 import { useT } from "../i18n/LanguageProvider";
 import { hapticSuccess, hapticWarning } from "../tg/buttons";
@@ -32,6 +32,10 @@ export function MyBookingsScreen({ onBrowse }: MyBookingsScreenProps): JSX.Eleme
   const [pending, setPending] = useState<MyBookingItem | null>(null);
 
   const bookings = useMyBookings(scope);
+  // The caller's queued (waitlisted) dates — a forward-looking list, shown only on
+  // the Upcoming tab below the booked items. A failure here stays quiet: the waitlist
+  // section is supplementary and must never block the primary bookings list.
+  const waitlist = useMyWaitlist();
   const cancel = useCancelBooking();
 
   const listError =
@@ -81,6 +85,7 @@ export function MyBookingsScreen({ onBrowse }: MyBookingsScreenProps): JSX.Eleme
         scope={scope}
         onScopeChange={setScope}
         items={bookings.data}
+        waitlist={scope === "upcoming" ? waitlist.data : undefined}
         isLoading={bookings.isLoading}
         errorMessage={listError}
         onCancel={openCancel}

@@ -134,6 +134,9 @@ export const botEn: Record<string, string> = {
   "bot.group.confirmButton": "✅ Confirm booking",
   "bot.group.successTitle": "✅ You're booked into the group for the month!",
   "bot.group.successBooked": "Trainings booked: {count}",
+  "bot.group.successWaitlisted":
+    "You're on the waitlist for {count} day(s) — we'll let you know as soon as a seat frees up.",
+  "bot.group.successBonus": "Bonus trainings granted: {count}.",
   "bot.group.successSkippedHeader": "Couldn't book (no seats):",
   "bot.group.successReminder": "We'll send a reminder before each training.",
   "bot.group.notFound": "This group is no longer available. Choose another one from the list.",

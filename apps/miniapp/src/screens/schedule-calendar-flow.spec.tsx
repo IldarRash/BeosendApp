@@ -47,7 +47,8 @@ const ONBOARDED: Client = {
   note: null,
   language: "ru",
   registeredAt: "2026-06-05T10:00:00.000Z",
-  status: "active"
+  status: "active",
+  bonusTrainingCredits: 0
 };
 
 // Two bookable slots on 2026-06-10, one full slot on 2026-06-12.
@@ -100,6 +101,7 @@ const WAITLIST_ENTRY: WaitlistEntry = {
   clientId: ONBOARDED.id,
   trainingId: FULL.trainingId,
   position: 2,
+  groupSubscriptionId: null,
   status: "waiting",
   addedAt: "2026-06-05T10:00:00.000Z",
   notifiedAt: null

@@ -369,7 +369,8 @@ describe("NotificationsService", () => {
       note: null,
       language: "ru",
       registeredAt: "2026-06-03T10:00:00.000Z",
-      status: "active"
+      status: "active",
+      bonusTrainingCredits: 0
     };
 
     it("DMs every admin (never the client) and writes no send-log row", async () => {

@@ -15,6 +15,7 @@ import {
   type TransferGroupResult,
   confirmBookingSchema,
   createGroupBookingSchema,
+  createManualBookingSchema,
   createSingleBookingSchema,
   declineBookingSchema,
   markAttendanceSchema,
@@ -45,7 +46,9 @@ export class BookingsController {
   /**
    * Admin/trainer: manually book any (existing or walk-in) client onto a training
    * from the console (Feature 5). Distinct from /single: the service authorizes
-   * admin-or-trainer-of-the-training, not the bot's self-only ownership.
+   * admin-or-trainer-of-the-training, not the bot's self-only ownership. The body
+   * may opt in to redeem one of the client's bonus-training credits for this seat
+   * (admin-only flag); the service performs the redemption server-side.
    */
   @Post("manual")
   createManual(
@@ -53,8 +56,14 @@ export class BookingsController {
     @Body() body: unknown
   ): Promise<Booking> {
     const actorTelegramId = parseTelegramId(telegramIdHeader);
-    const input = validate(createSingleBookingSchema, body ?? {});
-    return this.bookings.createManual(actorTelegramId, input);
+    const input = validate(createManualBookingSchema, body ?? {});
+    // The contract defaults useBonusCredit to false; pin it to a concrete boolean so
+    // the service receives the parsed output shape (CreateManualBookingInput), not the
+    // optional input shape.
+    return this.bookings.createManual(actorTelegramId, {
+      ...input,
+      useBonusCredit: input.useBonusCredit ?? false
+    });
   }
 
   /** Client: book a whole month into a group as a linked batch (T1.9). */
