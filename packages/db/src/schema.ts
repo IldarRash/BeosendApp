@@ -183,7 +183,10 @@ export const clients = pgTable(
     status: entityStatus("status").notNull().default("active"),
     // Rotating counter that revokes a client's signed calendar feed token (see
     // trainers.calendarFeedVersion). Account-light feed revocation, no token table.
-    calendarFeedVersion: integer("calendar_feed_version").notNull().default(1)
+    calendarFeedVersion: integer("calendar_feed_version").notNull().default(1),
+    // Admin-honoured bonus-training balance; granted when a monthly subscription
+    // waitlists a date, redeemed by an admin.
+    bonusTrainingCredits: integer("bonus_training_credits").notNull().default(0)
   },
   (table) => ({
     // Partial so multiple walk-ins (all NULL telegram_id) don't collide, while
@@ -265,6 +268,11 @@ export const waitlist = pgTable("waitlist", {
     .notNull()
     .references(() => trainings.id),
   position: integer("position").notNull(),
+  /**
+   * Links a queue entry created by a monthly subscription so that promotion
+   * rebooks it as a `group` booking. Null for a plain single-training waitlist.
+   */
+  groupSubscriptionId: uuid("group_subscription_id"),
   status: waitlistStatus("status").notNull().default("waiting"),
   addedAt: timestamp("added_at", { withTimezone: true }).notNull().defaultNow(),
   /** When the confirmation window opened (entry became `notified`); null until then. */

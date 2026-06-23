@@ -35,7 +35,8 @@ const ONBOARDED: Client = {
   note: null,
   language: "ru",
   registeredAt: "2026-06-05T10:00:00.000Z",
-  status: "active"
+  status: "active",
+  bonusTrainingCredits: 0
 };
 
 const LEVEL_ID = "22222222-2222-2222-2222-222222222222";
@@ -79,6 +80,7 @@ const RESULT_WITH_SKIPPED: GroupBookingResult = {
     BOOKING("55555555-5555-5555-5555-555555555555"),
     BOOKING("66666666-6666-6666-6666-666666666666")
   ],
+  waitlisted: [],
   skipped: ["2026-07-15"]
 };
 

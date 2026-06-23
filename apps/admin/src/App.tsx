@@ -20,6 +20,7 @@ import { NotificationTemplates } from "./pages/NotificationTemplates";
 import { Subscriptions } from "./pages/Subscriptions";
 import { Trainers } from "./pages/Trainers";
 import { Trainings } from "./pages/Trainings";
+import { Waitlist } from "./pages/Waitlist";
 import { LanguageProvider } from "./i18n/LanguageProvider";
 import { ToastProvider } from "./ui/Toast";
 
@@ -112,6 +113,14 @@ export function App(): JSX.Element {
                   element={
                     <RequireAuth>
                       <Subscriptions />
+                    </RequireAuth>
+                  }
+                />
+                <Route
+                  path="/waitlist"
+                  element={
+                    <RequireAuth>
+                      <Waitlist />
                     </RequireAuth>
                   }
                 />

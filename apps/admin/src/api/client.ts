@@ -41,6 +41,9 @@ import {
   trainingCalendarItemSchema,
   trainingRosterSchema,
   trainingSchema,
+  waitlistAdminItemSchema,
+  waitlistEntrySchema,
+  swapWaitlistResultSchema,
   type AdminMe,
   type AdminSession,
   type CalendarFeedLink,
@@ -53,6 +56,7 @@ import {
   type UpdateWebhookEndpointInput,
   type WebhookDelivery,
   type WebhookEndpoint,
+  type AdjustBonusCreditsInput,
   type AnalyticsRangeQuery,
   type AnalyticsSummary,
   type AssignCourtInput,
@@ -75,9 +79,9 @@ import {
   type CourtRequestStatus,
   type CreateCourtBlock,
   type CreateGroupInput,
+  type CreateManualBookingInput,
   type CreateTrainerInput,
   type ChangeCapacityInput,
-  type CreateSingleBookingInput,
   type CreateWalkInInput,
   type FillRate,
   type GenerateAllMonthInput,
@@ -87,6 +91,7 @@ import {
   type GenerationStatusQuery,
   type Group,
   type GroupMembers,
+  type GroupWaitlistQuery,
   type LabelCatalog,
   type LabelEntry,
   type Level,
@@ -118,6 +123,9 @@ import {
   type UpdateLevelInput,
   type UpdateManagerInput,
   type UpdateTrainerInput,
+  type WaitlistAdminItem,
+  type WaitlistEntry,
+  type SwapWaitlistResult,
   uuid
 } from "@beosand/types";
 
@@ -138,6 +146,7 @@ const generationStatusSchema = z.array(generationStatusItemSchema);
 const subscriptionsSchema = z.array(subscriptionSummarySchema);
 const notificationTemplatesSchema = z.array(notificationTemplateSchema);
 const managersSchema = z.array(managerSchema);
+const waitlistAdminItemsSchema = z.array(waitlistAdminItemSchema);
 const webhookEndpointsSchema = z.array(webhookEndpointSchema);
 const webhookDeliveriesSchema = z.array(webhookDeliverySchema);
 
@@ -716,12 +725,15 @@ export class ApiClient {
 
   /**
    * Feature 5 — admin/trainer books a client onto a training (POST
-   * /bookings/manual). Same `{ clientId, trainingId }` body as the bot's self
-   * path, but the server authorizes admin-or-the-training's-trainer and owns all
-   * capacity/status/duplicate math — the console computes nothing. A full or
-   * duplicate booking surfaces as a thrown Error (409) the screen renders.
+   * /bookings/manual). The `{ clientId, trainingId }` body may carry an opt-in
+   * `useBonusCredit` to redeem one of the client's bonus-training credits for this
+   * seat (admin-only; validated by `createManualBookingSchema`). The server
+   * authorizes admin-or-the-training's-trainer and owns all capacity/status/
+   * duplicate/credit math — the console computes nothing. A full or duplicate
+   * booking, or an empty bonus balance, surfaces as a thrown Error (409) the
+   * screen renders.
    */
-  bookManual(input: CreateSingleBookingInput): Promise<Booking> {
+  bookManual(input: CreateManualBookingInput): Promise<Booking> {
     return this.request("/bookings/manual", bookingSchema, {
       method: "POST",
       body: JSON.stringify(input)
@@ -739,6 +751,86 @@ export class ApiClient {
     return this.request("/bookings/transfer-group", transferGroupResultSchema, {
       method: "POST",
       body: JSON.stringify(input)
+    });
+  }
+
+  /**
+   * Adjust a client's bonus-training balance by a signed delta with an optional
+   * reason (POST /clients/:id/bonus-credits, body validated by
+   * `adjustBonusCreditsSchema`). The balance is server-managed: the API owns the
+   * non-negative floor (a debit past zero is rejected as a thrown Error) and the
+   * audit trail. Returns the updated client the screen re-renders. Admin-only.
+   */
+  adjustBonusCredits(clientId: string, input: AdjustBonusCreditsInput): Promise<Client> {
+    return this.request(`/clients/${clientId}/bonus-credits`, clientSchema, {
+      method: "POST",
+      body: JSON.stringify(input)
+    });
+  }
+
+  // ── Waitlist admin tools (subscription waitlisting + promotion) ─────────────
+
+  /**
+   * The admin waitlist queue for one group's month (GET /waitlist/group?groupId=
+   * &year=&month=). Each row is a waitlist entry joined with the client's name and
+   * the training's date/time/status + group name; validated against
+   * `waitlistAdminItemSchema`. Ordering/membership are the server's. Admin-only.
+   */
+  listGroupWaitlist(query: GroupWaitlistQuery): Promise<WaitlistAdminItem[]> {
+    const params = new URLSearchParams({
+      groupId: query.groupId,
+      year: String(query.year),
+      month: String(query.month)
+    }).toString();
+    return this.request(`/waitlist/group?${params}`, waitlistAdminItemsSchema);
+  }
+
+  /**
+   * The admin waitlist queue for one training (GET /waitlist/training/:trainingId).
+   * Same enriched row shape as the group queue; backs the swap picker's context.
+   * Admin-only server-side.
+   */
+  listTrainingWaitlist(trainingId: string): Promise<WaitlistAdminItem[]> {
+    return this.request(`/waitlist/training/${trainingId}`, waitlistAdminItemsSchema);
+  }
+
+  /**
+   * Promote a waitlist entry to a booking (POST /waitlist/:entryId/promote, empty
+   * body). The server re-checks the training has a free seat, rebooks the entry
+   * (as a `group` booking when it carries a subscription, else `single`), and
+   * recomputes status — the console computes nothing. A full training surfaces as
+   * a thrown Error (409). Returns the created booking (`bookingSchema`). Admin-only.
+   */
+  promoteWaitlistEntry(entryId: string): Promise<Booking> {
+    return this.request(`/waitlist/${entryId}/promote`, bookingSchema, {
+      method: "POST",
+      body: JSON.stringify({})
+    });
+  }
+
+  /**
+   * Swap a waitlist entry ahead of an existing booking (POST /waitlist/:entryId/
+   * swap, body `{ replacesBookingId }`). The server cancels the named booking,
+   * promotes the entry into the freed seat, and pushes the displaced holder back
+   * onto the waitlist — all atomic and server-decided. Returns the promoted booking
+   * plus the displaced entry (`swapWaitlistResultSchema`). Admin-only.
+   */
+  swapWaitlistEntry(entryId: string, replacesBookingId: string): Promise<SwapWaitlistResult> {
+    return this.request(`/waitlist/${entryId}/swap`, swapWaitlistResultSchema, {
+      method: "POST",
+      body: JSON.stringify({ replacesBookingId })
+    });
+  }
+
+  /**
+   * Remove a waitlist entry from the queue (POST /waitlist/:entryId/remove, empty
+   * body). The server marks it cancelled and returns the updated entry
+   * (`waitlistEntrySchema`). Admin-only.
+   */
+  removeWaitlistEntry(entryId: string): Promise<WaitlistEntry> {
+    return this.request(`/waitlist/${entryId}/remove`, waitlistEntrySchema, {
+      method: "POST",
+      body: JSON.stringify({})
     });
   }
 

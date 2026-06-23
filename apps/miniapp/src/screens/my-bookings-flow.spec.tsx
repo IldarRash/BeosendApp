@@ -45,7 +45,8 @@ const ONBOARDED: Client = {
   note: null,
   language: "ru",
   registeredAt: "2026-06-05T10:00:00.000Z",
-  status: "active"
+  status: "active",
+  bonusTrainingCredits: 0
 };
 
 const UPCOMING: MyBookingItem = {
@@ -125,6 +126,7 @@ interface FakeApi {
   getMe: ReturnType<typeof vi.fn>;
   getClientByTelegramId: ReturnType<typeof vi.fn>;
   listMyBookings: ReturnType<typeof vi.fn>;
+  getMyWaitlist: ReturnType<typeof vi.fn>;
   cancelBooking: ReturnType<typeof vi.fn>;
   // Used only by MyBookingsWithSlotsProbe to observe the slots invalidation/refetch.
   listAvailableSlots: ReturnType<typeof vi.fn>;
@@ -139,6 +141,7 @@ function makeApi(overrides: Partial<FakeApi> = {}): FakeApi {
     listMyBookings: vi.fn((_clientId: string, scope: MyBookingScope) =>
       Promise.resolve(scope === "upcoming" ? [UPCOMING] : [PAST_ATTENDED])
     ),
+    getMyWaitlist: vi.fn().mockResolvedValue([]),
     cancelBooking: vi.fn().mockResolvedValue(CANCELLED_BOOKING),
     listAvailableSlots: vi.fn().mockResolvedValue([]),
     ...overrides

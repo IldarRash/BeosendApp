@@ -6,7 +6,7 @@ import {
 } from "@nestjs/common";
 import type { Env } from "@beosand/config";
 import type { Database } from "@beosand/db";
-import type { Booking, Client, Group, Trainer } from "@beosand/types";
+import type { Booking, Client, Group, Trainer, WaitlistEntry } from "@beosand/types";
 import type { MyBookingRow } from "./bookings.repository";
 import { beforeEach, describe, expect, it } from "vitest";
 import { BookingsService } from "./bookings.service";
@@ -31,10 +31,60 @@ const fakeNotifications = {
   sendGroupPendingToAdmins: async (): Promise<void> => undefined
 } as unknown as NotificationsService;
 
-/** No-op waitlist double: the cancel post-commit promotion is fire-and-forget here. */
-const fakeWaitlist = {
-  promoteNext: async (): Promise<void> => undefined
-} as unknown as WaitlistService;
+/**
+ * Stateful waitlist double. `promoteNext` is the no-op post-commit promotion the
+ * cancel/decline paths fire-and-forget. `appendSubscriptionEntry` mirrors the real
+ * append: it records each (clientId, trainingId, groupSubscriptionId) queued by a
+ * monthly booking on a full date, assigns the next position per training, and
+ * returns undefined when the client is already queued on that training (re-run
+ * guard) so the service folds the date into `skipped`.
+ */
+class FakeWaitlistService {
+  /** Entries appended by bookGroupMonth, in order — the tests assert over these. */
+  appended: Array<{ clientId: string; trainingId: string; groupSubscriptionId: string; position: number }> = [];
+  /** trainingId → preexisting max position, so a second queue on it appends at +1. */
+  startPositions: Record<string, number> = {};
+  /** clientIds already holding an active entry per training (skip, don't re-queue). */
+  private activeByTraining: Record<string, Set<string>> = {};
+  /** Source-group cleanups the transfer requests — the tests assert over these. */
+  cancelledSourceEntries: Array<{ clientId: string; groupId: string; from: string; to: string }> = [];
+
+  /** Seed a preexisting active entry so a re-run's duplicate guard returns undefined. */
+  seedActive(trainingId: string, clientId: string): void {
+    (this.activeByTraining[trainingId] ??= new Set()).add(clientId);
+  }
+
+  async promoteNext(): Promise<void> {
+    return undefined;
+  }
+
+  /** Record the transfer's source-waitlist cleanup; returns the (fake) cancel count. */
+  async cancelClientGroupEntriesForMonth(
+    _tx: Database,
+    params: { clientId: string; groupId: string; from: string; to: string }
+  ): Promise<number> {
+    this.cancelledSourceEntries.push({ ...params });
+    return 0;
+  }
+
+  async appendSubscriptionEntry(
+    _tx: Database,
+    params: { clientId: string; trainingId: string; groupSubscriptionId: string }
+  ): Promise<WaitlistEntry | undefined> {
+    const active = (this.activeByTraining[params.trainingId] ??= new Set());
+    if (active.has(params.clientId)) {
+      return undefined;
+    }
+    active.add(params.clientId);
+    const prior = this.appended.filter((e) => e.trainingId === params.trainingId).length;
+    const position = (this.startPositions[params.trainingId] ?? 0) + prior + 1;
+    this.appended.push({ ...params, position });
+    return { position } as unknown as WaitlistEntry;
+  }
+}
+
+/** Shared no-op instance for the describe blocks that never waitlist. */
+const fakeWaitlist = new FakeWaitlistService() as unknown as WaitlistService;
 
 /** No-op domain-events double: the connector emit seam is fire-and-forget here. */
 const fakeDomainEvents = {
@@ -71,7 +121,8 @@ const ownerClient: Client = {
   note: null,
   language: "ru",
   registeredAt: new Date().toISOString(),
-  status: "active"
+  status: "active",
+  bonusTrainingCredits: 0
 };
 
 /** A walk-in client (no Telegram id) for the manual-booking tests. */
@@ -87,7 +138,8 @@ const walkInClient: Client = {
   note: null,
   language: "ru",
   registeredAt: new Date().toISOString(),
-  status: "active"
+  status: "active",
+  bonusTrainingCredits: 0
 };
 
 /** A training fixture without trainerId; the fake fills a default trainerId on read. */
@@ -103,10 +155,31 @@ class FakeBookingsRepository {
   failInsertOnTrainingId: string | undefined;
   /** When set, updateTrainingCount throws for this training to exercise cancel rollback. */
   failUpdateCountOnTrainingId: string | undefined;
+  /**
+   * Optional linked clients fake whose bonus balances this fake transaction snapshots
+   * and restores on throw, so a test can faithfully assert the cross-table atomicity
+   * of a bonus-credit redemption (the debit and the seat write commit together or not
+   * at all). Unset for the suites that don't touch bonus credits.
+   */
+  rollbackClients: FakeClientsRepository | undefined;
   private seq = 0;
 
-  transaction<T>(work: (tx: Database) => Promise<T>): Promise<T> {
-    return work({} as Database);
+  /**
+   * Model a DB transaction: when a linked clients fake is present, snapshot every
+   * client's bonus balance up front and restore it if `work` rejects — mirroring a
+   * real ROLLBACK so a redemption that fails downstream (e.g. a full-slot 409 thrown
+   * after the debit) leaves the balance untouched. Without a link it is a passthrough.
+   */
+  async transaction<T>(work: (tx: Database) => Promise<T>): Promise<T> {
+    const snapshot = this.rollbackClients?.snapshotBonus();
+    try {
+      return await work({} as Database);
+    } catch (error) {
+      if (snapshot) {
+        this.rollbackClients?.restoreBonus(snapshot);
+      }
+      throw error;
+    }
   }
 
   /**
@@ -222,6 +295,10 @@ class FakeBookingsRepository {
       groupSubscriptionId: string | null;
       status: "booked" | "pending";
       source: Booking["source"];
+      // Optional payment stamp for a comped (bonus-redeemed) seat; mirrors NewBookingRow.
+      paymentStatus?: "paid" | "unpaid";
+      paidAt?: Date | null;
+      paidBy?: number | null;
     }
   ): Promise<Booking> {
     if (this.failInsertOnTrainingId && values.trainingId === this.failInsertOnTrainingId) {
@@ -236,9 +313,11 @@ class FakeBookingsRepository {
       createdAt: new Date().toISOString(),
       status: values.status,
       source: values.source,
-      paymentStatus: "unpaid",
-      paidAt: null,
-      paidBy: null
+      // Default to unpaid (the column default) unless the caller comped the seat,
+      // mirroring the repo's toBooking mapping (paidAt → ISO string or null).
+      paymentStatus: values.paymentStatus ?? "unpaid",
+      paidAt: values.paidAt ? values.paidAt.toISOString() : null,
+      paidBy: values.paidBy ?? null
     };
     this.bookings.push(booking);
     return booking;
@@ -379,6 +458,32 @@ class FakeClientsRepository {
   }
   async findById(id: string): Promise<Client | undefined> {
     return this.byId.find((c) => c.id === id);
+  }
+  /** Mirror the atomic credit add: bump the resolvable client's bonus balance. */
+  async addBonusCredits(_tx: Database, clientId: string, amount: number): Promise<void> {
+    const target = this.byId.find((c) => c.id === clientId);
+    if (target) {
+      target.bonusTrainingCredits += amount;
+    }
+    if (this.client && this.client.id === clientId) {
+      this.client.bonusTrainingCredits += amount;
+    }
+  }
+
+  /** Snapshot every client's bonus balance so a faked transaction can roll it back. */
+  snapshotBonus(): Map<Client, number> {
+    const snapshot = new Map<Client, number>();
+    for (const client of [...this.byId, ...(this.client ? [this.client] : [])]) {
+      snapshot.set(client, client.bonusTrainingCredits);
+    }
+    return snapshot;
+  }
+
+  /** Restore a bonus-balance snapshot (the faked transaction's ROLLBACK). */
+  restoreBonus(snapshot: Map<Client, number>): void {
+    for (const [client, credits] of snapshot) {
+      client.bonusTrainingCredits = credits;
+    }
   }
 }
 
@@ -571,18 +676,22 @@ describe("BookingsService.createGroupBooking", () => {
   let bookingsRepo: FakeBookingsRepository;
   let clientsRepo: FakeClientsRepository;
   let groupsRepo: FakeGroupsRepository;
+  let waitlist: FakeWaitlistService;
   let service: BookingsService;
 
   beforeEach(() => {
     bookingsRepo = new FakeBookingsRepository();
     clientsRepo = new FakeClientsRepository();
     groupsRepo = new FakeGroupsRepository();
+    // A fresh, inspectable waitlist double per test: a full month-date is queued
+    // through it (not silently skipped) and the bonus-credit grant follows.
+    waitlist = new FakeWaitlistService();
     service = new BookingsService(
       bookingsRepo as unknown as BookingsRepository,
       clientsRepo as unknown as ClientsRepository,
       groupsRepo as unknown as GroupsRepository,
       fakeNotifications,
-      fakeWaitlist,
+      waitlist as unknown as WaitlistService,
       new FakeTrainersRepository() as unknown as TrainersRepository,
       fakeDomainEvents,
       env
@@ -634,7 +743,7 @@ describe("BookingsService.createGroupBooking", () => {
     expect(bookingsRepo.monthTrainings[1].status).toBe("full");
   });
 
-  it("skips and reports a full date without failing the rest of the month", async () => {
+  it("waitlists a full date (never skips it), grants a bonus credit, and books the rest", async () => {
     bookingsRepo.monthTrainings = [
       monthTraining("a1111111-1111-1111-1111-111111111111", "2099-06-01"),
       monthTraining("a2222222-2222-2222-2222-222222222222", "2099-06-03", {
@@ -646,8 +755,78 @@ describe("BookingsService.createGroupBooking", () => {
 
     const result = await service.createGroupBooking(OWNER_ID, input);
 
+    // The two open dates are booked; the full date is queued, not skipped.
     expect(result.created).toHaveLength(2);
+    expect(result.created.map((b) => b.trainingId)).not.toContain(
+      "a2222222-2222-2222-2222-222222222222"
+    );
+    expect(result.waitlisted).toEqual([{ date: "2099-06-03", position: 1 }]);
+    expect(result.skipped).toHaveLength(0);
+
+    // The queue entry is linked to the batch subscription so promotion rebooks it
+    // as a `group` booking later.
+    expect(waitlist.appended).toEqual([
+      {
+        clientId: CLIENT_ID,
+        trainingId: "a2222222-2222-2222-2222-222222222222",
+        groupSubscriptionId: result.groupSubscriptionId,
+        position: 1
+      }
+    ]);
+
+    // +1 bonus-training credit for the one date the month couldn't honour.
+    expect(clientsRepo.client?.bonusTrainingCredits).toBe(1);
+
+    // The full training's seat counters are untouched (waitlisting holds no seat).
+    expect(bookingsRepo.monthTrainings[1].bookedCount).toBe(6);
+    expect(bookingsRepo.monthTrainings[1].status).toBe("full");
+
+    // The booked dates recompute correctly (still open below capacity).
+    expect(bookingsRepo.monthTrainings[0].bookedCount).toBe(1);
+    expect(bookingsRepo.monthTrainings[0].status).toBe("open");
+    expect(bookingsRepo.monthTrainings[2].bookedCount).toBe(1);
+    expect(bookingsRepo.monthTrainings[2].status).toBe("open");
+  });
+
+  it("skips a cancelled/completed date without waitlisting or granting a credit", async () => {
+    bookingsRepo.monthTrainings = [
+      monthTraining("a1111111-1111-1111-1111-111111111111", "2099-06-01"),
+      monthTraining("a2222222-2222-2222-2222-222222222222", "2099-06-03", {
+        bookedCount: 6,
+        status: "cancelled"
+      }),
+      monthTraining("a3333333-3333-3333-3333-333333333333", "2099-06-08", {
+        bookedCount: 6,
+        status: "completed"
+      })
+    ];
+
+    const result = await service.createGroupBooking(OWNER_ID, input);
+
+    expect(result.created).toHaveLength(1);
+    expect(result.skipped).toEqual(["2099-06-03", "2099-06-08"]);
+    expect(result.waitlisted).toHaveLength(0);
+    expect(waitlist.appended).toHaveLength(0);
+    expect(clientsRepo.client?.bonusTrainingCredits).toBe(0);
+  });
+
+  it("does not re-queue a full date the client already holds an active waitlist entry on (re-run safe)", async () => {
+    bookingsRepo.monthTrainings = [
+      monthTraining("a2222222-2222-2222-2222-222222222222", "2099-06-03", {
+        bookedCount: 6,
+        status: "full"
+      })
+    ];
+    // Simulate a prior run that already queued this client on the full date.
+    waitlist.seedActive("a2222222-2222-2222-2222-222222222222", CLIENT_ID);
+
+    const result = await service.createGroupBooking(OWNER_ID, input);
+
+    expect(result.created).toHaveLength(0);
+    expect(result.waitlisted).toHaveLength(0);
+    // Folded into skipped, and no second credit granted on the re-run.
     expect(result.skipped).toEqual(["2099-06-03"]);
+    expect(clientsRepo.client?.bonusTrainingCredits).toBe(0);
   });
 
   it("skips an instance the client is already booked into (re-run safe)", async () => {
@@ -1228,7 +1407,8 @@ describe("BookingsService.createManual (Feature 5 — admin/trainer manual booki
   it("lets an admin book an existing telegram client (source 'admin', count++, send invoked)", async () => {
     const booking = await service.createManual(ADMIN_ID, {
       clientId: CLIENT_ID,
-      trainingId: TRAINING_ID
+      trainingId: TRAINING_ID,
+      useBonusCredit: false
     });
     expect(booking.source).toBe("admin");
     expect(booking.status).toBe("booked");
@@ -1239,7 +1419,8 @@ describe("BookingsService.createManual (Feature 5 — admin/trainer manual booki
   it("lets an admin book a walk-in (source 'walk_in') without attempting a Telegram DM", async () => {
     const booking = await service.createManual(ADMIN_ID, {
       clientId: WALKIN_CLIENT_ID,
-      trainingId: TRAINING_ID
+      trainingId: TRAINING_ID,
+      useBonusCredit: false
     });
     expect(booking.source).toBe("walk_in");
     expect(bookingsRepo.training?.bookedCount).toBe(3);
@@ -1268,7 +1449,8 @@ describe("BookingsService.createManual (Feature 5 — admin/trainer manual booki
 
     const booking = await service.createManual(ADMIN_ID, {
       clientId: WALKIN_CLIENT_ID,
-      trainingId: TRAINING_ID
+      trainingId: TRAINING_ID,
+      useBonusCredit: false
     });
 
     expect(booking.status).toBe("booked");
@@ -1285,7 +1467,7 @@ describe("BookingsService.createManual (Feature 5 — admin/trainer manual booki
       status: "open",
       trainerId: TRAINER_ID
     };
-    await service.createManual(ADMIN_ID, { clientId: WALKIN_CLIENT_ID, trainingId: TRAINING_ID });
+    await service.createManual(ADMIN_ID, { clientId: WALKIN_CLIENT_ID, trainingId: TRAINING_ID, useBonusCredit: false });
     expect(bookingsRepo.training?.bookedCount).toBe(6);
     expect(bookingsRepo.training?.status).toBe("full");
   });
@@ -1293,7 +1475,8 @@ describe("BookingsService.createManual (Feature 5 — admin/trainer manual booki
   it("lets the training's own trainer book onto their training", async () => {
     const booking = await service.createManual(TRAINER_ID_TG, {
       clientId: WALKIN_CLIENT_ID,
-      trainingId: TRAINING_ID
+      trainingId: TRAINING_ID,
+      useBonusCredit: false
     });
     expect(booking.status).toBe("booked");
     expect(bookingsRepo.training?.bookedCount).toBe(3);
@@ -1303,7 +1486,8 @@ describe("BookingsService.createManual (Feature 5 — admin/trainer manual booki
     await expect(
       service.createManual(OTHER_TRAINER_ID_TG, {
         clientId: WALKIN_CLIENT_ID,
-        trainingId: TRAINING_ID
+        trainingId: TRAINING_ID,
+        useBonusCredit: false
       })
     ).rejects.toBeInstanceOf(ForbiddenException);
     expect(bookingsRepo.bookings).toHaveLength(0);
@@ -1312,7 +1496,7 @@ describe("BookingsService.createManual (Feature 5 — admin/trainer manual booki
 
   it("forbids a non-trainer non-admin (403)", async () => {
     await expect(
-      service.createManual(STRANGER_ID, { clientId: WALKIN_CLIENT_ID, trainingId: TRAINING_ID })
+      service.createManual(STRANGER_ID, { clientId: WALKIN_CLIENT_ID, trainingId: TRAINING_ID, useBonusCredit: false })
     ).rejects.toBeInstanceOf(ForbiddenException);
     expect(bookingsRepo.bookings).toHaveLength(0);
   });
@@ -1326,16 +1510,24 @@ describe("BookingsService.createManual (Feature 5 — admin/trainer manual booki
       trainerId: TRAINER_ID
     };
     await expect(
-      service.createManual(ADMIN_ID, { clientId: WALKIN_CLIENT_ID, trainingId: TRAINING_ID })
+      service.createManual(ADMIN_ID, { clientId: WALKIN_CLIENT_ID, trainingId: TRAINING_ID, useBonusCredit: false })
     ).rejects.toBeInstanceOf(ConflictException);
     expect(bookingsRepo.bookings).toHaveLength(0);
     expect(bookingsRepo.training?.bookedCount).toBe(6);
   });
 
   it("rejects a duplicate active booking for the same client + training (409)", async () => {
-    await service.createManual(ADMIN_ID, { clientId: CLIENT_ID, trainingId: TRAINING_ID });
+    await service.createManual(ADMIN_ID, {
+      clientId: CLIENT_ID,
+      trainingId: TRAINING_ID,
+      useBonusCredit: false
+    });
     await expect(
-      service.createManual(ADMIN_ID, { clientId: CLIENT_ID, trainingId: TRAINING_ID })
+      service.createManual(ADMIN_ID, {
+        clientId: CLIENT_ID,
+        trainingId: TRAINING_ID,
+        useBonusCredit: false
+      })
     ).rejects.toBeInstanceOf(ConflictException);
     expect(bookingsRepo.bookings).toHaveLength(1);
     expect(bookingsRepo.training?.bookedCount).toBe(3);
@@ -1345,7 +1537,8 @@ describe("BookingsService.createManual (Feature 5 — admin/trainer manual booki
     await expect(
       service.createManual(ADMIN_ID, {
         clientId: "00000000-0000-4000-8000-000000000000",
-        trainingId: TRAINING_ID
+        trainingId: TRAINING_ID,
+        useBonusCredit: false
       })
     ).rejects.toBeInstanceOf(NotFoundException);
     expect(bookingsRepo.bookings).toHaveLength(0);
@@ -1354,13 +1547,160 @@ describe("BookingsService.createManual (Feature 5 — admin/trainer manual booki
   it("404s an unknown training", async () => {
     bookingsRepo.training = undefined;
     await expect(
-      service.createManual(ADMIN_ID, { clientId: WALKIN_CLIENT_ID, trainingId: TRAINING_ID })
+      service.createManual(ADMIN_ID, { clientId: WALKIN_CLIENT_ID, trainingId: TRAINING_ID, useBonusCredit: false })
     ).rejects.toBeInstanceOf(NotFoundException);
+  });
+});
+
+describe("BookingsService.createManual — bonus-credit redemption (Slice 3, admin-only)", () => {
+  let bookingsRepo: FakeBookingsRepository;
+  let clientsRepo: FakeClientsRepository;
+  let trainersRepo: FakeTrainersRepository;
+  let service: BookingsService;
+
+  beforeEach(() => {
+    bookingsRepo = new FakeBookingsRepository();
+    clientsRepo = new FakeClientsRepository();
+    // Model cross-table rollback: the faked tx restores bonus balances on throw, so
+    // a redemption that fails downstream (full-slot 409) leaves the balance untouched.
+    bookingsRepo.rollbackClients = clientsRepo;
+    trainersRepo = new FakeTrainersRepository();
+    trainersRepo.trainers = [
+      {
+        id: TRAINER_ID,
+        name: "Coach",
+        type: "main",
+        status: "active",
+        telegramId: TRAINER_ID_TG,
+        telegramUsername: null,
+        language: "ru"
+      }
+    ];
+    service = new BookingsService(
+      bookingsRepo as unknown as BookingsRepository,
+      clientsRepo as unknown as ClientsRepository,
+      new FakeGroupsRepository() as unknown as GroupsRepository,
+      fakeNotifications,
+      fakeWaitlist,
+      trainersRepo as unknown as TrainersRepository,
+      fakeDomainEvents,
+      env
+    );
+    bookingsRepo.training = {
+      id: TRAINING_ID,
+      capacity: 6,
+      bookedCount: 2,
+      status: "open",
+      trainerId: TRAINER_ID
+    };
+  });
+
+  /** Set the resolvable client's starting bonus balance (findById/addBonusCredits share the row). */
+  function seedCredits(clientId: string, credits: number): Client {
+    const client = clientsRepo.byId.find((c) => c.id === clientId);
+    if (!client) {
+      throw new Error(`client ${clientId} not seeded`);
+    }
+    client.bonusTrainingCredits = credits;
+    return client;
+  }
+
+  it("comps the seat (paid, paidAt/paidBy set) and decrements the balance by 1 when balance > 0", async () => {
+    const client = seedCredits(CLIENT_ID, 2);
+    const booking = await service.createManual(ADMIN_ID, {
+      clientId: CLIENT_ID,
+      trainingId: TRAINING_ID,
+      useBonusCredit: true
+    });
+
+    expect(booking.paymentStatus).toBe("paid");
+    expect(booking.paidAt).not.toBeNull();
+    expect(booking.paidBy).toBe(ADMIN_ID);
+    // The seat is still booked and the count still advanced — payment never alters seat math.
+    expect(booking.status).toBe("booked");
+    expect(bookingsRepo.training?.bookedCount).toBe(3);
+    // Exactly one credit consumed.
+    expect(client.bonusTrainingCredits).toBe(1);
+  });
+
+  it("rejects redemption with 400 when the client has no credits and writes NOTHING (no seat, no negative balance)", async () => {
+    const client = seedCredits(CLIENT_ID, 0);
+    await expect(
+      service.createManual(ADMIN_ID, {
+        clientId: CLIENT_ID,
+        trainingId: TRAINING_ID,
+        useBonusCredit: true
+      })
+    ).rejects.toBeInstanceOf(BadRequestException);
+
+    // No booking inserted, no seat consumed, balance untouched (never negative).
+    expect(bookingsRepo.bookings).toHaveLength(0);
+    expect(bookingsRepo.training?.bookedCount).toBe(2);
+    expect(client.bonusTrainingCredits).toBe(0);
+  });
+
+  it("leaves the booking unpaid and the balance untouched when useBonusCredit is false", async () => {
+    const client = seedCredits(CLIENT_ID, 2);
+    const booking = await service.createManual(ADMIN_ID, {
+      clientId: CLIENT_ID,
+      trainingId: TRAINING_ID,
+      useBonusCredit: false
+    });
+
+    expect(booking.paymentStatus).toBe("unpaid");
+    expect(booking.paidAt).toBeNull();
+    expect(booking.paidBy).toBeNull();
+    expect(bookingsRepo.training?.bookedCount).toBe(3);
+    expect(client.bonusTrainingCredits).toBe(2);
+  });
+
+  it("forbids a trainer-of-the-training from redeeming a bonus credit (403, nothing written)", async () => {
+    const client = seedCredits(CLIENT_ID, 2);
+    // The training's own trainer may book manually, but redemption is admin-only.
+    await expect(
+      service.createManual(TRAINER_ID_TG, {
+        clientId: CLIENT_ID,
+        trainingId: TRAINING_ID,
+        useBonusCredit: true
+      })
+    ).rejects.toBeInstanceOf(ForbiddenException);
+
+    // No seat consumed, no booking inserted, the bonus balance is untouched.
+    expect(bookingsRepo.bookings).toHaveLength(0);
+    expect(bookingsRepo.training?.bookedCount).toBe(2);
+    expect(client.bonusTrainingCredits).toBe(2);
+  });
+
+  it("rolls back the whole tx on a FULL training (409): no seat consumed and the bonus balance is UNCHANGED", async () => {
+    const client = seedCredits(CLIENT_ID, 2);
+    bookingsRepo.training = {
+      id: TRAINING_ID,
+      capacity: 6,
+      bookedCount: 6,
+      status: "full",
+      trainerId: TRAINER_ID
+    };
+
+    await expect(
+      service.createManual(ADMIN_ID, {
+        clientId: CLIENT_ID,
+        trainingId: TRAINING_ID,
+        useBonusCredit: true
+      })
+    ).rejects.toBeInstanceOf(ConflictException);
+
+    // The full-slot 409 fires inside bookSeat, AFTER the credit decrement in the same
+    // tx — so the real transaction rolls the debit back. The decrement and the booking
+    // must commit together or not at all: the balance is unchanged and no seat moved.
+    expect(bookingsRepo.bookings).toHaveLength(0);
+    expect(bookingsRepo.training?.bookedCount).toBe(6);
+    expect(client.bonusTrainingCredits).toBe(2);
   });
 });
 
 describe("BookingsService.transferGroup (Item C — admin group transfer)", () => {
   let bookingsRepo: FakeBookingsRepository;
+  let waitlist: FakeWaitlistService;
   let service: BookingsService;
 
   const FROM_GROUP_ID = "44444444-4444-4444-4444-444444444444";
@@ -1370,6 +1710,8 @@ describe("BookingsService.transferGroup (Item C — admin group transfer)", () =
 
   beforeEach(() => {
     bookingsRepo = new FakeBookingsRepository();
+    // A fresh, tracked waitlist double so the source-waitlist cleanup is assertable.
+    waitlist = new FakeWaitlistService();
     // The transfer validates both source and target groups; resolve both ids as active.
     const groupsRepo = {
       findById: async (id: string): Promise<Group | undefined> => {
@@ -1383,7 +1725,7 @@ describe("BookingsService.transferGroup (Item C — admin group transfer)", () =
       new FakeClientsRepository() as unknown as ClientsRepository,
       groupsRepo as unknown as GroupsRepository,
       fakeNotifications,
-      fakeWaitlist,
+      waitlist as unknown as WaitlistService,
       new FakeTrainersRepository() as unknown as TrainersRepository,
       fakeDomainEvents,
       env
@@ -1477,6 +1819,24 @@ describe("BookingsService.transferGroup (Item C — admin group transfer)", () =
     );
     expect(created).toHaveLength(2);
     expect(bookingsRepo.monthTrainings[0].bookedCount).toBe(1);
+  });
+
+  it("also cancels the client's source-group waitlist entries for the month (no stranding)", async () => {
+    seedSource();
+    bookingsRepo.monthTrainings = [
+      monthTraining("d0000000-0000-4000-8000-000000000001", "2099-06-02")
+    ];
+
+    await service.transferGroup(ADMIN_ID, input);
+
+    // The transfer requested exactly one source-waitlist cleanup, scoped to the
+    // SOURCE group and the clamped month window — so a queued source date never
+    // strands the moved client on the old group's queue.
+    expect(waitlist.cancelledSourceEntries).toHaveLength(1);
+    const cleanup = waitlist.cancelledSourceEntries[0];
+    expect(cleanup.clientId).toBe(CLIENT_ID);
+    expect(cleanup.groupId).toBe(FROM_GROUP_ID);
+    expect(cleanup.to).toBe("2099-06-30");
   });
 
   // All-or-nothing: a target with no bookable trainings throws a 409 inside the tx

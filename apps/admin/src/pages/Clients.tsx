@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState, type FormEvent } from "react";
 import type {
+  AdjustBonusCreditsInput,
   Client,
   EntityStatus,
   Level,
@@ -14,7 +15,12 @@ import { Modal } from "../ui/Modal";
 import { NumberField, SelectField, TextField } from "../ui/Field";
 import { useToast } from "../ui/Toast";
 import { useT } from "../i18n/LanguageProvider";
-import { useClientsList, useOnboardClient, useUpdateClient } from "../hooks/useClients";
+import {
+  useAdjustBonusCredits,
+  useClientsList,
+  useOnboardClient,
+  useUpdateClient
+} from "../hooks/useClients";
 import { useLevels } from "../hooks/useLevels";
 
 type StatusFilter = EntityStatus | "all";
@@ -30,6 +36,7 @@ export function Clients(): JSX.Element {
   const [search, setSearch] = useState("");
   const [statusFilter, setStatusFilter] = useState<StatusFilter>("all");
   const [editClient, setEditClient] = useState<Client | null>(null);
+  const [bonusClient, setBonusClient] = useState<Client | null>(null);
 
   // Debounce the search so typing doesn't fire a request per keystroke; the
   // server does the actual matching against name + @username.
@@ -71,10 +78,27 @@ export function Clients(): JSX.Element {
       )
     },
     {
+      key: "bonus",
+      header: t("admin.clients.cardBonus"),
+      numeric: true,
+      render: (c) => (
+        <span className={c.bonusTrainingCredits > 0 ? "tag tag--info" : "tag tag--muted"}>
+          {c.bonusTrainingCredits}
+        </span>
+      )
+    },
+    {
       key: "actions",
       header: "",
       render: (c) => (
         <div style={{ display: "flex", gap: "8px", justifyContent: "flex-end" }}>
+          <Button
+            variant="ghost"
+            onClick={() => setBonusClient(c)}
+            aria-label={t("admin.clients.bonusAria", { name: c.name })}
+          >
+            {t("admin.clients.bonusAction")}
+          </Button>
           <Button
             variant="ghost"
             onClick={() => setEditClient(c)}
@@ -148,7 +172,122 @@ export function Clients(): JSX.Element {
         levelsLoading={levels.isLoading}
         onClose={() => setEditClient(null)}
       />
+
+      <AdjustBonusModal client={bonusClient} onClose={() => setBonusClient(null)} />
     </AppShell>
+  );
+}
+
+interface AdjustBonusModalProps {
+  client: Client | null;
+  onClose: () => void;
+}
+
+/**
+ * Adjust a client's bonus-training balance by a signed delta (+credit / -debit)
+ * with an optional reason. The balance is server-managed: the API owns the
+ * non-negative floor (a debit past zero is rejected and the error rendered) and
+ * the audit trail — the console only collects the delta/reason and shows the
+ * server's updated balance. A zero delta is disabled (no-op).
+ */
+function AdjustBonusModal({ client, onClose }: AdjustBonusModalProps): JSX.Element {
+  const t = useT();
+  const { notify } = useToast();
+  const adjust = useAdjustBonusCredits();
+
+  const [delta, setDelta] = useState<number | null>(null);
+  const [reason, setReason] = useState("");
+
+  // Re-seed (clear delta/reason + stale error) whenever a different client opens.
+  const [seededFor, setSeededFor] = useState<string | null>(null);
+  if (client && seededFor !== client.id) {
+    setSeededFor(client.id);
+    setDelta(null);
+    setReason("");
+    adjust.reset();
+  }
+  if (!client && seededFor !== null) {
+    setSeededFor(null);
+  }
+
+  function handleSubmit(event: FormEvent<HTMLFormElement>): void {
+    event.preventDefault();
+    if (!client || delta === null || delta === 0) return;
+    const trimmedReason = reason.trim();
+    const input: AdjustBonusCreditsInput = {
+      delta,
+      ...(trimmedReason ? { reason: trimmedReason } : {})
+    };
+    adjust.mutate(
+      { clientId: client.id, input },
+      {
+        onSuccess: (updated) => {
+          notify(
+            t("admin.clients.bonusAdjusted", {
+              name: updated.name,
+              balance: updated.bonusTrainingCredits
+            }),
+            "success"
+          );
+          onClose();
+        }
+      }
+    );
+  }
+
+  const canSubmit = delta !== null && delta !== 0 && !adjust.isPending;
+
+  return (
+    <Modal
+      open={client !== null}
+      onClose={onClose}
+      title={t("admin.clients.bonusTitle")}
+      footer={
+        <>
+          <Button variant="ghost" onClick={onClose} disabled={adjust.isPending}>
+            {t("admin.action.cancel")}
+          </Button>
+          <Button type="submit" form="client-bonus-form" disabled={!canSubmit}>
+            {adjust.isPending ? t("admin.action.saving") : t("admin.action.save")}
+          </Button>
+        </>
+      }
+    >
+      {client ? (
+        <form
+          id="client-bonus-form"
+          onSubmit={handleSubmit}
+          noValidate
+          style={{ display: "flex", flexDirection: "column", gap: "16px" }}
+        >
+          <p className="state">
+            {t("admin.clients.bonusCurrent", {
+              name: client.name,
+              balance: client.bonusTrainingCredits
+            })}
+          </p>
+          <NumberField
+            label={t("admin.clients.bonusDelta")}
+            value={delta}
+            onValueChange={setDelta}
+            hint={t("admin.clients.bonusDeltaHint")}
+          />
+          <TextField
+            label={t("admin.clients.bonusReason")}
+            value={reason}
+            onChange={(event) => setReason(event.target.value)}
+            hint={t("admin.clients.bonusReasonHint")}
+            maxLength={200}
+            autoComplete="off"
+          />
+          {adjust.isError ? (
+            <p className="state state--error" role="alert">
+              {adjust.error.message}
+            </p>
+          ) : null}
+        </form>
+      ) : null}
+    </Modal>
   );
 }
 

@@ -19,7 +19,8 @@ const client: Client = {
   note: null,
   language: "ru",
   registeredAt: "2026-01-01T00:00:00.000Z",
-  status: "active"
+  status: "active",
+  bonusTrainingCredits: 0
 };
 
 const walkIn: Client = {
@@ -34,7 +35,8 @@ const walkIn: Client = {
   note: null,
   language: "ru",
   registeredAt: "2026-01-01T00:00:00.000Z",
-  status: "active"
+  status: "active",
+  bonusTrainingCredits: 0
 };
 
 function makeService(overrides: Partial<ClientsService> = {}): ClientsService {

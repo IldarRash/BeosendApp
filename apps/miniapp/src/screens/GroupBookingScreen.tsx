@@ -443,9 +443,11 @@ function GroupConfirm({
 }
 
 /**
- * The result screen, rendered straight from {@link GroupBookingResult}: the created
- * count and, when any, the skipped (full) dates as a calm informational note — never
- * a red error. Skipping is a fact reported by the server, not a failure.
+ * The result screen, rendered straight from {@link GroupBookingResult}: the
+ * confirmed count, the queued (waitlisted) dates when the month had full dates, and
+ * the skipped (full/passed) dates. The queued and skipped buckets are calm
+ * informational notes — never a red error. Queuing/skipping are facts reported by
+ * the server, not failures.
  */
 function GroupResult({
   result,
@@ -482,6 +484,20 @@ function GroupResult({
           count: result.created.length
         })}
       </span>
+
+      {result.waitlisted.length > 0 && (
+        <div className="skipped-block" role="note">
+          <span className="skipped-block__header">
+            {t("miniapp.group.waitlistedHeader", { count: result.waitlisted.length })}
+          </span>
+          <span className="skipped-block__item">{t("miniapp.group.waitlistedNote")}</span>
+          {result.waitlisted.map((entry) => (
+            <span key={entry.date} className="skipped-block__item">
+              {formatDayMonth(entry.date)}
+            </span>
+          ))}
+        </div>
+      )}
 
       {result.skipped.length > 0 && (
         <div className="skipped-block" role="note">

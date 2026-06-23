@@ -26,7 +26,8 @@ const existingClient: Client = {
   note: null,
   language: "ru",
   registeredAt: "2026-01-01T00:00:00.000Z",
-  status: "active"
+  status: "active",
+  bonusTrainingCredits: 0
 };
 
 const walkInClient: Client = {
@@ -41,7 +42,8 @@ const walkInClient: Client = {
   note: "via Instagram",
   language: "ru",
   registeredAt: "2026-01-01T00:00:00.000Z",
-  status: "active"
+  status: "active",
+  bonusTrainingCredits: 0
 };
 
 const beginner: Level = { id: LEVEL_ID, name: "Beginner", status: "active" };
@@ -83,6 +85,12 @@ function makeClientsRepo(overrides: Partial<ClientsRepository> = {}): ClientsRep
       ...existingClient,
       id,
       ...patch
+    })),
+    // Mirror the repo's atomic floored-at-zero clamp: GREATEST(0, current + delta).
+    adjustBonusCredits: vi.fn(async (id: string, delta: number) => ({
+      ...existingClient,
+      id,
+      bonusTrainingCredits: Math.max(0, existingClient.bonusTrainingCredits + delta)
     })),
     ...overrides
   } as unknown as ClientsRepository;
@@ -350,6 +358,54 @@ describe("ClientsService", () => {
       // levelId === null clears the column; it must not be validated as an active level.
       expect(levelsRepo.findById).not.toHaveBeenCalled();
       expect(clientsRepo.updateById).toHaveBeenCalledWith(CLIENT_ID, patch);
+    });
+  });
+
+  describe("adjustBonusCredits (admin-only bonus adjustment)", () => {
+    const CLIENT_ID = existingClient.id;
+
+    /** A repo double whose floored clamp starts from `start` (GREATEST(0, start+delta)). */
+    function repoWithBalance(start: number): ClientsRepository {
+      return makeClientsRepo({
+        adjustBonusCredits: vi.fn(async (id: string, delta: number) => ({
+          ...existingClient,
+          id,
+          bonusTrainingCredits: Math.max(0, start + delta)
+        }))
+      });
+    }
+
+    it("forbids a non-admin and writes nothing (403)", async () => {
+      await expect(
+        service.adjustBonusCredits(TELEGRAM_ID, CLIENT_ID, { delta: 1 })
+      ).rejects.toBeInstanceOf(ForbiddenException);
+      expect(clientsRepo.adjustBonusCredits).not.toHaveBeenCalled();
+    });
+
+    it("increases the balance for a positive delta and returns the updated client", async () => {
+      clientsRepo = repoWithBalance(1);
+      service = new ClientsService(clientsRepo, levelsRepo, makeDatabase(), makeStaffLinking(), env);
+      const result = await service.adjustBonusCredits(ADMIN_ID, CLIENT_ID, {
+        delta: 2,
+        reason: "make-good"
+      });
+      expect(result.bonusTrainingCredits).toBe(3);
+      expect(clientsRepo.adjustBonusCredits).toHaveBeenCalledWith(CLIENT_ID, 2);
+    });
+
+    it("floors a debit at zero (balance 2, delta -5 → 0), never negative", async () => {
+      clientsRepo = repoWithBalance(2);
+      service = new ClientsService(clientsRepo, levelsRepo, makeDatabase(), makeStaffLinking(), env);
+      const result = await service.adjustBonusCredits(ADMIN_ID, CLIENT_ID, { delta: -5 });
+      expect(result.bonusTrainingCredits).toBe(0);
+    });
+
+    it("404s a missing client", async () => {
+      clientsRepo = makeClientsRepo({ adjustBonusCredits: vi.fn(async () => undefined) });
+      service = new ClientsService(clientsRepo, levelsRepo, makeDatabase(), makeStaffLinking(), env);
+      await expect(
+        service.adjustBonusCredits(ADMIN_ID, CLIENT_ID, { delta: 1 })
+      ).rejects.toBeInstanceOf(NotFoundException);
     });
   });
 });

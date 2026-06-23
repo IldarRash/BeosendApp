@@ -102,6 +102,16 @@ export function ProfileScreen({ client }: ProfileScreenProps): JSX.Element {
               <div className="lrow__title">{levelName}</div>
             </div>
           </div>
+          {client.bonusTrainingCredits > 0 && (
+            <div className="lrow" style={{ cursor: "default" }}>
+              <div className="lrow__main">
+                <div className="lrow__sub">{t("miniapp.profile.bonusCredits")}</div>
+                <div className="lrow__title">
+                  {t("miniapp.profile.bonusCreditsValue", { count: client.bonusTrainingCredits })}
+                </div>
+              </div>
+            </div>
+          )}
         </div>
       </section>
 

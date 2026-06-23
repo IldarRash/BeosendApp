@@ -758,6 +758,7 @@ function AddPersonModal({ target, onClose, onBooked }: AddPersonModalProps): JSX
   const [mode, setMode] = useState<AddPersonMode>("existing");
   const [search, setSearch] = useState("");
   const [pickedClientId, setPickedClientId] = useState("");
+  const [useBonus, setUseBonus] = useState(false);
   const [name, setName] = useState("");
   const [phone, setPhone] = useState("");
   const [note, setNote] = useState("");
@@ -776,6 +777,7 @@ function AddPersonModal({ target, onClose, onBooked }: AddPersonModalProps): JSX
     setMode("existing");
     setSearch("");
     setPickedClientId("");
+    setUseBonus(false);
     setName("");
     setPhone("");
     setNote("");
@@ -800,11 +802,19 @@ function AddPersonModal({ target, onClose, onBooked }: AddPersonModalProps): JSX
 
   const canSubmit = !pending && (mode === "existing" ? pickedClientId !== "" : name.trim() !== "");
 
+  // The picked existing client, used to gate the "use bonus" checkbox to a client
+  // that actually has a bonus balance (the server is the authority; this only hides
+  // an option that would always be rejected).
+  const pickedClient = (clients.data ?? []).find((c) => c.id === pickedClientId) ?? null;
+  const canUseBonus = mode === "existing" && (pickedClient?.bonusTrainingCredits ?? 0) > 0;
+  // Never send the flag when no balance is available (or a walk-in is being created).
+  const redeemBonus = canUseBonus && useBonus;
+
   /** Book a resolved client onto the target training; toast + close on success. */
-  function bookClient(client: Client): void {
+  function bookClient(client: Client, useBonusCredit: boolean): void {
     if (!target) return;
     bookManual.mutate(
-      { clientId: client.id, trainingId: target.id },
+      { clientId: client.id, trainingId: target.id, useBonusCredit },
       { onSuccess: () => onBooked(client.name) }
     );
   }
@@ -814,18 +824,19 @@ function AddPersonModal({ target, onClose, onBooked }: AddPersonModalProps): JSX
     if (mode === "existing") {
       const picked = (clients.data ?? []).find((c) => c.id === pickedClientId);
       if (!picked) return;
-      bookClient(picked);
+      bookClient(picked, redeemBonus);
       return;
     }
     const trimmedName = name.trim();
     if (trimmedName === "") return;
+    // A walk-in has no Telegram account and no bonus balance — never redeem here.
     createWalkIn.mutate(
       {
         name: trimmedName,
         ...(phone.trim() ? { phone: phone.trim() } : {}),
         ...(note.trim() ? { note: note.trim() } : {})
       },
-      { onSuccess: (client) => bookClient(client) }
+      { onSuccess: (client) => bookClient(client, false) }
     );
   }
 
@@ -881,9 +892,25 @@ function AddPersonModal({ target, onClose, onBooked }: AddPersonModalProps): JSX
               label={t("admin.trainings.addPersonPick")}
               options={clientOptions}
               value={pickedClientId}
-              onChange={(e) => setPickedClientId(e.target.value)}
+              onChange={(e) => {
+                setPickedClientId(e.target.value);
+                setUseBonus(false);
+              }}
             />
           )}
+          {canUseBonus ? (
+            <label className="cluster">
+              <input
+                type="checkbox"
+                name="use-bonus"
+                checked={useBonus}
+                onChange={(e) => setUseBonus(e.target.checked)}
+              />
+              {t("admin.trainings.addPersonUseBonus", {
+                balance: pickedClient?.bonusTrainingCredits ?? 0
+              })}
+            </label>
+          ) : null}
         </>
       ) : (
         <>

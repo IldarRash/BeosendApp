@@ -93,6 +93,13 @@ const ICONS: Record<string, JSX.Element> = {
       <path d="M9 8h6M9 12h6M9 16h3" />
     </Icon>
   ),
+  waitlist: (
+    <Icon>
+      <path d="M4 6h10M4 12h6M4 18h6" />
+      <circle cx="17" cy="15" r="4.5" />
+      <path d="M17 13v2l1.4 1.4" />
+    </Icon>
+  ),
   // Courts group
   courtRequests: (
     <Icon>

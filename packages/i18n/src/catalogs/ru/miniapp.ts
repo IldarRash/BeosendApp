@@ -52,6 +52,9 @@ export const miniappRu: Record<string, string> = {
   "miniapp.profile.level": "Уровень",
   "miniapp.profile.levelNone": "Не указан",
   "miniapp.profile.language": "Язык интерфейса",
+  // Bonus-training balance badge (shown only when the balance is > 0).
+  "miniapp.profile.bonusCredits": "Бонусные тренировки",
+  "miniapp.profile.bonusCreditsValue": "Бонусных тренировок: {count}",
 
   // --- Common states ---
   "miniapp.common.loading": "Загрузка…",
@@ -168,6 +171,9 @@ export const miniappRu: Record<string, string> = {
   // Shown when the month's bookings come back `pending`: the trainer must confirm them.
   "miniapp.group.pendingTitle": "Заявка отправлена",
   "miniapp.group.pendingCount": "Ожидает подтверждения по {count} тренировкам",
+  // Waitlisted dates: full dates the client was queued on (month paid, место в очереди).
+  "miniapp.group.waitlistedHeader": "В очереди: {count}",
+  "miniapp.group.waitlistedNote": "Месяц оплачен. Эти даты были заняты — вы в очереди, мы уведомим вас.",
   "miniapp.group.skippedHeader": "Пропущенные даты (нет мест)",
   "miniapp.group.toMyBookings": "К моим записям",
   "miniapp.group.toHome": "На главную",
@@ -295,6 +301,9 @@ export const miniappRu: Record<string, string> = {
     "Не удалось отменить запись. Возможно, она уже отменена или больше недоступна для отмены.",
   // Error loading the list.
   "miniapp.myBookings.errorBody": "Не удалось загрузить ваши записи. Попробуйте ещё раз.",
+  // Waitlist section (queued dates) below the booked items on the Upcoming tab.
+  "miniapp.myBookings.waitlistTitle": "В листе ожидания",
+  "miniapp.myBookings.waitlistPosition": "в очереди, позиция {position}",
 
   // --- Training schedule (расписание): month calendar of bookable sessions ---
   "miniapp.schedule.title": "Расписание тренировок",

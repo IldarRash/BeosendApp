@@ -30,7 +30,8 @@ const ONBOARDED: Client = {
   note: null,
   language: "ru",
   registeredAt: "2026-06-05T10:00:00.000Z",
-  status: "active"
+  status: "active",
+  bonusTrainingCredits: 0
 };
 
 const ENTRY_ID = "77777777-7777-7777-7777-777777777777";

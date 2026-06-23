@@ -43,7 +43,8 @@ const EXISTING: Client = {
   note: null,
   registeredAt: "2026-01-01T00:00:00.000Z",
   status: "active",
-  language: "ru"
+  language: "ru",
+  bonusTrainingCredits: 0
 };
 
 function mockApi(overrides: Partial<ApiClient> = {}): ApiClient {

@@ -451,16 +451,18 @@ describe("groupBookingResultSchema", () => {
     const parsed = groupBookingResultSchema.safeParse({
       groupSubscriptionId: "44444444-4444-4444-4444-444444444444",
       created: [booking],
+      waitlisted: [{ date: "2099-06-10", position: 2 }],
       skipped: ["2099-06-03"]
     });
     expect(parsed.success).toBe(true);
   });
 
-  it("accepts an empty created/skipped result", () => {
+  it("accepts an empty created/waitlisted/skipped result", () => {
     expect(
       groupBookingResultSchema.safeParse({
         groupSubscriptionId: "44444444-4444-4444-4444-444444444444",
         created: [],
+        waitlisted: [],
         skipped: []
       }).success
     ).toBe(true);
@@ -740,6 +742,7 @@ describe("waitlistEntrySchema", () => {
     clientId: "22222222-2222-2222-2222-222222222222",
     trainingId: "33333333-3333-3333-3333-333333333333",
     position: 1,
+    groupSubscriptionId: null,
     status: "notified",
     addedAt: "2099-06-08T17:00:00.000Z",
     notifiedAt: "2099-06-08T17:05:00.000Z"

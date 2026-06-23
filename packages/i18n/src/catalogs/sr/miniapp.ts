@@ -47,6 +47,8 @@ export const miniappSr: Record<string, string> = {
   "miniapp.profile.level": "Nivo",
   "miniapp.profile.levelNone": "Nije navedeno",
   "miniapp.profile.language": "Jezik interfejsa",
+  "miniapp.profile.bonusCredits": "Bonus treninzi",
+  "miniapp.profile.bonusCreditsValue": "Bonus treninga: {count}",
 
   // --- Common states ---
   "miniapp.common.loading": "Učitavanje…",
@@ -156,6 +158,8 @@ export const miniappSr: Record<string, string> = {
   "miniapp.myBookings.cancelConflict":
     "Otkazivanje nije uspelo. Možda je prijava već otkazana ili se više ne može otkazati.",
   "miniapp.myBookings.errorBody": "Učitavanje vaših prijava nije uspelo. Pokušajte ponovo.",
+  "miniapp.myBookings.waitlistTitle": "Na listi čekanja",
+  "miniapp.myBookings.waitlistPosition": "na čekanju, pozicija {position}",
 
   // --- Group monthly subscription (S7) ---
   "miniapp.group.listTitle": "Grupe",
@@ -176,6 +180,8 @@ export const miniappSr: Record<string, string> = {
   "miniapp.group.createdCount": "Prijavljeni ste na {count} treninga",
   "miniapp.group.pendingTitle": "Zahtev je poslat",
   "miniapp.group.pendingCount": "Čeka potvrdu za {count} treninga",
+  "miniapp.group.waitlistedHeader": "Na čekanju: {count}",
+  "miniapp.group.waitlistedNote": "Mesec je plaćen. Ovi datumi su bili popunjeni — na listi ste čekanja, obavestićemo vas.",
   "miniapp.group.skippedHeader": "Preskočeni datumi (nema mesta)",
   "miniapp.group.toMyBookings": "Na moje prijave",
   "miniapp.group.toHome": "Na početnu",

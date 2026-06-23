@@ -169,6 +169,55 @@ export class ClientsRepository {
     return row?.version;
   }
 
+  /**
+   * Atomically add a SIGNED `amount` of bonus-training credits to a client (a
+   * SET ... = col + amount, never a read-modify-write), so a monthly subscription
+   * that waitlists full dates grants the matching credits without a lost update under
+   * concurrency. UNCHECKED: it does NOT floor at zero, so a negative `amount` (a
+   * redemption debit) can drive the balance below 0 unless the caller pre-guards
+   * (createManual checks `> 0` before passing -1). Must run inside the caller's
+   * transaction so the debit and the comped booking commit together. For a
+   * standalone, floored admin adjustment use `adjustBonusCredits` instead. No
+   * business rules — the service computes `amount` and gates who may call it.
+   */
+  async addBonusCredits(
+    tx: Database,
+    clientId: string,
+    amount: number
+  ): Promise<void> {
+    await tx
+      .update(tables.clients)
+      .set({
+        bonusTrainingCredits: sql`${tables.clients.bonusTrainingCredits} + ${amount}`
+      })
+      .where(eq(tables.clients.id, clientId));
+  }
+
+  /**
+   * Apply a signed delta to a client's bonus-training balance atomically and
+   * floored at zero: `SET bonus_training_credits = GREATEST(0, col + delta)` in one
+   * statement, so a negative delta can never drive the balance below 0 and a
+   * concurrent adjustment cannot lose an update (no read-modify-write). This is the
+   * floored, standalone admin adjustment — distinct from `addBonusCredits`, which is
+   * UNCHECKED and runs inside a caller's transaction. Returns the refreshed row, or
+   * undefined if no client has that id. No business rules — the service gates who may
+   * call it and logs the adjustment.
+   */
+  async adjustBonusCredits(
+    id: string,
+    delta: number,
+    tx: Database = this.database.db
+  ): Promise<Client | undefined> {
+    const [row] = await tx
+      .update(tables.clients)
+      .set({
+        bonusTrainingCredits: sql`GREATEST(0, ${tables.clients.bonusTrainingCredits} + ${delta})`
+      })
+      .where(eq(tables.clients.id, id))
+      .returning();
+    return row ? toClient(row) : undefined;
+  }
+
   /** Set a client's per-user UI locale. Returns the updated row, or undefined if none. */
   async updateLanguage(
     telegramId: number,
@@ -198,7 +247,8 @@ function toClient(row: ClientRow): Client {
     note: row.note,
     language: row.language,
     registeredAt: row.registeredAt.toISOString(),
-    status: row.status
+    status: row.status,
+    bonusTrainingCredits: row.bonusTrainingCredits
   };
 }
 

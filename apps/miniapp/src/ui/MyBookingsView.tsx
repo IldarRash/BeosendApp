@@ -1,13 +1,20 @@
-import type { MyBookingItem, MyBookingScope } from "@beosand/types";
+import type { MyBookingItem, MyBookingScope, WaitlistAdminItem } from "@beosand/types";
 import { useT } from "../i18n/LanguageProvider";
 import { BookingItemCard } from "./BookingItemCard";
 import { EmptyState, ErrorState, LoadingState } from "./StateView";
+import { dayOfWeekFromDate, formatDayMonth, formatTimeRange, weekdayFullKey } from "./format";
 
 interface MyBookingsViewProps {
   scope: MyBookingScope;
   onScopeChange: (scope: MyBookingScope) => void;
   /** Validated booking items from `GET /bookings/mine` for the active scope. */
   items: ReadonlyArray<MyBookingItem> | undefined;
+  /**
+   * The caller's active waitlist entries from `GET /waitlist/mine`, rendered in a
+   * separate section below the booked items. Undefined on the Past scope (queued
+   * dates are forward-looking) and while it loads — the section then simply omits.
+   */
+  waitlist?: ReadonlyArray<WaitlistAdminItem>;
   isLoading: boolean;
   /** A request/contract error message to surface verbatim, if any. */
   errorMessage?: string;
@@ -35,6 +42,7 @@ export function MyBookingsView({
   scope,
   onScopeChange,
   items,
+  waitlist,
   isLoading,
   errorMessage,
   onCancel,
@@ -42,6 +50,8 @@ export function MyBookingsView({
 }: MyBookingsViewProps): JSX.Element {
   const t = useT();
   const isUpcoming = scope === "upcoming";
+  const hasBookings = (items?.length ?? 0) > 0;
+  const hasWaitlist = (waitlist?.length ?? 0) > 0;
 
   return (
     <div className="screen screen--no-mainbutton">
@@ -73,7 +83,7 @@ export function MyBookingsView({
         <LoadingState />
       ) : errorMessage ? (
         <ErrorState message={errorMessage} />
-      ) : (items?.length ?? 0) === 0 ? (
+      ) : !hasBookings && !hasWaitlist ? (
         isUpcoming ? (
           <EmptyState
             titleKey="miniapp.myBookings.emptyUpcomingTitle"
@@ -88,18 +98,53 @@ export function MyBookingsView({
           />
         )
       ) : (
-        <div
-          className="card"
-          aria-label={t("miniapp.myBookings.title")}
-          role="list"
-        >
-          {items!.map((item) => (
-            <div key={item.bookingId} role="listitem">
-              <BookingItemCard item={item} onCancel={onCancel} />
+        <>
+          {hasBookings && (
+            <div
+              className="card"
+              aria-label={t("miniapp.myBookings.title")}
+              role="list"
+            >
+              {items!.map((item) => (
+                <div key={item.bookingId} role="listitem">
+                  <BookingItemCard item={item} onCancel={onCancel} />
+                </div>
+              ))}
             </div>
-          ))}
-        </div>
+          )}
+          {hasWaitlist && <WaitlistSection items={waitlist!} />}
+        </>
       )}
     </div>
+  );
+}
+
+/**
+ * The caller's queued (waitlisted) dates, in a clearly-separated section below the
+ * booked items. Each row shows the training's weekday + date + time and the
+ * server-assigned queue position — all display-only values; the Mini App does no
+ * date or queue math. Rendered only when the server returned at least one entry.
+ */
+function WaitlistSection({ items }: { items: ReadonlyArray<WaitlistAdminItem> }): JSX.Element {
+  const t = useT();
+  return (
+    <section aria-label={t("miniapp.myBookings.waitlistTitle")}>
+      <div className="tg-sech">{t("miniapp.myBookings.waitlistTitle")}</div>
+      <div className="card" role="list">
+        {items.map((item) => (
+          <div key={item.id} className="lrow" role="listitem">
+            <div className="lrow__main">
+              <div className="lrow__title">
+                {t(weekdayFullKey(dayOfWeekFromDate(item.date)))}, {formatDayMonth(item.date)} ·{" "}
+                {formatTimeRange(item.startTime, item.endTime)}
+              </div>
+              <div className="lrow__sub">
+                {t("miniapp.myBookings.waitlistPosition", { position: item.position })}
+              </div>
+            </div>
+          </div>
+        ))}
+      </div>
+    </section>
   );
 }
