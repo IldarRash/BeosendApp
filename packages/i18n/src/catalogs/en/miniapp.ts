@@ -5,7 +5,7 @@
  */
 export const miniappEn: Record<string, string> = {
   // --- Onboarding wizard ---
-  "miniapp.onboarding.step": "Step {n} of 3",
+  "miniapp.onboarding.step": "Step {n} of 4",
   "miniapp.onboarding.nameHeader": "What is your name?",
   "miniapp.onboarding.nameHint": "Your coach will see you under this name.",
   "miniapp.onboarding.namePlaceholder": "Your name",
@@ -13,6 +13,13 @@ export const miniappEn: Record<string, string> = {
   "miniapp.onboarding.levelHeader": "Your level",
   "miniapp.onboarding.levelFooter": "You can choose later",
   "miniapp.onboarding.levelSkip": "Not sure yet",
+
+  // --- Personal-data-processing consent (onboarding step 1) ---
+  "miniapp.consent.header": "Personal data processing consent",
+  "miniapp.consent.body":
+    "To continue registration, confirm your consent to the processing of your personal data (name, Telegram contact, level) for booking training sessions.",
+  "miniapp.consent.checkboxLabel": "I agree to the processing of my personal data",
+  "miniapp.consent.policyLink": "Personal data processing policy",
 
   // --- Primary actions ---
   "miniapp.action.continue": "Continue",

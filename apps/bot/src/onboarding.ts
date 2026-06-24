@@ -198,6 +198,11 @@ export async function handleLevelCallback(
     telegramId,
     name,
     levelId,
+    // The bot onboarding wizard is dormant (registration moved to the Mini App,
+    // which presents the personal-data-processing consent step). This call site is
+    // unreachable today; if it is ever revived, add a real consent prompt here
+    // rather than asserting acceptance unconditionally.
+    consentAccepted: true,
     ...(username ? { telegramUsername: username } : {})
   };
   await api.onboardClient(input);

@@ -42,6 +42,7 @@ const EXISTING: Client = {
   email: null,
   note: null,
   registeredAt: "2026-01-01T00:00:00.000Z",
+  consentGivenAt: null,
   status: "active",
   language: "ru",
   bonusTrainingCredits: 0
@@ -207,6 +208,8 @@ describe("handleLevelCallback", () => {
       telegramId: 7,
       name: "Марко",
       levelId: LEVELS[0].id,
+      // Onboarding now sends affirmative personal-data-processing consent.
+      consentAccepted: true,
       telegramUsername: "marko"
     });
     expect(reply.mock.calls.at(-1)?.[0]).toBe(WELCOME_TEXT);

@@ -10,7 +10,8 @@ import type {
 } from "@beosand/types";
 import { broadcastPreviewSchema, freeSeats, isBookable, isoWeekdayOf } from "@beosand/types";
 import { ENV } from "../../config/config.module";
-import { type InlineKeyboardMarkup, TelegramSender } from "../notifications/telegram-sender";
+import { TelegramSender } from "../notifications/telegram-sender";
+import { bookSlotsKeyboard } from "../notifications/notification-keyboards";
 import { composeBroadcastText } from "./broadcast-messages";
 import {
   type BroadcastRecipient,
@@ -83,11 +84,13 @@ export class BroadcastsService {
 
     const slots = await this.selectBookableSlots(type);
     const text = composeBroadcastText(type, slots);
-    const replyMarkup = buildKeyboard(slots);
+    const trainingIds = slots.map((slot) => slot.trainingId);
     const recipients = await this.resolveRecipients(audience);
 
     for (const recipient of recipients) {
       try {
+        // Localize the per-slot "book" button to each recipient's language (the body stays RU).
+        const replyMarkup = bookSlotsKeyboard(recipient.language, trainingIds);
         await this.sender.sendMessage(recipient.telegramId, text, replyMarkup);
       } catch (error) {
         this.logger.error(
@@ -182,18 +185,6 @@ function toSlotCard(row: BroadcastSlotRow): SlotCard {
     levelName: row.levelName,
     freeSeats: freeSeats(row),
     priceSingleRsd: row.priceSingleRsd
-  };
-}
-
-/** Per-slot inline "Записаться" buttons routing into the T1.8 booking flow. */
-function buildKeyboard(slots: SlotCard[]): InlineKeyboardMarkup | undefined {
-  if (slots.length === 0) {
-    return undefined;
-  }
-  return {
-    inline_keyboard: slots.map((slot) => [
-      { text: "Записаться", callback_data: `book:slot:${slot.trainingId}` }
-    ])
   };
 }
 

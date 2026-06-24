@@ -9,6 +9,13 @@ export const botSr: Record<string, string> = {
   "bot.menu.back": "Nazad",
   "bot.action.confirm": "Potvrdi",
 
+  // --- Notification inline-button labels (sent from apps/api, resolved per recipient locale) ---
+  "bot.notify.confirm": "✅ Potvrdi",
+  "bot.notify.decline": "❌ Odbij",
+  "bot.notify.openAdmin": "Otvori u admin panelu",
+  "bot.notify.openRequest": "Otvori zahtev",
+  "bot.notify.book": "Prijavi se",
+
   // --- Main menu (menu.ts) ---
   "bot.menu.welcomeFull":
     "Dobro došli u BeoSand 🏐\n\nOvde možete:\n• prijaviti se za trening\n• pogledati slobodna mesta\n• videti svoje prijave",

@@ -247,6 +247,7 @@ function toClient(row: ClientRow): Client {
     note: row.note,
     language: row.language,
     registeredAt: row.registeredAt.toISOString(),
+    consentGivenAt: row.consentGivenAt ? row.consentGivenAt.toISOString() : null,
     status: row.status,
     bonusTrainingCredits: row.bonusTrainingCredits
   };

@@ -99,7 +99,11 @@ export class ClientsService {
           telegramId: input.telegramId,
           telegramUsername: input.telegramUsername ?? null,
           name: input.name,
-          levelId: input.levelId ?? null
+          levelId: input.levelId ?? null,
+          // The contract validated consentAccepted === true before reaching the
+          // service, so stamp the consent time server-side (never trust a client
+          // clock). Only set on first insert — re-onboard returns the row unchanged.
+          consentGivenAt: new Date()
         },
         tx
       );

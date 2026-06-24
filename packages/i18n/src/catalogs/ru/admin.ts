@@ -451,6 +451,8 @@ export const adminRu: Record<string, string> = {
   "admin.clients.cardUsername": "Username",
   "admin.clients.cardLevel": "Уровень",
   "admin.clients.cardStatus": "Статус",
+  "admin.clients.cardConsent": "Согласие",
+  "admin.clients.consentNone": "—",
   "admin.clients.levelUnset": "Не указан",
   "admin.clients.onboardHeading": "Регистрация клиента",
   "admin.clients.onboardLead": "Регистрация идемпотентна по Telegram ID: повторная отправка вернёт существующего клиента.",

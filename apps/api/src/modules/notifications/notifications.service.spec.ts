@@ -369,6 +369,7 @@ describe("NotificationsService", () => {
       note: null,
       language: "ru",
       registeredAt: "2026-06-03T10:00:00.000Z",
+      consentGivenAt: null,
       status: "active",
       bonusTrainingCredits: 0
     };
@@ -486,14 +487,12 @@ describe("NotificationsService.sendCourtRequestCreatedToAdmins", () => {
 });
 
 describe("NotificationsService admin pending DMs (confirm/decline + deep-link)", () => {
-  const confirmKeyboard = {
-    inline_keyboard: [
-      [
-        { text: "✅ Подтвердить", callback_data: "confirm:bk:b1" },
-        { text: "❌ Отклонить", callback_data: "decline:bk:b1" }
-      ]
-    ]
-  };
+  // The confirm/decline row is now built server-side per the admin's resolved
+  // locale; makeManagers() resolves every admin to RU here, so RU labels apply.
+  const ruConfirmRow = [
+    { text: "✅ Подтвердить", callback_data: "confirm:bk:b1" },
+    { text: "❌ Отклонить", callback_data: "decline:bk:b1" }
+  ];
 
   function makeService(env: { ADMIN_TELEGRAM_IDS: string[]; ADMIN_URL?: string }): {
     service: NotificationsService;
@@ -516,18 +515,19 @@ describe("NotificationsService admin pending DMs (confirm/decline + deep-link)",
     return { service, sender };
   }
 
-  it("DMs every admin the confirm/decline keyboard with a /trainings deep-link row when ADMIN_URL is set", async () => {
+  it("DMs every admin a confirm/decline keyboard (built per locale) with a /trainings deep-link row when ADMIN_URL is set", async () => {
     const { service, sender } = makeService({
       ADMIN_TELEGRAM_IDS: [],
       ADMIN_URL: "https://admin.beosand.example"
     });
 
-    await service.sendBookingPendingToAdmins([111, 222], "client-1", "training-1", "Ivan", confirmKeyboard);
+    // Pass a plain bookingId; the service builds the confirm/decline row itself.
+    await service.sendBookingPendingToAdmins([111, 222], "client-1", "training-1", "Ivan", "b1");
 
     expect(sender.sendMessage.mock.calls.map((c) => c[0])).toEqual([111, 222]);
     const markup = sender.sendMessage.mock.calls[0][2];
     expect(markup.inline_keyboard).toEqual([
-      confirmKeyboard.inline_keyboard[0],
+      ruConfirmRow,
       [{ text: "Открыть в админке", url: "https://admin.beosand.example/trainings" }]
     ]);
   });
@@ -535,28 +535,31 @@ describe("NotificationsService admin pending DMs (confirm/decline + deep-link)",
   it("omits the deep-link row (confirm/decline only) when ADMIN_URL is unset", async () => {
     const { service, sender } = makeService({ ADMIN_TELEGRAM_IDS: [] });
 
-    await service.sendBookingPendingToAdmins([111], "client-1", "training-1", "Ivan", confirmKeyboard);
+    await service.sendBookingPendingToAdmins([111], "client-1", "training-1", "Ivan", "b1");
 
-    expect(sender.sendMessage.mock.calls[0][2].inline_keyboard).toEqual(
-      confirmKeyboard.inline_keyboard
-    );
+    expect(sender.sendMessage.mock.calls[0][2].inline_keyboard).toEqual([ruConfirmRow]);
   });
 
   it("is a no-op when there are no admins", async () => {
     const { service, sender } = makeService({ ADMIN_TELEGRAM_IDS: [] });
-    await service.sendBookingPendingToAdmins([], "client-1", "training-1", "Ivan", confirmKeyboard);
+    await service.sendBookingPendingToAdmins([], "client-1", "training-1", "Ivan", "b1");
     expect(sender.sendMessage).not.toHaveBeenCalled();
   });
 
-  it("subscription-batch DM deep-links to /subscriptions", async () => {
+  it("subscription-batch DM keys the confirm/decline row on the subscription and deep-links to /subscriptions", async () => {
     const { service, sender } = makeService({
       ADMIN_TELEGRAM_IDS: [],
       ADMIN_URL: "https://admin.beosand.example"
     });
 
-    await service.sendGroupPendingToAdmins([111], "client-1", ["t1", "t2"], "Ivan", confirmKeyboard);
+    await service.sendGroupPendingToAdmins([111], "client-1", ["t1", "t2"], "Ivan", "sub-9");
 
     const markup = sender.sendMessage.mock.calls[0][2];
+    // The confirm/decline row carries the subscription id (kind "sub"), RU-labelled here.
+    expect(markup.inline_keyboard[0]).toEqual([
+      { text: "✅ Подтвердить", callback_data: "confirm:sub:sub-9" },
+      { text: "❌ Отклонить", callback_data: "decline:sub:sub-9" }
+    ]);
     expect(markup.inline_keyboard.at(-1)).toEqual([
       { text: "Открыть в админке", url: "https://admin.beosand.example/subscriptions" }
     ]);
@@ -597,7 +600,6 @@ describe("NotificationsService staff DM locale (resolveStaffLocale per admin)", 
 
   it("DMs each admin the booking-pending-admin text in their own resolved locale", async () => {
     const { service, sender } = makeService({ ADMIN_TELEGRAM_IDS: [] });
-    const keyboard = { inline_keyboard: [[{ text: "ok", callback_data: "x" }]] };
 
     // 111 → manager RU, 222 → manager SR, 333 → trainer EN, 444 → env-only (no row) → SR fallback.
     await service.sendBookingPendingToAdmins(
@@ -605,7 +607,7 @@ describe("NotificationsService staff DM locale (resolveStaffLocale per admin)", 
       "client-1",
       "training-1",
       "Ivan",
-      keyboard
+      "b1"
     );
 
     const byAdmin = new Map<number, string>(
@@ -618,6 +620,62 @@ describe("NotificationsService staff DM locale (resolveStaffLocale per admin)", 
     expect(byAdmin.get(444)).toContain("Novi zahtev za termin");
     // The four DMs are not all the same string — each admin reads their own locale.
     expect(new Set(byAdmin.values()).size).toBe(3);
+  });
+
+  it("localizes the confirm/decline buttons per admin locale while keeping callback_data identical", async () => {
+    const { service, sender } = makeService({
+      ADMIN_TELEGRAM_IDS: [],
+      ADMIN_URL: "https://admin.beosand.example"
+    });
+
+    await service.sendBookingPendingToAdmins(
+      [111, 222, 333, 444],
+      "client-1",
+      "training-1",
+      "Ivan",
+      "b1"
+    );
+
+    type Markup = { inline_keyboard: { text: string; callback_data?: string; url?: string }[][] };
+    const byAdmin = new Map<number, Markup>(
+      sender.sendMessage.mock.calls.map((c) => [c[0] as number, c[2] as Markup])
+    );
+    const confirmDecline = (id: number): Markup["inline_keyboard"][number] =>
+      byAdmin.get(id)!.inline_keyboard[0];
+    const openAdmin = (id: number): { text: string; url?: string } =>
+      byAdmin.get(id)!.inline_keyboard.at(-1)![0];
+
+    // 111 → RU
+    expect(confirmDecline(111)).toEqual([
+      { text: "✅ Подтвердить", callback_data: "confirm:bk:b1" },
+      { text: "❌ Отклонить", callback_data: "decline:bk:b1" }
+    ]);
+    expect(openAdmin(111).text).toBe("Открыть в админке");
+    // 222 → SR (the regression this feature fixes: SR admin gets SR buttons, not RU).
+    expect(confirmDecline(222)).toEqual([
+      { text: "✅ Potvrdi", callback_data: "confirm:bk:b1" },
+      { text: "❌ Odbij", callback_data: "decline:bk:b1" }
+    ]);
+    expect(openAdmin(222).text).toBe("Otvori u admin panelu");
+    // 333 → EN (trainer locale)
+    expect(confirmDecline(333)).toEqual([
+      { text: "✅ Confirm", callback_data: "confirm:bk:b1" },
+      { text: "❌ Decline", callback_data: "decline:bk:b1" }
+    ]);
+    expect(openAdmin(333).text).toBe("Open in admin");
+    // 444 → SR fallback (no manager/trainer row)
+    expect(openAdmin(444).text).toBe("Otvori u admin panelu");
+
+    // The button TEXT differs by locale, but every callback_data is byte-identical:
+    // the bot routes on `confirm:bk:b1` / `decline:bk:b1` regardless of language, and
+    // the deep-link URL never depends on locale either.
+    for (const id of [111, 222, 333, 444]) {
+      expect(confirmDecline(id).map((b) => b.callback_data)).toEqual([
+        "confirm:bk:b1",
+        "decline:bk:b1"
+      ]);
+      expect(openAdmin(id).url).toBe("https://admin.beosand.example/trainings");
+    }
   });
 
   it("DMs each admin the court-request-created text in their own resolved locale", async () => {

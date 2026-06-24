@@ -22,6 +22,7 @@ import {
   useUpdateClient
 } from "../hooks/useClients";
 import { useLevels } from "../hooks/useLevels";
+import { formatDateTime } from "../lib/format";
 
 type StatusFilter = EntityStatus | "all";
 
@@ -76,6 +77,12 @@ export function Clients(): JSX.Element {
           {c.status === "active" ? t("admin.status.active") : t("admin.status.inactive")}
         </span>
       )
+    },
+    {
+      key: "consent",
+      header: t("admin.clients.cardConsent"),
+      render: (c) =>
+        c.consentGivenAt ? formatDateTime(c.consentGivenAt) : t("admin.clients.consentNone")
     },
     {
       key: "bonus",
@@ -334,7 +341,11 @@ function OnboardForm({ levels, levelsLoading }: OnboardFormProps): JSX.Element {
       telegramId: telegramId ?? 0,
       name,
       telegramUsername: trimmedUsername === "" ? null : trimmedUsername,
-      levelId: levelId === NO_LEVEL ? null : levelId
+      levelId: levelId === NO_LEVEL ? null : levelId,
+      // The contract now requires explicit consent (`consentAccepted: true`) before
+      // the server stamps `consentGivenAt`. An admin registering a client here affirms
+      // it on the client's behalf, mirroring the bot's own onboarding flow.
+      consentAccepted: true
     };
     onboard.mutate(input, {
       onSuccess: (client) => {

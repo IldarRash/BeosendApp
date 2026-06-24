@@ -443,6 +443,8 @@ export const adminSr: Record<string, string> = {
   "admin.clients.cardUsername": "Korisničko ime",
   "admin.clients.cardLevel": "Nivo",
   "admin.clients.cardStatus": "Status",
+  "admin.clients.cardConsent": "Saglasnost",
+  "admin.clients.consentNone": "—",
   "admin.clients.levelUnset": "Nije naveden",
   "admin.clients.onboardHeading": "Registracija klijenta",
   "admin.clients.onboardLead": "Registracija je idempotentna po Telegram ID-u: ponovno slanje vraća postojećeg klijenta.",

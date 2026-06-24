@@ -36,6 +36,7 @@ vi.mock("../hooks/useLevels", () => ({
 }));
 
 import { Clients } from "./Clients";
+import { formatDateTime } from "../lib/format";
 
 function renderPage(): void {
   render(
@@ -60,6 +61,7 @@ const anya: Client = {
   email: null,
   note: null,
   registeredAt: "2026-01-01T00:00:00.000Z",
+  consentGivenAt: null,
   status: "active",
   language: "ru",
   bonusTrainingCredits: 2
@@ -105,6 +107,22 @@ describe("Clients page", () => {
     expect(screen.getAllByText("Начальный").length).toBeGreaterThanOrEqual(1);
     // Status pill in the table (the filter select also has an "Активен" option).
     expect(screen.getAllByText("Активен").length).toBeGreaterThanOrEqual(1);
+  });
+
+  it("shows the consent placeholder when consentGivenAt is null", () => {
+    // anya has level + @tag set, so the only "—" in her row is the consent cell.
+    useClientsList.mockReturnValue(listQuery([{ ...anya, consentGivenAt: null }]));
+    renderPage();
+    const table = screen.getByRole("table");
+    expect(within(table).getByText("—")).toBeTruthy();
+  });
+
+  it("renders the formatted consent datetime when present", () => {
+    const consentGivenAt = "2026-02-03T09:30:00.000Z";
+    useClientsList.mockReturnValue(listQuery([{ ...anya, consentGivenAt }]));
+    renderPage();
+    // Deterministic ru-RU date+time formatting, matched against the shared helper.
+    expect(screen.getByText(formatDateTime(consentGivenAt))).toBeTruthy();
   });
 
   it("shows an empty state when no clients match", () => {
@@ -166,7 +184,8 @@ describe("Clients page", () => {
       telegramId: 4242,
       name: "Аня",
       telegramUsername: "anya",
-      levelId: sampleLevels[0].id
+      levelId: sampleLevels[0].id,
+      consentAccepted: true
     });
     expect(notify).toHaveBeenCalledWith(expect.stringContaining("Аня"), "success");
   });
@@ -180,7 +199,8 @@ describe("Clients page", () => {
       telegramId: 777,
       name: "Без уровня",
       telegramUsername: null,
-      levelId: null
+      levelId: null,
+      consentAccepted: true
     });
   });
 

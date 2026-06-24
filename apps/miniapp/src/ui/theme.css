@@ -597,6 +597,32 @@ button.slot { display: block; }
   background: var(--co);
 }
 
+/* Square sibling of .optrow__radio for a single boolean consent affordance. */
+.optrow__check {
+  width: 22px;
+  height: 22px;
+  border-radius: 6px;
+  border: 2px solid var(--tg-sep);
+  flex: none;
+  display: grid;
+  place-items: center;
+}
+
+.optrow.is-on .optrow__check {
+  border-color: var(--co);
+  background: var(--co);
+}
+
+.optrow.is-on .optrow__check::after {
+  content: "";
+  width: 6px;
+  height: 11px;
+  margin-top: -2px;
+  border: solid #fff;
+  border-width: 0 2px 2px 0;
+  transform: rotate(45deg);
+}
+
 .optrow__main { flex: 1; }
 .optrow__title { font-size: 16px; font-weight: 500; color: var(--tg-text); }
 .optrow__sub { font-size: 13px; color: var(--tg-hint); margin-top: 1px; }

@@ -20,6 +20,12 @@ export const clientSchema = z.object({
   /** Per-user UI locale for the bot; defaults to "ru" server-side. */
   language: localeSchema,
   registeredAt: z.string().datetime(),
+  /**
+   * When the client accepted the personal-data-processing consent, stamped
+   * server-side on first onboard. Null for walk-ins (admin-created) and clients
+   * registered before consent was introduced.
+   */
+  consentGivenAt: z.string().datetime().nullable(),
   status: entityStatus,
   /**
    * Admin-honoured bonus-training balance: granted when a monthly subscription
@@ -32,7 +38,12 @@ export const onboardClientSchema = z.object({
   telegramId: z.number().int(),
   telegramUsername: z.string().nullable().optional(),
   name: z.string().min(1),
-  levelId: uuid.nullable().optional()
+  levelId: uuid.nullable().optional(),
+  /**
+   * Explicit affirmative consent to personal-data processing (must be literally
+   * true). Onboarding is refused without it; the server stamps `consentGivenAt`.
+   */
+  consentAccepted: z.literal(true)
 });
 /**
  * Admin clients-list filter (GET /clients). `search` is a case-insensitive

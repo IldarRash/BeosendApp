@@ -121,6 +121,7 @@ const ownerClient: Client = {
   note: null,
   language: "ru",
   registeredAt: new Date().toISOString(),
+  consentGivenAt: null,
   status: "active",
   bonusTrainingCredits: 0
 };
@@ -138,6 +139,7 @@ const walkInClient: Client = {
   note: null,
   language: "ru",
   registeredAt: new Date().toISOString(),
+  consentGivenAt: null,
   status: "active",
   bonusTrainingCredits: 0
 };

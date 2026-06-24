@@ -50,6 +50,7 @@ const ONBOARDED: Client = {
   note: null,
   language: "ru",
   registeredAt: "2026-06-05T10:00:00.000Z",
+  consentGivenAt: null,
   status: "active",
   bonusTrainingCredits: 0
 };
@@ -303,7 +304,7 @@ describe("navigation shell", () => {
     });
     renderWithProviders(<Router />);
 
-    await waitFor(() => expect(screen.getByText("Шаг 1 из 3")).toBeTruthy());
+    await waitFor(() => expect(screen.getByText("Шаг 1 из 4")).toBeTruthy());
     expect(screen.queryByText("Тренировки")).toBeNull();
   });
 });

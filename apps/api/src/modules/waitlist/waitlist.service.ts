@@ -575,7 +575,7 @@ export class WaitlistService {
       notified.clientId,
       notified.trainingId,
       this.env.WAITLIST_WINDOW_MINUTES,
-      acceptKeyboard(notified.id)
+      notified.id
     );
   }
 
@@ -650,13 +650,6 @@ export class WaitlistService {
       throw new ForbiddenException("Cannot act on behalf of another client");
     }
   }
-}
-
-/** The inline "Подтвердить" button carrying waitlist:accept:<entryId> (52 bytes, < 64). */
-function acceptKeyboard(entryId: string): { inline_keyboard: { text: string; callback_data: string }[][] } {
-  return {
-    inline_keyboard: [[{ text: "✅ Подтвердить", callback_data: `waitlist:accept:${entryId}` }]]
-  };
 }
 
 /** Map a raw booking row (DB Dates) to the contract-validated Booking. */

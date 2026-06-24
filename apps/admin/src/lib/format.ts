@@ -9,3 +9,13 @@ export function formatRsd(value: number): string {
   const amount = rsd.parse(value);
   return `${amount.toLocaleString("ru-RU")} RSD`;
 }
+
+/**
+ * Format an ISO datetime for display in the admin tables. Display-only (no domain
+ * math), it lives here alongside `formatRsd`. A fixed `ru-RU` locale + explicit
+ * date/time styles keep the output deterministic regardless of the host locale —
+ * the value (e.g. a client's consent timestamp) is decided server-side.
+ */
+export function formatDateTime(iso: string): string {
+  return new Date(iso).toLocaleString("ru-RU", { dateStyle: "short", timeStyle: "short" });
+}

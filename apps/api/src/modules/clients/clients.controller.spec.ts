@@ -19,6 +19,7 @@ const client: Client = {
   note: null,
   language: "ru",
   registeredAt: "2026-01-01T00:00:00.000Z",
+  consentGivenAt: null,
   status: "active",
   bonusTrainingCredits: 0
 };
@@ -35,6 +36,7 @@ const walkIn: Client = {
   note: null,
   language: "ru",
   registeredAt: "2026-01-01T00:00:00.000Z",
+  consentGivenAt: null,
   status: "active",
   bonusTrainingCredits: 0
 };
@@ -133,35 +135,49 @@ describe("ClientsController", () => {
     expect(service.getByTelegramId).not.toHaveBeenCalled();
   });
 
-  it("POST onboard passes the header actor to the service and returns the validated client", async () => {
+  it("POST onboard passes the header actor (with validated consent) to the service and returns the validated client", async () => {
     await expect(
-      controller.onboard(HEADER, { telegramId: TELEGRAM_ID, name: "Ana", levelId: client.levelId })
+      controller.onboard(HEADER, {
+        telegramId: TELEGRAM_ID,
+        name: "Ana",
+        levelId: client.levelId,
+        consentAccepted: true
+      })
     ).resolves.toEqual(client);
+    // The contract keeps consentAccepted; the controller forwards the parsed input.
     expect(service.onboard).toHaveBeenCalledWith(TELEGRAM_ID, {
       telegramId: TELEGRAM_ID,
       name: "Ana",
-      levelId: client.levelId
+      levelId: client.levelId,
+      consentAccepted: true
     });
   });
 
   it("rejects an onboard with a missing x-telegram-id header before calling the service", async () => {
     await expect(
-      controller.onboard(undefined, { telegramId: TELEGRAM_ID, name: "Ana" })
+      controller.onboard(undefined, { telegramId: TELEGRAM_ID, name: "Ana", consentAccepted: true })
     ).rejects.toBeInstanceOf(BadRequestException);
     expect(service.onboard).not.toHaveBeenCalled();
   });
 
   it("rejects an invalid onboard body (empty name) with BadRequestException", async () => {
     await expect(
-      controller.onboard(HEADER, { telegramId: TELEGRAM_ID, name: "" })
+      controller.onboard(HEADER, { telegramId: TELEGRAM_ID, name: "", consentAccepted: true })
     ).rejects.toBeInstanceOf(BadRequestException);
     expect(service.onboard).not.toHaveBeenCalled();
   });
 
   it("rejects an onboard body missing telegramId with BadRequestException", async () => {
-    await expect(controller.onboard(HEADER, { name: "Ana" })).rejects.toBeInstanceOf(
-      BadRequestException
-    );
+    await expect(
+      controller.onboard(HEADER, { name: "Ana", consentAccepted: true })
+    ).rejects.toBeInstanceOf(BadRequestException);
+    expect(service.onboard).not.toHaveBeenCalled();
+  });
+
+  it("rejects an onboard body without consent (mandatory affirmative opt-in)", async () => {
+    await expect(
+      controller.onboard(HEADER, { telegramId: TELEGRAM_ID, name: "Ana" })
+    ).rejects.toBeInstanceOf(BadRequestException);
     expect(service.onboard).not.toHaveBeenCalled();
   });
 

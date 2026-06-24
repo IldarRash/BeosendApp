@@ -15,6 +15,13 @@ export const botRu: Record<string, string> = {
   "bot.menu.back": "Назад",
   "bot.action.confirm": "Подтвердить",
 
+  // --- Notification inline-button labels (sent from apps/api, resolved per recipient locale) ---
+  "bot.notify.confirm": "✅ Подтвердить",
+  "bot.notify.decline": "❌ Отклонить",
+  "bot.notify.openAdmin": "Открыть в админке",
+  "bot.notify.openRequest": "Открыть заявку",
+  "bot.notify.book": "Записаться",
+
   // --- Main menu (menu.ts) ---
   "bot.menu.welcomeFull":
     "Добро пожаловать в BeoSand 🏐\n\nЗдесь вы можете:\n• записаться на тренировку\n• посмотреть свободные места\n• увидеть свои записи",

@@ -26,6 +26,7 @@ const existingClient: Client = {
   note: null,
   language: "ru",
   registeredAt: "2026-01-01T00:00:00.000Z",
+  consentGivenAt: null,
   status: "active",
   bonusTrainingCredits: 0
 };
@@ -42,6 +43,7 @@ const walkInClient: Client = {
   note: "via Instagram",
   language: "ru",
   registeredAt: "2026-01-01T00:00:00.000Z",
+  consentGivenAt: null,
   status: "active",
   bonusTrainingCredits: 0
 };
@@ -406,6 +408,41 @@ describe("ClientsService", () => {
       await expect(
         service.adjustBonusCredits(ADMIN_ID, CLIENT_ID, { delta: 1 })
       ).rejects.toBeInstanceOf(NotFoundException);
+    });
+  });
+
+  // The personal-data-processing consent timestamp is stamped server-side (never
+  // from a client clock) and ONLY on the first insert: a returning client keeps
+  // its original (or null) value, and an admin walk-in is never asked to consent.
+  describe("consent (personal-data-processing)", () => {
+    it("stamps consentGivenAt (a Date) into the insert on first onboard", async () => {
+      await service.onboard(TELEGRAM_ID, {
+        telegramId: TELEGRAM_ID,
+        name: "Ana",
+        levelId: LEVEL_ID
+      });
+      const insertArg = (clientsRepo.insertIgnoreConflict as ReturnType<typeof vi.fn>).mock
+        .calls[0][0] as { consentGivenAt: unknown };
+      expect(insertArg.consentGivenAt).toBeInstanceOf(Date);
+      expect(insertArg.consentGivenAt).not.toBeNull();
+    });
+
+    it("does NOT stamp consent for a returning client (insert path not taken)", async () => {
+      clientsRepo = makeClientsRepo({ findByTelegramId: vi.fn(async () => existingClient) });
+      service = new ClientsService(clientsRepo, levelsRepo, makeDatabase(), makeStaffLinking(), env);
+      const result = await service.onboard(TELEGRAM_ID, {
+        telegramId: TELEGRAM_ID,
+        name: "Different Name"
+      });
+      // Returned unchanged, and the row's consent is never re-written.
+      expect(result.consentGivenAt).toBe(existingClient.consentGivenAt);
+      expect(result.consentGivenAt).toBeNull();
+      expect(clientsRepo.insertIgnoreConflict).not.toHaveBeenCalled();
+    });
+
+    it("leaves consentGivenAt null for an admin walk-in (insertWalkIn never stamps it)", async () => {
+      const result = await service.createWalkIn(ADMIN_ID, { name: "Marko", phone: "+381601234567" });
+      expect(result.consentGivenAt).toBeNull();
     });
   });
 });
