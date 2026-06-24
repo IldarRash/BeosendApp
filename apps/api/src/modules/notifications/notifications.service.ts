@@ -27,7 +27,13 @@ import {
   type NotificationRecipient,
   NotificationsRepository
 } from "./notifications.repository";
-import { type InlineButton, type InlineKeyboardMarkup, TelegramSender } from "./telegram-sender";
+import { TelegramSender } from "./telegram-sender";
+import {
+  adminDeepLinkMarkup,
+  confirmDeclineKeyboard,
+  waitlistAcceptKeyboard,
+  withAdminDeepLink
+} from "./notification-keyboards";
 import { ENV } from "../../config/config.module";
 
 /** The staff-DM fallback locale (SR) when a recipient is neither manager nor trainer. */
@@ -202,36 +208,6 @@ export class NotificationsService {
   }
 
   /**
-   * One inline row deep-linking `path` of the admin console, labelled `label`, or
-   * `[]` when ADMIN_URL is unset (graceful degradation — the DM still sends, just
-   * without the button). The single place admin-console links are built.
-   */
-  private adminDeepLinkRow(path: string, label: string): InlineButton[][] {
-    if (!this.env.ADMIN_URL) {
-      return [];
-    }
-    return [[{ text: label, url: `${this.env.ADMIN_URL}${path}` }]];
-  }
-
-  /**
-   * Keyboard carrying ONLY the deep-link row, or `undefined` when ADMIN_URL is
-   * unset (Telegram rejects an empty inline_keyboard, so the send omits markup).
-   */
-  private adminDeepLinkMarkup(path: string, label: string): InlineKeyboardMarkup | undefined {
-    const rows = this.adminDeepLinkRow(path, label);
-    return rows.length > 0 ? { inline_keyboard: rows } : undefined;
-  }
-
-  /** Append the admin-console deep-link row beneath an action (confirm/decline) keyboard. */
-  private withAdminDeepLink(
-    keyboard: InlineKeyboardMarkup,
-    path: string,
-    label: string
-  ): InlineKeyboardMarkup {
-    return { inline_keyboard: [...keyboard.inline_keyboard, ...this.adminDeepLinkRow(path, label)] };
-  }
-
-  /**
    * DM every admin that a single booking request awaits a decision (T
    * admin-confirm). Notification-only: no send-log row. Carries the caller's
    * confirm/decline keyboard (whose callback data the bot routes on) plus a
@@ -243,7 +219,7 @@ export class NotificationsService {
     clientId: string,
     trainingId: string,
     clientName: string,
-    actionKeyboard: InlineKeyboardMarkup
+    bookingId: string
   ): Promise<void> {
     if (adminIds.length === 0) {
       return;
@@ -253,7 +229,6 @@ export class NotificationsService {
       this.logger.warn(`No training ${trainingId} render fields; skipping admin pending DM`);
       return;
     }
-    const replyMarkup = this.withAdminDeepLink(actionKeyboard, "/trainings", "Открыть в админке");
     const vars = { ...buildTemplateVars(recipient), clientName: escapeHtml(clientName) };
     for (const adminId of adminIds) {
       try {
@@ -262,6 +237,13 @@ export class NotificationsService {
         const text = renderNotificationTemplate(
           resolveTemplateBody("booking-pending-admin", locale, override),
           vars
+        );
+        const replyMarkup = withAdminDeepLink(
+          confirmDeclineKeyboard(locale, "bk", bookingId),
+          this.env.ADMIN_URL,
+          locale,
+          "/trainings",
+          "bot.notify.openAdmin"
         );
         await this.sender.sendMessage(adminId, text, replyMarkup);
       } catch (error) {
@@ -284,7 +266,7 @@ export class NotificationsService {
     clientId: string,
     trainingIds: string[],
     clientName: string,
-    actionKeyboard: InlineKeyboardMarkup
+    groupSubscriptionId: string
   ): Promise<void> {
     if (adminIds.length === 0) {
       return;
@@ -295,13 +277,16 @@ export class NotificationsService {
       return;
     }
     const text = groupPendingAdminMessage(recipients, clientName);
-    const replyMarkup = this.withAdminDeepLink(
-      actionKeyboard,
-      "/subscriptions",
-      "Открыть в админке"
-    );
     for (const adminId of adminIds) {
       try {
+        const locale = await this.resolveStaffLocale(adminId);
+        const replyMarkup = withAdminDeepLink(
+          confirmDeclineKeyboard(locale, "sub", groupSubscriptionId),
+          this.env.ADMIN_URL,
+          locale,
+          "/subscriptions",
+          "bot.notify.openAdmin"
+        );
         await this.sender.sendMessage(adminId, text, replyMarkup);
       } catch (error) {
         this.logger.warn(
@@ -382,7 +367,7 @@ export class NotificationsService {
     clientId: string,
     trainingId: string,
     windowMinutes: number,
-    replyMarkup: InlineKeyboardMarkup
+    entryId: string
   ): Promise<boolean> {
     const recipient = await this.repo.findWaitlistRecipient(clientId, trainingId);
     if (!recipient) {
@@ -397,6 +382,7 @@ export class NotificationsService {
       return false;
     }
     const override = await this.templates.findOverride("waitlist-slot", recipient.language);
+    const replyMarkup = waitlistAcceptKeyboard(recipient.language, entryId);
     try {
       await this.sender.sendMessage(
         recipient.telegramId,
@@ -436,7 +422,6 @@ export class NotificationsService {
     if (adminIds.length === 0) {
       return false;
     }
-    const replyMarkup = this.adminDeepLinkMarkup("/trainings", "Открыть в админке");
     // The client name is a clickable HTML mention/link; the trainer name is escaped.
     const vars = {
       clientName: clientMentionLink(client),
@@ -450,6 +435,12 @@ export class NotificationsService {
         const text = renderNotificationTemplate(
           resolveTemplateBody("individual-request-admin", locale, override),
           vars
+        );
+        const replyMarkup = adminDeepLinkMarkup(
+          this.env.ADMIN_URL,
+          locale,
+          "/trainings",
+          "bot.notify.openAdmin"
         );
         await this.sender.sendMessage(adminId, text, replyMarkup);
         delivered = true;
@@ -489,7 +480,6 @@ export class NotificationsService {
       return;
     }
 
-    const replyMarkup = this.adminDeepLinkMarkup("/court-requests", "Открыть заявку");
     const vars = {
       clientName: escapeHtml(input.clientName),
       clientTelegramId: input.clientTelegramId,
@@ -508,6 +498,12 @@ export class NotificationsService {
         const text = renderNotificationTemplate(
           resolveTemplateBody("court-request-created-admin", locale, override),
           vars
+        );
+        const replyMarkup = adminDeepLinkMarkup(
+          this.env.ADMIN_URL,
+          locale,
+          "/court-requests",
+          "bot.notify.openRequest"
         );
         await this.sender.sendMessage(adminId, text, replyMarkup);
       } catch (error) {

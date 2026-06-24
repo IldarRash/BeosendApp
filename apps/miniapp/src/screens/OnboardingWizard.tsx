@@ -10,21 +10,32 @@ import { OptionList, type Option } from "../ui/OptionList";
 /** Sentinel for the "not sure yet" level opt-out — distinct from a real level id. */
 const NO_LEVEL = "";
 
+/**
+ * Privacy-policy link target for the consent step. Browser-safe public URL from
+ * `VITE_PRIVACY_POLICY_URL`; defaults to a no-op `"#"` when unset so the link
+ * never points at a missing page in environments without a configured policy.
+ */
+const POLICY_URL = import.meta.env.VITE_PRIVACY_POLICY_URL ?? "#";
+
 interface OnboardingWizardProps {
   /** Called once onboarding succeeds; the router lands on the profile. */
   onDone: () => void;
 }
 
 /**
- * Three-step onboarding (name → language → level) on one screen, driven by the
- * native MainButton (primary action) and BackButton (navigation). Identity comes
- * from the verified session (getMe); the wizard never accepts a foreign telegramId
- * — the server resolves and enforces the actor. No domain logic lives here: levels
- * come from the API, the locale list from @beosand/i18n.
+ * Four-step onboarding (consent → name → language → level) on one screen, driven
+ * by the native MainButton (primary action) and BackButton (navigation). Step 0 is
+ * the mandatory personal-data-processing consent: registration is refused until the
+ * client ticks it, and the server stamps `consentGivenAt` when we send
+ * `consentAccepted: true`. Identity comes from the verified session (getMe); the
+ * wizard never accepts a foreign telegramId — the server resolves and enforces the
+ * actor. No domain logic lives here: levels come from the API, the locale list from
+ * @beosand/i18n.
  *
  * Markup follows the handoff prototype: a `.tg-sech` step overline, `.card`/`.note`
- * for the name field, `.optrow` rows (via OptionList) for language/level, and the
- * `.stateview`/`.spinner` calm-state pattern while levels load.
+ * for the consent/name blocks, `.optrow` rows (a square checkbox for consent, via
+ * OptionList for language/level), and the `.stateview`/`.spinner` calm-state pattern
+ * while levels load.
  */
 export function OnboardingWizard({ onDone }: OnboardingWizardProps): JSX.Element {
   const api = useApiClient();
@@ -33,6 +44,7 @@ export function OnboardingWizard({ onDone }: OnboardingWizardProps): JSX.Element
   const me = api.getMe();
 
   const [step, setStep] = useState(0);
+  const [consentAccepted, setConsentAccepted] = useState(false);
   const [name, setName] = useState(me?.name ?? "");
   const [language, setLanguageSel] = useState<Locale>(asLocale(me?.language));
   const [levelId, setLevelId] = useState<string>(NO_LEVEL);
@@ -56,6 +68,8 @@ export function OnboardingWizard({ onDone }: OnboardingWizardProps): JSX.Element
       await onboard.mutateAsync({
         telegramId: me.telegramId,
         name: trimmedName,
+        // Consent is gated in the UI (step 0); the server re-validates and stamps consentGivenAt.
+        consentAccepted: true,
         // Opt-out maps to omitting levelId entirely (level is optional), never a fake id.
         ...(levelId !== NO_LEVEL ? { levelId } : {})
       });
@@ -70,31 +84,42 @@ export function OnboardingWizard({ onDone }: OnboardingWizardProps): JSX.Element
     }
   }, [me, onboard, trimmedName, levelId, language, setServerLanguage, onDone, t]);
 
-  const isLastStep = step === 2;
+  const isLastStep = step === 3;
   const mainText = isLastStep ? t("miniapp.action.done") : t("miniapp.action.continue");
   const nameValid = trimmedName.length >= 1;
 
   const onMainClick = useCallback(() => {
     if (step === 0) {
-      if (nameValid) {
+      if (consentAccepted) {
         setStep(1);
       }
       return;
     }
     if (step === 1) {
-      setStep(2);
+      if (nameValid) {
+        setStep(2);
+      }
+      return;
+    }
+    if (step === 2) {
+      setStep(3);
       return;
     }
     void submit();
-  }, [step, nameValid, submit]);
+  }, [step, consentAccepted, nameValid, submit]);
 
   useMainButton({
     text: mainText,
     onClick: onMainClick,
-    isEnabled: step === 0 ? nameValid : true,
+    isEnabled: step === 0 ? consentAccepted : step === 1 ? nameValid : true,
     isLoading: submitting
   });
   useBackButton(step > 0, goBack);
+
+  const toggleConsent = useCallback(() => {
+    hapticSelection();
+    setConsentAccepted((v) => !v);
+  }, []);
 
   const onPickLanguage = useCallback(
     (next: Locale) => {
@@ -122,6 +147,8 @@ export function OnboardingWizard({ onDone }: OnboardingWizardProps): JSX.Element
     return [skip, ...active];
   }, [levels.data, t]);
 
+  const consentLabel = t("miniapp.consent.checkboxLabel");
+
   return (
     <div className="screen" aria-busy={submitting || undefined}>
       {/* Step overline — uppercase muted (`.tg-sech`); announced on change. */}
@@ -130,6 +157,51 @@ export function OnboardingWizard({ onDone }: OnboardingWizardProps): JSX.Element
       </div>
 
       {step === 0 && (
+        <div>
+          <div className="tg-sech" style={{ padding: "0 0 7px" }}>
+            {t("miniapp.consent.header")}
+          </div>
+          <div className="note" style={{ marginTop: 0 }}>
+            {t("miniapp.consent.body")}
+          </div>
+          <div className="card">
+            {/* Square-checkbox variant of `.optrow`: a visually hidden real checkbox
+                carries the semantics (checked, aria-label, focus); the row toggles it. */}
+            <label
+              htmlFor="onboarding-consent"
+              className={consentAccepted ? "optrow is-on" : "optrow"}
+              onClick={toggleConsent}
+              onKeyDown={(e) => {
+                if (e.key === "Enter" || e.key === " ") {
+                  e.preventDefault();
+                  toggleConsent();
+                }
+              }}
+              tabIndex={0}
+            >
+              <input
+                id="onboarding-consent"
+                type="checkbox"
+                checked={consentAccepted}
+                readOnly
+                aria-label={consentLabel}
+                style={{ position: "absolute", opacity: 0, width: 0, height: 0, pointerEvents: "none" }}
+              />
+              <span className="optrow__check" aria-hidden="true" />
+              <span className="optrow__main">
+                <span className="optrow__title">{consentLabel}</span>
+              </span>
+            </label>
+          </div>
+          <div className="note" style={{ marginTop: 8 }}>
+            <a href={POLICY_URL} target="_blank" rel="noreferrer">
+              {t("miniapp.consent.policyLink")}
+            </a>
+          </div>
+        </div>
+      )}
+
+      {step === 1 && (
         <div>
           <div className="tg-sech" style={{ padding: "0 0 7px" }}>
             {t("miniapp.onboarding.nameHeader")}
@@ -149,7 +221,7 @@ export function OnboardingWizard({ onDone }: OnboardingWizardProps): JSX.Element
         </div>
       )}
 
-      {step === 1 && (
+      {step === 2 && (
         <OptionList
           name="onboarding-language"
           header={t("miniapp.onboarding.langHeader")}
@@ -159,7 +231,7 @@ export function OnboardingWizard({ onDone }: OnboardingWizardProps): JSX.Element
         />
       )}
 
-      {step === 2 &&
+      {step === 3 &&
         (levels.isLoading ? (
           <div className="stateview" role="status" aria-live="polite">
             <div className="spinner" aria-hidden="true" />
@@ -189,7 +261,7 @@ export function OnboardingWizard({ onDone }: OnboardingWizardProps): JSX.Element
       <FallbackButton
         text={mainText}
         onClick={onMainClick}
-        disabled={step === 0 ? !nameValid : false}
+        disabled={step === 0 ? !consentAccepted : step === 1 ? !nameValid : false}
         loading={submitting}
       />
     </div>

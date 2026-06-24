@@ -10,7 +10,7 @@
  */
 export const miniappRu: Record<string, string> = {
   // --- Onboarding wizard ---
-  "miniapp.onboarding.step": "Шаг {n} из 3",
+  "miniapp.onboarding.step": "Шаг {n} из 4",
   "miniapp.onboarding.nameHeader": "Как вас зовут?",
   "miniapp.onboarding.nameHint": "Под этим именем вас увидит тренер.",
   "miniapp.onboarding.namePlaceholder": "Ваше имя",
@@ -18,6 +18,13 @@ export const miniappRu: Record<string, string> = {
   "miniapp.onboarding.levelHeader": "Ваш уровень",
   "miniapp.onboarding.levelFooter": "Можно выбрать позже",
   "miniapp.onboarding.levelSkip": "Пока не знаю",
+
+  // --- Personal-data-processing consent (onboarding step 1) ---
+  "miniapp.consent.header": "Согласие на обработку персональных данных",
+  "miniapp.consent.body":
+    "Чтобы продолжить регистрацию, подтвердите согласие на обработку ваших персональных данных (имя, контакт в Telegram, уровень) для записи на тренировки.",
+  "miniapp.consent.checkboxLabel": "Я согласен на обработку моих персональных данных",
+  "miniapp.consent.policyLink": "Политика обработки персональных данных",
 
   // --- Primary actions ---
   "miniapp.action.continue": "Продолжить",

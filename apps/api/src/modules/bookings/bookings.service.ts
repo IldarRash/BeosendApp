@@ -37,7 +37,6 @@ import { ClientsRepository } from "../clients/clients.repository";
 import { DomainEventsService } from "../connectors/domain-events.service";
 import { GroupsRepository } from "../groups/groups.repository";
 import { NotificationsService } from "../notifications/notifications.service";
-import type { InlineKeyboardMarkup } from "../notifications/telegram-sender";
 import { TrainersRepository } from "../trainers/trainers.repository";
 import { WaitlistService } from "../waitlist/waitlist.service";
 import { BookingsRepository, type TrainingLockRow } from "./bookings.repository";
@@ -1096,7 +1095,7 @@ export class BookingsService {
         booking.clientId,
         booking.trainingId,
         client?.name ?? "",
-        singleConfirmKeyboard(booking.id)
+        booking.id
       );
     } catch (error) {
       this.logger.error(
@@ -1126,7 +1125,7 @@ export class BookingsService {
         clientId,
         trainingIds,
         client?.name ?? "",
-        subscriptionConfirmKeyboard(groupSubscriptionId)
+        groupSubscriptionId
       );
     } catch (error) {
       this.logger.error(
@@ -1282,36 +1281,4 @@ export class BookingsService {
       throw new ForbiddenException("Cannot book on behalf of another client");
     }
   }
-}
-
-/**
- * Trainer DM confirm/decline keyboard for a single pending booking. Callback data
- * `confirm:bk:<bookingId>` / `decline:bk:<bookingId>` — a UUID id, so ≤ 47 bytes,
- * well under Telegram's 64-byte callback_data cap. The bot routes on these exactly.
- */
-function singleConfirmKeyboard(bookingId: string): InlineKeyboardMarkup {
-  return {
-    inline_keyboard: [
-      [
-        { text: "✅ Подтвердить", callback_data: `confirm:bk:${bookingId}` },
-        { text: "❌ Отклонить", callback_data: `decline:bk:${bookingId}` }
-      ]
-    ]
-  };
-}
-
-/**
- * Trainer DM confirm/decline keyboard for a monthly-subscription batch. Callback
- * data `confirm:sub:<groupSubscriptionId>` / `decline:sub:<groupSubscriptionId>` —
- * ≤ 48 bytes, under the 64-byte cap. The bot routes on these exactly.
- */
-function subscriptionConfirmKeyboard(groupSubscriptionId: string): InlineKeyboardMarkup {
-  return {
-    inline_keyboard: [
-      [
-        { text: "✅ Подтвердить", callback_data: `confirm:sub:${groupSubscriptionId}` },
-        { text: "❌ Отклонить", callback_data: `decline:sub:${groupSubscriptionId}` }
-      ]
-    ]
-  };
 }

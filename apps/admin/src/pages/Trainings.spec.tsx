@@ -118,6 +118,7 @@ const CLIENT: Client = {
   email: null,
   note: null,
   registeredAt: "2026-01-01T00:00:00.000Z",
+  consentGivenAt: null,
   status: "active",
   language: "ru",
   bonusTrainingCredits: 0

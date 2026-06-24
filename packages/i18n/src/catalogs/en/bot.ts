@@ -9,6 +9,13 @@ export const botEn: Record<string, string> = {
   "bot.menu.back": "Back",
   "bot.action.confirm": "Confirm",
 
+  // --- Notification inline-button labels (sent from apps/api, resolved per recipient locale) ---
+  "bot.notify.confirm": "✅ Confirm",
+  "bot.notify.decline": "❌ Decline",
+  "bot.notify.openAdmin": "Open in admin",
+  "bot.notify.openRequest": "Open request",
+  "bot.notify.book": "Sign up",
+
   // --- Main menu (menu.ts) ---
   "bot.menu.welcomeFull":
     "Welcome to BeoSand 🏐\n\nHere you can:\n• book a training session\n• view free slots\n• see your bookings",

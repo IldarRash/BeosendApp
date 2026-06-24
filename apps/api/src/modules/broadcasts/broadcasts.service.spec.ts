@@ -114,7 +114,10 @@ describe("BroadcastsService", () => {
 
   describe("preview composition", () => {
     it("returns recipient count and renders the price/free seats in text", async () => {
-      const fortyTwo = Array.from({ length: 42 }, (_, i) => ({ telegramId: i + 1 }));
+      const fortyTwo = Array.from({ length: 42 }, (_, i) => ({
+        telegramId: i + 1,
+        language: "ru" as const
+      }));
       const { service } = makeService({
         listSlots: vi.fn().mockResolvedValue([slotRow()]) as unknown as
           BroadcastsRepository["listSlots"],
@@ -132,7 +135,10 @@ describe("BroadcastsService", () => {
 
   describe("audience segments (T3.2)", () => {
     it("routes 'level' to the level-scoped recipients and counts them in preview", async () => {
-      const levelRecipients = [{ telegramId: 10 }, { telegramId: 11 }];
+      const levelRecipients = [
+        { telegramId: 10, language: "ru" as const },
+        { telegramId: 11, language: "sr" as const }
+      ];
       const { service, repo } = makeService({
         listActiveRecipientsByLevel: vi.fn().mockResolvedValue(levelRecipients) as unknown as
           BroadcastsRepository["listActiveRecipientsByLevel"]
@@ -150,7 +156,10 @@ describe("BroadcastsService", () => {
     });
 
     it("sends 'active' to exactly the recent bookers and records that count", async () => {
-      const recent = [{ telegramId: 1 }, { telegramId: 2 }];
+      const recent = [
+        { telegramId: 1, language: "ru" as const },
+        { telegramId: 2, language: "sr" as const }
+      ];
       const { service, repo, sender } = makeService({
         listSlots: vi.fn().mockResolvedValue([slotRow()]) as unknown as
           BroadcastsRepository["listSlots"],
@@ -166,7 +175,7 @@ describe("BroadcastsService", () => {
     });
 
     it("routes 'lapsed' to the not-recently-booked recipients", async () => {
-      const lapsed = [{ telegramId: 7 }];
+      const lapsed = [{ telegramId: 7, language: "en" as const }];
       const { service, repo } = makeService({
         listSlots: vi.fn().mockResolvedValue([slotRow()]) as unknown as
           BroadcastsRepository["listSlots"],
@@ -181,7 +190,9 @@ describe("BroadcastsService", () => {
 
     it("rejects a non-admin segmented send and reaches nobody", async () => {
       const { service, repo, sender } = makeService({
-        listActiveRecipientsBookedSince: vi.fn().mockResolvedValue([{ telegramId: 1 }]) as unknown as
+        listActiveRecipientsBookedSince: vi
+          .fn()
+          .mockResolvedValue([{ telegramId: 1, language: "ru" as const }]) as unknown as
           BroadcastsRepository["listActiveRecipientsBookedSince"]
       });
 
@@ -196,7 +207,11 @@ describe("BroadcastsService", () => {
 
   describe("send", () => {
     it("fans out to every active client and writes exactly one broadcasts row", async () => {
-      const recipients = [{ telegramId: 1 }, { telegramId: 2 }, { telegramId: 3 }];
+      const recipients = [
+        { telegramId: 1, language: "ru" as const },
+        { telegramId: 2, language: "sr" as const },
+        { telegramId: 3, language: "en" as const }
+      ];
       const { service, repo, sender } = makeService({
         listSlots: vi.fn().mockResolvedValue([slotRow()]) as unknown as
           BroadcastsRepository["listSlots"],
@@ -220,7 +235,9 @@ describe("BroadcastsService", () => {
       const { service, sender } = makeService({
         listSlots: vi.fn().mockResolvedValue([slotRow()]) as unknown as
           BroadcastsRepository["listSlots"],
-        listActiveRecipients: vi.fn().mockResolvedValue([{ telegramId: 1 }]) as unknown as
+        listActiveRecipients: vi
+          .fn()
+          .mockResolvedValue([{ telegramId: 1, language: "ru" as const }]) as unknown as
           BroadcastsRepository["listActiveRecipients"]
       });
 
@@ -232,11 +249,44 @@ describe("BroadcastsService", () => {
       );
     });
 
+    it("localizes the book button per recipient while keeping book:slot:<id> identical", async () => {
+      // Two recipients with different UI languages; same slot. The body text stays RU
+      // (broadcasts are authored RU), but each recipient's button is in their language —
+      // and the callback_data the bot routes on is byte-identical for both.
+      const { service, sender } = makeService({
+        listSlots: vi.fn().mockResolvedValue([slotRow()]) as unknown as
+          BroadcastsRepository["listSlots"],
+        listActiveRecipients: vi.fn().mockResolvedValue([
+          { telegramId: 1, language: "sr" as const },
+          { telegramId: 2, language: "ru" as const }
+        ]) as unknown as BroadcastsRepository["listActiveRecipients"]
+      });
+
+      await service.send(ADMIN_ID, "today");
+
+      const byRecipient = new Map<number, InlineKeyboardMarkup>(
+        sender.sendMessage.mock.calls.map((c) => [
+          c[0] as number,
+          c[2] as InlineKeyboardMarkup
+        ])
+      );
+      const button = (id: number): InlineCallbackButton =>
+        byRecipient.get(id)!.inline_keyboard[0][0] as InlineCallbackButton;
+
+      expect(button(1).text).toBe("Prijavi se"); // SR recipient
+      expect(button(2).text).toBe("Записаться"); // RU recipient
+      // The routing payload never depends on locale.
+      expect(button(1).callback_data).toBe("book:slot:11111111-1111-1111-1111-111111111111");
+      expect(button(2).callback_data).toBe(button(1).callback_data);
+    });
+
     it("tolerates a per-recipient send failure and still writes the row", async () => {
       const sender = { sendMessage: vi.fn().mockRejectedValue(new Error("boom")) };
       const repo = {
         listSlots: vi.fn().mockResolvedValue([slotRow()]),
-        listActiveRecipients: vi.fn().mockResolvedValue([{ telegramId: 1 }]),
+        listActiveRecipients: vi
+          .fn()
+          .mockResolvedValue([{ telegramId: 1, language: "ru" as const }]),
         countActiveRecipients: vi.fn().mockResolvedValue(1),
         insertBroadcast: vi.fn().mockResolvedValue({
           id: "22222222-2222-2222-2222-222222222222",
@@ -291,7 +341,7 @@ describe("BroadcastsService", () => {
   // can go full/cancelled between preview and send.
   describe("bookable filter at send time", () => {
     it("never advertises a full or cancelled training in the sent message", async () => {
-      const recipients = [{ telegramId: 1 }];
+      const recipients = [{ telegramId: 1, language: "ru" as const }];
       const { service, sender, repo } = makeService({
         listSlots: vi.fn().mockResolvedValue([
           slotRow({ trainingId: "aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa", bookedCount: 1 }),

@@ -443,6 +443,8 @@ export const adminEn: Record<string, string> = {
   "admin.clients.cardUsername": "Username",
   "admin.clients.cardLevel": "Level",
   "admin.clients.cardStatus": "Status",
+  "admin.clients.cardConsent": "Consent",
+  "admin.clients.consentNone": "—",
   "admin.clients.levelUnset": "Not set",
   "admin.clients.onboardHeading": "Client registration",
   "admin.clients.onboardLead": "Registration is idempotent by Telegram ID: resubmitting returns the existing client.",

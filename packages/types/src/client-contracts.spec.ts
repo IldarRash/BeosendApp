@@ -15,57 +15,90 @@ describe("onboardClientSchema (POST /clients/onboard body)", () => {
       telegramId: 42,
       telegramUsername: "anya",
       name: "Аня",
-      levelId: UUID
+      levelId: UUID,
+      consentAccepted: true
     });
     expect(parsed).toEqual({
       telegramId: 42,
       telegramUsername: "anya",
       name: "Аня",
-      levelId: UUID
+      levelId: UUID,
+      consentAccepted: true
     });
   });
 
   // Identity is the numeric telegram_id; username is optional context. A user
   // without a username must still be able to complete onboarding.
   it("accepts a body without a username (user has no @handle)", () => {
-    const parsed = onboardClientSchema.parse({ telegramId: 42, name: "Аня" });
-    expect(parsed).toEqual({ telegramId: 42, name: "Аня" });
+    const parsed = onboardClientSchema.parse({ telegramId: 42, name: "Аня", consentAccepted: true });
+    expect(parsed).toEqual({ telegramId: 42, name: "Аня", consentAccepted: true });
   });
 
   it("accepts an explicit null username", () => {
     const parsed = onboardClientSchema.parse({
       telegramId: 42,
       name: "Аня",
-      telegramUsername: null
+      telegramUsername: null,
+      consentAccepted: true
     });
     expect(parsed.telegramUsername).toBeNull();
   });
 
   // null/omitted levelId is the valid "Не знаю" case -> persists level_id = NULL.
   it("accepts a null levelId (the 'Не знаю' case)", () => {
-    expect(onboardClientSchema.parse({ telegramId: 42, name: "Аня", levelId: null }).levelId).toBeNull();
+    expect(
+      onboardClientSchema.parse({ telegramId: 42, name: "Аня", levelId: null, consentAccepted: true })
+        .levelId
+    ).toBeNull();
   });
 
   it("accepts an omitted levelId", () => {
-    const parsed = onboardClientSchema.parse({ telegramId: 42, name: "Аня" });
+    const parsed = onboardClientSchema.parse({ telegramId: 42, name: "Аня", consentAccepted: true });
     expect(parsed.levelId).toBeUndefined();
   });
 
+  // Consent is the new mandatory gate: onboarding is refused without an explicit
+  // affirmative opt-in. These three pin the literal-true contract.
+  it("rejects a body without consentAccepted (consent is mandatory)", () => {
+    expect(onboardClientSchema.safeParse({ telegramId: 42, name: "Аня" }).success).toBe(false);
+  });
+
+  it("rejects consentAccepted false (affirmative opt-in required)", () => {
+    expect(
+      onboardClientSchema.safeParse({ telegramId: 42, name: "Аня", consentAccepted: false }).success
+    ).toBe(false);
+  });
+
+  it("accepts consentAccepted true", () => {
+    expect(
+      onboardClientSchema.safeParse({ telegramId: 42, name: "Аня", consentAccepted: true }).success
+    ).toBe(true);
+  });
+
   it("rejects an empty name", () => {
-    expect(onboardClientSchema.safeParse({ telegramId: 42, name: "" }).success).toBe(false);
+    expect(
+      onboardClientSchema.safeParse({ telegramId: 42, name: "", consentAccepted: true }).success
+    ).toBe(false);
   });
 
   it("rejects a missing telegramId (identity is mandatory)", () => {
-    expect(onboardClientSchema.safeParse({ name: "Аня" }).success).toBe(false);
+    expect(onboardClientSchema.safeParse({ name: "Аня", consentAccepted: true }).success).toBe(false);
   });
 
   it("rejects a non-integer telegramId", () => {
-    expect(onboardClientSchema.safeParse({ telegramId: 4.2, name: "Аня" }).success).toBe(false);
+    expect(
+      onboardClientSchema.safeParse({ telegramId: 4.2, name: "Аня", consentAccepted: true }).success
+    ).toBe(false);
   });
 
   it("rejects a non-uuid levelId (a forged/garbage level reference)", () => {
     expect(
-      onboardClientSchema.safeParse({ telegramId: 42, name: "Аня", levelId: "not-a-uuid" }).success
+      onboardClientSchema.safeParse({
+        telegramId: 42,
+        name: "Аня",
+        levelId: "not-a-uuid",
+        consentAccepted: true
+      }).success
     ).toBe(false);
   });
 });
@@ -106,6 +139,7 @@ describe("clientSchema (bot-facing client record)", () => {
       note: null,
       language: "ru" as const,
       registeredAt: "2026-01-01T00:00:00.000Z",
+      consentGivenAt: null,
       status: "active" as const,
       bonusTrainingCredits: 0
     };
@@ -125,6 +159,7 @@ describe("clientSchema (bot-facing client record)", () => {
       note: null,
       language: "sr" as const,
       registeredAt: "2026-01-01T00:00:00.000Z",
+      consentGivenAt: null,
       status: "active" as const,
       bonusTrainingCredits: 5
     };
@@ -144,10 +179,53 @@ describe("clientSchema (bot-facing client record)", () => {
       note: "via Instagram",
       language: "ru" as const,
       registeredAt: "2026-01-01T00:00:00.000Z",
+      // Walk-ins (admin-created) never accept consent — it stays null.
+      consentGivenAt: null,
       status: "active" as const,
       bonusTrainingCredits: 0
     };
     expect(clientSchema.parse(client)).toEqual(client);
+  });
+
+  it("accepts consentGivenAt as a valid ISO datetime (a bot-onboarded client)", () => {
+    const client = {
+      id: UUID,
+      name: "Аня",
+      telegramId: 42,
+      telegramUsername: "anya",
+      levelId: UUID,
+      source: "telegram" as const,
+      phone: null,
+      email: null,
+      note: null,
+      language: "ru" as const,
+      registeredAt: "2026-01-01T00:00:00.000Z",
+      consentGivenAt: "2026-02-01T12:00:00.000Z",
+      status: "active" as const,
+      bonusTrainingCredits: 0
+    };
+    expect(clientSchema.parse(client)).toEqual(client);
+  });
+
+  it("rejects a non-datetime consentGivenAt (a date without a time component)", () => {
+    expect(
+      clientSchema.safeParse({
+        id: UUID,
+        name: "Аня",
+        telegramId: 42,
+        telegramUsername: "anya",
+        levelId: UUID,
+        source: "telegram",
+        phone: null,
+        email: null,
+        note: null,
+        language: "ru",
+        registeredAt: "2026-01-01T00:00:00.000Z",
+        consentGivenAt: "2026-02-01",
+        status: "active",
+        bonusTrainingCredits: 0
+      }).success
+    ).toBe(false);
   });
 
   it("rejects an unknown source", () => {
@@ -163,6 +241,7 @@ describe("clientSchema (bot-facing client record)", () => {
         note: null,
         language: "ru",
         registeredAt: "2026-01-01T00:00:00.000Z",
+        consentGivenAt: null,
         status: "active"
       }).success
     ).toBe(false);
@@ -181,6 +260,7 @@ describe("clientSchema (bot-facing client record)", () => {
         note: null,
         language: "de",
         registeredAt: "2026-01-01T00:00:00.000Z",
+        consentGivenAt: null,
         status: "active"
       }).success
     ).toBe(false);
@@ -199,6 +279,7 @@ describe("clientSchema (bot-facing client record)", () => {
         note: null,
         language: "ru",
         registeredAt: "2026-01-01",
+        consentGivenAt: null,
         status: "active"
       }).success
     ).toBe(false);

@@ -5,7 +5,7 @@
  */
 export const miniappSr: Record<string, string> = {
   // --- Onboarding wizard ---
-  "miniapp.onboarding.step": "Korak {n} od 3",
+  "miniapp.onboarding.step": "Korak {n} od 4",
   "miniapp.onboarding.nameHeader": "Kako se zovete?",
   "miniapp.onboarding.nameHint": "Pod ovim imenom vas vidi trener.",
   "miniapp.onboarding.namePlaceholder": "Vaše ime",
@@ -13,6 +13,13 @@ export const miniappSr: Record<string, string> = {
   "miniapp.onboarding.levelHeader": "Vaš nivo",
   "miniapp.onboarding.levelFooter": "Možete izabrati kasnije",
   "miniapp.onboarding.levelSkip": "Još ne znam",
+
+  // --- Personal-data-processing consent (onboarding step 1) ---
+  "miniapp.consent.header": "Saglasnost za obradu ličnih podataka",
+  "miniapp.consent.body":
+    "Da biste nastavili registraciju, potvrdite saglasnost za obradu vaših ličnih podataka (ime, Telegram kontakt, nivo) radi prijave na treninge.",
+  "miniapp.consent.checkboxLabel": "Saglasan sam sa obradom mojih ličnih podataka",
+  "miniapp.consent.policyLink": "Politika obrade ličnih podataka",
 
   // --- Primary actions ---
   "miniapp.action.continue": "Nastavi",

@@ -467,6 +467,7 @@ const clientBody = {
   telegramUsername: "anya",
   levelId: null,
   registeredAt: "2026-01-01T00:00:00.000Z",
+  consentGivenAt: null,
   status: "active" as const,
   language: "sr" as const,
   source: "telegram" as const,

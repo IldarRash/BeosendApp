@@ -1,6 +1,6 @@
 import { Injectable } from "@nestjs/common";
 import { tables } from "@beosand/db";
-import type { Broadcast, TrainingStatus } from "@beosand/types";
+import type { Broadcast, Locale, TrainingStatus } from "@beosand/types";
 import {
   and,
   asc,
@@ -36,9 +36,10 @@ export interface BroadcastSlotRow {
   priceSingleRsd: number;
 }
 
-/** One audience recipient: an active client's Telegram id. */
+/** One audience recipient: an active client's Telegram id and UI locale (for localized buttons). */
 export interface BroadcastRecipient {
   telegramId: number;
+  language: Locale;
 }
 
 /** Only place broadcasts DB access lives. Returns typed rows; no business rules. */
@@ -97,7 +98,7 @@ export class BroadcastsRepository {
    */
   async listActiveRecipients(): Promise<BroadcastRecipient[]> {
     const rows = await this.database.db
-      .select({ telegramId: tables.clients.telegramId })
+      .select({ telegramId: tables.clients.telegramId, language: tables.clients.language })
       .from(tables.clients)
       .where(and(eq(tables.clients.status, "active"), isNotNull(tables.clients.telegramId)));
     return toRecipients(rows);
@@ -106,7 +107,7 @@ export class BroadcastsRepository {
   /** Active clients of one level (T3.2 `level` segment). Walk-ins excluded. */
   async listActiveRecipientsByLevel(levelId: string): Promise<BroadcastRecipient[]> {
     const rows = await this.database.db
-      .select({ telegramId: tables.clients.telegramId })
+      .select({ telegramId: tables.clients.telegramId, language: tables.clients.language })
       .from(tables.clients)
       .where(
         and(
@@ -139,7 +140,7 @@ export class BroadcastsRepository {
       return [];
     }
     const rows = await this.database.db
-      .select({ telegramId: tables.clients.telegramId })
+      .select({ telegramId: tables.clients.telegramId, language: tables.clients.language })
       .from(tables.clients)
       .where(
         and(
@@ -178,7 +179,7 @@ export class BroadcastsRepository {
       : and(eq(tables.clients.status, "active"), isNotNull(tables.clients.telegramId));
 
     const rows = await this.database.db
-      .select({ telegramId: tables.clients.telegramId })
+      .select({ telegramId: tables.clients.telegramId, language: tables.clients.language })
       .from(tables.clients)
       .where(where);
     return toRecipients(rows);
@@ -216,10 +217,10 @@ export class BroadcastsRepository {
  * Narrow selected rows (already filtered to `telegram_id IS NOT NULL` in SQL) to
  * non-null recipients; the DB column type is nullable since walk-ins exist.
  */
-function toRecipients(rows: { telegramId: number | null }[]): BroadcastRecipient[] {
+function toRecipients(rows: { telegramId: number | null; language: Locale }[]): BroadcastRecipient[] {
   return rows
-    .filter((row): row is { telegramId: number } => row.telegramId !== null)
-    .map((row) => ({ telegramId: row.telegramId }));
+    .filter((row): row is { telegramId: number; language: Locale } => row.telegramId !== null)
+    .map((row) => ({ telegramId: row.telegramId, language: row.language }));
 }
 
 /** Map a DB row to the Broadcast contract (timestamp → ISO string). */

@@ -292,6 +292,7 @@ describe("GroupsService.listMembers (group monthly roster)", () => {
     note: null,
     language: "ru",
     registeredAt: new Date().toISOString(),
+    consentGivenAt: null,
     status: "active",
     bonusTrainingCredits: 0
   });

@@ -19,6 +19,7 @@ const client: Client = {
   note: null,
   language: "ru",
   registeredAt: new Date().toISOString(),
+  consentGivenAt: null,
   status: "active",
   bonusTrainingCredits: 0
 };

@@ -416,6 +416,7 @@ describe("ApiClient error handling & clients", () => {
     note: null,
     language: "ru",
     registeredAt: "2026-01-01T00:00:00.000Z",
+    consentGivenAt: null,
     status: "active",
     bonusTrainingCredits: 0
   };
@@ -655,6 +656,7 @@ describe("ApiClient walk-in & manual booking (Feature 5)", () => {
     note: null,
     language: "ru",
     registeredAt: "2026-01-01T00:00:00.000Z",
+    consentGivenAt: null,
     status: "active",
     bonusTrainingCredits: 0
   };
@@ -954,6 +956,7 @@ describe("ApiClient training delete & client edit", () => {
     note: "VIP",
     language: "ru",
     registeredAt: "2026-01-01T00:00:00.000Z",
+    consentGivenAt: null,
     status: "active",
     bonusTrainingCredits: 2
   };

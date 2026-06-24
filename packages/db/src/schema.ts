@@ -180,6 +180,10 @@ export const clients = pgTable(
     // Per-user bot UI locale; defaults to RU (the authoritative locale).
     language: locale("language").notNull().default("ru"),
     registeredAt: timestamp("registered_at", { withTimezone: true }).notNull().defaultNow(),
+    // When the client accepted personal-data-processing consent. Nullable + no
+    // default: only the onboard service stamps it, so walk-ins and pre-consent
+    // clients stay NULL (consent is collected on new Mini App registration only).
+    consentGivenAt: timestamp("consent_given_at", { withTimezone: true }),
     status: entityStatus("status").notNull().default("active"),
     // Rotating counter that revokes a client's signed calendar feed token (see
     // trainers.calendarFeedVersion). Account-light feed revocation, no token table.
