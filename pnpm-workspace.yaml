@@ -2,8 +2,8 @@ packages:
   - "apps/*"
   - "packages/*"
 allowBuilds:
-  '@nestjs/core': set this to true or false
-  esbuild: set this to true or false
+  '@nestjs/core': true
+  esbuild: true
 onlyBuiltDependencies:
   - "@nestjs/core"
   - esbuild
