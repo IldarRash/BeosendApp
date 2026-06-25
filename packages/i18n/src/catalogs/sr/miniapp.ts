@@ -180,6 +180,7 @@ export const miniappSr: Record<string, string> = {
   "miniapp.group.toHome": "Na početnu",
   "miniapp.group.roster.title": "Ko je prijavljen",
   "miniapp.group.roster.empty": "Još niko nije prijavljen",
+  "miniapp.group.alreadySubscribed": "Već ste prijavljeni za ovaj mesec",
   "miniapp.group.ownWaitlist.one": "Na listi ste čekanja za {date} · pozicija {position}",
   "miniapp.group.ownWaitlist.many": "Na listi ste čekanja · {count} datuma",
   "miniapp.group.filtersAria": "Filteri grupa",
@@ -264,6 +265,10 @@ export const miniappSr: Record<string, string> = {
   "miniapp.schedule.emptyDayTitle": "Nema treninga tog dana",
   "miniapp.schedule.emptyDayBody": "Izaberite drugi dan u kalendaru.",
   "miniapp.schedule.errorBody": "Učitavanje rasporeda nije uspelo. Pokušajte ponovo.",
+  "miniapp.schedule.alreadyBooked": "Prijavljeni ste",
+  "miniapp.training.roster.title": "Ko je prijavljen",
+  "miniapp.training.roster.empty": "Još niko nije prijavljen",
+  "miniapp.training.waitlist.title": "Lista čekanja",
 
   // --- My calendar (court + training) ---
   "miniapp.calendar.title": "Moj kalendar",

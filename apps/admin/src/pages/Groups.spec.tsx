@@ -76,6 +76,7 @@ const MEMBERS: GroupMembers = {
   year: 2026,
   month: 6,
   memberCount: 1,
+  callerSubscribed: false,
   members: [{ firstName: "Ана", avatarInitial: "А", clientId: CLIENT_ID, fullName: "Ана Петровић" }]
 };
 

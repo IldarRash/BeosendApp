@@ -1,7 +1,7 @@
 import { Injectable } from "@nestjs/common";
 import type { CreateGroupInput, Group, UpdateGroupInput } from "@beosand/types";
 import { tables } from "@beosand/db";
-import { and, asc, eq, gte, lte } from "drizzle-orm";
+import { and, asc, eq, gte, inArray, isNotNull, lte } from "drizzle-orm";
 import { DatabaseService } from "../../db/database.service";
 
 type GroupRow = typeof tables.groups.$inferSelect;
@@ -77,6 +77,38 @@ export class GroupsRepository {
         )
       )
       .orderBy(asc(tables.clients.name));
+  }
+
+  /**
+   * Whether the client already holds an active monthly subscription for this group in
+   * [from, to]: any booking of theirs on one of the group's trainings that month that
+   * is part of a monthly batch (groupSubscriptionId set) and still seat-holding
+   * (status booked/pending). Models the same bookings ⋈ trainings join as
+   * listMonthMembers. The single source of truth for the duplicate-subscription guard
+   * (the booking write) and the Mini App `callerSubscribed` hint; no business rules.
+   */
+  async hasActiveSubscription(
+    clientId: string,
+    groupId: string,
+    from: string,
+    to: string
+  ): Promise<boolean> {
+    const [row] = await this.database.db
+      .select({ one: tables.bookings.id })
+      .from(tables.bookings)
+      .innerJoin(tables.trainings, eq(tables.bookings.trainingId, tables.trainings.id))
+      .where(
+        and(
+          eq(tables.trainings.groupId, groupId),
+          eq(tables.bookings.clientId, clientId),
+          isNotNull(tables.bookings.groupSubscriptionId),
+          inArray(tables.bookings.status, ["booked", "pending"]),
+          gte(tables.trainings.date, from),
+          lte(tables.trainings.date, to)
+        )
+      )
+      .limit(1);
+    return row !== undefined;
   }
 
   async create(input: CreateGroupInput): Promise<Group> {

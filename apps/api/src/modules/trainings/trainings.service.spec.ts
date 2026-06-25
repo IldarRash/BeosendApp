@@ -19,11 +19,12 @@ import type {
   TrainingLockRow,
   TrainingsRepository
 } from "./trainings.repository";
+import type { ClientsRepository } from "../clients/clients.repository";
 import type { DomainEventsService } from "../connectors/domain-events.service";
 import type { GroupsRepository } from "../groups/groups.repository";
 import type { NotificationsService } from "../notifications/notifications.service";
 import type { TrainersRepository } from "../trainers/trainers.repository";
-import type { Trainer } from "@beosand/types";
+import type { Client, Trainer } from "@beosand/types";
 
 /** No-op domain-events double: the connector emit seam is fire-and-forget here. */
 const fakeDomainEvents = {
@@ -160,6 +161,22 @@ class FakeTrainingsRepository {
     return this.roster;
   }
 
+  // Participant name rows for the client-facing "кто записан" view.
+  participantNames: { clientId: string; name: string }[] = [];
+  async listParticipantNames(
+    _trainingId: string
+  ): Promise<{ clientId: string; name: string }[]> {
+    return this.participantNames;
+  }
+
+  // Active waitlist name rows (already filtered + position-ordered by the real query).
+  waitlistNames: { clientId: string; name: string }[] = [];
+  async listWaitlistNames(
+    _trainingId: string
+  ): Promise<{ clientId: string; name: string }[]> {
+    return this.waitlistNames;
+  }
+
   // --- Admin manager writes (cancel / change capacity) ---
   lock: TrainingLockRow | undefined;
   cancelBookedCalls = 0;
@@ -294,6 +311,13 @@ class FakeTrainersRepository {
   }
 }
 
+class FakeClientsRepository {
+  client: Client | undefined;
+  async findByTelegramId(telegramId: number): Promise<Client | undefined> {
+    return this.client && this.client.telegramId === telegramId ? this.client : undefined;
+  }
+}
+
 class FakeGroupsRepository {
   group: Group | undefined = { ...baseGroup };
   activeGroups: Group[] = [];
@@ -390,6 +414,7 @@ describe("TrainingsService", () => {
   let trainingsRepo: FakeTrainingsRepository;
   let groupsRepo: FakeGroupsRepository;
   let trainersRepo: FakeTrainersRepository;
+  let clientsRepo: FakeClientsRepository;
   let notifications: { sendTrainingCancelled: ReturnType<typeof vi.fn> };
   let courtBlocksRepo: FakeCourtBlocksRepository;
   let service: TrainingsService;
@@ -398,12 +423,14 @@ describe("TrainingsService", () => {
     trainingsRepo = new FakeTrainingsRepository();
     groupsRepo = new FakeGroupsRepository();
     trainersRepo = new FakeTrainersRepository();
+    clientsRepo = new FakeClientsRepository();
     notifications = { sendTrainingCancelled: vi.fn().mockResolvedValue(0) };
     courtBlocksRepo = new FakeCourtBlocksRepository();
     service = new TrainingsService(
       trainingsRepo as unknown as TrainingsRepository,
       groupsRepo as unknown as GroupsRepository,
       trainersRepo as unknown as TrainersRepository,
+      clientsRepo as unknown as ClientsRepository,
       notifications as unknown as NotificationsService,
       courtBlocksRepo as unknown as import("../courts/court-blocks.repository").CourtBlocksRepository,
       fakeDomainEvents,
@@ -834,6 +861,129 @@ describe("TrainingsService", () => {
     it("404s an unknown training", async () => {
       await expect(
         service.getRoster(TRAINER_TG, "00000000-0000-0000-0000-000000000000")
+      ).rejects.toBeInstanceOf(NotFoundException);
+    });
+  });
+
+  describe("listParticipants (client-facing 'кто записан')", () => {
+    const CLIENT_TG = 222;
+    const TRAINING_ID = "aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa";
+    const TRAINER_ID = "33333333-3333-3333-3333-333333333333";
+    const CLIENT_A = "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa";
+    const CLIENT_B = "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb";
+    const CLIENT_C = "cccccccc-cccc-4ccc-8ccc-cccccccccccc";
+    const CLIENT_D = "dddddddd-dddd-4ddd-8ddd-dddddddddddd";
+
+    const clientRow = (telegramId: number): Client => ({
+      id: "cccccccc-cccc-4ccc-8ccc-cccccccccccc",
+      name: "Onboarded",
+      telegramId,
+      telegramUsername: null,
+      levelId: null,
+      source: "telegram",
+      phone: null,
+      email: null,
+      note: null,
+      language: "ru",
+      registeredAt: new Date().toISOString(),
+      consentGivenAt: null,
+      status: "active",
+      bonusTrainingCredits: 0
+    });
+
+    beforeEach(() => {
+      trainingsRepo.headers = [
+        {
+          trainingId: TRAINING_ID,
+          date: "2026-07-06",
+          startTime: "20:00",
+          endTime: "21:30",
+          levelName: "Intermediate",
+          trainerId: TRAINER_ID
+        }
+      ];
+      // The repo query already excludes cancelled/waitlist; the fake returns only the
+      // active roster, so the participant list mirrors that filtered set.
+      trainingsRepo.participantNames = [
+        { clientId: CLIENT_A, name: "Ана Петровић" },
+        { clientId: CLIENT_B, name: "Marko Novak" }
+      ];
+      // The repo query already returns ONLY active entries (waiting/notified), in
+      // queue-position order; the fake reflects that filtered, ordered set. CLIENT_C
+      // is queued ahead of CLIENT_D; a promoted/cancelled entry would simply not be
+      // here (the query excludes it), so it can never appear in the list.
+      trainingsRepo.waitlistNames = [
+        { clientId: CLIENT_C, name: "Зоран Илић" },
+        { clientId: CLIENT_D, name: "Petra Kovač" }
+      ];
+    });
+
+    it("admin gets full participant rows including clientId and fullName", async () => {
+      const result = await service.listParticipants(ADMIN_ID, TRAINING_ID);
+      expect(result.trainingId).toBe(TRAINING_ID);
+      expect(result.participantCount).toBe(2);
+      const [first] = result.participants;
+      expect(first.clientId).toBe(CLIENT_A);
+      expect(first.fullName).toBe("Ана Петровић");
+      expect(first.firstName).toBe("Ана");
+      expect(first.avatarInitial).toBe("А");
+    });
+
+    it("admin gets the full waitlist rows in queue order with clientId and fullName", async () => {
+      const result = await service.listParticipants(ADMIN_ID, TRAINING_ID);
+      expect(result.waitlistCount).toBe(2);
+      // Queue order is preserved: CLIENT_C (position 1) before CLIENT_D.
+      expect(result.waitlist.map((m) => m.clientId)).toEqual([CLIENT_C, CLIENT_D]);
+      expect(result.waitlist[0].fullName).toBe("Зоран Илић");
+      expect(result.waitlist[0].firstName).toBe("Зоран");
+    });
+
+    it("a client caller gets only firstName + avatarInitial — never clientId/fullName", async () => {
+      clientsRepo.client = clientRow(CLIENT_TG);
+      const result = await service.listParticipants(CLIENT_TG, TRAINING_ID);
+      expect(result.participantCount).toBe(2);
+      for (const participant of result.participants) {
+        expect(participant.clientId).toBeUndefined();
+        expect(participant.fullName).toBeUndefined();
+        expect(participant.firstName).toBeTruthy();
+        expect(participant.avatarInitial).toBeTruthy();
+      }
+    });
+
+    it("narrows the waitlist for a client caller (firstName + avatarInitial only), in queue order", async () => {
+      clientsRepo.client = clientRow(CLIENT_TG);
+      const result = await service.listParticipants(CLIENT_TG, TRAINING_ID);
+      expect(result.waitlistCount).toBe(2);
+      // Order is preserved even when ids/full names are stripped.
+      expect(result.waitlist.map((m) => m.firstName)).toEqual(["Зоран", "Petra"]);
+      for (const entry of result.waitlist) {
+        expect(entry.clientId).toBeUndefined();
+        expect(entry.fullName).toBeUndefined();
+        expect(entry.avatarInitial).toBeTruthy();
+      }
+    });
+
+    it("returns an empty waitlist (count 0) when the active-only query yields no entries (promoted/cancelled excluded)", async () => {
+      // The repo query filters out promoted/cancelled/expired entries, so a training
+      // whose queue holds only terminal entries returns nothing here.
+      trainingsRepo.waitlistNames = [];
+      const result = await service.listParticipants(ADMIN_ID, TRAINING_ID);
+      expect(result.waitlistCount).toBe(0);
+      expect(result.waitlist).toEqual([]);
+      // The booked participants are unaffected.
+      expect(result.participantCount).toBe(2);
+    });
+
+    it("forbids a non-admin caller with no client record (403)", async () => {
+      clientsRepo.client = undefined;
+      await expect(service.listParticipants(NON_ADMIN_ID, TRAINING_ID)).rejects.toBeInstanceOf(
+        ForbiddenException
+      );
+    });
+
+    it("404s a missing training", async () => {
+      await expect(
+        service.listParticipants(ADMIN_ID, "00000000-0000-0000-0000-000000000000")
       ).rejects.toBeInstanceOf(NotFoundException);
     });
   });

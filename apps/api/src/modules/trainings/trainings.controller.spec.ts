@@ -11,6 +11,7 @@ import type {
   TrainingLockRow,
   TrainingsRepository
 } from "./trainings.repository";
+import type { ClientsRepository } from "../clients/clients.repository";
 import type { GroupsRepository } from "../groups/groups.repository";
 import type { CourtBlocksRepository } from "../courts/court-blocks.repository";
 import type { DomainEventsService } from "../connectors/domain-events.service";
@@ -96,6 +97,13 @@ function makeTrainersRepo(overrides: Partial<TrainersRepository> = {}): Trainers
   } as unknown as TrainersRepository;
 }
 
+function makeClientsRepo(overrides: Partial<ClientsRepository> = {}): ClientsRepository {
+  return {
+    findByTelegramId: vi.fn(async () => undefined),
+    ...overrides
+  } as unknown as ClientsRepository;
+}
+
 function makeNotifications(): NotificationsService {
   return {
     sendTrainingCancelled: vi.fn(async () => 0)
@@ -127,6 +135,7 @@ describe("TrainingsController", () => {
         trainingsRepo,
         groupsRepo,
         makeTrainersRepo(),
+        makeClientsRepo(),
         makeNotifications(),
         makeCourtBlocksRepo(),
         makeDomainEvents(),
@@ -316,6 +325,7 @@ describe("Trainer-scoped reads (T2.3)", () => {
       repo,
       makeGroupsRepo(),
       trainersRepo,
+      makeClientsRepo(),
       makeNotifications(),
       makeCourtBlocksRepo(),
       makeDomainEvents(),
@@ -516,6 +526,7 @@ describe("Admin manager writes (A1)", () => {
         repo,
         makeGroupsRepo(),
         makeTrainersRepo(),
+        makeClientsRepo(),
         notifications,
         makeCourtBlocksRepo(),
         makeDomainEvents(),

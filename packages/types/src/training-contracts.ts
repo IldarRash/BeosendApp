@@ -540,15 +540,40 @@ export const groupMemberSchema = z.object({
 });
 export type GroupMember = z.infer<typeof groupMemberSchema>;
 
-/** A group's distinct members for a given month, with their count. */
+/**
+ * A group's distinct members for a given month, with their count.
+ * `callerSubscribed` tells the requesting client whether they themselves already
+ * hold an active monthly subscription for this group+month, so the Mini App can
+ * disable a second "Записаться на месяц" before the server rejects it. Always
+ * false for an admin caller (an admin is not a subscribing client).
+ */
 export const groupMembersSchema = z.object({
   groupId: uuid,
   year: z.number().int().min(2024),
   month: z.number().int().min(1).max(12),
   memberCount: z.number().int().nonnegative(),
-  members: z.array(groupMemberSchema)
+  members: z.array(groupMemberSchema),
+  callerSubscribed: z.boolean()
 });
 export type GroupMembers = z.infer<typeof groupMembersSchema>;
+
+/**
+ * A single training's participants ("кто записан"), client-facing counterpart to a
+ * training roster, shown as two lists: `participants` are the booked attendees and
+ * `waitlist` are the clients queued for a full slot (in queue order). Both reuse the
+ * privacy-narrowed `groupMemberSchema` shape — a client receives only each person's
+ * first name + avatar initial (never ids/full names), an admin receives the full row.
+ * `participants` excludes cancelled/waitlist bookings; `waitlist` carries the active
+ * waitlist entries only.
+ */
+export const trainingParticipantsSchema = z.object({
+  trainingId: uuid,
+  participantCount: z.number().int().nonnegative(),
+  participants: z.array(groupMemberSchema),
+  waitlistCount: z.number().int().nonnegative(),
+  waitlist: z.array(groupMemberSchema)
+});
+export type TrainingParticipants = z.infer<typeof trainingParticipantsSchema>;
 
 /** Query for GET /groups/:id/members — which month's roster to return. */
 export const groupMembersQuerySchema = z

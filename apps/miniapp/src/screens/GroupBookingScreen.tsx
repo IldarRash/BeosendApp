@@ -1,6 +1,6 @@
 import { useMemo, useState } from "react";
 import { Placeholder } from "@telegram-apps/telegram-ui";
-import type { Group, GroupBookingResult, GroupMember, WaitlistAdminItem } from "@beosand/types";
+import type { Group, GroupBookingResult, WaitlistAdminItem } from "@beosand/types";
 import { resolveErrorMessage } from "../api/errors";
 import {
   useCreateGroupBooking,
@@ -23,6 +23,7 @@ import {
 } from "../ui/group-filter";
 import { SecondaryButton } from "../ui/SecondaryButton";
 import { OptionList, type Option } from "../ui/OptionList";
+import { ParticipantsRow } from "../ui/ParticipantsRow";
 import { EmptyState, ErrorState, LoadingState } from "../ui/StateView";
 import {
   formatDayMonth,
@@ -325,12 +326,20 @@ function GroupDetail({
   // before any pick — the first offered month, so "who signed up" is visible up front.
   const previewMonth = (selectedKey && months.find((m) => monthValue(m) === selectedKey)) || months[0];
 
+  // The previewed month's roster — both "who signed up" AND whether the caller is
+  // ALREADY subscribed for it (`callerSubscribed`), a server-decided flag the Mini App
+  // only reflects: it disables a second subscribe before the API rejects it. The
+  // server 409 remains the backstop via the confirm step's resolveErrorMessage path.
+  const members = useGroupMembers(group.id, previewMonth.year, previewMonth.month);
+  const alreadySubscribed = members.data?.callerSubscribed ?? false;
+
   // The MainButton only appears once a month is chosen — until then there is no
-  // primary action to take (selection is the next step).
+  // primary action to take (selection is the next step). It stays disabled when the
+  // caller already holds this month's subscription (no double-booking).
   useMainButton({
     text: t("miniapp.group.confirm"),
     onClick: onContinue,
-    isEnabled: selectedKey !== undefined
+    isEnabled: selectedKey !== undefined && !alreadySubscribed
   });
 
   return (
@@ -369,11 +378,28 @@ function GroupDetail({
         onSelect={onSelectMonth}
       />
 
-      <GroupMembersBlock group={group} year={previewMonth.year} month={previewMonth.month} />
+      {members.data && (
+        <ParticipantsRow
+          members={members.data.members}
+          count={members.data.memberCount}
+          title={t("miniapp.group.roster.title")}
+          emptyLabel={t("miniapp.group.roster.empty")}
+        />
+      )}
 
       <OwnWaitlistNote group={group} year={previewMonth.year} month={previewMonth.month} />
 
-      {selectedKey !== undefined && (
+      {alreadySubscribed && (
+        <div className="note" role="status">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={1.8} strokeLinecap="round" strokeLinejoin="round" aria-hidden="true" focusable="false">
+            <circle cx="12" cy="12" r="8.5" />
+            <path d="M9 12l2 2 4-4" />
+          </svg>
+          <span>{t("miniapp.group.alreadySubscribed")}</span>
+        </div>
+      )}
+
+      {selectedKey !== undefined && !alreadySubscribed && (
         <FallbackButton text={t("miniapp.group.confirm")} onClick={onContinue} />
       )}
     </div>
@@ -520,49 +546,6 @@ function GroupResult({
 }
 
 /**
- * "Кто записан" — the group's roster for the previewed month. Renders the
- * server-computed `memberCount` and a horizontal row of avatar chips (a coral-tint
- * circle with the member's `avatarInitial` + their `firstName`). Client-narrowed by
- * the API: a Mini App caller only ever receives first name + initial, never another
- * client's id or full name. Empty roster → a calm "Пока никто не записан". Loading
- * and error states stay quiet (the block is supplementary, not the primary action).
- */
-function GroupMembersBlock({
-  group,
-  year,
-  month
-}: {
-  group: Group;
-  year: number;
-  month: number;
-}): JSX.Element | null {
-  const t = useT();
-  const members = useGroupMembers(group.id, year, month);
-
-  if (members.isLoading || members.isError || !members.data) {
-    return null;
-  }
-
-  const { memberCount, members: roster } = members.data;
-  const rosterTitle = t("miniapp.group.roster.title");
-
-  return (
-    <section className="roster" aria-label={rosterTitle}>
-      <div className="tg-sech">{`${rosterTitle} · ${memberCount}`}</div>
-      {roster.length === 0 ? (
-        <div className="roster__empty">{t("miniapp.group.roster.empty")}</div>
-      ) : (
-        <ul className="roster__row">
-          {roster.map((member, index) => (
-            <MemberChip key={`${member.firstName}-${index}`} member={member} />
-          ))}
-        </ul>
-      )}
-    </section>
-  );
-}
-
-/**
  * "Вы в листе ожидания" — the CURRENT client's OWN waitlist standing for this group's
  * previewed month, derived from {@link useMyWaitlist}. Privacy: it shows ONLY the
  * caller's own entries (the endpoint is self-scoped) — never another client's identity
@@ -619,18 +602,6 @@ function OwnWaitlistNote({
 /** True when an ISO `YYYY-MM-DD` date falls in the given year + 1-based month. */
 function isInMonth(isoDate: string, year: number, month: number): boolean {
   return isoDate.slice(0, 7) === `${year}-${String(month).padStart(2, "0")}`;
-}
-
-/** One roster member: a coral-tint avatar circle with the initial + the first name. */
-function MemberChip({ member }: { member: GroupMember }): JSX.Element {
-  return (
-    <li className="roster__chip">
-      <span className="roster__avatar" aria-hidden="true">
-        {member.avatarInitial}
-      </span>
-      <span className="roster__name">{member.firstName}</span>
-    </li>
-  );
 }
 
 /** A stable string key for a month option (year+month), used as the radio value. */

@@ -518,8 +518,18 @@ const activeGroup: Group = {
 
 class FakeGroupsRepository {
   group: Group | undefined = { ...activeGroup };
+  /** When true, the client is treated as already holding an active monthly subscription. */
+  subscribed = false;
   async findById(id: string): Promise<Group | undefined> {
     return this.group && this.group.id === id ? this.group : undefined;
+  }
+  async hasActiveSubscription(
+    _clientId: string,
+    _groupId: string,
+    _from: string,
+    _to: string
+  ): Promise<boolean> {
+    return this.subscribed;
   }
 }
 
@@ -877,6 +887,20 @@ describe("BookingsService.createGroupBooking", () => {
     await expect(service.createGroupBooking(OWNER_ID, input)).rejects.toBeInstanceOf(
       BadRequestException
     );
+  });
+
+  it("409s re-buying a month the client already has an active subscription for, before any write", async () => {
+    bookingsRepo.monthTrainings = [
+      monthTraining("a1111111-1111-1111-1111-111111111111", "2099-06-01")
+    ];
+    // The client already holds an active monthly subscription for this group+month.
+    groupsRepo.subscribed = true;
+
+    await expect(service.createGroupBooking(OWNER_ID, input)).rejects.toBeInstanceOf(
+      ConflictException
+    );
+    // The duplicate guard fires before the batch transaction, so nothing is booked.
+    expect(bookingsRepo.bookings).toHaveLength(0);
   });
 
   it("rejects booking the month for another client (ForbiddenException), supplied clientId untrusted", async () => {

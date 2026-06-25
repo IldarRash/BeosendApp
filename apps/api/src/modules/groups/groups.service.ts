@@ -9,11 +9,10 @@ import {
 import type { Env } from "@beosand/config";
 import { isAdmin } from "@beosand/config";
 import {
-  avatarInitialOf,
-  firstNameOf,
   groupMembersSchema,
   isSlotAligned,
-  monthBounds
+  monthBounds,
+  narrowMember
 } from "@beosand/types";
 import type {
   CreateGroupInput,
@@ -73,38 +72,32 @@ export class GroupsService {
       throw new NotFoundException(`Group ${groupId} not found`);
     }
 
+    const [from, to] = monthBounds(year, month);
+
     const admin = isAdmin(this.env, actorTelegramId);
+    // `callerSubscribed` is the Mini App hint for a client's own monthly subscription;
+    // an admin is not a subscribing client, so it is always false for an admin caller.
+    let callerSubscribed = false;
     if (!admin) {
       // A non-admin must be an onboarded client to read a roster at all.
       const client = await this.clients.findByTelegramId(actorTelegramId);
       if (!client) {
         throw new ForbiddenException("Caller has no client record");
       }
+      callerSubscribed = await this.groups.hasActiveSubscription(client.id, groupId, from, to);
     }
 
-    const [from, to] = monthBounds(year, month);
     const rows = await this.groups.listMonthMembers(groupId, from, to);
 
-    const members: GroupMember[] = rows.map((row) =>
-      admin
-        ? {
-            clientId: row.clientId,
-            fullName: row.name,
-            firstName: firstNameOf(row.name),
-            avatarInitial: avatarInitialOf(row.name)
-          }
-        : {
-            firstName: firstNameOf(row.name),
-            avatarInitial: avatarInitialOf(row.name)
-          }
-    );
+    const members: GroupMember[] = rows.map((row) => narrowMember(row, admin));
 
     return groupMembersSchema.parse({
       groupId,
       year,
       month,
       memberCount: members.length,
-      members
+      members,
+      callerSubscribed
     });
   }
 

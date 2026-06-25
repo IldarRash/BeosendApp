@@ -32,6 +32,7 @@ import type {
   TrainerTodayItem,
   TrainerUpcomingQuery,
   TrainingCalendarItem,
+  TrainingParticipants,
   TrainingRoster
 } from "@beosand/types";
 import {
@@ -50,16 +51,19 @@ import {
   matchesSlotFilters,
   minutesOfDay,
   monthTrainingDates,
+  narrowMember,
   recomputeTrainingStatus,
   slotCardSchema,
   trainerTodayItemSchema,
   trainingCalendarItemSchema,
+  trainingParticipantsSchema,
   trainingRosterSchema,
   trainingSchema
 } from "@beosand/types";
 import { z } from "zod";
 import { ENV } from "../../config/config.module";
 import { DomainEventsService } from "../connectors/domain-events.service";
+import { ClientsRepository } from "../clients/clients.repository";
 import {
   CourtBlocksRepository,
   type CourtOccupancyRow
@@ -85,6 +89,7 @@ export class TrainingsService {
     private readonly trainings: TrainingsRepository,
     private readonly groups: GroupsRepository,
     private readonly trainers: TrainersRepository,
+    private readonly clients: ClientsRepository,
     private readonly notifications: NotificationsService,
     private readonly courtBlocks: CourtBlocksRepository,
     private readonly domainEvents: DomainEventsService,
@@ -553,6 +558,53 @@ export class TrainingsService {
       endTime: header.endTime,
       levelName: header.levelName,
       participants
+    });
+  }
+
+  /**
+   * Client-facing "кто записан": a single training's TWO lists — the booked
+   * `participants` and the `waitlist` (clients queued for a full slot, in queue
+   * order). Mirrors the role-narrowing of GroupsService.listMembers so the Mini App
+   * roster can never leak other clients' ids or full names:
+   * - Admin (ADMIN_TELEGRAM_IDS) gets the full member row (clientId + fullName).
+   * - Any other caller must be an onboarded client (resolved from telegram_id); they
+   *   get only firstName + avatarInitial. A non-admin non-client is rejected (403).
+   * The training must exist (404). `participants` excludes cancelled/waitlist bookings;
+   * `waitlist` carries only active (`waiting`/`notified`) entries — both filtered by
+   * the repository queries.
+   */
+  async listParticipants(
+    actorTelegramId: number,
+    trainingId: string
+  ): Promise<TrainingParticipants> {
+    const header = await this.trainings.findHeaderById(trainingId);
+    if (!header) {
+      throw new NotFoundException(`Training ${trainingId} not found`);
+    }
+
+    const admin = isAdmin(this.env, actorTelegramId);
+    if (!admin) {
+      // A non-admin must be an onboarded client to read a participant list at all.
+      const client = await this.clients.findByTelegramId(actorTelegramId);
+      if (!client) {
+        throw new ForbiddenException("Caller has no client record");
+      }
+    }
+
+    const [participantRows, waitlistRows] = await Promise.all([
+      this.trainings.listParticipantNames(trainingId),
+      this.trainings.listWaitlistNames(trainingId)
+    ]);
+
+    const participants = participantRows.map((row) => narrowMember(row, admin));
+    const waitlist = waitlistRows.map((row) => narrowMember(row, admin));
+
+    return trainingParticipantsSchema.parse({
+      trainingId,
+      participantCount: participants.length,
+      participants,
+      waitlistCount: waitlist.length,
+      waitlist
     });
   }
 

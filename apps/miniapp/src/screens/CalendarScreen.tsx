@@ -130,7 +130,17 @@ export function CalendarScreen(): JSX.Element {
   }, [cursor]);
   const available = useAvailableSlots(slotsQuery);
 
-  const flow = useSlotBookingFlow();
+  // The set of trainingIds the caller is actively booked into (upcoming + past). It both
+  // dedupes booked slots out of the available feed AND guards the booking flow: if the
+  // bookings queries lag the slots feed, a booked slot could briefly survive the dedupe
+  // and 409 on tap — the flow uses this set to surface "already booked" instead of
+  // auto-waitlisting (the same safety net the Schedule path has).
+  const bookedTrainingIds = useMemo(
+    () => activeBookedTrainingIds([...(upcoming.data ?? []), ...(past.data ?? [])]),
+    [upcoming.data, past.data]
+  );
+
+  const flow = useSlotBookingFlow(bookedTrainingIds);
 
   const isLoading =
     upcoming.isLoading || past.isLoading || courts.isLoading || available.isLoading;
@@ -152,8 +162,7 @@ export function CalendarScreen(): JSX.Element {
   // booked training never shows as BOTH "available" (green) and "my booking" (coral).
   const byDate = useMemo(() => {
     const bookings = [...(upcoming.data ?? []), ...(past.data ?? [])];
-    const bookedIds = activeBookedTrainingIds(bookings);
-    const availableSlots = dedupeAvailableSlots(available.data ?? [], bookedIds);
+    const availableSlots = dedupeAvailableSlots(available.data ?? [], bookedTrainingIds);
     const items: CalendarItem[] = [
       ...availableSlots.map(
         (s): CalendarItem => ({ kind: "available", date: s.date, id: s.trainingId, slot: s })
@@ -166,7 +175,7 @@ export function CalendarScreen(): JSX.Element {
       )
     ];
     return indexByDate(items);
-  }, [upcoming.data, past.data, courts.data, available.data]);
+  }, [upcoming.data, past.data, courts.data, available.data, bookedTrainingIds]);
 
   const weeks = useMemo(() => monthWeeks(cursor.year, cursor.month), [cursor]);
   const monthLabel = `${t(monthKey(cursor.month))} ${cursor.year}`;

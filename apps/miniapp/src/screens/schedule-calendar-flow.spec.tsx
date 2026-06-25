@@ -8,6 +8,7 @@ import type {
   Booking,
   Client,
   MiniappMe,
+  MyBookingItem,
   SlotCard,
   WaitlistEntry
 } from "@beosand/types";
@@ -100,12 +101,32 @@ const WAITLIST_ENTRY: WaitlistEntry = {
   notifiedAt: null
 };
 
+// The caller's own upcoming booking for SLOT_A — used to exercise the booked-set path:
+// SLOT_A renders as already-booked (badge, non-tappable), and a 409 on it is a
+// duplicate-booking (surface "already booked"), never a full-slot auto-waitlist.
+const MY_BOOKING_A: MyBookingItem = {
+  bookingId: "88888888-8888-8888-8888-888888888888",
+  trainingId: SLOT_A.trainingId,
+  groupSubscriptionId: null,
+  date: SLOT_A.date,
+  dayOfWeek: SLOT_A.dayOfWeek,
+  startTime: SLOT_A.startTime,
+  endTime: SLOT_A.endTime,
+  trainerName: SLOT_A.trainerName,
+  levelName: SLOT_A.levelName,
+  bookingStatus: "booked",
+  trainingStatus: "open",
+  canCancel: true
+};
+
 interface FakeApi {
   getMe: ReturnType<typeof vi.fn>;
   getClientByTelegramId: ReturnType<typeof vi.fn>;
   listAvailableSlots: ReturnType<typeof vi.fn>;
   createSingleBooking: ReturnType<typeof vi.fn>;
   joinWaitlist: ReturnType<typeof vi.fn>;
+  listMyBookings: ReturnType<typeof vi.fn>;
+  getTrainingParticipants: ReturnType<typeof vi.fn>;
 }
 
 let api: FakeApi;
@@ -117,6 +138,21 @@ function makeApi(overrides: Partial<FakeApi> = {}): FakeApi {
     listAvailableSlots: vi.fn().mockResolvedValue([SLOT_A, SLOT_B]),
     createSingleBooking: vi.fn().mockResolvedValue(BOOKING),
     joinWaitlist: vi.fn().mockResolvedValue(WAITLIST_ENTRY),
+    // The Schedule reads the caller's upcoming bookings to badge already-booked slots;
+    // default to none so the slots stay tappable. The confirm step reads the slot's
+    // participants — default to an empty roster (supplementary block).
+    listMyBookings: vi.fn().mockResolvedValue([]),
+    getTrainingParticipants: vi
+      .fn()
+      .mockImplementation((trainingId: string) =>
+        Promise.resolve({
+          trainingId,
+          participantCount: 0,
+          participants: [],
+          waitlistCount: 0,
+          waitlist: []
+        })
+      ),
     ...overrides
   };
 }
@@ -258,4 +294,27 @@ describe("ScheduleScreen day-detail booking", () => {
     await screen.findByText(/позиция 2/);
     expect(screen.queryByText("Вы записаны!")).toBeNull();
   });
+});
+
+describe("ScheduleScreen already-booked slot (booked-set path)", () => {
+  it("shows a slot the caller already booked as a non-tappable '✓ Вы записаны' badge, while a free slot stays bookable", async () => {
+    // The caller already holds an upcoming booking for SLOT_A; SLOT_B is free. The
+    // Schedule keeps both visible but renders SLOT_A non-tappable with the badge.
+    api = makeApi({
+      listMyBookings: vi.fn().mockImplementation((_id: string, scope: string) =>
+        Promise.resolve(scope === "upcoming" ? [MY_BOOKING_A] : [])
+      )
+    });
+    renderWithProviders(<ScheduleScreen />);
+
+    fireEvent.click(await screen.findByRole("gridcell", { name: "10 число, тренировок: 2" }));
+
+    // SLOT_A shows the booked badge; the booked card is NOT a book button.
+    await screen.findByText("✓ Вы записаны");
+
+    // Exactly ONE bookable card remains (SLOT_B) — the booked slot offers no book action.
+    const bookButtons = await screen.findAllByRole("button", { name: /Записаться$/ });
+    expect(bookButtons).toHaveLength(1);
+  });
+
 });

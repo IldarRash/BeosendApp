@@ -124,6 +124,7 @@ interface FakeApi {
   listMyCourtRequests: ReturnType<typeof vi.fn>;
   listAvailableSlots: ReturnType<typeof vi.fn>;
   createSingleBooking: ReturnType<typeof vi.fn>;
+  getTrainingParticipants: ReturnType<typeof vi.fn>;
 }
 
 let api: FakeApi;
@@ -138,6 +139,18 @@ function makeApi(overrides: Partial<FakeApi> = {}): FakeApi {
     listMyCourtRequests: vi.fn().mockResolvedValue([MY_COURT]),
     listAvailableSlots: vi.fn().mockResolvedValue([SLOT_ALREADY_BOOKED, SLOT_FREE]),
     createSingleBooking: vi.fn().mockResolvedValue(BOOKING),
+    // The confirm step reads the slot's participants — default to an empty roster.
+    getTrainingParticipants: vi
+      .fn()
+      .mockImplementation((trainingId: string) =>
+        Promise.resolve({
+          trainingId,
+          participantCount: 0,
+          participants: [],
+          waitlistCount: 0,
+          waitlist: []
+        })
+      ),
     ...overrides
   };
 }

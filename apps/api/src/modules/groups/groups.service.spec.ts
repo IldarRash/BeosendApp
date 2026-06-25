@@ -72,6 +72,17 @@ class FakeGroupsRepository {
   async listMonthMembers(_groupId: string, _from: string, _to: string): Promise<GroupMemberRow[]> {
     return this.members;
   }
+
+  /** Client ids the test marks as already holding an active subscription. */
+  subscribedClientIds = new Set<string>();
+  async hasActiveSubscription(
+    clientId: string,
+    _groupId: string,
+    _from: string,
+    _to: string
+  ): Promise<boolean> {
+    return this.subscribedClientIds.has(clientId);
+  }
 }
 
 class FakeClientsRepository {
@@ -350,6 +361,25 @@ describe("GroupsService.listMembers (group monthly roster)", () => {
     await expect(service.listMembers(999, GROUP_ID, 2099, 6)).rejects.toBeInstanceOf(
       ForbiddenException
     );
+  });
+
+  it("reports callerSubscribed: true when the client already holds an active subscription", async () => {
+    const client = clientRow(CLIENT_TG);
+    clientsRepo.client = client;
+    repo.subscribedClientIds.add(client.id);
+    const result = await service.listMembers(CLIENT_TG, GROUP_ID, 2099, 6);
+    expect(result.callerSubscribed).toBe(true);
+  });
+
+  it("reports callerSubscribed: false when the client has no active subscription", async () => {
+    clientsRepo.client = clientRow(CLIENT_TG);
+    const result = await service.listMembers(CLIENT_TG, GROUP_ID, 2099, 6);
+    expect(result.callerSubscribed).toBe(false);
+  });
+
+  it("reports callerSubscribed: false for an admin caller (not a subscribing client)", async () => {
+    const result = await service.listMembers(ADMIN_ID, GROUP_ID, 2099, 6);
+    expect(result.callerSubscribed).toBe(false);
   });
 
   it("404s a missing group", async () => {

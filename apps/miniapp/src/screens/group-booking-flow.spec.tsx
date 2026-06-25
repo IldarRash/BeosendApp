@@ -104,7 +104,9 @@ function makeApi(overrides: Partial<FakeApi> = {}): FakeApi {
     listGroups: vi.fn().mockResolvedValue([GROUP]),
     listLevels: vi.fn().mockResolvedValue([{ id: LEVEL_ID, name: "Про", status: "active" }]),
     createGroupBooking: vi.fn().mockResolvedValue(RESULT_WITH_SKIPPED),
-    getGroupMembers: vi.fn().mockResolvedValue({ memberCount: 0, members: [] }),
+    getGroupMembers: vi
+      .fn()
+      .mockResolvedValue({ memberCount: 0, members: [], callerSubscribed: false }),
     getMyWaitlist: vi.fn().mockResolvedValue([]),
     ...overrides
   };
@@ -222,5 +224,28 @@ describe("GroupBookingScreen", () => {
     api = makeApi({ listGroups: vi.fn().mockResolvedValue([]) });
     renderScreen();
     await screen.findByText("Нет доступных групп");
+  });
+
+  it("disables confirm and shows a note when the caller is already subscribed for the month", async () => {
+    // The roster for the previewed month reports the caller already holds this month's
+    // subscription. The Mini App reflects that server-decided flag: it shows the
+    // "already subscribed" note and offers NO confirm affordance (the server 409 is the
+    // backstop; we never let the user fire a duplicate).
+    api = makeApi({
+      getGroupMembers: vi
+        .fn()
+        .mockResolvedValue({ memberCount: 1, members: [], callerSubscribed: true })
+    });
+    renderScreen();
+
+    fireEvent.click(await screen.findByRole("button", { name: /Утро Про/ }));
+
+    // Pick a month — normally this reveals the in-flow "Записаться на месяц" button.
+    const radios = await screen.findAllByRole("radio");
+    fireEvent.click(radios[0]);
+
+    // The already-subscribed note is shown, and there is NO confirm button to tap.
+    await screen.findByText("Вы уже записаны на этот месяц");
+    expect(screen.queryByRole("button", { name: "Записаться на месяц" })).toBeNull();
   });
 });

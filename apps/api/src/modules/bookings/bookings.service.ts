@@ -338,6 +338,13 @@ export class BookingsService {
     // Past dates within the month are never bookable; clamp the lower bound.
     const fromClamped = from > today ? from : today;
 
+    // One active monthly subscription per client per group per month: re-buying the
+    // same month is rejected up front (the single source of truth shared with the Mini
+    // App `callerSubscribed` hint) rather than silently creating a second batch.
+    if (await this.groups.hasActiveSubscription(input.clientId, input.groupId, from, to)) {
+      throw new ConflictException("You already have a subscription for this group this month");
+    }
+
     const groupSubscriptionId = randomUUID();
 
     // The admins decide the batch confirmation flow (all instances share it): with

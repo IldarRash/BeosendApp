@@ -35,6 +35,11 @@ interface SlotDayListProps {
   ariaLabel: string;
   /** Open the confirm step for a bookable slot. */
   onBook: (slot: SlotCardData) => void;
+  /**
+   * The trainingIds the caller is already actively booked into. A slot in this set is
+   * shown non-tappable with a "✓ Вы записаны" badge instead of the book action.
+   */
+  bookedTrainingIds?: ReadonlySet<string>;
 }
 
 /**
@@ -43,7 +48,12 @@ interface SlotDayListProps {
  * reports book taps; the screen owns the queries and the booking write. Shared by any
  * slot list so the grouping/rendering is never duplicated.
  */
-export function SlotDayList({ slots, ariaLabel, onBook }: SlotDayListProps): JSX.Element {
+export function SlotDayList({
+  slots,
+  ariaLabel,
+  onBook,
+  bookedTrainingIds
+}: SlotDayListProps): JSX.Element {
   const t = useT();
   const groups = groupByDate(slots);
 
@@ -55,7 +65,12 @@ export function SlotDayList({ slots, ariaLabel, onBook }: SlotDayListProps): JSX
             {`${t(weekdayShortKey(group.dayOfWeek))} · ${formatDayMonth(group.date)}`}
           </div>
           {group.slots.map((slot) => (
-            <SlotCard key={slot.trainingId} slot={slot} onBook={() => onBook(slot)} />
+            <SlotCard
+              key={slot.trainingId}
+              slot={slot}
+              onBook={() => onBook(slot)}
+              alreadyBooked={bookedTrainingIds?.has(slot.trainingId) ?? false}
+            />
           ))}
         </div>
       ))}

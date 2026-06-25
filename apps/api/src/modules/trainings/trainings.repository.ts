@@ -570,6 +570,49 @@ export class TrainingsRepository {
   }
 
   /**
+   * A training's participant name rows for the client-facing "кто записан" view:
+   * distinct booked clients joined to their names, restricted to seat-holding /
+   * attendance statuses (pending/booked/attended/no_show); cancelled and waitlist
+   * are excluded. Mirrors GroupsRepository.listMonthMembers' shape so the service can
+   * apply the same role-based projection; no business rules. Ordered by name.
+   */
+  async listParticipantNames(trainingId: string): Promise<{ clientId: string; name: string }[]> {
+    return this.database.db
+      .selectDistinct({ clientId: tables.clients.id, name: tables.clients.name })
+      .from(tables.bookings)
+      .innerJoin(tables.clients, eq(tables.bookings.clientId, tables.clients.id))
+      .where(
+        and(
+          eq(tables.bookings.trainingId, trainingId),
+          inArray(tables.bookings.status, ["pending", "booked", "attended", "no_show"])
+        )
+      )
+      .orderBy(asc(tables.clients.name));
+  }
+
+  /**
+   * A training's ACTIVE waitlist name rows for the client-facing "кто записан" view:
+   * the clients queued for a full slot, joined to their names and ordered by queue
+   * position. Only active entries (`waiting`/`notified`) are returned —
+   * promoted/expired/cancelled are excluded — mirroring WaitlistRepository's active
+   * filter. Same `{ clientId, name }` shape as listParticipantNames so the service
+   * applies the same role-based projection; no business rules.
+   */
+  async listWaitlistNames(trainingId: string): Promise<{ clientId: string; name: string }[]> {
+    return this.database.db
+      .select({ clientId: tables.clients.id, name: tables.clients.name })
+      .from(tables.waitlist)
+      .innerJoin(tables.clients, eq(tables.waitlist.clientId, tables.clients.id))
+      .where(
+        and(
+          eq(tables.waitlist.trainingId, trainingId),
+          inArray(tables.waitlist.status, ["waiting", "notified"])
+        )
+      )
+      .orderBy(asc(tables.waitlist.position));
+  }
+
+  /**
    * A trainer's upcoming, non-cancelled trainings on/after `fromDate`, shaped for the
    * calendar feed (connectors). Joined to the (nullable) group/level display names
    * and the (nullable) auto-block court number. Ordered by date then start time; no
