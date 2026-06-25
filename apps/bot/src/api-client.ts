@@ -64,15 +64,6 @@ export type JoinWaitlistResult =
   | { ok: false; reason: "conflict" };
 
 /**
- * Outcome of accepting a promoted waitlist slot. `conflict` maps the API's 409
- * (window expired or the freed seat was re-taken) to the bot's "место занято /
- * окно истекло" message; any other non-2xx throws.
- */
-export type AcceptWaitlistResult =
-  | { ok: true; booking: Booking }
-  | { ok: false; reason: "conflict" };
-
-/**
  * Outcome of a trainer confirm/decline action (trainer-confirmation). `ok` maps
  * a 2xx (the pending booking — or subscription batch — was confirmed/declined);
  * `alreadyDecided` maps the API's 409 (the row is no longer `pending`, e.g. a
@@ -405,29 +396,6 @@ export class ApiClient {
       throw new Error(`API /waitlist failed: ${res.status}`);
     }
     return { ok: true, entry: waitlistEntrySchema.parse(await res.json()) };
-  }
-
-  /**
-   * Accept a promoted waitlist slot (T2.1) — the inline confirm button. Ownership,
-   * the window check, and the atomic capacity re-check are all decided server-side
-   * from the actor's telegram_id; a 409 (window expired / seat re-taken) is
-   * surfaced as a distinct result so the handler can show "место уже занято".
-   */
-  async acceptWaitlist(entryId: string, actorTelegramId: number): Promise<AcceptWaitlistResult> {
-    const res = await fetch(`${this.baseUrl}/waitlist/${entryId}/accept`, {
-      method: "POST",
-      headers: {
-        "content-type": "application/json",
-        "x-telegram-id": String(actorTelegramId)
-      }
-    });
-    if (res.status === 409) {
-      return { ok: false, reason: "conflict" };
-    }
-    if (!res.ok) {
-      throw new Error(`API /waitlist/${entryId}/accept failed: ${res.status}`);
-    }
-    return { ok: true, booking: bookingSchema.parse(await res.json()) };
   }
 
   /**

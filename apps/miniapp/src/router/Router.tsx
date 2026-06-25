@@ -15,7 +15,6 @@ import { ScheduleScreen } from "../screens/ScheduleScreen";
 import { OnboardingWizard } from "../screens/OnboardingWizard";
 import { ProfileScreen } from "../screens/ProfileScreen";
 import { TrainerRequestScreen } from "../screens/TrainerRequestScreen";
-import { WaitlistAcceptScreen } from "../screens/WaitlistAcceptScreen";
 import { AppHeader } from "../ui/AppHeader";
 import { NavProvider, useNav } from "./NavProvider";
 import { HOME_SECTIONS, resolveStartTarget, toRouteId } from "./routes";
@@ -99,13 +98,10 @@ function AuthedRouter(): JSX.Element {
 function NavShell({ client }: { client: Client }): JSX.Element {
   const { startParam } = useTg();
   // Read the deep link once: a later startParam change must not re-seed the stack.
-  // A `waitlist_<uuid>` link seeds the accept screen and remembers its entry id; the
-  // stack itself stays a bare RouteId[] (the entry id rides this boot-only state).
   const [target] = useState(() => resolveStartTarget(startParam));
-  const acceptEntryId = target.route === "waitlist-accept" ? target.entryId : null;
   return (
     <NavProvider initial={target.route}>
-      <RouteView client={client} acceptEntryId={acceptEntryId} />
+      <RouteView client={client} />
     </NavProvider>
   );
 }
@@ -115,13 +111,7 @@ function NavShell({ client }: { client: Client }): JSX.Element {
  * the native BackButton once: shown on any sub-screen (pops to Home), hidden on Home
  * (the stack root). The header's avatar chip pushes the Profile route.
  */
-function RouteView({
-  client,
-  acceptEntryId
-}: {
-  client: Client;
-  acceptEntryId: string | null;
-}): JSX.Element {
+function RouteView({ client }: { client: Client }): JSX.Element {
   const { current, canPop, pop, push } = useNav();
   useBackButton(canPop, pop);
 
@@ -157,19 +147,10 @@ function RouteView({
       return <CalendarScreen />;
     case "profile":
       return <ProfileScreen client={client} />;
-    case "waitlist-accept":
-      // Only reachable via the boot deep link, which always carries the entry id; if
-      // the id is somehow absent (defensive), fall back to Home rather than calling
-      // the API with no id.
-      return acceptEntryId ? (
-        <WaitlistAcceptScreen entryId={acceptEntryId} onHome={pop} />
-      ) : (
-        <HomeScreen sections={HOME_SECTIONS} onSelect={onSelect} />
-      );
     default:
-      // Exhaustive: every RouteId has an explicit case above (court was the last
-      // placeholder). This arm is unreachable; it keeps the switch total and falls
-      // back to Home defensively rather than rendering nothing.
+      // Exhaustive: every RouteId has an explicit case above. This arm is unreachable;
+      // it keeps the switch total and falls back to Home defensively rather than
+      // rendering nothing.
       return <HomeScreen sections={HOME_SECTIONS} onSelect={onSelect} />;
     }
   }

@@ -808,6 +808,7 @@ describe("ApiClient subscription payments", () => {
     month: 6,
     dateCount: 8,
     paidCount: 3,
+    waitlistedCount: 0,
     totalRsd: 12000,
     paymentState: "partial"
   };
@@ -823,6 +824,16 @@ describe("ApiClient subscription payments", () => {
     );
     expect(result[0].paymentState).toBe("partial");
     expect(result[0].totalRsd).toBe(12000);
+    // The waitlist count is validated and carried through to the page badge.
+    expect(result[0].waitlistedCount).toBe(0);
+  });
+
+  it("rejects a subscription missing waitlistedCount (contract enforced)", async () => {
+    const { waitlistedCount: _omit, ...withoutWaitlisted } = summary;
+    mockFetchOnce([withoutWaitlisted]);
+    await expect(
+      new ApiClient("http://api.test").listSubscriptions({})
+    ).rejects.toThrow();
   });
 
   it("requests the bare /subscriptions path when no filters are given", async () => {
@@ -1083,7 +1094,6 @@ describe("ApiClient waitlist admin tools", () => {
   const ENTRY_ID = "11111111-1111-4111-8111-111111111111";
   const CLIENT_ID = "22222222-2222-4222-8222-222222222222";
   const TRAINING_ID = "33333333-3333-4333-8333-333333333333";
-  const GROUP_ID = "44444444-4444-4444-4444-444444444444";
   const SUB_ID = "55555555-5555-4555-8555-555555555555";
   const BOOKING_ID = "66666666-6666-4666-8666-666666666666";
 
@@ -1122,16 +1132,11 @@ describe("ApiClient waitlist admin tools", () => {
     paidBy: null
   };
 
-  it("encodes the group waitlist query and validates the enriched rows", async () => {
+  it("reads a training's waitlist and validates the enriched rows", async () => {
     const calls = mockFetchOnce([adminItem]);
-    const result = await new ApiClient("http://api.test").listGroupWaitlist({
-      groupId: GROUP_ID,
-      year: 2026,
-      month: 6
-    });
-    expect(calls[0]?.url).toBe(
-      `http://api.test/waitlist/group?groupId=${GROUP_ID}&year=2026&month=6`
-    );
+    const result = await new ApiClient("http://api.test").listTrainingWaitlist(TRAINING_ID);
+    expect(calls[0]?.url).toBe(`http://api.test/waitlist/training/${TRAINING_ID}`);
+    expect(result).toHaveLength(1);
     expect(result[0].clientName).toBe("Аня");
     expect(result[0].groupName).toBe("Утренняя группа");
   });
@@ -1140,15 +1145,8 @@ describe("ApiClient waitlist admin tools", () => {
     const { clientName: _omit, ...withoutName } = adminItem;
     mockFetchOnce([withoutName]);
     await expect(
-      new ApiClient("http://api.test").listGroupWaitlist({ groupId: GROUP_ID, year: 2026, month: 6 })
+      new ApiClient("http://api.test").listTrainingWaitlist(TRAINING_ID)
     ).rejects.toThrow();
-  });
-
-  it("reads a training's waitlist and validates the rows", async () => {
-    const calls = mockFetchOnce([adminItem]);
-    const result = await new ApiClient("http://api.test").listTrainingWaitlist(TRAINING_ID);
-    expect(calls[0]?.url).toBe(`http://api.test/waitlist/training/${TRAINING_ID}`);
-    expect(result).toHaveLength(1);
   });
 
   it("promotes an entry and validates the returned booking", async () => {

@@ -19,8 +19,7 @@ export type RouteId =
   | "individual"
   | "court"
   | "calendar"
-  | "profile"
-  | "waitlist-accept";
+  | "profile";
 
 /** The pushable sub-screens (everything except the `home` root). */
 export type SubRouteId = Exclude<RouteId, "home">;
@@ -117,8 +116,7 @@ const ROUTE_IDS: ReadonlySet<RouteId> = new Set<RouteId>([
   "individual",
   "court",
   "calendar",
-  "profile",
-  "waitlist-accept"
+  "profile"
 ]);
 
 /**
@@ -133,27 +131,24 @@ export function toRouteId(value: string): RouteId | null {
 
 /**
  * Deep-link prefix table: `startParam` (Telegram `startapp` payload) → the route
- * to seed on boot. The bot's notification deep links (S6/S10) produce these, and
- * later slices extend this same map.
+ * to seed on boot. The bot's notification deep links produce these.
  *
  *   home (or empty/absent) → home (default)
  *   browse                 → schedule      (legacy "записаться" deep link → the
  *                                           schedule calendar, its replacement)
  *   schedule               → schedule
- *   mybookings             → my-bookings   (reminder notifications)
+ *   mybookings             → my-bookings   (reminder + waitlist-promotion notifications)
  *   group                  → group
  *   individual             → individual
  *   court                  → court
  *   profile                → profile
  *
- * The id-carrying `waitlist_<id>` target (S6 waitlist accept) is parsed by
- * {@link parseWaitlistAccept} into a `{ route: "waitlist-accept", entryId }` target
- * the shell seeds on boot. `book_<id>` (S4 confirm) is still not reachable — its deep
- * link maps to Home until a later slice consumes it. Any unknown/malformed value
- * (incl. a `waitlist_<id>` whose id is not a uuid) maps to Home — never throw, never
- * blank the app, never leak.
+ * The waitlist is now auto-book + notify: there is no client "accept" screen, so a
+ * promotion notification deep-links to `mybookings` like any other. Any unknown or
+ * not-yet-reachable value (e.g. the unbuilt `book_<id>`) maps to Home — never throw,
+ * never blank the app, never leak.
  */
-const DEEP_LINK_ROUTES: Readonly<Record<string, Exclude<RouteId, "waitlist-accept">>> = {
+const DEEP_LINK_ROUTES: Readonly<Record<string, RouteId>> = {
   home: "home",
   // The old "записаться" deep link lands on the schedule calendar (browse's replacement).
   browse: "schedule",
@@ -166,61 +161,23 @@ const DEEP_LINK_ROUTES: Readonly<Record<string, Exclude<RouteId, "waitlist-accep
   profile: "profile"
 };
 
-/** The `waitlist_<entryId>` deep-link prefix (Telegram lowercases nothing for us). */
-const WAITLIST_ACCEPT_PREFIX = "waitlist_";
+/** A boot deep-link target: a bare route. The navigation stack is a bare `RouteId[]`. */
+export type StartTarget = { route: RouteId };
 
 /**
- * A boot deep-link target: a bare route, or the waitlist-accept route carrying the
- * entry id parsed from `waitlist_<entryId>`. The accept route is the ONLY id-carrying
- * target, so the navigation stack stays a bare `RouteId[]` — the shell holds the
- * entry id once (boot only) rather than threading a param through every push/pop.
- */
-export type StartTarget = { route: Exclude<RouteId, "waitlist-accept"> } | {
-  route: "waitlist-accept";
-  entryId: string;
-};
-
-/**
- * Parse a `waitlist_<entryId>` deep link into its entry id, or `null` when the value
- * is not that prefix or the id is not a valid uuid. Defensive: a malformed id never
- * reaches the API — the shell falls back to Home instead.
- */
-export function parseWaitlistAccept(startParam: string | null): string | null {
-  if (!startParam) {
-    return null;
-  }
-  const value = startParam.trim();
-  if (!value.toLowerCase().startsWith(WAITLIST_ACCEPT_PREFIX)) {
-    return null;
-  }
-  const entryId = value.slice(WAITLIST_ACCEPT_PREFIX.length);
-  return UUID_RE.test(entryId) ? entryId : null;
-}
-
-/** RFC-4122 uuid shape — the same id the @beosand/types `uuid` primitive validates. */
-const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
-
-/**
- * Map a raw `startParam` to the boot {@link StartTarget}. Defensive by contract:
- * `waitlist_<uuid>` opens the accept screen carrying the id; a bare known prefix opens
- * its screen; empty/absent/unknown/malformed (incl. a non-uuid `waitlist_` id, or the
- * still-unbuilt `book_<id>`) all fall back to `home` — never throw, never blank the app.
+ * Map a raw `startParam` to the boot {@link StartTarget}. Defensive by contract: a
+ * bare known prefix opens its screen; empty/absent/unknown/not-yet-reachable (e.g. the
+ * unbuilt `book_<id>`) all fall back to `home` — never throw, never blank the app.
  */
 export function resolveStartTarget(startParam: string | null): StartTarget {
-  const entryId = parseWaitlistAccept(startParam);
-  if (entryId) {
-    return { route: "waitlist-accept", entryId };
-  }
   return { route: resolveStartParam(startParam) };
 }
 
 /**
  * Map a raw `startParam` to the bare route to open on boot. Defensive by contract:
  * empty/absent, unknown, or not-yet-reachable (`book_<id>`) values all return `home`.
- * Id-carrying `waitlist_<id>` is handled by {@link resolveStartTarget} — here it falls
- * through to `home` since it isn't a bare known prefix.
  */
-export function resolveStartParam(startParam: string | null): Exclude<RouteId, "waitlist-accept"> {
+export function resolveStartParam(startParam: string | null): RouteId {
   if (!startParam) {
     return "home";
   }

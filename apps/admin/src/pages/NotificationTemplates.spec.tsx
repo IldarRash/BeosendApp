@@ -47,12 +47,20 @@ const sample: NotificationTemplate[] = [
     placeholders: ["{training}", "{date}"]
   },
   {
-    eventKey: "waitlist-slot",
+    eventKey: "waitlist-promoted",
     audience: "client",
-    body: "Освободилось место, подтвердите за {windowMinutes} минут",
+    body: "Освободилось место на {training}",
     isOverridden: true,
     defaultBody: "Место освободилось",
-    placeholders: ["{training}", "{windowMinutes}"]
+    placeholders: ["{training}", "{date}"]
+  },
+  {
+    eventKey: "waitlist-displaced",
+    audience: "client",
+    body: "Вы снова в листе ожидания на {training}, позиция {position}",
+    isOverridden: false,
+    defaultBody: "Вы снова в листе ожидания",
+    placeholders: ["{training}", "{position}"]
   },
   {
     eventKey: "court-request-created-admin",
@@ -79,11 +87,12 @@ describe("NotificationTemplates page", () => {
   it("renders one card per template with its human label and override badge", () => {
     renderPage();
     expect(screen.getByText("Запись подтверждена")).toBeTruthy();
-    expect(screen.getByText("Освободилось место (лист ожидания)")).toBeTruthy();
+    expect(screen.getByText("Место в группе освободилось")).toBeTruthy();
+    expect(screen.getByText("Вытеснение из листа ожидания")).toBeTruthy();
     // Overridden row shows the "overridden" badge; the default row shows "default".
     const confirmed = screen.getByText("Запись подтверждена").closest("article") as HTMLElement;
     const waitlist = screen
-      .getByText("Освободилось место (лист ожидания)")
+      .getByText("Место в группе освободилось")
       .closest("article") as HTMLElement;
     expect(within(waitlist).getByText("изменено")).toBeTruthy();
     expect(within(confirmed).getByText("по умолчанию")).toBeTruthy();
@@ -91,9 +100,9 @@ describe("NotificationTemplates page", () => {
 
   it("substitutes sample values in the live preview", () => {
     renderPage();
-    // The waitlist sample uses {windowMinutes} → "15".
+    // The displaced sample uses {position} → "2".
     expect(
-      screen.getByText("Освободилось место, подтвердите за 15 минут")
+      screen.getByText(/Вы снова в листе ожидания на .* позиция 2/)
     ).toBeTruthy();
   });
 
@@ -129,14 +138,14 @@ describe("NotificationTemplates page", () => {
   it("confirms then resets an overridden template via the reset endpoint", () => {
     renderPage();
     const card = screen
-      .getByText("Освободилось место (лист ожидания)")
+      .getByText("Место в группе освободилось")
       .closest("article") as HTMLElement;
     fireEvent.click(within(card).getByRole("button", { name: "Сбросить" }));
     const dialog = screen.getByRole("dialog");
     fireEvent.click(within(dialog).getByRole("button", { name: "Сбросить" }));
     expect(resetMutate).toHaveBeenCalledTimes(1);
     expect(resetMutate.mock.calls[0][0]).toEqual({
-      eventKey: "waitlist-slot",
+      eventKey: "waitlist-promoted",
       locale: "ru"
     });
   });

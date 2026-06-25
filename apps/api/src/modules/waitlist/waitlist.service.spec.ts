@@ -11,7 +11,6 @@ import { describe, expect, it } from "vitest";
 import type { ClientsRepository } from "../clients/clients.repository";
 import type { NotificationsService } from "../notifications/notifications.service";
 import type {
-  ExpiredCandidate,
   TrainingLockRow,
   WaitlistAdminRow,
   WaitlistLockRow,
@@ -25,6 +24,7 @@ const STRANGER_ID = 333;
 const CLIENT_ID = "11111111-1111-1111-1111-111111111111";
 const OTHER_CLIENT_ID = "22222222-2222-2222-2222-222222222222";
 const TRAINING_ID = "33333333-3333-3333-3333-333333333333";
+const GROUP_ID = "55555555-5555-5555-5555-555555555555";
 
 const ownerClient: Client = {
   id: CLIENT_ID,
@@ -197,14 +197,6 @@ class FakeWaitlistRepository {
       : undefined;
   }
 
-  async markNotified(_tx: Database, id: string, notifiedAt: Date): Promise<WaitlistEntry> {
-    const row = this.entries.find((e) => e.id === id);
-    if (!row) throw new Error(`entry ${id} missing`);
-    row.status = "notified";
-    row.notifiedAt = notifiedAt;
-    return this.toEntry(row);
-  }
-
   async setStatus(
     _tx: Database,
     id: string,
@@ -373,24 +365,28 @@ class FakeWaitlistRepository {
       .map((e) => this.toAdminRow(e));
   }
 
-  async listForGroupMonth(
-    _groupId: string,
-    _from: string,
-    _to: string
-  ): Promise<WaitlistAdminRow[]> {
-    // The group filter is exercised by the real query; here the tests stock only
-    // in-window entries, so return every active one ordered by date then position.
-    return this.entries
-      .filter((e) => e.status === "waiting" || e.status === "notified")
-      .map((e) => this.toAdminRow(e))
-      .sort((a, b) => (a.date === b.date ? a.position - b.position : a.date < b.date ? -1 : 1));
-  }
-
-  async findExpiredNotified(cutoff: Date): Promise<ExpiredCandidate[]> {
-    return this.entries
-      .filter((e) => e.status === "notified" && e.notifiedAt !== null && e.notifiedAt <= cutoff)
-      .sort((a, b) => a.position - b.position)
-      .map((e) => ({ id: e.id, trainingId: e.trainingId }));
+  /**
+   * Distinct trainings with a `waiting` head that are still bookable — the sweep's
+   * candidates. The real query also filters group-only + open via the join; here the
+   * tests stock only group trainings, so we mirror the bookability check off the
+   * single stocked training.
+   */
+  async findPromotableTrainings(): Promise<string[]> {
+    const ids = new Set<string>();
+    for (const e of this.entries) {
+      if (e.status !== "waiting") continue;
+      const training = this.training;
+      if (
+        training &&
+        training.id === e.trainingId &&
+        training.groupId !== null &&
+        training.status === "open" &&
+        training.bookedCount < training.capacity
+      ) {
+        ids.add(e.trainingId);
+      }
+    }
+    return [...ids];
   }
 
   private toEntry(row: WaitlistRowState): WaitlistEntry {
@@ -414,22 +410,30 @@ class FakeClientsRepository {
   }
 }
 
-/** Captures waitlist-slot pushes so promotion order can be asserted. */
+/** Captures promoted/displaced notifications so promotion order can be asserted. */
 class FakeNotifications {
-  sent: { clientId: string; trainingId: string }[] = [];
-  async sendWaitlistSlot(clientId: string, trainingId: string): Promise<boolean> {
-    this.sent.push({ clientId, trainingId });
+  promoted: { clientId: string; trainingId: string }[] = [];
+  displaced: { clientId: string; trainingId: string; position: number }[] = [];
+  async sendWaitlistPromoted(clientId: string, trainingId: string): Promise<boolean> {
+    this.promoted.push({ clientId, trainingId });
+    return true;
+  }
+  async sendWaitlistDisplaced(
+    clientId: string,
+    trainingId: string,
+    position: number
+  ): Promise<boolean> {
+    this.displaced.push({ clientId, trainingId, position });
     return true;
   }
 }
 
-const env = { ADMIN_TELEGRAM_IDS: [], WAITLIST_WINDOW_MINUTES: 30 } as unknown as Env;
+const env = { ADMIN_TELEGRAM_IDS: [] } as unknown as Env;
 // Admin-enabled env for the admin tools (promote/swap/remove + admin lists). The
 // owner stays a plain client under this env (only ADMIN_ID is an admin), so the
 // ownership-bypass behaviour of admins is exercised only where intended.
 const adminEnv = {
-  ADMIN_TELEGRAM_IDS: [String(ADMIN_ID)],
-  WAITLIST_WINDOW_MINUTES: 30
+  ADMIN_TELEGRAM_IDS: [String(ADMIN_ID)]
 } as unknown as Env;
 
 function makeService(): {
@@ -469,12 +473,19 @@ function makeAdminService(): {
   return { service, repo, clients, notifications };
 }
 
+/** A full GROUP training (the default subject of the waitlist). */
 const fullTraining: TrainingLockRow = {
   id: TRAINING_ID,
+  groupId: GROUP_ID,
   capacity: 6,
   bookedCount: 6,
   status: "full"
 };
+
+/** A group training with one free seat (open). */
+function openGroupTraining(bookedCount = 5): TrainingLockRow {
+  return { id: TRAINING_ID, groupId: GROUP_ID, capacity: 6, bookedCount, status: "open" };
+}
 
 describe("WaitlistService.join", () => {
   it("appends at contiguous positions for a full training", async () => {
@@ -495,12 +506,20 @@ describe("WaitlistService.join", () => {
 
     expect(entry.position).toBe(2);
     expect(entry.status).toBe("waiting");
-    expect(entry.notifiedAt).toBeNull();
+  });
+
+  it("rejects joining an individual (group-less) training with a 400", async () => {
+    const { service, repo } = makeService();
+    repo.training = { id: TRAINING_ID, groupId: null, capacity: 1, bookedCount: 1, status: "full" };
+    await expect(
+      service.join(OWNER_ID, { clientId: CLIENT_ID, trainingId: TRAINING_ID })
+    ).rejects.toBeInstanceOf(BadRequestException);
+    expect(repo.entries).toHaveLength(0);
   });
 
   it("rejects joining a still-bookable training with a 409", async () => {
     const { service, repo } = makeService();
-    repo.training = { id: TRAINING_ID, capacity: 6, bookedCount: 3, status: "open" };
+    repo.training = openGroupTraining(3);
     await expect(
       service.join(OWNER_ID, { clientId: CLIENT_ID, trainingId: TRAINING_ID })
     ).rejects.toBeInstanceOf(ConflictException);
@@ -509,7 +528,7 @@ describe("WaitlistService.join", () => {
   it("writes no entry when rejecting a join on a bookable slot (no side effect)", async () => {
     const { service, repo } = makeService();
     // Open with one free seat — the client must book directly, not waitlist.
-    repo.training = { id: TRAINING_ID, capacity: 6, bookedCount: 5, status: "open" };
+    repo.training = openGroupTraining(5);
     await expect(
       service.join(OWNER_ID, { clientId: CLIENT_ID, trainingId: TRAINING_ID })
     ).rejects.toBeInstanceOf(ConflictException);
@@ -518,7 +537,7 @@ describe("WaitlistService.join", () => {
 
   it("rejects joining a cancelled or completed training", async () => {
     const { service, repo } = makeService();
-    repo.training = { id: TRAINING_ID, capacity: 6, bookedCount: 0, status: "cancelled" };
+    repo.training = { id: TRAINING_ID, groupId: GROUP_ID, capacity: 6, bookedCount: 0, status: "cancelled" };
     await expect(
       service.join(OWNER_ID, { clientId: CLIENT_ID, trainingId: TRAINING_ID })
     ).rejects.toBeInstanceOf(ConflictException);
@@ -559,117 +578,10 @@ describe("WaitlistService.join", () => {
   });
 });
 
-describe("WaitlistService.accept", () => {
-  function seedNotified(
-    repo: FakeWaitlistRepository,
-    notifiedAt: Date,
-    groupSubscriptionId: string | null = null
-  ): string {
-    const id = "dddddddd-dddd-dddd-dddd-000000000001";
-    repo.entries.push({
-      id,
-      clientId: CLIENT_ID,
-      trainingId: TRAINING_ID,
-      position: 1,
-      groupSubscriptionId,
-      status: "notified",
-      addedAt: new Date(),
-      notifiedAt
-    });
-    return id;
-  }
-
-  it("books, increments count, recomputes status and marks the entry promoted", async () => {
-    const { service, repo } = makeService();
-    repo.training = { id: TRAINING_ID, capacity: 6, bookedCount: 5, status: "open" };
-    const id = seedNotified(repo, new Date());
-
-    const booking = await service.accept(OWNER_ID, id);
-
-    expect(booking.status).toBe("booked");
-    expect(booking.clientId).toBe(CLIENT_ID);
-    // A client's own acceptance is sourced "telegram", not "admin".
-    expect(booking.source).toBe("telegram");
-    expect(repo.training?.bookedCount).toBe(6);
-    expect(repo.training?.status).toBe("full");
-    expect(repo.entries.find((e) => e.id === id)?.status).toBe("promoted");
-  });
-
-  it("rebooks a single-origin entry (no subscription) as a single booking with null link", async () => {
-    const { service, repo } = makeService();
-    repo.training = { id: TRAINING_ID, capacity: 6, bookedCount: 5, status: "open" };
-    const id = seedNotified(repo, new Date());
-
-    const booking = await service.accept(OWNER_ID, id);
-
-    expect(booking.type).toBe("single");
-    expect(booking.groupSubscriptionId).toBeNull();
-  });
-
-  it("rebooks a subscription-origin entry as a group booking carrying its subscription id", async () => {
-    const { service, repo } = makeService();
-    repo.training = { id: TRAINING_ID, capacity: 6, bookedCount: 5, status: "open" };
-    const SUB_ID = "eeeeeeee-eeee-eeee-eeee-eeeeeeeeeeee";
-    const id = seedNotified(repo, new Date(), SUB_ID);
-
-    const booking = await service.accept(OWNER_ID, id);
-
-    // Group-aware promotion: the freed seat rejoins the monthly batch.
-    expect(booking.type).toBe("group");
-    expect(booking.groupSubscriptionId).toBe(SUB_ID);
-    expect(repo.entries.find((e) => e.id === id)?.status).toBe("promoted");
-  });
-
-  it("rejects acceptance when no seat is free (seat re-taken)", async () => {
-    const { service, repo } = makeService();
-    repo.training = { ...fullTraining };
-    const id = seedNotified(repo, new Date());
-    await expect(service.accept(OWNER_ID, id)).rejects.toBeInstanceOf(ConflictException);
-    // Entry stays notified so the sweep can retry/expire it.
-    expect(repo.entries.find((e) => e.id === id)?.status).toBe("notified");
-  });
-
-  it("rejects and expires an entry past its window", async () => {
-    const { service, repo } = makeService();
-    repo.training = { id: TRAINING_ID, capacity: 6, bookedCount: 5, status: "open" };
-    const past = new Date(Date.now() - 31 * 60 * 1000);
-    const id = seedNotified(repo, past);
-    await expect(service.accept(OWNER_ID, id)).rejects.toBeInstanceOf(ConflictException);
-    expect(repo.entries.find((e) => e.id === id)?.status).toBe("expired");
-  });
-
-  it("rejects acceptance on another client's behalf", async () => {
-    const { service, repo, clients } = makeService();
-    repo.training = { id: TRAINING_ID, capacity: 6, bookedCount: 5, status: "open" };
-    clients.client = {
-      ...ownerClient,
-      id: OTHER_CLIENT_ID,
-      telegramId: STRANGER_ID
-    };
-    const id = seedNotified(repo, new Date());
-    await expect(service.accept(STRANGER_ID, id)).rejects.toBeInstanceOf(ForbiddenException);
-  });
-
-  it("rejects acceptance of a non-notified entry", async () => {
-    const { service, repo } = makeService();
-    repo.training = { id: TRAINING_ID, capacity: 6, bookedCount: 5, status: "open" };
-    repo.entries.push({
-      id: "waiting-1",
-      clientId: CLIENT_ID,
-      trainingId: TRAINING_ID,
-      position: 1,
-      status: "waiting",
-      addedAt: new Date(),
-      notifiedAt: null
-    });
-    await expect(service.accept(OWNER_ID, "waiting-1")).rejects.toBeInstanceOf(ConflictException);
-  });
-});
-
-describe("WaitlistService.promoteNext", () => {
-  it("notifies the lowest-position waiting entry and stamps notifiedAt", async () => {
+describe("WaitlistService.promoteNext (auto-book + notify)", () => {
+  it("auto-books the lowest-position waiting entry, recomputes, and notifies it", async () => {
     const { service, repo, notifications } = makeService();
-    repo.training = { ...fullTraining, bookedCount: 5, status: "open" };
+    repo.training = openGroupTraining(5);
     repo.entries.push(
       {
         id: "head",
@@ -693,17 +605,100 @@ describe("WaitlistService.promoteNext", () => {
 
     await service.promoteNext(TRAINING_ID);
 
-    const head = repo.entries.find((e) => e.id === "head");
-    expect(head?.status).toBe("notified");
-    expect(head?.notifiedAt).not.toBeNull();
+    // Head is booked (promoted), the seat is filled, status flips to full.
+    expect(repo.entries.find((e) => e.id === "head")?.status).toBe("promoted");
     expect(repo.entries.find((e) => e.id === "second")?.status).toBe("waiting");
-    expect(notifications.sent).toEqual([{ clientId: CLIENT_ID, trainingId: TRAINING_ID }]);
+    expect(repo.bookings).toHaveLength(1);
+    expect(repo.bookings[0].clientId).toBe(CLIENT_ID);
+    expect(repo.training?.bookedCount).toBe(6);
+    expect(repo.training?.status).toBe("full");
+    expect(notifications.promoted).toEqual([{ clientId: CLIENT_ID, trainingId: TRAINING_ID }]);
   });
 
   it("is a no-op when there is no waiting head", async () => {
-    const { service, notifications } = makeService();
+    const { service, repo, notifications } = makeService();
+    repo.training = openGroupTraining(5);
     await service.promoteNext(TRAINING_ID);
-    expect(notifications.sent).toHaveLength(0);
+    expect(notifications.promoted).toHaveLength(0);
+    expect(repo.bookings).toHaveLength(0);
+  });
+
+  it("is a no-op (swallowed) for an individual (group-less) training", async () => {
+    const { service, repo, notifications } = makeService();
+    repo.training = { id: TRAINING_ID, groupId: null, capacity: 6, bookedCount: 5, status: "open" };
+    repo.entries.push({
+      id: "head",
+      clientId: CLIENT_ID,
+      trainingId: TRAINING_ID,
+      position: 1,
+      status: "waiting",
+      addedAt: new Date(),
+      notifiedAt: null
+    });
+
+    await service.promoteNext(TRAINING_ID);
+
+    expect(repo.bookings).toHaveLength(0);
+    expect(notifications.promoted).toHaveLength(0);
+    expect(repo.entries.find((e) => e.id === "head")?.status).toBe("waiting");
+  });
+
+  it("is a no-op when the freed seat was already re-taken (no oversell)", async () => {
+    const { service, repo, notifications } = makeService();
+    repo.training = { ...fullTraining };
+    repo.entries.push({
+      id: "head",
+      clientId: CLIENT_ID,
+      trainingId: TRAINING_ID,
+      position: 1,
+      status: "waiting",
+      addedAt: new Date(),
+      notifiedAt: null
+    });
+
+    await service.promoteNext(TRAINING_ID);
+
+    expect(repo.bookings).toHaveLength(0);
+    expect(repo.training?.bookedCount).toBe(6);
+    expect(notifications.promoted).toHaveLength(0);
+  });
+});
+
+describe("WaitlistService.sweepPromotable", () => {
+  it("auto-promotes a group training that is bookable and has a waiting head", async () => {
+    const { service, repo, notifications } = makeService();
+    repo.training = openGroupTraining(5);
+    repo.entries.push({
+      id: "head",
+      clientId: CLIENT_ID,
+      trainingId: TRAINING_ID,
+      position: 1,
+      status: "waiting",
+      addedAt: new Date(),
+      notifiedAt: null
+    });
+
+    const count = await service.sweepPromotable();
+
+    expect(count).toBe(1);
+    expect(repo.entries.find((e) => e.id === "head")?.status).toBe("promoted");
+    expect(repo.bookings).toHaveLength(1);
+    expect(notifications.promoted).toEqual([{ clientId: CLIENT_ID, trainingId: TRAINING_ID }]);
+  });
+
+  it("returns 0 when nothing is promotable", async () => {
+    const { service, repo } = makeService();
+    repo.training = { ...fullTraining };
+    repo.entries.push({
+      id: "head",
+      clientId: CLIENT_ID,
+      trainingId: TRAINING_ID,
+      position: 1,
+      status: "waiting",
+      addedAt: new Date(),
+      notifiedAt: null
+    });
+    expect(await service.sweepPromotable()).toBe(0);
   });
 });
 
@@ -716,6 +711,7 @@ describe("WaitlistService invariant: ordered, contiguous, never oversells", () =
   function makeMultiClientService(): {
     service: WaitlistService;
     repo: FakeWaitlistRepository;
+    notifications: FakeNotifications;
   } {
     const repo = new FakeWaitlistRepository();
     const clients = {
@@ -734,7 +730,7 @@ describe("WaitlistService invariant: ordered, contiguous, never oversells", () =
       notifications as unknown as NotificationsService,
       env
     );
-    return { service, repo };
+    return { service, repo, notifications };
   }
 
   it("assigns contiguous positions 1,2,3 as three clients join a full slot", async () => {
@@ -748,126 +744,75 @@ describe("WaitlistService invariant: ordered, contiguous, never oversells", () =
     expect([first.position, second.position, third.position]).toEqual([1, 2, 3]);
   });
 
-  it("promotes the lowest position first, then the next on a second freed seat", async () => {
+  it("auto-books the lowest position first, then the next on a second freed seat", async () => {
     const { service, repo } = makeMultiClientService();
     repo.training = { ...fullTraining };
     await service.join(1, { clientId: A, trainingId: TRAINING_ID });
     await service.join(2, { clientId: B, trainingId: TRAINING_ID });
 
-    // First freed seat: head (position 1, client A) is notified.
+    // First freed seat: head (position 1, client A) is auto-booked.
+    repo.training = openGroupTraining(5);
     await service.promoteNext(TRAINING_ID);
-    expect(repo.entries.find((e) => e.clientId === A)?.status).toBe("notified");
+    expect(repo.entries.find((e) => e.clientId === A)?.status).toBe("promoted");
     expect(repo.entries.find((e) => e.clientId === B)?.status).toBe("waiting");
+    expect(repo.training?.status).toBe("full");
 
-    // A is no longer `waiting`, so the next promote targets B (position 2).
+    // A second seat frees: the next waiting head (B) is auto-booked.
+    repo.training = openGroupTraining(5);
     await service.promoteNext(TRAINING_ID);
-    expect(repo.entries.find((e) => e.clientId === B)?.status).toBe("notified");
+    expect(repo.entries.find((e) => e.clientId === B)?.status).toBe("promoted");
   });
 
   it("never increments bookedCount beyond capacity when the seat was re-taken", async () => {
-    const { service, repo } = makeMultiClientService();
-    // Promotion happened while a seat was briefly free, but it filled again: now full.
+    const { service, repo, notifications } = makeMultiClientService();
+    // The seat filled again before promotion could run: now full.
     repo.training = { ...fullTraining };
     repo.entries.push({
       id: "dddddddd-dddd-dddd-dddd-000000000099",
       clientId: A,
       trainingId: TRAINING_ID,
       position: 1,
-      status: "notified",
+      status: "waiting",
       addedAt: new Date(),
-      notifiedAt: new Date()
+      notifiedAt: null
     });
 
-    await expect(
-      service.accept(1, "dddddddd-dddd-dddd-dddd-000000000099")
-    ).rejects.toBeInstanceOf(ConflictException);
+    await service.promoteNext(TRAINING_ID);
 
-    // No oversell: count stays at capacity, no booking row written.
+    // No oversell: count stays at capacity, no booking row, nothing notified.
     expect(repo.training?.bookedCount).toBe(6);
     expect(repo.bookings).toHaveLength(0);
+    expect(notifications.promoted).toHaveLength(0);
   });
 
-  it("accept fills exactly one freed seat and flips full→open→full atomically", async () => {
+  it("auto-promote fills exactly one freed seat and flips open→full atomically", async () => {
     const { service, repo } = makeMultiClientService();
-    // One seat free (5/6, open) after a cancel; head was notified.
-    repo.training = { id: TRAINING_ID, capacity: 6, bookedCount: 5, status: "open" };
+    // One seat free (5/6, open) after a cancel.
+    repo.training = openGroupTraining(5);
     repo.entries.push({
       id: "dddddddd-dddd-dddd-dddd-000000000100",
       clientId: A,
       trainingId: TRAINING_ID,
       position: 1,
-      status: "notified",
+      status: "waiting",
       addedAt: new Date(),
-      notifiedAt: new Date()
+      notifiedAt: null
     });
 
-    const booking = await service.accept(1, "dddddddd-dddd-dddd-dddd-000000000100");
+    await service.promoteNext(TRAINING_ID);
 
-    expect(booking.status).toBe("booked");
     expect(repo.bookings).toHaveLength(1);
+    expect(repo.bookings[0].status).toBe("booked");
     expect(repo.training?.bookedCount).toBe(6);
     expect(repo.training?.status).toBe("full");
   });
 });
 
-describe("WaitlistService.sweepExpired", () => {
-  it("expires a stale notified entry and promotes the next head", async () => {
-    const { service, repo, notifications } = makeService();
-    repo.training = { id: TRAINING_ID, capacity: 6, bookedCount: 5, status: "open" };
-    const stale = new Date(Date.now() - 31 * 60 * 1000);
-    repo.entries.push(
-      {
-        id: "expired-head",
-        clientId: CLIENT_ID,
-        trainingId: TRAINING_ID,
-        position: 1,
-        status: "notified",
-        addedAt: new Date(),
-        notifiedAt: stale
-      },
-      {
-        id: "next-head",
-        clientId: OTHER_CLIENT_ID,
-        trainingId: TRAINING_ID,
-        position: 2,
-        status: "waiting",
-        addedAt: new Date(),
-        notifiedAt: null
-      }
-    );
-
-    const count = await service.sweepExpired(new Date());
-
-    expect(count).toBe(1);
-    expect(repo.entries.find((e) => e.id === "expired-head")?.status).toBe("expired");
-    expect(repo.entries.find((e) => e.id === "next-head")?.status).toBe("notified");
-    expect(notifications.sent).toEqual([{ clientId: OTHER_CLIENT_ID, trainingId: TRAINING_ID }]);
-  });
-
-  it("leaves a notified entry still within its window untouched", async () => {
-    const { service, repo } = makeService();
-    repo.training = { id: TRAINING_ID, capacity: 6, bookedCount: 5, status: "open" };
-    repo.entries.push({
-      id: "fresh",
-      clientId: CLIENT_ID,
-      trainingId: TRAINING_ID,
-      position: 1,
-      status: "notified",
-      addedAt: new Date(),
-      notifiedAt: new Date()
-    });
-    const count = await service.sweepExpired(new Date());
-    expect(count).toBe(0);
-    expect(repo.entries.find((e) => e.id === "fresh")?.status).toBe("notified");
-  });
-});
-
-// --- Admin waitlist tools (Slice 2): promote / swap / remove + admin lists --------
+// --- Admin waitlist tools (promote / swap / remove + admin lists) -----------------
 
 const ENTRY_ID = "dddddddd-dddd-dddd-dddd-00000000aaaa";
 const SUB_ID = "eeeeeeee-eeee-eeee-eeee-eeeeeeeeeeee";
 const DISPLACED_BOOKING_ID = "ffffffff-ffff-4fff-8fff-ffffffffffff";
-const GROUP_ID_FOR_LIST = "44444444-4444-4444-4444-444444444444";
 
 /** Seed one active waitlist entry on TRAINING_ID for the admin-tool tests. */
 function seedEntry(
@@ -890,9 +835,9 @@ function seedEntry(
 }
 
 describe("WaitlistService.promoteEntry (admin)", () => {
-  it("books into a free seat, increments count, recomputes, and marks the entry promoted", async () => {
-    const { service, repo } = makeAdminService();
-    repo.training = { id: TRAINING_ID, capacity: 6, bookedCount: 5, status: "open" };
+  it("books into a free seat, recomputes, marks promoted, and notifies the client", async () => {
+    const { service, repo, notifications } = makeAdminService();
+    repo.training = openGroupTraining(5);
     const id = seedEntry(repo);
 
     const booking = await service.promoteEntry(ADMIN_ID, id);
@@ -904,11 +849,12 @@ describe("WaitlistService.promoteEntry (admin)", () => {
     expect(repo.training?.bookedCount).toBe(6);
     expect(repo.training?.status).toBe("full");
     expect(repo.entries.find((e) => e.id === id)?.status).toBe("promoted");
+    expect(notifications.promoted).toEqual([{ clientId: CLIENT_ID, trainingId: TRAINING_ID }]);
   });
 
   it("rebooks a subscription-origin entry as a group booking carrying its id", async () => {
     const { service, repo } = makeAdminService();
-    repo.training = { id: TRAINING_ID, capacity: 6, bookedCount: 5, status: "open" };
+    repo.training = openGroupTraining(5);
     const id = seedEntry(repo, { groupSubscriptionId: SUB_ID });
 
     const booking = await service.promoteEntry(ADMIN_ID, id);
@@ -931,7 +877,7 @@ describe("WaitlistService.promoteEntry (admin)", () => {
 
   it("forbids a non-admin caller (403)", async () => {
     const { service, repo } = makeAdminService();
-    repo.training = { id: TRAINING_ID, capacity: 6, bookedCount: 5, status: "open" };
+    repo.training = openGroupTraining(5);
     const id = seedEntry(repo);
 
     await expect(service.promoteEntry(OWNER_ID, id)).rejects.toBeInstanceOf(ForbiddenException);
@@ -957,7 +903,7 @@ describe("WaitlistService.swapEntry (admin)", () => {
   }
 
   it("cancels the displaced booking, books the entry, and never changes the seat count", async () => {
-    const { service, repo } = makeAdminService();
+    const { service, repo, notifications } = makeAdminService();
     seedSwap(repo);
 
     const { promoted, displaced } = await service.swapEntry(
@@ -979,6 +925,11 @@ describe("WaitlistService.swapEntry (admin)", () => {
     expect(displaced.clientId).toBe(OTHER_CLIENT_ID);
     expect(displaced.status).toBe("waiting");
     expect(displaced.position).toBeLessThan(1);
+    // Both clients are notified: promoted (booked) and displaced (back on waitlist).
+    expect(notifications.promoted).toEqual([{ clientId: CLIENT_ID, trainingId: TRAINING_ID }]);
+    expect(notifications.displaced).toEqual([
+      { clientId: OTHER_CLIENT_ID, trainingId: TRAINING_ID, position: displaced.position }
+    ]);
   });
 
   it("re-queues the displaced client at the lowest position (ahead of every active entry)", async () => {
@@ -1172,30 +1123,7 @@ describe("WaitlistService.removeEntry (admin)", () => {
     const removed = await service.removeEntry(ADMIN_ID, id);
 
     expect(removed.status).toBe("cancelled");
-    expect(notifications.sent).toHaveLength(0);
-  });
-
-  it("cancels a notified entry and promotes the next head (the freed seat is not wasted)", async () => {
-    const { service, repo, notifications } = makeAdminService();
-    // The notified head holds the one open seat; a waiting next-in-line follows.
-    repo.training = { id: TRAINING_ID, capacity: 6, bookedCount: 5, status: "open" };
-    const id = seedEntry(repo, { status: "notified", notifiedAt: new Date() });
-    repo.entries.push({
-      id: "next-head",
-      clientId: OTHER_CLIENT_ID,
-      trainingId: TRAINING_ID,
-      position: 2,
-      status: "waiting",
-      addedAt: new Date(),
-      notifiedAt: null
-    });
-
-    const removed = await service.removeEntry(ADMIN_ID, id);
-
-    expect(removed.status).toBe("cancelled");
-    // promoteNext ran: the next head is notified and pushed the slot message.
-    expect(repo.entries.find((e) => e.id === "next-head")?.status).toBe("notified");
-    expect(notifications.sent).toEqual([{ clientId: OTHER_CLIENT_ID, trainingId: TRAINING_ID }]);
+    expect(notifications.promoted).toHaveLength(0);
   });
 
   it("forbids a non-admin caller (403)", async () => {
@@ -1241,20 +1169,6 @@ describe("WaitlistService admin/queue lists", () => {
     expect(items.map((i) => i.position)).toEqual([1, 2]);
     expect(items[0].startTime).toBe("18:00");
     expect(items[0].groupName).toBe("Mon/Wed");
-  });
-
-  it("listForGroupMonth validates and rejects a non-admin caller", async () => {
-    const { service, repo } = makeAdminService();
-    repo.clientNames = { [CLIENT_ID]: "Owner" };
-    seedEntry(repo, { id: "22222222-2222-4222-8222-000000000001", position: 1 });
-
-    const items = await service.listForGroupMonth(ADMIN_ID, GROUP_ID_FOR_LIST, 2099, 6);
-    expect(items).toHaveLength(1);
-    expect(() => waitlistAdminItemSchema.parse(items[0])).not.toThrow();
-
-    await expect(
-      service.listForGroupMonth(OWNER_ID, GROUP_ID_FOR_LIST, 2099, 6)
-    ).rejects.toBeInstanceOf(ForbiddenException);
   });
 
   it("listForTraining rejects a non-admin caller", async () => {

@@ -35,17 +35,15 @@ interface SlotDayListProps {
   ariaLabel: string;
   /** Open the confirm step for a bookable slot. */
   onBook: (slot: SlotCardData) => void;
-  /** Open the waitlist affordance for a full slot. */
-  onWaitlist: (slot: SlotCardData) => void;
 }
 
 /**
  * A date-grouped list of {@link SlotCard}s with a flat `.tg-sech` header per day
  * (weekday + date). Purely presentational — it renders API-decided values and
- * reports taps; the screen owns the queries and the booking write. Shared by the
- * browse and schedule screens so the grouping/rendering is never duplicated.
+ * reports book taps; the screen owns the queries and the booking write. Shared by any
+ * slot list so the grouping/rendering is never duplicated.
  */
-export function SlotDayList({ slots, ariaLabel, onBook, onWaitlist }: SlotDayListProps): JSX.Element {
+export function SlotDayList({ slots, ariaLabel, onBook }: SlotDayListProps): JSX.Element {
   const t = useT();
   const groups = groupByDate(slots);
 
@@ -57,12 +55,7 @@ export function SlotDayList({ slots, ariaLabel, onBook, onWaitlist }: SlotDayLis
             {`${t(weekdayShortKey(group.dayOfWeek))} · ${formatDayMonth(group.date)}`}
           </div>
           {group.slots.map((slot) => (
-            <SlotCard
-              key={slot.trainingId}
-              slot={slot}
-              onBook={() => onBook(slot)}
-              onWaitlist={() => onWaitlist(slot)}
-            />
+            <SlotCard key={slot.trainingId} slot={slot} onBook={() => onBook(slot)} />
           ))}
         </div>
       ))}

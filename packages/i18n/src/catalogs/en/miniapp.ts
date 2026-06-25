@@ -86,13 +86,10 @@ export const miniappEn: Record<string, string> = {
   "miniapp.timeOfDay.afternoon": "Afternoon",
   "miniapp.timeOfDay.evening": "Evening",
 
-  // --- Slot card labels (shared by the schedule day-detail + confirm/waitlist views) ---
+  // --- Slot card labels (shared by the schedule day-detail + confirm views) ---
   "miniapp.browse.seats": "{count} seats",
-  "miniapp.browse.seatsNone": "No seats",
   "miniapp.browse.price": "{price} RSD",
   "miniapp.browse.bookAria": "Book",
-  "miniapp.browse.waitlist": "Waitlist",
-  "miniapp.browse.waitlistAria": "Join the waitlist",
 
   // --- Filter sheet labels (shared by the group-list filter) ---
   "miniapp.browse.filter.any": "Any",
@@ -117,27 +114,13 @@ export const miniappEn: Record<string, string> = {
   "miniapp.booking.backToList": "Back to schedule",
   "miniapp.booking.conflict": "This seat was just taken. Please choose another session.",
 
-  // --- Waitlist (S6): join + accept ---
-  "miniapp.waitlist.joinConfirm": "Join the waitlist",
-  "miniapp.waitlist.joinConfirmHeader": "Waitlist",
-  "miniapp.waitlist.joinConfirmBody":
-    "This seat is taken. Join the waitlist — we'll notify you as soon as a seat opens up.",
-  "miniapp.waitlist.joinOfferTitle": "The seat was just taken",
-  "miniapp.waitlist.joinedTitle": "You're on the waitlist",
-  "miniapp.waitlist.joinedBody": "We'll notify you when a seat opens up.",
-  "miniapp.waitlist.positionLabel": "Your position: {position}",
+  // --- Waitlist (frictionless: auto-join on a full group session) ---
+  "miniapp.waitlist.autoJoinedTitle": "You're on the waitlist",
+  "miniapp.waitlist.autoJoinedBody":
+    "There were no seats left, so we added you to the waitlist. We'll notify you when a seat opens up.",
+  "miniapp.waitlist.autoJoinedPosition": "You're on the waitlist · position {position}",
   "miniapp.waitlist.joinConflict":
     "Could not join the waitlist. You may already be on it, or the seat is available again.",
-  "miniapp.waitlist.acceptHeader": "A seat opened up",
-  "miniapp.waitlist.acceptBody": "Confirm your booking while the seat is free.",
-  "miniapp.waitlist.accept": "Confirm",
-  "miniapp.waitlist.acceptedTitle": "You're booked!",
-  "miniapp.waitlist.acceptedBody": "The seat is yours. Details are in “My bookings”.",
-  "miniapp.waitlist.expiredTitle": "The confirmation window closed",
-  "miniapp.waitlist.expiredBody": "The seat is already taken or the time to confirm ran out.",
-  "miniapp.waitlist.toSchedule": "Back to schedule",
-  "miniapp.waitlist.toMyBookings": "My bookings",
-  "miniapp.waitlist.toHome": "Home",
 
   // --- My bookings + cancel (S5) ---
   "miniapp.myBookings.title": "My bookings",
@@ -167,6 +150,9 @@ export const miniappEn: Record<string, string> = {
   "miniapp.myBookings.errorBody": "Couldn't load your bookings. Please try again.",
   "miniapp.myBookings.waitlistTitle": "On the waitlist",
   "miniapp.myBookings.waitlistPosition": "queued, position {position}",
+  "miniapp.myBookings.subscription.title": "Subscription",
+  "miniapp.myBookings.subscription.summary":
+    "Booked: {booked} · waitlisted: {waitlisted}",
 
   // --- Group monthly subscription (S7) ---
   "miniapp.group.listTitle": "Groups",
@@ -194,6 +180,8 @@ export const miniappEn: Record<string, string> = {
   "miniapp.group.toHome": "Home",
   "miniapp.group.roster.title": "Who's signed up",
   "miniapp.group.roster.empty": "No one signed up yet",
+  "miniapp.group.ownWaitlist.one": "You're on the waitlist for {date} · position {position}",
+  "miniapp.group.ownWaitlist.many": "You're on the waitlist · {count} dates",
   "miniapp.group.filtersAria": "Group filters",
   "miniapp.group.filter.title": "Filters",
   "miniapp.group.filterEmpty": "No matching groups",

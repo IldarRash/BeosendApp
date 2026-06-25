@@ -509,6 +509,7 @@ describe("myBookingItemSchema", () => {
   const validItem = {
     bookingId: "11111111-1111-1111-1111-111111111111",
     trainingId: "22222222-2222-2222-2222-222222222222",
+    groupSubscriptionId: null,
     date: "2099-06-08",
     dayOfWeek: 1,
     startTime: "18:00",
@@ -821,6 +822,7 @@ describe("subscriptionSummarySchema (admin payments view)", () => {
     month: 6,
     dateCount: 8,
     paidCount: 3,
+    waitlistedCount: 2,
     totalRsd: 12000,
     paymentState: "partial"
   };

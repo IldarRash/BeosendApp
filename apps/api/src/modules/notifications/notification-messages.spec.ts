@@ -17,7 +17,8 @@ import {
   reminderWindow,
   resolveTemplateBody,
   trainingCancelledMessage,
-  waitlistSlotMessage
+  waitlistDisplacedMessage,
+  waitlistPromotedMessage
 } from "./notification-messages";
 
 function makeRecipient(over: Partial<NotificationRecipient> = {}): NotificationRecipient {
@@ -179,9 +180,15 @@ describe("RU default templates reproduce the previous wording", () => {
     );
   });
 
-  it("waitlist-slot", () => {
-    expect(waitlistSlotMessage(r, 10, "ru")).toBe(
-      `Освободилось место 🎉\n${trainingLine}\nПодтвердите запись в течение 10 мин.`
+  it("waitlist-promoted", () => {
+    expect(waitlistPromotedMessage(r, "ru")).toBe(
+      `Вы больше не в листе ожидания 🎉\nВы записаны: ${trainingLine}`
+    );
+  });
+
+  it("waitlist-displaced interpolates the position", () => {
+    expect(waitlistDisplacedMessage(r, 2, "ru")).toBe(
+      `Ваше место было переназначено.\n${trainingLine}\nВы снова в листе ожидания, позиция 2.`
     );
   });
 
@@ -205,19 +212,19 @@ describe("SR / EN default templates render in the requested locale", () => {
     expect(bookingConfirmedMessage(r, "en")).toBe(`Booking confirmed ✅\n${trainingLine}`);
   });
 
-  it("renders the SR waitlist-slot default with windowMinutes interpolated", () => {
-    expect(waitlistSlotMessage(r, 10, "sr")).toBe(
-      `Oslobodilo se mesto 🎉\n${trainingLine}\nPotvrdite termin u roku od 10 min.`
+  it("renders the SR waitlist-promoted default", () => {
+    expect(waitlistPromotedMessage(r, "sr")).toBe(
+      `Više niste na listi čekanja 🎉\nPrijavljeni ste: ${trainingLine}`
     );
   });
 });
 
 describe("override application in render functions", () => {
-  it("uses the override and interpolates it, with windowMinutes for waitlist-slot", () => {
+  it("uses the override and interpolates it, with position for waitlist-displaced", () => {
     const r = makeRecipient();
     expect(
-      waitlistSlotMessage(r, 7, "ru", "Место! {trainerName}, окно {windowMinutes} мин")
-    ).toBe("Место! Ana, окно 7 мин");
+      waitlistDisplacedMessage(r, 3, "ru", "Место! {trainerName}, позиция {position}")
+    ).toBe("Место! Ana, позиция 3");
   });
 });
 

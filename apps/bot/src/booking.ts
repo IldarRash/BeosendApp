@@ -1,13 +1,12 @@
 import type { SlotCard } from "@beosand/types";
 import type { ApiClient } from "./api-client";
 import { showMainMenu, type MenuReplyCtx } from "./navigation";
-import type { Catalog } from "./i18n";
+import { t, type Catalog } from "./i18n";
 import {
-  bookingFullKeyboard,
-  bookingFullText,
   bookingSuccessKeyboard,
   bookingSuccessShort,
   confirmBookingKeyboard,
+  fullSlotFooterKeyboard,
   renderBookingSuccessText,
   renderConfirmText,
   slotNotFoundText
@@ -20,7 +19,10 @@ import {
  */
 
 /** The slice of ApiClient the booking handlers need. */
-export type BookingApi = Pick<ApiClient, "listAvailableSlots" | "createSingleBooking">;
+export type BookingApi = Pick<
+  ApiClient,
+  "listAvailableSlots" | "createSingleBooking" | "joinWaitlist"
+>;
 
 /** Look up the currently-bookable slot card for a trainingId, or null. */
 async function findBookableSlot(api: BookingApi, trainingId: string): Promise<SlotCard | null> {
@@ -41,10 +43,11 @@ export async function handleBookStart(
 ): Promise<void> {
   const card = await findBookableSlot(api, trainingId);
   if (!card) {
-    // The slot is no longer bookable (now full/cancelled): offer the waitlist for
-    // this training; the API rejects the join if it turns out still bookable.
+    // The slot is no longer bookable (now full/cancelled): the journey dead-ends
+    // here with a path back to the list/menu. Auto-waitlisting only happens on a
+    // booking-confirm race (handleBookConfirm), not on a vanished stale card.
     await ctx.reply(slotNotFoundText(catalog), {
-      reply_markup: bookingFullKeyboard(catalog, trainingId)
+      reply_markup: fullSlotFooterKeyboard(catalog)
     });
     return;
   }
@@ -55,7 +58,9 @@ export async function handleBookStart(
 
 /**
  * Step 3: create the booking. Ownership is re-resolved server-side from the
- * caller's telegram_id; on 409 we offer the waitlist instead of erroring.
+ * caller's telegram_id. On a 409 (slot just filled) the bot auto-joins the
+ * waitlist for this training in one step — no separate "join?" tap — and shows
+ * the returned queue position. The API decides eligibility; the bot only renders.
  */
 export async function handleBookConfirm(
   ctx: MenuReplyCtx,
@@ -72,10 +77,8 @@ export async function handleBookConfirm(
   }
   const result = await api.createSingleBooking({ clientId, trainingId }, telegramId);
   if (!result.ok) {
-    // Slot full/already booked → offer the waitlist for this training (T2.1).
-    await ctx.reply(bookingFullText(catalog), {
-      reply_markup: bookingFullKeyboard(catalog, trainingId)
-    });
+    // Slot full/already booked → automatically queue on the waitlist (frictionless).
+    await autoJoinWaitlist(ctx, api, catalog, telegramId, clientId, trainingId);
     return;
   }
   // Re-read the (now updated) slot only for the success card's display details;
@@ -90,5 +93,31 @@ export async function handleBookConfirm(
   }
   await ctx.reply(renderBookingSuccessText(catalog, card), {
     reply_markup: bookingSuccessKeyboard(catalog)
+  });
+}
+
+/**
+ * Auto-join the waitlist after a booking 409 and confirm with the queue position.
+ * A join conflict (already on the list / slot turned bookable again) is surfaced
+ * with the server's friendly message. The bot forwards ids only — the API owns
+ * eligibility, ordering and the position.
+ */
+async function autoJoinWaitlist(
+  ctx: MenuReplyCtx,
+  api: BookingApi,
+  catalog: Catalog,
+  telegramId: number,
+  clientId: string,
+  trainingId: string
+): Promise<void> {
+  const result = await api.joinWaitlist({ clientId, trainingId }, telegramId);
+  if (!result.ok) {
+    await ctx.reply(t(catalog, "bot.waitlist.joinConflict"), {
+      reply_markup: fullSlotFooterKeyboard(catalog)
+    });
+    return;
+  }
+  await ctx.reply(t(catalog, "bot.waitlist.autoJoined", { position: result.entry.position }), {
+    reply_markup: fullSlotFooterKeyboard(catalog)
   });
 }

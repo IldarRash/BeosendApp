@@ -327,20 +327,6 @@ export class MiniappApiClient {
   }
 
   /**
-   * Accept a freed seat from the waitlist (POST /waitlist/:id/accept; no body). The
-   * server enforces ownership, the open confirmation window, and capacity (it never
-   * over-books), then promotes the entry to a real booking. The response is the
-   * created {@link Booking}, validated before use. A 409 (window closed / seat
-   * re-taken / already promoted) surfaces as {@link ConflictError} so the screen
-   * shows the calm "window closed" state with the server message and NO booking.
-   */
-  acceptWaitlist(entryId: string): Promise<Booking> {
-    return this.request(`/waitlist/${entryId}/accept`, bookingSchema, {
-      method: "POST"
-    });
-  }
-
-  /**
    * The caller's own bookings for one scope (GET /bookings/mine). `clientId` is the
    * caller's resolved Client id (never a client-asserted value — the server re-checks
    * ownership from the verified session) and `scope` selects upcoming vs past; both

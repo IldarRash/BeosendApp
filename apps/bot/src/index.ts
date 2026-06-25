@@ -18,14 +18,7 @@ import {
 } from "./i18n";
 import { resolveCallback } from "./navigation";
 import { handleBookConfirm, handleBookStart } from "./booking";
-import { handleWaitlistAccept, handleWaitlistJoin } from "./waitlist";
-import {
-  parseBookConfirm,
-  parseBookSlot,
-  parseBookStart,
-  parseWaitlistAccept,
-  parseWaitlistJoin
-} from "./slots";
+import { parseBookConfirm, parseBookSlot, parseBookStart } from "./slots";
 import {
   handleGroupConfirm,
   handleGroupMonth,
@@ -249,26 +242,9 @@ async function main(): Promise<void> {
       await handleCancelConfirm(ctx, api, catalog, ctx.from.id, confirmCancelId);
       return;
     }
-    // Waitlist (T2.1): join a full slot, or accept a promoted slot from the push.
-    // Identity is the caller's telegram_id; the API decides eligibility/ownership.
-    const waitlistJoinTrainingId = parseWaitlistJoin(ctx.callbackQuery.data);
-    if (waitlistJoinTrainingId !== undefined) {
-      const client = await api.getClientByTelegramId(ctx.from.id);
-      await handleWaitlistJoin(
-        ctx,
-        api,
-        catalog,
-        ctx.from.id,
-        client?.id ?? null,
-        waitlistJoinTrainingId
-      );
-      return;
-    }
-    const waitlistAcceptEntryId = parseWaitlistAccept(ctx.callbackQuery.data);
-    if (waitlistAcceptEntryId !== undefined) {
-      await handleWaitlistAccept(ctx, api, catalog, ctx.from.id, waitlistAcceptEntryId);
-      return;
-    }
+    // Waitlist is now automatic (frictionless-waitlist): a full-slot booking 409
+    // auto-queues the client in handleBookConfirm, and a freed seat auto-books +
+    // notifies server-side — there is no client join/accept callback any more.
     // Trainer "today" (T2.3): list → roster → mark attendance. The API gates the
     // role and authorizes ownership from the caller's telegram_id; the bot only
     // forwards ids and re-renders. Clients never reach these screens.

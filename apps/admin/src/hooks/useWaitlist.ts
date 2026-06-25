@@ -7,7 +7,6 @@ import {
 } from "@tanstack/react-query";
 import type {
   Booking,
-  GroupWaitlistQuery,
   SwapWaitlistResult,
   WaitlistAdminItem,
   WaitlistEntry
@@ -16,37 +15,15 @@ import { useApiClient } from "../api/ApiProvider";
 
 const WAITLIST_KEY = ["waitlist"] as const;
 
-/** Stable cache key for one group's month waitlist queue. */
-function groupQueueKey(query: GroupWaitlistQuery): readonly unknown[] {
-  return [...WAITLIST_KEY, "group", query.groupId, query.year, query.month] as const;
-}
-
-/** Stable cache key for one training's waitlist queue (the swap picker context). */
+/** Stable cache key for one training's waitlist queue (under-roster + swap picker). */
 function trainingQueueKey(trainingId: string): readonly unknown[] {
   return [...WAITLIST_KEY, "training", trainingId] as const;
 }
 
 /**
- * Admin group waitlist for a month (GET /waitlist/group). Gated: no call until a
- * group is selected, mirroring useGroupMembers — an unselected page makes no
- * request. An AuthError from the ApiClient propagates so RequireAuth can redirect
- * on 401.
- */
-export function useGroupWaitlist(
-  query: GroupWaitlistQuery | null
-): UseQueryResult<WaitlistAdminItem[], Error> {
-  const api = useApiClient();
-  return useQuery({
-    queryKey: query ? groupQueueKey(query) : [...WAITLIST_KEY, "group", "idle"],
-    queryFn: () => api.listGroupWaitlist(query as GroupWaitlistQuery),
-    enabled: query !== null
-  });
-}
-
-/**
- * Admin waitlist for one training (GET /waitlist/training/:id). Gated on a
- * training id; backs the swap picker so the admin sees who is queued. AuthError
- * propagates so RequireAuth can redirect on 401.
+ * Admin waitlist for one group training (GET /waitlist/training/:id). Gated on a
+ * training id; backs the under-roster waitlist section and the swap picker so the
+ * admin sees who is queued. AuthError propagates so RequireAuth can redirect on 401.
  */
 export function useTrainingWaitlist(
   trainingId: string | null

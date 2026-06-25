@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
+import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { AppRoot } from "@telegram-apps/telegram-ui";
 import type { ReactNode } from "react";
@@ -28,7 +28,8 @@ import { ScheduleScreen } from "./ScheduleScreen";
  * Covered: the month grid renders with a marker on days that have bookable sessions;
  * the month query carries the month's first→last day window; tapping a marked day
  * lists ONLY that day's slots and enters the shared booking flow (book → success);
- * a full slot offers the waitlist (never a Book action) and joins for that slot.
+ * and the frictionless waitlist — a booking 409 (full group session) AUTO-joins the
+ * waitlist for the SAME slot with no extra tap and shows the waitlisted result.
  */
 
 const FIXED_NOW = new Date(2026, 5, 9, 12, 0, 0); // 2026-06-09 local
@@ -52,7 +53,8 @@ const ONBOARDED: Client = {
   bonusTrainingCredits: 0
 };
 
-// Two bookable slots on 2026-06-10, one full slot on 2026-06-12.
+// Two bookable slots on 2026-06-10. The feed is bookable-only (the server hides full
+// single slots); a full group session is detected only when its booking write 409s.
 const SLOT_A: SlotCard = {
   trainingId: "33333333-3333-3333-3333-333333333333",
   date: "2026-06-10",
@@ -73,16 +75,6 @@ const SLOT_B: SlotCard = {
   freeSeats: 2
 };
 
-const FULL: SlotCard = {
-  ...SLOT_A,
-  trainingId: "66666666-6666-6666-6666-666666666666",
-  date: "2026-06-12",
-  dayOfWeek: 5,
-  startTime: "19:00",
-  endTime: "20:30",
-  freeSeats: 0
-};
-
 const BOOKING: Booking = {
   id: "55555555-5555-5555-5555-555555555555",
   clientId: ONBOARDED.id,
@@ -100,7 +92,7 @@ const BOOKING: Booking = {
 const WAITLIST_ENTRY: WaitlistEntry = {
   id: "77777777-7777-7777-7777-777777777777",
   clientId: ONBOARDED.id,
-  trainingId: FULL.trainingId,
+  trainingId: SLOT_A.trainingId,
   position: 2,
   groupSubscriptionId: null,
   status: "waiting",
@@ -122,7 +114,7 @@ function makeApi(overrides: Partial<FakeApi> = {}): FakeApi {
   return {
     getMe: vi.fn().mockReturnValue(ME),
     getClientByTelegramId: vi.fn().mockResolvedValue(ONBOARDED),
-    listAvailableSlots: vi.fn().mockResolvedValue([SLOT_A, SLOT_B, FULL]),
+    listAvailableSlots: vi.fn().mockResolvedValue([SLOT_A, SLOT_B]),
     createSingleBooking: vi.fn().mockResolvedValue(BOOKING),
     joinWaitlist: vi.fn().mockResolvedValue(WAITLIST_ENTRY),
     ...overrides
@@ -191,23 +183,21 @@ describe("ScheduleScreen month calendar", () => {
   it("marks days that have bookable sessions and not empty days", async () => {
     renderWithProviders(<ScheduleScreen />);
 
-    // The 10th has two sessions, the 12th one — both marked (count in the aria-label).
+    // The 10th has two sessions — marked (count in the aria-label).
     await screen.findByRole("gridcell", { name: "10 число, тренировок: 2" });
-    expect(screen.getByRole("gridcell", { name: "12 число, тренировок: 1" })).toBeTruthy();
     // A day with no sessions reports a zero count (no dot).
     expect(screen.getByRole("gridcell", { name: "11 число, тренировок: 0" })).toBeTruthy();
+    expect(screen.getByRole("gridcell", { name: "12 число, тренировок: 0" })).toBeTruthy();
   });
 
   it("lists ONLY the selected day's slots when a day is tapped", async () => {
     renderWithProviders(<ScheduleScreen />);
 
-    // Tap the 10th: its two bookable cards appear; the 12th's full slot does not.
+    // Tap the 10th: its two bookable cards appear.
     fireEvent.click(await screen.findByRole("gridcell", { name: "10 число, тренировок: 2" }));
 
     const cards = await screen.findAllByRole("button", { name: /Записаться$/ });
     expect(cards).toHaveLength(2);
-    // The 19:00 full session on the 12th is not in the 10th's day view.
-    expect(screen.queryByText("19:00–20:30")).toBeNull();
   });
 
   it("shows the empty-day state for a day with no sessions", async () => {
@@ -239,26 +229,33 @@ describe("ScheduleScreen day-detail booking", () => {
     await screen.findByText("Вы записаны!");
   });
 
-  it("offers the waitlist (never a Book action) for a full slot and joins for that slot", async () => {
+  it("auto-joins the waitlist (no extra tap) when a full group session 409s on Book", async () => {
+    const { ConflictError } = await import("../api/client");
+    api = makeApi({
+      // The booking write 409s: the group session filled (or is full) — the only
+      // signal of a full group slot, since the feed itself is bookable-only.
+      createSingleBooking: vi.fn().mockRejectedValue(new ConflictError("Мест больше нет.")),
+      joinWaitlist: vi.fn().mockResolvedValue(WAITLIST_ENTRY)
+    });
     renderWithProviders(<ScheduleScreen />);
 
-    // The 12th holds only a full slot: tapping it shows the waitlist affordance, no Book.
-    fireEvent.click(await screen.findByRole("gridcell", { name: "12 число, тренировок: 1" }));
-    const card = await screen.findByRole("button", { name: /лист ожидания/i });
-    expect(within(card).getByText("Нет мест")).toBeTruthy();
-    expect(screen.queryByRole("button", { name: /Записаться$/ })).toBeNull();
+    fireEvent.click(await screen.findByRole("gridcell", { name: "10 число, тренировок: 2" }));
 
-    // Tapping it opens the join confirm and joins for the full slot — never books.
-    fireEvent.click(card);
-    await screen.findByText("Лист ожидания");
-    fireEvent.click(screen.getByRole("button", { name: "Встать в лист ожидания" }));
+    // The user makes EXACTLY one decision: tap Book → confirm. No second "join?" tap.
+    const cards = await screen.findAllByRole("button", { name: /Записаться$/ });
+    fireEvent.click(cards[0]);
+    await screen.findByText("Подтверждение записи");
+    fireEvent.click(screen.getByRole("button", { name: "Записаться" }));
 
+    // The 409 auto-fires the join for the SAME slot — no extra tap.
     await waitFor(() => expect(api.joinWaitlist).toHaveBeenCalledTimes(1));
     expect(api.joinWaitlist).toHaveBeenCalledWith({
       clientId: ONBOARDED.id,
-      trainingId: FULL.trainingId
+      trainingId: SLOT_A.trainingId
     });
-    expect(api.createSingleBooking).not.toHaveBeenCalled();
-    await screen.findByText("Вы в листе ожидания");
+
+    // The waitlisted result shows the position; no booked-success state is shown.
+    await screen.findByText(/позиция 2/);
+    expect(screen.queryByText("Вы записаны!")).toBeNull();
   });
 });

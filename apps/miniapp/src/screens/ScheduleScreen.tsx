@@ -39,13 +39,12 @@ const WEEKDAY_KEYS = [
  * helpers {@link monthWeeks}/{@link shiftMonth}/{@link dayOfMonth}), but the feed is
  * the school's available slots — `GET /trainings/available` over the whole visible
  * month. A day with any bookable session shows a marker dot + count; tapping it
- * reveals that day's slot cards below the grid and enters the SAME single-booking +
- * waitlist flow the rest of the app uses ({@link useSlotBookingFlow} via
- * {@link DaySlots}).
+ * reveals that day's slot cards below the grid and enters the SAME single-booking flow
+ * the rest of the app uses ({@link useSlotBookingFlow} via {@link DaySlots}).
  *
  * Interaction layer only: every value rendered is the API's (free seats, RSD price);
- * the server owns availability, sort, and capacity over the window. The full-slot →
- * waitlist (never a normal booking) invariant lives in the shared SlotCard/flow.
+ * the server owns availability, sort, and capacity over the window. A full group
+ * session is auto-queued from the confirm step — the flow handles that, not the list.
  */
 export function ScheduleScreen(): JSX.Element {
   const t = useT();
@@ -92,7 +91,7 @@ export function ScheduleScreen(): JSX.Element {
     setSelectedDate((prev) => (prev === iso ? null : iso));
   };
 
-  // The chosen-slot confirm / waitlist sub-flow takes over the whole screen when active.
+  // The chosen-slot confirm sub-flow takes over the whole screen when active.
   if (flow.activeSubView) {
     return flow.activeSubView;
   }
@@ -190,7 +189,6 @@ export function ScheduleScreen(): JSX.Element {
           isLoading={slots.isLoading}
           ariaLabel={dayLabel}
           onBook={flow.openConfirm}
-          onWaitlist={flow.openWaitlist}
         />
       )}
     </div>

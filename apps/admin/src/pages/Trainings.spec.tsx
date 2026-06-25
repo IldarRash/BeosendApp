@@ -50,6 +50,15 @@ vi.mock("../hooks/useTrainingDetail", () => ({
 vi.mock("../hooks/useRoster", () => ({
   useRoster: (...args: unknown[]) => useRoster(...args)
 }));
+// The roster modal now renders the under-roster waitlist section; mock its hooks
+// so opening the modal doesn't reach the real ApiClient.
+const useTrainingWaitlist = vi.fn();
+vi.mock("../hooks/useWaitlist", () => ({
+  useTrainingWaitlist: (...args: unknown[]) => useTrainingWaitlist(...args),
+  usePromoteWaitlistEntry: () => ({ mutate: vi.fn(), reset: vi.fn(), isPending: false, isError: false, error: null }),
+  useRemoveWaitlistEntry: () => ({ mutate: vi.fn(), reset: vi.fn(), isPending: false, isError: false, error: null }),
+  useSwapWaitlistEntry: () => ({ mutate: vi.fn(), reset: vi.fn(), isPending: false, isError: false, error: null })
+}));
 
 // AppShell pulls in the router/nav; stub it to a passthrough for an isolated page test.
 vi.mock("../ui/AppShell", () => ({
@@ -192,6 +201,7 @@ beforeEach(() => {
   // Roster modal: detail + roster load instantly when a row opens it.
   useTrainingDetail.mockReturnValue({ isPending: false, isError: false, error: null, data: DETAIL });
   useRoster.mockReturnValue({ isPending: false, isError: false, error: null, data: ROSTER });
+  useTrainingWaitlist.mockReturnValue({ isPending: false, isError: false, error: null, data: [] });
 });
 
 afterEach(cleanup);

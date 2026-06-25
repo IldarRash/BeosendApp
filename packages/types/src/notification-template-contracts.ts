@@ -14,7 +14,8 @@ export const notificationTemplateKey = z.enum([
   "training-cancelled",
   "booking-pending",
   "booking-declined",
-  "waitlist-slot",
+  "waitlist-promoted",
+  "waitlist-displaced",
   "court-request-confirmed",
   "court-request-rejected",
   "booking-pending-admin",
@@ -45,8 +46,10 @@ export const NOTIFICATION_TEMPLATE_PLACEHOLDERS: Record<NotificationTemplateKey,
   "training-cancelled": [...COMMON_PLACEHOLDERS],
   "booking-pending": [...COMMON_PLACEHOLDERS],
   "booking-declined": [...COMMON_PLACEHOLDERS],
-  // The waitlist-slot message also states the confirmation window.
-  "waitlist-slot": [...COMMON_PLACEHOLDERS, "{windowMinutes}"],
+  // The promoted client was auto-booked off the waitlist.
+  "waitlist-promoted": [...COMMON_PLACEHOLDERS],
+  // The displaced client was bumped back onto the waitlist at {position}.
+  "waitlist-displaced": [...COMMON_PLACEHOLDERS, "{position}"],
   "court-request-confirmed": ["{courtLabel}", "{date}", "{startTime}", "{endTime}", "{priceRsd}"],
   "court-request-rejected": ["{date}", "{startTime}", "{endTime}"],
   "booking-pending-admin": [
@@ -83,7 +86,8 @@ export const NOTIFICATION_TEMPLATE_AUDIENCE: Record<NotificationTemplateKey, "cl
   "training-cancelled": "client",
   "booking-pending": "client",
   "booking-declined": "client",
-  "waitlist-slot": "client",
+  "waitlist-promoted": "client",
+  "waitlist-displaced": "client",
   "court-request-confirmed": "client",
   "court-request-rejected": "client",
   "booking-pending-admin": "staff",

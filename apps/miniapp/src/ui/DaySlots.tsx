@@ -12,27 +12,24 @@ interface DaySlotsProps {
   ariaLabel: string;
   /** Open the confirm step for a bookable slot. */
   onBook: (slot: SlotCardData) => void;
-  /** Open the waitlist affordance for a full slot. */
-  onWaitlist: (slot: SlotCardData) => void;
 }
 
 /**
  * The slot-list body for one selected day: loading / error / empty states and the
  * date-grouped {@link SlotDayList} of bookable slot cards. Purely presentational — it
- * renders API-decided values (free seats, RSD price) and reports book/waitlist taps;
- * the caller owns the query and drives the booking write via {@link useSlotBookingFlow}.
+ * renders API-decided values (free seats, RSD price) and reports book taps; the caller
+ * owns the query and drives the booking write via {@link useSlotBookingFlow}.
  *
- * Extracted from the former Browse screen so the calendar's day-detail view and any
- * other slot list share one rendering of the book/full-slot-waitlist affordances — the
- * full/cancelled-never-bookable invariant lives in {@link SlotCard}/the flow, not here.
+ * The feed is bookable-only: the server hides full single slots, and a full group
+ * session is auto-queued from the confirm step — so a card never offers a waitlist
+ * affordance, the booking flow handles that automatically.
  */
 export function DaySlots({
   slots,
   isLoading,
   errorMessage,
   ariaLabel,
-  onBook,
-  onWaitlist
+  onBook
 }: DaySlotsProps): JSX.Element {
   const hasSlots = (slots?.length ?? 0) > 0;
 
@@ -48,7 +45,5 @@ export function DaySlots({
     );
   }
 
-  return (
-    <SlotDayList slots={slots ?? []} ariaLabel={ariaLabel} onBook={onBook} onWaitlist={onWaitlist} />
-  );
+  return <SlotDayList slots={slots ?? []} ariaLabel={ariaLabel} onBook={onBook} />;
 }

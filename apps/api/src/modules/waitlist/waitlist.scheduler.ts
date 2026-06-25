@@ -3,11 +3,12 @@ import { Cron, CronExpression } from "@nestjs/schedule";
 import { WaitlistService } from "./waitlist.service";
 
 /**
- * Expires stale waitlist promotions (T2.1). Every minute it asks the service to
- * sweep `notified` entries whose confirmation window has closed; the service
- * marks them `expired` and promotes the next head. The scheduler carries no
- * domain logic — it only supplies `now` and logs counts. A 30-min window thus
- * expires within ~1 min of its deadline.
+ * The minutely waitlist safety net (frictionless waitlist). Promotion is now
+ * auto-book + notify on a freed seat — the post-commit cancel/decline seams call
+ * `promoteNext` directly — so this sweep only catches any freed-seat gap a direct
+ * call missed (e.g. transferGroup): it asks the service to auto-promote every
+ * group training that is still bookable AND has a `waiting` head. The scheduler
+ * carries no domain logic — it only triggers the sweep and logs counts.
  */
 @Injectable()
 export class WaitlistScheduler {
@@ -17,9 +18,9 @@ export class WaitlistScheduler {
 
   @Cron(CronExpression.EVERY_MINUTE)
   async sweep(): Promise<void> {
-    const expired = await this.waitlist.sweepExpired(new Date());
-    if (expired > 0) {
-      this.logger.log(`Waitlist sweep: ${expired} expired`);
+    const promotable = await this.waitlist.sweepPromotable();
+    if (promotable > 0) {
+      this.logger.log(`Waitlist sweep: ${promotable} promotable trainings`);
     }
   }
 }

@@ -65,7 +65,8 @@ class FakeSubscriptionsRepository {
         priceMonthRsd: first.priceMonthRsd,
         minDate: list.map((b) => b.date).sort()[0],
         dateCount: list.length,
-        paidCount: list.filter((b) => b.paymentStatus === "paid").length
+        paidCount: list.filter((b) => b.paymentStatus === "paid").length,
+        waitlistedCount: 0
       } satisfies SubscriptionAggregateRow;
     });
   }

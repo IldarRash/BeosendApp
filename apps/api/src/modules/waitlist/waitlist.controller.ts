@@ -1,20 +1,10 @@
-import {
-  BadRequestException,
-  Body,
-  Controller,
-  Get,
-  Headers,
-  Param,
-  Post,
-  Query
-} from "@nestjs/common";
+import { BadRequestException, Body, Controller, Get, Headers, Param, Post } from "@nestjs/common";
 import {
   type Booking,
   type SwapWaitlistResult,
   type WaitlistAdminItem,
   type WaitlistEntry,
   createWaitlistEntrySchema,
-  groupWaitlistQuerySchema,
   promoteWaitlistEntrySchema,
   removeWaitlistEntrySchema,
   swapWaitlistEntrySchema,
@@ -64,29 +54,6 @@ export class WaitlistController {
     const actorTelegramId = parseTelegramId(telegramIdHeader);
     const id = validate(uuid, trainingId);
     return this.waitlist.listForTraining(actorTelegramId, id);
-  }
-
-  /** Admin: active queue entries across a group's month (the "group queue"). Admin gate in the service. */
-  @Get("group")
-  listForGroup(
-    @Headers("x-telegram-id") telegramIdHeader: string | undefined,
-    @Query() query: unknown
-  ): Promise<WaitlistAdminItem[]> {
-    const actorTelegramId = parseTelegramId(telegramIdHeader);
-    const { groupId, year, month } = validate(groupWaitlistQuerySchema, query ?? {});
-    return this.waitlist.listForGroupMonth(actorTelegramId, groupId, year, month);
-  }
-
-  /** Client: accept a promoted slot (the inline confirm button). Ownership in the service. */
-  @Post(":id/accept")
-  accept(
-    @Headers("x-telegram-id") telegramIdHeader: string | undefined,
-    @Param("id") id: string,
-    @Headers("x-client-telegram-id") clientTelegramIdHeader?: string
-  ): Promise<Booking> {
-    const actorTelegramId = parseTelegramId(clientTelegramIdHeader ?? telegramIdHeader);
-    const entryId = validate(uuid, id);
-    return this.waitlist.accept(actorTelegramId, entryId);
   }
 
   /** Admin: promote an entry straight to a booking (needs a free seat). Admin gate in the service. */

@@ -56,6 +56,7 @@ const FREE_TRAINING_ID = "44444444-4444-4444-4444-444444444444";
 const MY_BOOKING: MyBookingItem = {
   bookingId: "55555555-5555-5555-5555-555555555555",
   trainingId: BOOKED_TRAINING_ID,
+  groupSubscriptionId: null,
   date: "2026-06-10",
   dayOfWeek: 3,
   startTime: "18:00",

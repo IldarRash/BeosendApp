@@ -92,13 +92,10 @@ export const miniappRu: Record<string, string> = {
   "miniapp.timeOfDay.afternoon": "День",
   "miniapp.timeOfDay.evening": "Вечер",
 
-  // --- Slot card labels (shared by the schedule day-detail + confirm/waitlist views) ---
+  // --- Slot card labels (shared by the schedule day-detail + confirm views) ---
   "miniapp.browse.seats": "{count} мест",
-  "miniapp.browse.seatsNone": "Нет мест",
   "miniapp.browse.price": "{price} RSD",
   "miniapp.browse.bookAria": "Записаться",
-  "miniapp.browse.waitlist": "Лист ожидания",
-  "miniapp.browse.waitlistAria": "Встать в лист ожидания",
 
   // --- Filter sheet labels (shared by the group-list filter) ---
   "miniapp.browse.filter.any": "Любой",
@@ -124,35 +121,16 @@ export const miniappRu: Record<string, string> = {
   "miniapp.booking.backToList": "К расписанию",
   "miniapp.booking.conflict": "Это место только что заняли. Выберите другую тренировку.",
 
-  // --- Waitlist (S6): join + accept ---
-  // Join confirm (shared by the Browse full-slot tap and the booking-409 offer).
-  "miniapp.waitlist.joinConfirm": "Встать в лист ожидания",
-  "miniapp.waitlist.joinConfirmHeader": "Лист ожидания",
-  "miniapp.waitlist.joinConfirmBody":
-    "Это место занято. Встаньте в лист ожидания — мы пришлём уведомление, когда оно освободится.",
-  // The secondary offer shown alongside a booking 409 ("slot filled meanwhile").
-  "miniapp.waitlist.joinOfferTitle": "Место только что заняли",
-  // Joined-success state.
-  "miniapp.waitlist.joinedTitle": "Вы в листе ожидания",
-  "miniapp.waitlist.joinedBody": "Мы уведомим вас, когда место освободится.",
-  "miniapp.waitlist.positionLabel": "Ваша позиция: {position}",
-  // Join conflict fallback (used only when a ConflictError carries no message).
+  // --- Waitlist (frictionless: auto-join on a full group session) ---
+  // Auto-join result shown in the booking confirm when a full group session 409s and
+  // the caller is queued automatically (one decision: tap Book — no second "join?" tap).
+  "miniapp.waitlist.autoJoinedTitle": "Вы в листе ожидания",
+  "miniapp.waitlist.autoJoinedBody":
+    "Мест больше нет, поэтому мы добавили вас в лист ожидания. Уведомим, когда место освободится.",
+  "miniapp.waitlist.autoJoinedPosition": "Вы в листе ожидания · позиция {position}",
+  // Auto-join conflict fallback (used only when a ConflictError carries no message).
   "miniapp.waitlist.joinConflict":
     "Не удалось встать в лист ожидания. Возможно, вы уже в нём или место снова доступно.",
-  // Accept screen (deep link startapp=waitlist_<id>).
-  "miniapp.waitlist.acceptHeader": "Освободилось место",
-  "miniapp.waitlist.acceptBody": "Подтвердите запись, пока место свободно.",
-  "miniapp.waitlist.accept": "Подтвердить",
-  "miniapp.waitlist.acceptedTitle": "Вы записаны!",
-  "miniapp.waitlist.acceptedBody": "Место за вами. Детали — в разделе «Мои записи».",
-  // Accept conflict (window closed / seat re-taken); server message shown verbatim,
-  // these are the calm framing + fallback when the ConflictError has no message.
-  "miniapp.waitlist.expiredTitle": "Окно подтверждения закрылось",
-  "miniapp.waitlist.expiredBody": "Место уже занято или время на подтверждение истекло.",
-  // Navigation out of a waitlist state.
-  "miniapp.waitlist.toSchedule": "К расписанию",
-  "miniapp.waitlist.toMyBookings": "К моим записям",
-  "miniapp.waitlist.toHome": "На главную",
 
   // --- Group monthly subscription (S7) ---
   "miniapp.group.listTitle": "Группы",
@@ -187,6 +165,10 @@ export const miniappRu: Record<string, string> = {
   // Roster block ("who signed up") on the group detail / month preview.
   "miniapp.group.roster.title": "Кто записан",
   "miniapp.group.roster.empty": "Пока никто не записан",
+  // The current client's OWN waitlist standing for this group's previewed month
+  // (privacy: only their own entries are ever shown, never other clients').
+  "miniapp.group.ownWaitlist.one": "Вы в листе ожидания на {date} · позиция {position}",
+  "miniapp.group.ownWaitlist.many": "Вы в листе ожидания · {count} дат",
   // Group-list filter (level / trainer / weekday).
   "miniapp.group.filtersAria": "Фильтры групп",
   "miniapp.group.filter.title": "Фильтры",
@@ -311,6 +293,10 @@ export const miniappRu: Record<string, string> = {
   // Waitlist section (queued dates) below the booked items on the Upcoming tab.
   "miniapp.myBookings.waitlistTitle": "В листе ожидания",
   "miniapp.myBookings.waitlistPosition": "в очереди, позиция {position}",
+  // Monthly subscription card on the Upcoming tab: booked + waitlisted dates together.
+  "miniapp.myBookings.subscription.title": "Абонемент",
+  "miniapp.myBookings.subscription.summary":
+    "Записей: {booked} · в листе ожидания: {waitlisted}",
 
   // --- Training schedule (расписание): month calendar of bookable sessions ---
   "miniapp.schedule.title": "Расписание тренировок",

@@ -74,6 +74,8 @@ export interface AttendanceLockRow {
 export interface MyBookingRow {
   bookingId: string;
   trainingId: string;
+  /** The monthly subscription this booking belongs to; null for a single booking. */
+  groupSubscriptionId: string | null;
   date: string;
   startTime: string;
   endTime: string;
@@ -207,6 +209,7 @@ export class BookingsRepository {
       .select({
         bookingId: tables.bookings.id,
         trainingId: tables.trainings.id,
+        groupSubscriptionId: tables.bookings.groupSubscriptionId,
         date: tables.trainings.date,
         startTime: tables.trainings.startTime,
         endTime: tables.trainings.endTime,
