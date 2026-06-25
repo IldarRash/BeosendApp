@@ -165,6 +165,8 @@ export const miniappRu: Record<string, string> = {
   // Roster block ("who signed up") on the group detail / month preview.
   "miniapp.group.roster.title": "Кто записан",
   "miniapp.group.roster.empty": "Пока никто не записан",
+  // Shown when the caller already holds this month's subscription (server-decided).
+  "miniapp.group.alreadySubscribed": "Вы уже записаны на этот месяц",
   // The current client's OWN waitlist standing for this group's previewed month
   // (privacy: only their own entries are ever shown, never other clients').
   "miniapp.group.ownWaitlist.one": "Вы в листе ожидания на {date} · позиция {position}",
@@ -309,6 +311,13 @@ export const miniappRu: Record<string, string> = {
   "miniapp.schedule.emptyDayTitle": "Нет тренировок в этот день",
   "miniapp.schedule.emptyDayBody": "Выберите другой день в календаре.",
   "miniapp.schedule.errorBody": "Не удалось загрузить расписание. Попробуйте ещё раз.",
+  // A slot the caller is already booked into: shown non-tappable (✓ added in the UI).
+  "miniapp.schedule.alreadyBooked": "Вы записаны",
+  // Single-training participants block ("who signed up") on the confirm step.
+  "miniapp.training.roster.title": "Кто записан",
+  "miniapp.training.roster.empty": "Пока никто не записан",
+  // The training's waitlist ("queued for a full slot"), shown only when non-empty.
+  "miniapp.training.waitlist.title": "Лист ожидания",
 
   // --- My calendar (court + training) ---
   "miniapp.calendar.title": "Мой календарь",

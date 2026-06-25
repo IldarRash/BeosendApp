@@ -1,4 +1,5 @@
 import { forwardRef, Module } from "@nestjs/common";
+import { ClientsRepository } from "../clients/clients.repository";
 import { ConnectorsModule } from "../connectors/connectors.module";
 import { CourtsModule } from "../courts/courts.module";
 import { GroupsModule } from "../groups/groups.module";
@@ -19,7 +20,9 @@ import { TrainingsService } from "./trainings.service";
     ConnectorsModule
   ],
   controllers: [TrainingsController, TrainerTodayController],
-  providers: [TrainingsService, TrainingsRepository],
+  // ClientsRepository (only deps DatabaseService) is provided directly so
+  // listParticipants can resolve a non-admin caller's client, mirroring GroupsModule.
+  providers: [TrainingsService, TrainingsRepository, ClientsRepository],
   exports: [TrainingsService]
 })
 export class TrainingsModule {}

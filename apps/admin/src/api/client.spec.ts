@@ -718,6 +718,7 @@ describe("ApiClient group members & transfer", () => {
       year: 2026,
       month: 6,
       memberCount: 1,
+      callerSubscribed: false,
       members: [
         { firstName: "Ана", avatarInitial: "А", clientId: CLIENT_ID, fullName: "Ана Петровић" }
       ]
@@ -735,6 +736,7 @@ describe("ApiClient group members & transfer", () => {
       year: 2026,
       month: 6,
       memberCount: 1,
+      callerSubscribed: false,
       members: [{ firstName: "Ана", avatarInitial: "" }]
     });
     await expect(

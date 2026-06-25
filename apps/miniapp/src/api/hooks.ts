@@ -24,6 +24,7 @@ import type {
   OnboardClientInput,
   SlotCard,
   Trainer,
+  TrainingParticipants,
   WaitlistAdminItem,
   WaitlistEntry
 } from "@beosand/types";
@@ -363,6 +364,31 @@ export function useGroupMembers(
     queryKey: groupMembersQueryKey(groupId, year ?? 0, month ?? 0),
     enabled: year != null && month != null,
     queryFn: () => client.getGroupMembers(groupId, year!, month!)
+  });
+}
+
+/** A stable query key for a single training's participants ("кто записан"). */
+export function trainingParticipantsQueryKey(
+  trainingId: string
+): readonly [string, string] {
+  return ["training-participants", trainingId] as const;
+}
+
+/**
+ * The participants of a single training (GET /trainings/:id/participants) — "who
+ * signed up" for one slot. Mirrors {@link useGroupMembers}: for the Mini App caller
+ * the server returns the CLIENT-NARROWED shape (first name + avatar initial + count
+ * only, never other clients' ids/full names). Keyed by trainingId so each slot caches
+ * independently; disabled until a trainingId is set.
+ */
+export function useTrainingParticipants(
+  trainingId: string | undefined
+): UseQueryResult<TrainingParticipants> {
+  const client = useApiClient();
+  return useQuery<TrainingParticipants>({
+    queryKey: trainingParticipantsQueryKey(trainingId ?? ""),
+    enabled: trainingId != null,
+    queryFn: () => client.getTrainingParticipants(trainingId!)
   });
 }
 

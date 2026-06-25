@@ -5,7 +5,7 @@ import {
 } from "./court-contracts";
 import { SLOT_MINUTES, minutesOfDay, timeOfMinutes } from "./common";
 import type { DayOfWeek, TimeOfDay } from "./common";
-import type { TrainingStatus } from "./training-contracts";
+import type { GroupMember, TrainingStatus } from "./training-contracts";
 
 /**
  * Re-derive a training's availability status (15.2). Cancelled/completed are
@@ -489,6 +489,27 @@ export function firstNameOf(name: string): string {
 export function avatarInitialOf(name: string): string {
   const first = firstNameOf(name).charAt(0);
   return first ? first.toUpperCase() : "?";
+}
+
+/**
+ * Project a `{ clientId, name }` roster row to the privacy-narrowed member shape used
+ * by every client-facing roster (group members + single-training participants/waitlist):
+ * an admin receives the full row (clientId + fullName), any other caller receives only
+ * firstName + avatarInitial — never another client's id or full name. The single source
+ * of this projection so the group roster and the training lists can never drift apart.
+ */
+export function narrowMember(row: { clientId: string; name: string }, admin: boolean): GroupMember {
+  return admin
+    ? {
+        clientId: row.clientId,
+        fullName: row.name,
+        firstName: firstNameOf(row.name),
+        avatarInitial: avatarInitialOf(row.name)
+      }
+    : {
+        firstName: firstNameOf(row.name),
+        avatarInitial: avatarInitialOf(row.name)
+      };
 }
 
 /** The school's wall-clock timezone; calendar feeds render DTSTART/DTEND in it. */

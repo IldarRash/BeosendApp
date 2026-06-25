@@ -29,6 +29,7 @@ import {
   type Training,
   type TrainerTodayItem,
   type TrainingCalendarItem,
+  type TrainingParticipants,
   type TrainingRoster
 } from "@beosand/types";
 import type { ZodSchema } from "zod";
@@ -129,6 +130,24 @@ export class TrainingsController {
     const actorTelegramId = parseTelegramId(telegramIdHeader);
     const trainingId = validate(uuid, id);
     return this.trainings.getRoster(actorTelegramId, trainingId);
+  }
+
+  /**
+   * Client-facing "кто записан": a training's participants. Admin (x-telegram-id ∈
+   * ADMIN_TELEGRAM_IDS) gets full members (clientId + fullName); a Mini App client
+   * (bridged to x-client-telegram-id) gets only firstName + avatarInitial. The actor
+   * resolves from `x-client-telegram-id ?? x-telegram-id`; the role split lives in the
+   * service.
+   */
+  @Get(":id/participants")
+  participants(
+    @Headers("x-telegram-id") telegramIdHeader: string | undefined,
+    @Param("id") id: string,
+    @Headers("x-client-telegram-id") clientTelegramIdHeader?: string
+  ): Promise<TrainingParticipants> {
+    const actorTelegramId = parseTelegramId(clientTelegramIdHeader ?? telegramIdHeader);
+    const trainingId = validate(uuid, id);
+    return this.trainings.listParticipants(actorTelegramId, trainingId);
   }
 
   /** Admin: hard-delete a training (purges its rows) and notify its booked clients. Gated in the service. */

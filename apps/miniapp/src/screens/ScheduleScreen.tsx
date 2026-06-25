@@ -1,9 +1,10 @@
 import { useMemo, useState } from "react";
 import type { AvailableSlotsQuery } from "@beosand/types";
-import { useAvailableSlots } from "../api/hooks";
+import { useAvailableSlots, useMyBookings } from "../api/hooks";
 import { useT } from "../i18n/LanguageProvider";
 import { hapticSelection } from "../tg/buttons";
 import {
+  activeBookedTrainingIds,
   dayOfMonth,
   daysInMonth,
   indexByDate,
@@ -64,7 +65,19 @@ export function ScheduleScreen(): JSX.Element {
   }, [cursor]);
 
   const slots = useAvailableSlots(query);
-  const flow = useSlotBookingFlow();
+
+  // The caller's own upcoming bookings drive which slots are shown as already-booked.
+  // The Schedule (unlike the Calendar) keeps a booked slot visible but non-tappable,
+  // so the user sees it's there. The server owns the bookings; this is the pure helper
+  // {@link activeBookedTrainingIds} (non-cancelled). Used both to badge the card AND to
+  // tell the booking flow a 409 is a duplicate, not a full slot.
+  const myBookings = useMyBookings("upcoming");
+  const bookedTrainingIds = useMemo(
+    () => activeBookedTrainingIds(myBookings.data ?? []),
+    [myBookings.data]
+  );
+
+  const flow = useSlotBookingFlow(bookedTrainingIds);
 
   // Bucket the month's bookable slots by ISO date for O(1) day-cell markers + the
   // day-detail list. Pure presentation grouping; the API owns sort/availability.
@@ -189,6 +202,7 @@ export function ScheduleScreen(): JSX.Element {
           isLoading={slots.isLoading}
           ariaLabel={dayLabel}
           onBook={flow.openConfirm}
+          bookedTrainingIds={bookedTrainingIds}
         />
       )}
     </div>

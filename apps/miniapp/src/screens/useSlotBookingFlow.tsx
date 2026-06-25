@@ -31,7 +31,16 @@ export interface SlotBookingFlow {
   activeSubView: JSX.Element | null;
 }
 
-export function useSlotBookingFlow(): SlotBookingFlow {
+/**
+ * @param bookedTrainingIds The trainingIds the caller is already actively booked into.
+ *   Used to interpret a booking 409 correctly: an already-booked trainingId 409s because
+ *   the caller holds the seat — NOT because the session is full — so it must surface an
+ *   "already booked" message, never auto-join the waitlist. Auto-waitlist stays for the
+ *   genuine full-slot 409 only (a trainingId the caller is NOT already booked into).
+ */
+export function useSlotBookingFlow(
+  bookedTrainingIds?: ReadonlySet<string>
+): SlotBookingFlow {
   const t = useT();
 
   const [selected, setSelected] = useState<SlotCard | null>(null);
@@ -56,14 +65,17 @@ export function useSlotBookingFlow(): SlotBookingFlow {
     if (!selected) {
       return;
     }
-    booking.mutate(selected.trainingId, {
+    const trainingId = selected.trainingId;
+    booking.mutate(trainingId, {
       onSuccess: () => hapticSuccess(),
       onError: (error) => {
-        // A 409 means the full group session can't be booked — auto-queue the caller
-        // onto the waitlist for the SAME slot with no extra tap. Any other failure
-        // stays a hard error the ConfirmView shows verbatim.
-        if (error instanceof ConflictError) {
-          waitlist.mutate(selected.trainingId, {
+        // A 409 normally means the full group session can't be booked — auto-queue the
+        // caller onto the waitlist for the SAME slot with no extra tap. But if the
+        // caller is ALREADY booked into this training, the 409 is a duplicate-booking,
+        // not a full slot: do NOT auto-waitlist; the view surfaces "already booked".
+        const alreadyBooked = bookedTrainingIds?.has(trainingId) ?? false;
+        if (error instanceof ConflictError && !alreadyBooked) {
+          waitlist.mutate(trainingId, {
             onSuccess: () => hapticSuccess()
           });
         }
@@ -74,15 +86,24 @@ export function useSlotBookingFlow(): SlotBookingFlow {
   let activeSubView: JSX.Element | null = null;
 
   if (selected) {
+    // A 409 on a training the caller is ALREADY booked into is a duplicate-booking,
+    // not a full slot — we did NOT auto-waitlist; surface a calm "already booked"
+    // message instead of an empty error or a fabricated waitlist result.
+    const bookingConflict = booking.error instanceof ConflictError;
+    const alreadyBooked =
+      bookingConflict && (bookedTrainingIds?.has(selected.trainingId) ?? false);
+
     // While the auto-join is in flight (or it failed too), surface a calm/verbatim
     // message; a successful join shows the waitlisted result instead of an error. A
     // hard booking failure (non-409) shows the booking error verbatim.
-    const bookingFailedHard = booking.isError && !(booking.error instanceof ConflictError);
-    const errorMessage = bookingFailedHard
-      ? resolveErrorMessage(booking.error, t)
-      : waitlist.isError
-        ? resolveErrorMessage(waitlist.error, t, "miniapp.waitlist.joinConflict")
-        : undefined;
+    const bookingFailedHard = booking.isError && !bookingConflict;
+    const errorMessage = alreadyBooked
+      ? t("miniapp.schedule.alreadyBooked")
+      : bookingFailedHard
+        ? resolveErrorMessage(booking.error, t)
+        : waitlist.isError
+          ? resolveErrorMessage(waitlist.error, t, "miniapp.waitlist.joinConflict")
+          : undefined;
 
     activeSubView = (
       <ConfirmView

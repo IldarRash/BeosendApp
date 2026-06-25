@@ -12,6 +12,11 @@ interface DaySlotsProps {
   ariaLabel: string;
   /** Open the confirm step for a bookable slot. */
   onBook: (slot: SlotCardData) => void;
+  /**
+   * The trainingIds the caller is already actively booked into. A slot in this set is
+   * shown non-tappable with a "✓ Вы записаны" badge instead of the book action.
+   */
+  bookedTrainingIds?: ReadonlySet<string>;
 }
 
 /**
@@ -29,7 +34,8 @@ export function DaySlots({
   isLoading,
   errorMessage,
   ariaLabel,
-  onBook
+  onBook,
+  bookedTrainingIds
 }: DaySlotsProps): JSX.Element {
   const hasSlots = (slots?.length ?? 0) > 0;
 
@@ -45,5 +51,12 @@ export function DaySlots({
     );
   }
 
-  return <SlotDayList slots={slots ?? []} ariaLabel={ariaLabel} onBook={onBook} />;
+  return (
+    <SlotDayList
+      slots={slots ?? []}
+      ariaLabel={ariaLabel}
+      onBook={onBook}
+      bookedTrainingIds={bookedTrainingIds}
+    />
+  );
 }

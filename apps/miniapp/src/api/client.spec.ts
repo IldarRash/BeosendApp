@@ -13,6 +13,7 @@ import type {
   MyBookingItem,
   SlotCard,
   Trainer,
+  TrainingParticipants,
   WaitlistEntry
 } from "@beosand/types";
 import { AuthError, ConflictError, MiniappApiClient, NotFoundError } from "./client";
@@ -996,5 +997,47 @@ describe("MiniappApiClient.createCourtRequest", () => {
     await expect(
       client.createCourtRequest({ date: "2026-06-10", startTime: "08:00", durationHours: 1.5 })
     ).rejects.toBeInstanceOf(AuthError);
+  });
+});
+
+const TRAINING_PARTICIPANTS: TrainingParticipants = {
+  trainingId: SLOT.trainingId,
+  participantCount: 2,
+  participants: [
+    { firstName: "Аня", avatarInitial: "А" },
+    { firstName: "Марко", avatarInitial: "М" }
+  ],
+  waitlistCount: 1,
+  waitlist: [{ firstName: "Лена", avatarInitial: "Л" }]
+};
+
+describe("MiniappApiClient.getTrainingParticipants", () => {
+  it("GETs the slot's participants + waitlist and validates the client-narrowed roster", async () => {
+    const fetchMock = vi.fn().mockResolvedValue(jsonResponse(200, TRAINING_PARTICIPANTS));
+    vi.stubGlobal("fetch", fetchMock);
+    const client = new MiniappApiClient(BASE);
+
+    const result = await client.getTrainingParticipants(SLOT.trainingId);
+
+    expect(result).toEqual(TRAINING_PARTICIPANTS);
+    expect(fetchMock.mock.calls[0][0]).toBe(`${BASE}/trainings/${SLOT.trainingId}/participants`);
+    // A Mini App caller receives only first name + initial — never another client's id,
+    // for BOTH the booked list and the waitlist.
+    for (const p of [...result.participants, ...result.waitlist]) {
+      expect(p).not.toHaveProperty("clientId");
+      expect(p).not.toHaveProperty("fullName");
+    }
+  });
+
+  it("rejects a malformed participants response via the contract (unsafe path)", async () => {
+    // `participantCount` must be a non-negative integer; a negative value is rejected
+    // before the UI can render a fabricated count.
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockResolvedValue(jsonResponse(200, { ...TRAINING_PARTICIPANTS, participantCount: -1 }))
+    );
+    const client = new MiniappApiClient(BASE);
+
+    await expect(client.getTrainingParticipants(SLOT.trainingId)).rejects.toThrow();
   });
 });

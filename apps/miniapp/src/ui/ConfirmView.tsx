@@ -1,8 +1,10 @@
 import type { BookingStatus, SlotCard as SlotCardData } from "@beosand/types";
+import { useTrainingParticipants } from "../api/hooks";
 import { useT } from "../i18n/LanguageProvider";
 import { useMainButton } from "../tg/buttons";
 import { FallbackButton } from "./FallbackButton";
 import { Glyph } from "./icons";
+import { ParticipantsRow } from "./ParticipantsRow";
 import {
   formatDayMonth,
   formatRsd,
@@ -65,6 +67,10 @@ export function ConfirmView({
   onBackToList
 }: ConfirmViewProps): JSX.Element {
   const t = useT();
+
+  // "Кто записан" for this slot — the server's client-narrowed participant list (first
+  // name + initial only). Supplementary: it stays quiet while loading / on error.
+  const participants = useTrainingParticipants(slot.trainingId);
 
   // A pending booking is a request awaiting the trainer's confirmation; the server
   // decides this (auto-confirmed to `booked` when the trainer has no Telegram). The
@@ -164,6 +170,29 @@ export function ConfirmView({
           <span className="sumrow__v sumrow__v--big">{priceLine}</span>
         </div>
       </div>
+
+      {participants.data && (
+        <ParticipantsRow
+          members={participants.data.participants}
+          count={participants.data.participantCount}
+          title={t("miniapp.training.roster.title")}
+          emptyLabel={t("miniapp.training.roster.empty")}
+        />
+      )}
+
+      {/* The waitlist ("лист ожидания") for a full slot — only when someone is queued.
+          An empty waitlist shows nothing (unlike the booked list, which keeps its empty
+          state). Reuses the same ParticipantsRow; the API owns who is queued + the count. */}
+      {participants.data && participants.data.waitlistCount > 0 && (
+        <ParticipantsRow
+          members={participants.data.waitlist}
+          count={participants.data.waitlistCount}
+          title={t("miniapp.training.waitlist.title")}
+          // The waitlist row only renders when non-empty, so its empty state is
+          // unreachable; reuse the booked roster's empty copy rather than a dead key.
+          emptyLabel={t("miniapp.training.roster.empty")}
+        />
+      )}
 
       {errorMessage && (
         <div className="note" role="alert">

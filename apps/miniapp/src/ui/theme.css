@@ -425,6 +425,15 @@ button.slot { display: block; }
   border-radius: var(--r-lg);
 }
 
+/* A slot the caller is already booked into: shown but non-tappable (a div, not a
+ * button). A subtle muted treatment so it reads as distinct/settled, not actionable. */
+.slot--booked {
+  cursor: default;
+  opacity: 0.72;
+  background: var(--tg-secondary);
+}
+.slot--booked:active { transform: none; }
+
 /* =========================================================
  * Availability badge
  * ========================================================= */

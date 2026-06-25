@@ -180,6 +180,7 @@ export const miniappEn: Record<string, string> = {
   "miniapp.group.toHome": "Home",
   "miniapp.group.roster.title": "Who's signed up",
   "miniapp.group.roster.empty": "No one signed up yet",
+  "miniapp.group.alreadySubscribed": "You're already booked for this month",
   "miniapp.group.ownWaitlist.one": "You're on the waitlist for {date} · position {position}",
   "miniapp.group.ownWaitlist.many": "You're on the waitlist · {count} dates",
   "miniapp.group.filtersAria": "Group filters",
@@ -264,6 +265,10 @@ export const miniappEn: Record<string, string> = {
   "miniapp.schedule.emptyDayTitle": "No trainings on this day",
   "miniapp.schedule.emptyDayBody": "Pick another day in the calendar.",
   "miniapp.schedule.errorBody": "Couldn't load the schedule. Please try again.",
+  "miniapp.schedule.alreadyBooked": "You're booked",
+  "miniapp.training.roster.title": "Who's signed up",
+  "miniapp.training.roster.empty": "No one signed up yet",
+  "miniapp.training.waitlist.title": "Waitlist",
 
   // --- My calendar (court + training) ---
   "miniapp.calendar.title": "My calendar",

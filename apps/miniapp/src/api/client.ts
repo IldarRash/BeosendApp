@@ -22,6 +22,7 @@ import {
   previewCourtRequestSchema,
   slotCardSchema,
   trainerSchema,
+  trainingParticipantsSchema,
   waitlistAdminItemSchema,
   waitlistEntrySchema,
   type AvailableSlotsQuery,
@@ -48,6 +49,7 @@ import {
   type OnboardClientInput,
   type SlotCard,
   type Trainer,
+  type TrainingParticipants,
   type WaitlistAdminItem,
   type WaitlistEntry
 } from "@beosand/types";
@@ -390,6 +392,20 @@ export class MiniappApiClient {
   getGroupMembers(groupId: string, year: number, month: number): Promise<GroupMembers> {
     const qs = new URLSearchParams({ year: String(year), month: String(month) }).toString();
     return this.request(`/groups/${groupId}/members?${qs}`, groupMembersSchema);
+  }
+
+  /**
+   * The participants of a single training (GET /trainings/:id/participants) — "кто
+   * записан" for one slot, the per-training counterpart to {@link getGroupMembers}.
+   * Sent with the client Bearer token like every authed call; the API bridges the
+   * session to `x-client-telegram-id`, so a Mini App caller receives the
+   * CLIENT-NARROWED shape: only `firstName` + `avatarInitial` per participant plus the
+   * `participantCount` — never another client's `clientId` or `fullName`, and never a
+   * cancelled/waitlisted entry. Validated against the shared
+   * {@link TrainingParticipants} contract before render; the Mini App does no counting.
+   */
+  getTrainingParticipants(trainingId: string): Promise<TrainingParticipants> {
+    return this.request(`/trainings/${trainingId}/participants`, trainingParticipantsSchema);
   }
 
   /**

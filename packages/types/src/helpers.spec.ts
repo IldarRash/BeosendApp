@@ -21,6 +21,7 @@ import {
   monthBounds,
   monthTrainingDates,
   monthWeeks,
+  narrowMember,
   recomputeTrainingStatus,
   safeRatio,
   shiftMonth,
@@ -47,6 +48,26 @@ describe("firstNameOf / avatarInitialOf", () => {
 
   it("returns '?' when the name has no usable letter", () => {
     expect(avatarInitialOf("   ")).toBe("?");
+  });
+});
+
+describe("narrowMember", () => {
+  const row = { clientId: "11111111-1111-1111-1111-111111111111", name: "Ана Петровић" };
+
+  it("gives a non-admin caller only firstName + avatarInitial (no id or full name)", () => {
+    const member = narrowMember(row, false);
+    expect(member).toEqual({ firstName: "Ана", avatarInitial: "А" });
+    expect(member.clientId).toBeUndefined();
+    expect(member.fullName).toBeUndefined();
+  });
+
+  it("gives an admin caller the full row", () => {
+    expect(narrowMember(row, true)).toEqual({
+      clientId: "11111111-1111-1111-1111-111111111111",
+      fullName: "Ана Петровић",
+      firstName: "Ана",
+      avatarInitial: "А"
+    });
   });
 });
 
