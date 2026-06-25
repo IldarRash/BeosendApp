@@ -11,7 +11,7 @@ Runbook for booting the full BeoSand stack locally — Postgres + `apps/api` + `
 
 ## Prerequisites
 
-- Docker (for Postgres), Node 24, pnpm 10.13.1.
+- Docker (for Postgres), Node 24, pnpm 11.8.0.
 - A real `TELEGRAM_BOT_TOKEN` from @BotFather (the bot can't long-poll without it; the API/admin can
   boot with a placeholder).
 - Free port `5432` (stop any other local Postgres first).
@@ -85,9 +85,9 @@ cd ../admin
    bot and admin dev scripts are unaffected.
 2. **`vite` not on root PATH.** Under pnpm the binary is `apps/admin/node_modules/.bin/vite`, not the
    repo-root `node_modules/.bin`.
-3. **`corepack pnpm` / `pnpm <script>` version friction.** Global pnpm 11.2.2 won't switch to the
-   pinned 10.13.1 under corepack; run `docker compose` / `tsx` / `node` directly as above, or use the
-   local turbo with `--env-mode=loose` for the gate.
+3. **`corepack pnpm` / `pnpm <script>` version friction.** Global pnpm 11.2.2 differs from the pinned
+   11.8.0 (`corepack pnpm` resolves to 11.8.0); if the plain `pnpm` gate misbehaves, run `docker compose`
+   / `tsx` / `node` directly as above, or use the local turbo with `--env-mode=loose`.
 
 ## Verification (what "up" means)
 

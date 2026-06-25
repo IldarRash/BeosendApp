@@ -25,7 +25,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Commands
 
-All commands run from the repo root. Package manager is **pnpm 10** (via corepack); orchestration is
+All commands run from the repo root. Package manager is **pnpm 11** (via corepack); orchestration is
 **Turborepo**.
 
 ```text
