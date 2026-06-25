@@ -159,8 +159,7 @@ describe("route table (pure)", () => {
       "group",
       "individual",
       "my-bookings",
-      "profile",
-      "schedule"
+      "profile"
     ]);
   });
 });
@@ -170,7 +169,7 @@ describe("navigation shell", () => {
     renderWithProviders(<Router />);
 
     // The Home hub renders the section headers and journey rows.
-    await screen.findByText("Расписание тренировок");
+    await screen.findByText("Мой календарь");
     expect(screen.getByText("Тренировки")).toBeTruthy();
     expect(screen.getByText("Аренда корта")).toBeTruthy();
     // On the root, the BackButton is hidden (canPop === false).
@@ -179,7 +178,7 @@ describe("navigation shell", () => {
 
   it("renders exactly the client journey rows and no admin/trainer entry", async () => {
     renderWithProviders(<Router />);
-    await screen.findByText("Расписание тренировок");
+    await screen.findByText("Мой календарь");
 
     // The hub is the client surface: nothing manager/trainer-only is ever surfaced
     // (the held token is scope:"client"; the menu has no role branch by construction).
@@ -242,7 +241,7 @@ describe("navigation shell", () => {
     startParam = "waitlist_999";
     renderWithProviders(<Router />);
 
-    await screen.findByText("Расписание тренировок");
+    await screen.findByText("Мой календарь");
     expect(latestBackButton().visible).toBe(false);
   });
 

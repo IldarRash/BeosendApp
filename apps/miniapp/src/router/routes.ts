@@ -13,7 +13,6 @@ import type { IconName } from "../ui/icons";
 /** Every reachable client route. `home` is the stack root; the rest are pushable. */
 export type RouteId =
   | "home"
-  | "schedule"
   | "my-bookings"
   | "group"
   | "individual"
@@ -41,20 +40,21 @@ interface MenuEntry {
  * journeys — there is no role branch and no admin/trainer entry by construction (the
  * held token is `scope:"client"`).
  *
- * The Trainings section leads with a single "Расписание тренировок" tile: a month
- * calendar of bookable sessions (its day view enters the booking flow). Single
- * booking and waitlist are deliberately NOT menu entries — they are reached from
- * inside that schedule day view, not the Home hub.
+ * The Trainings section leads with a single "Мой календарь" tile: ONE Google-style month
+ * calendar merging today's bookable sessions, the user's own trainings, and court
+ * rentals — its day view enters the inline booking flow. Single booking and waitlist are
+ * deliberately NOT menu entries — they are reached from inside that calendar day view,
+ * not the Home hub.
  */
 const MENU_GROUPS: ReadonlyArray<{ headerKey: string; items: ReadonlyArray<MenuEntry> }> = [
   {
     headerKey: "miniapp.home.sectionTrainings",
     items: [
       {
-        id: "schedule",
-        icon: "schedule",
-        labelKey: "miniapp.home.schedule",
-        hintKey: "miniapp.home.scheduleHint"
+        id: "calendar",
+        icon: "calendar",
+        labelKey: "miniapp.home.calendar",
+        hintKey: "miniapp.home.calendarHint"
       },
       {
         id: "my-bookings",
@@ -74,13 +74,7 @@ const MENU_GROUPS: ReadonlyArray<{ headerKey: string; items: ReadonlyArray<MenuE
   {
     headerKey: "miniapp.home.sectionCourts",
     items: [
-      { id: "court", icon: "court", labelKey: "miniapp.home.court", hintKey: "miniapp.home.courtHint" },
-      {
-        id: "calendar",
-        icon: "calendar",
-        labelKey: "miniapp.home.calendar",
-        hintKey: "miniapp.home.calendarHint"
-      }
+      { id: "court", icon: "court", labelKey: "miniapp.home.court", hintKey: "miniapp.home.courtHint" }
     ]
   },
   {
@@ -110,7 +104,6 @@ export const HOME_SECTIONS: ReadonlyArray<HomeMenuSection> = MENU_GROUPS.map((gr
 /** Every valid route id, for narrowing a bare string from the presentational HomeScreen. */
 const ROUTE_IDS: ReadonlySet<RouteId> = new Set<RouteId>([
   "home",
-  "schedule",
   "my-bookings",
   "group",
   "individual",
@@ -134,9 +127,10 @@ export function toRouteId(value: string): RouteId | null {
  * to seed on boot. The bot's notification deep links produce these.
  *
  *   home (or empty/absent) → home (default)
- *   browse                 → schedule      (legacy "записаться" deep link → the
- *                                           schedule calendar, its replacement)
- *   schedule               → schedule
+ *   browse                 → calendar      (legacy "записаться" deep link → the unified
+ *                                           calendar, its replacement)
+ *   schedule               → calendar      (legacy schedule deep link → the unified
+ *                                           calendar that replaced it)
  *   mybookings             → my-bookings   (reminder + waitlist-promotion notifications)
  *   group                  → group
  *   individual             → individual
@@ -150,9 +144,9 @@ export function toRouteId(value: string): RouteId | null {
  */
 const DEEP_LINK_ROUTES: Readonly<Record<string, RouteId>> = {
   home: "home",
-  // The old "записаться" deep link lands on the schedule calendar (browse's replacement).
-  browse: "schedule",
-  schedule: "schedule",
+  // The legacy "записаться" and "schedule" deep links both land on the unified calendar.
+  browse: "calendar",
+  schedule: "calendar",
   mybookings: "my-bookings",
   group: "group",
   individual: "individual",
