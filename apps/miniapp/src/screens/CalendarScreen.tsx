@@ -12,12 +12,13 @@ import { useT } from "../i18n/LanguageProvider";
 import { hapticSelection } from "../tg/buttons";
 import {
   activeBookedTrainingIds,
+  type CalendarKind,
+  cellPreview,
   dayOfMonth,
   daysInMonth,
   dedupeAvailableSlots,
   indexByDate,
   isoDate,
-  kindsPresent,
   monthWeeks,
   shiftMonth
 } from "../ui/calendar";
@@ -46,6 +47,60 @@ type CalendarItem =
   | { kind: "training"; date: string; id: string; booking: MyBookingItem }
   | { kind: "court"; date: string; id: string; court: MyCourtRequestItem }
   | { kind: "available"; date: string; id: string; slot: SlotCard };
+
+/**
+ * One inline day-cell event label: its KIND (for the color accent), its start time, and
+ * the SHORT localized kind word. CRITICAL: a court event carries ONLY its time + the kind
+ * word — NEVER a court number (the contract has none and clients must not see one).
+ */
+interface CellEvent {
+  kind: CalendarKind;
+  time: string;
+  label: string;
+}
+
+/** The i18n key for the SHORT in-cell kind word (reuses the legend's kind labels). */
+function kindLabelKey(kind: CalendarKind): string {
+  switch (kind) {
+    case "available":
+      return "miniapp.calendar.kindAvailable";
+    case "court":
+      return "miniapp.calendar.kindCourt";
+    case "training":
+      return "miniapp.calendar.kindTraining";
+  }
+}
+
+/**
+ * A merged item's own start time as "HH:MM" (booking / court / slot). Drives both the
+ * chronological within-day ordering and the inline cell label, so the cell preview shows
+ * a day's EARLIEST events first rather than an arbitrary available→training→court order.
+ */
+function itemTime(item: CalendarItem): string {
+  return item.kind === "available"
+    ? item.slot.startTime
+    : item.kind === "training"
+      ? item.booking.startTime
+      : item.court.startTime;
+}
+
+/**
+ * Project a day's merged items to inline cell events ({@link CellEvent}) — the clean
+ * seam between the screen's tagged-union {@link CalendarItem} and the pure, generic
+ * {@link cellPreview}. Each event's `time` is the item's own start time and `label` is the
+ * short localized kind word; a court event NEVER carries a court number. `t` resolves the
+ * kind word in the active locale.
+ */
+function cellEvents(
+  items: ReadonlyArray<CalendarItem>,
+  t: (key: string) => string
+): CellEvent[] {
+  return items.map((item) => ({
+    kind: item.kind,
+    time: itemTime(item),
+    label: t(kindLabelKey(item.kind))
+  }));
+}
 
 /** The `.schip` variant for a training booking status (mirrors BookingItemCard's tone). */
 function trainingVariant(status: BookingStatus): "co" | "ok" | "warn" | "muted" {
@@ -97,13 +152,15 @@ function courtStatusKey(status: CourtRequestStatus): string {
 }
 
 /**
- * The per-user month calendar (S-calendar): a Google-Calendar-style month grid of the
- * user's OWN training bookings + court requests together. Interaction layer only —
- * every value is the API's; the grid math is pure ({@link monthWeeks}/{@link
- * indexByDate}). A day with any item shows a marker dot; tapping it reveals that day's
- * agenda below the grid, each item tagged by KIND and its status. COURT INVARIANT: a
- * court item never shows a court number (the contract carries none) — only time,
- * status, and the server-computed RSD price.
+ * The unified month calendar: a Google-Calendar-style month grid merging EVERYTHING for
+ * the user — bookable slots they can still sign up for (green), their OWN training
+ * bookings (coral), and their court requests (teal). Each day cell shows up to two inline
+ * `time + kind` event labels (a muted "+N ещё" line for the rest); it opens on today's
+ * agenda. Tapping a day reveals that day's full agenda below, each item tagged by KIND
+ * and its status, and an available row enters the shared inline booking flow. Interaction
+ * layer only — every value is the API's; the grid math is pure ({@link monthWeeks}/{@link
+ * indexByDate}/{@link cellPreview}). COURT INVARIANT: a court item never shows a court
+ * number (the contract carries none) — only time, status, and the server RSD price.
  *
  * Both booking scopes (upcoming + past) are merged so a month shows completed and
  * future trainings alike; court requests are the single `/court-requests/mine` feed.
@@ -115,7 +172,9 @@ export function CalendarScreen(): JSX.Element {
     year: Number(today.slice(0, 4)),
     month: Number(today.slice(5, 7))
   }));
-  const [selectedDate, setSelectedDate] = useState<string | null>(null);
+  // Open on today's agenda (Google-style) rather than a blank grid: a step or a re-tap
+  // can still clear the selection back to null.
+  const [selectedDate, setSelectedDate] = useState<string | null>(today);
 
   const upcoming = useMyBookings("upcoming");
   const past = useMyBookings("past");
@@ -174,7 +233,13 @@ export function CalendarScreen(): JSX.Element {
         (c): CalendarItem => ({ kind: "court", date: c.date, id: c.id, court: c })
       )
     ];
-    return indexByDate(items);
+    // Order each day chronologically so the cell preview surfaces the EARLIEST events
+    // (and the agenda reads top-to-bottom by time), not the available→training→court
+    // merge order. Times are "HH:MM", so a lexical compare is chronological.
+    const ordered = [...items].sort((a, b) =>
+      a.date === b.date ? itemTime(a).localeCompare(itemTime(b)) : a.date.localeCompare(b.date)
+    );
+    return indexByDate(ordered);
   }, [upcoming.data, past.data, courts.data, available.data, bookedTrainingIds]);
 
   const weeks = useMemo(() => monthWeeks(cursor.year, cursor.month), [cursor]);
@@ -290,11 +355,7 @@ export function CalendarScreen(): JSX.Element {
                   <span className={iso === today ? "cal-cell__num cal-cell__num--today" : "cal-cell__num"}>
                     {dayOfMonth(iso)}
                   </span>
-                  <span className="cal-cell__dots" aria-hidden="true">
-                    {kindsPresent(byDate.get(iso)).map((kind) => (
-                      <span key={kind} className={`cal-cell__dot cal-cell__dot--${kind}`} />
-                    ))}
-                  </span>
+                  <CellEvents items={byDate.get(iso) ?? []} />
                 </button>
               )
             )}
@@ -306,6 +367,31 @@ export function CalendarScreen(): JSX.Element {
         <DayAgenda items={agenda} emptyVisible onBook={flow.openConfirm} />
       )}
     </div>
+  );
+}
+
+/**
+ * The inline event labels inside one day cell (Google-Calendar style): up to two events
+ * as `time + short kind word`, color-accented by kind, with a muted "+N ещё" line when
+ * the day has more. Decorative (`aria-hidden`) — the cell button's own aria-label already
+ * announces the event count, and the day agenda below carries the full, spoken detail.
+ * COURT INVARIANT: a court label shows ONLY time + kind word, never a court number.
+ */
+function CellEvents({ items }: { items: ReadonlyArray<CalendarItem> }): JSX.Element {
+  const t = useT();
+  const { shown, overflow } = cellPreview(cellEvents(items, t));
+
+  return (
+    <span className="cal-cell__events" aria-hidden="true">
+      {shown.map((event, i) => (
+        <span key={i} className={`cal-cell__event cal-cell__event--${event.kind}`}>
+          <span className="cal-cell__event-time">{event.time}</span> {event.label}
+        </span>
+      ))}
+      {overflow > 0 && (
+        <span className="cal-cell__more">{t("miniapp.calendar.cellMore", { count: overflow })}</span>
+      )}
+    </span>
   );
 }
 

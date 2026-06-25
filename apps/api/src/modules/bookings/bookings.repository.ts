@@ -2,7 +2,7 @@ import { Injectable } from "@nestjs/common";
 import { type Database, tables } from "@beosand/db";
 import type { BookingSource, BookingStatus, TrainingStatus } from "@beosand/types";
 import { type Booking, bookingSource } from "@beosand/types";
-import { and, asc, desc, eq, gte, inArray, lt, lte } from "drizzle-orm";
+import { and, asc, desc, eq, gte, inArray, lt, lte, ne } from "drizzle-orm";
 import { DatabaseService } from "../../db/database.service";
 
 type BookingRow = typeof tables.bookings.$inferSelect;
@@ -190,6 +190,13 @@ export class BookingsRepository {
    * ordered date DESC then start time DESC. The service derives `canCancel`; the
    * repo applies no business rules. Level is resolved via the (nullable) group;
    * a training with no group falls back to an empty level name.
+   *
+   * Cancelled bookings (rows kept per the keep-rows invariant) are excluded so a
+   * client's cancelled date never reappears on the Mini App calendar; `attended`
+   * and `no_show` are still returned so the past tab shows attendance history. A
+   * cancelled training is excluded too (defense-in-depth — a terminal training is
+   * never shown), so a single-date cancel within a monthly batch drops only that
+   * date while its siblings remain.
    */
   async listForClient(
     clientId: string,
@@ -223,7 +230,14 @@ export class BookingsRepository {
       .innerJoin(tables.trainers, eq(tables.trainings.trainerId, tables.trainers.id))
       .leftJoin(tables.groups, eq(tables.trainings.groupId, tables.groups.id))
       .leftJoin(tables.levels, eq(tables.groups.levelId, tables.levels.id))
-      .where(and(eq(tables.bookings.clientId, clientId), dateFilter))
+      .where(
+        and(
+          eq(tables.bookings.clientId, clientId),
+          dateFilter,
+          ne(tables.bookings.status, "cancelled"),
+          ne(tables.trainings.status, "cancelled")
+        )
+      )
       .orderBy(...order);
 
     return rows.map((row) => ({

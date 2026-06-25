@@ -11,7 +11,6 @@ import { CourtRequestScreen } from "../screens/CourtRequestScreen";
 import { GroupBookingScreen } from "../screens/GroupBookingScreen";
 import { HomeScreen } from "../screens/HomeScreen";
 import { MyBookingsScreen } from "../screens/MyBookingsScreen";
-import { ScheduleScreen } from "../screens/ScheduleScreen";
 import { OnboardingWizard } from "../screens/OnboardingWizard";
 import { ProfileScreen } from "../screens/ProfileScreen";
 import { TrainerRequestScreen } from "../screens/TrainerRequestScreen";
@@ -133,10 +132,8 @@ function RouteView({ client }: { client: Client }): JSX.Element {
     switch (current) {
     case "home":
       return <HomeScreen sections={HOME_SECTIONS} onSelect={onSelect} />;
-    case "schedule":
-      return <ScheduleScreen />;
     case "my-bookings":
-      return <MyBookingsScreen onBrowse={() => push("schedule")} />;
+      return <MyBookingsScreen onBrowse={() => push("calendar")} />;
     case "group":
       return <GroupBookingScreen />;
     case "individual":

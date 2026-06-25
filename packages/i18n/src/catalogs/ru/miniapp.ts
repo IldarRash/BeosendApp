@@ -42,12 +42,10 @@ export const miniappRu: Record<string, string> = {
   "miniapp.home.groupHint": "Месячная подписка на группу",
   "miniapp.home.individual": "Индивидуальная тренировка",
   "miniapp.home.individualHint": "Запрос тренеру один на один",
-  "miniapp.home.schedule": "Расписание тренировок",
-  "miniapp.home.scheduleHint": "Календарь занятий по месяцам — выберите день",
   "miniapp.home.court": "Аренда корта",
   "miniapp.home.courtHint": "Заявка на свободный корт",
   "miniapp.home.calendar": "Мой календарь",
-  "miniapp.home.calendarHint": "Записи и заявки на корт по дням",
+  "miniapp.home.calendarHint": "Один календарь: занятия на сегодня, мои записи и аренда кортов",
   "miniapp.home.profile": "Профиль и язык",
   "miniapp.home.profileHint": "Ваши данные и язык интерфейса",
   "miniapp.home.placeholderTitle": "Скоро",
@@ -300,17 +298,6 @@ export const miniappRu: Record<string, string> = {
   "miniapp.myBookings.subscription.summary":
     "Записей: {booked} · в листе ожидания: {waitlisted}",
 
-  // --- Training schedule (расписание): month calendar of bookable sessions ---
-  "miniapp.schedule.title": "Расписание тренировок",
-  "miniapp.schedule.hint": "Выберите день, чтобы увидеть тренировки и записаться.",
-  "miniapp.schedule.navAria": "Переключение месяца",
-  "miniapp.schedule.prevMonth": "Предыдущий месяц",
-  "miniapp.schedule.nextMonth": "Следующий месяц",
-  "miniapp.schedule.gridAria": "Календарь тренировок на {month}",
-  "miniapp.schedule.dayAria": "{day} число, тренировок: {count}",
-  "miniapp.schedule.emptyDayTitle": "Нет тренировок в этот день",
-  "miniapp.schedule.emptyDayBody": "Выберите другой день в календаре.",
-  "miniapp.schedule.errorBody": "Не удалось загрузить расписание. Попробуйте ещё раз.",
   // A slot the caller is already booked into: shown non-tappable (✓ added in the UI).
   "miniapp.schedule.alreadyBooked": "Вы записаны",
   // Single-training participants block ("who signed up") on the confirm step.
@@ -328,6 +315,8 @@ export const miniappRu: Record<string, string> = {
   "miniapp.calendar.dayAria": "{day} число, событий: {count}",
   "miniapp.calendar.agendaAria": "События выбранного дня",
   "miniapp.calendar.emptyDay": "В этот день нет записей и заявок.",
+  // Inline day-cell overflow line when a day has more events than fit (+N more).
+  "miniapp.calendar.cellMore": "+{count} ещё",
   "miniapp.calendar.kindTraining": "Тренировка",
   "miniapp.calendar.kindCourt": "Корт",
   "miniapp.calendar.kindAvailable": "Доступно",

@@ -2,9 +2,10 @@
  * Calendar helpers for the in-app month view. The pure month-grid math
  * (`isoDate`, `daysInMonth`, `firstWeekdayMondayFirst`, `monthWeeks`, `dayOfMonth`,
  * `shiftMonth`) now lives in `@beosand/types` and is shared with the admin console;
- * it is re-exported here so the calendar screen keeps a single import surface. Only
- * `indexByDate` — bucketing the Mini App's already-decided feed items by ISO date —
- * stays Mini-App-local. NO React/DOM, no domain logic. Unit-tested in calendar.spec.ts.
+ * it is re-exported here so the calendar screen keeps a single import surface. The
+ * Mini-App-local helpers bucket the already-decided feed by ISO date ({@link indexByDate}),
+ * dedupe/tag it, and slice a day's events for the inline cell preview ({@link cellPreview}).
+ * NO React/DOM, no domain logic. Unit-tested in calendar.spec.ts.
  */
 export {
   dayOfMonth,
@@ -33,7 +34,11 @@ export function indexByDate<T extends { date: string }>(items: ReadonlyArray<T>)
   return byDate;
 }
 
-/** The three calendar categories, in their fixed day-cell dot order. */
+/**
+ * The three calendar categories, in their fixed order (available → court → training) —
+ * the legend order and the per-kind color mapping in theme.css. The source of the
+ * {@link CalendarKind} union the calendar screen tags every merged item with.
+ */
 export const CALENDAR_KINDS = ["available", "court", "training"] as const;
 export type CalendarKind = (typeof CALENDAR_KINDS)[number];
 
@@ -78,17 +83,24 @@ export function dedupeAvailableSlots<T extends SlotLike>(
   return slots.filter((slot) => !bookedTrainingIds.has(slot.trainingId));
 }
 
+/** What a single day cell shows inline: the first `max` events + how many are hidden. */
+export interface CellPreview<T> {
+  /** The first `max` events of the day, in their input order, rendered as inline labels. */
+  shown: T[];
+  /** How many events beyond `max` the day has, for a "+N ещё" overflow line (0 if none). */
+  overflow: number;
+}
+
 /**
- * The ordered set of categories present on a given day, in CALENDAR_KINDS order
- * (available → court → training), for rendering up to three colored dots per day cell.
- * Operates on the date-indexed bucket of kind-tagged items. Pure: no React/DOM.
+ * Project a day's already-projected events to the Google-style cell preview: the first
+ * `max` of them plus the overflow count. The SCREEN owns the projection of a raw
+ * {@link indexByDate} bucket to the `{ kind, time, label }` shape (time + the short
+ * localized kind word) — this helper is deliberately generic and React-free, so it only
+ * slices and counts. Empty/short days yield `overflow: 0`. Pure: no React/DOM.
  */
-export function kindsPresent(
-  items: ReadonlyArray<{ kind: CalendarKind }> | undefined
-): CalendarKind[] {
-  if (!items || items.length === 0) {
-    return [];
-  }
-  const present = new Set(items.map((i) => i.kind));
-  return CALENDAR_KINDS.filter((kind) => present.has(kind));
+export function cellPreview<T>(items: ReadonlyArray<T>, max = 2): CellPreview<T> {
+  return {
+    shown: items.slice(0, max),
+    overflow: Math.max(0, items.length - max)
+  };
 }
