@@ -1,9 +1,9 @@
 import { describe, expect, it } from "vitest";
 import {
   activeBookedTrainingIds,
+  cellPreview,
   dedupeAvailableSlots,
-  indexByDate,
-  kindsPresent
+  indexByDate
 } from "./calendar";
 
 // The pure month-grid math (isoDate / daysInMonth / firstWeekdayMondayFirst /
@@ -55,23 +55,24 @@ describe("dedupeAvailableSlots", () => {
   });
 });
 
-describe("kindsPresent", () => {
-  it("returns the categories present on a day in available → court → training order", () => {
-    const items = [
-      { kind: "training" as const },
-      { kind: "available" as const },
-      { kind: "court" as const },
-      { kind: "training" as const } // duplicate kind collapses
-    ];
-    expect(kindsPresent(items)).toEqual(["available", "court", "training"]);
+describe("cellPreview", () => {
+  // The screen projects each day's items to { kind, time, label }; the helper only
+  // slices to `max` and counts overflow, so a bare { id } stands in for an event here.
+  const evt = (id: string): { id: string } => ({ id });
+
+  it("shows all items with no overflow when the day has at most `max`", () => {
+    const { shown, overflow } = cellPreview([evt("a"), evt("b")], 2);
+    expect(shown.map((e) => e.id)).toEqual(["a", "b"]);
+    expect(overflow).toBe(0);
   });
 
-  it("returns an empty array for an absent or empty bucket", () => {
-    expect(kindsPresent(undefined)).toEqual([]);
-    expect(kindsPresent([])).toEqual([]);
+  it("shows only the first `max` and counts the rest as overflow when over `max`", () => {
+    const { shown, overflow } = cellPreview([evt("a"), evt("b"), evt("c"), evt("d")], 2);
+    expect(shown.map((e) => e.id)).toEqual(["a", "b"]);
+    expect(overflow).toBe(2);
   });
 
-  it("returns only the single kind present", () => {
-    expect(kindsPresent([{ kind: "court" as const }])).toEqual(["court"]);
+  it("returns an empty preview with zero overflow for an empty day", () => {
+    expect(cellPreview([], 2)).toEqual({ shown: [], overflow: 0 });
   });
 });

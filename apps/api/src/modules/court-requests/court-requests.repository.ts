@@ -1,5 +1,5 @@
 import { Injectable } from "@nestjs/common";
-import { and, asc, eq, inArray, isNotNull, sql, tables, type Database } from "@beosand/db";
+import { and, asc, eq, inArray, isNotNull, ne, sql, tables, type Database } from "@beosand/db";
 import type { Locale } from "@beosand/types";
 import { DatabaseService } from "../../db/database.service";
 
@@ -187,9 +187,11 @@ export class CourtRequestsRepository {
   }
 
   /**
-   * A client's own court requests (all statuses), newest first, with a derived end
-   * time and the client's own picked/held court numbers. The service has already
-   * resolved the caller's clientId.
+   * A client's own court requests, ordered by date/time, with a derived end time
+   * and the client's own picked/held court numbers. The service has already
+   * resolved the caller's clientId. Cancelled requests (rows kept per the
+   * keep-rows invariant) are excluded so a cancelled request never reappears on
+   * the Mini App calendar; pending/confirmed/rejected are still returned.
    */
   async listMineForClient(clientId: string): Promise<MyCourtRequestRow[]> {
     const rows = await this.database.db
@@ -209,7 +211,12 @@ export class CourtRequestsRepository {
         eq(tables.courtRequestCourts.requestId, tables.courtRequests.id)
       )
       .leftJoin(tables.courts, eq(tables.courtRequestCourts.courtId, tables.courts.id))
-      .where(eq(tables.courtRequests.clientId, clientId))
+      .where(
+        and(
+          eq(tables.courtRequests.clientId, clientId),
+          ne(tables.courtRequests.status, "cancelled")
+        )
+      )
       .groupBy(tables.courtRequests.id)
       .orderBy(asc(tables.courtRequests.date), asc(tables.courtRequests.startTime));
 

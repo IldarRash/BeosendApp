@@ -191,21 +191,34 @@ afterEach(() => {
 });
 
 describe("CalendarScreen merged feeds", () => {
-  it("shows a legend and three category dots on a day with all three kinds", async () => {
-    const { container } = renderWithProviders(<CalendarScreen />);
+  it("shows the legend and up to two inline event labels per cell with a '+N ещё' overflow", async () => {
+    renderWithProviders(<CalendarScreen />);
 
     // Legend present.
     await screen.findByRole("list", { name: "Обозначения календаря" });
 
-    // The 10th carries a training, a court, and one (deduped) available slot — three dots.
+    // The 10th carries a court (12:00), a training (18:00), and one (deduped) available
+    // slot (20:00) — three events. Ordered chronologically, the cell shows the two
+    // EARLIEST as inline labels (court + training, color-accented by kind) plus a muted
+    // "+1 ещё"; the later available slot overflows. A court label never carries a NUMBER.
     const cell = await screen.findByRole("gridcell", { name: /^10 число/ });
     await waitFor(() => {
-      const dots = cell.querySelectorAll(".cal-cell__dots .cal-cell__dot");
-      expect(dots).toHaveLength(3);
+      expect(cell.querySelectorAll(".cal-cell__event")).toHaveLength(2);
     });
-    expect(container.querySelector(".cal-cell__dot--available")).toBeTruthy();
-    expect(container.querySelector(".cal-cell__dot--court")).toBeTruthy();
-    expect(container.querySelector(".cal-cell__dot--training")).toBeTruthy();
+    expect(cell.querySelector(".cal-cell__more")?.textContent).toBe("+1 ещё");
+    expect(cell.querySelector(".cal-cell__event--court .cal-cell__event-time")?.textContent).toBe(
+      "12:00"
+    );
+    expect(cell.querySelector(".cal-cell__event--training")).toBeTruthy();
+    // The later 20:00 available slot is the overflowed event, so no available label here.
+    expect(cell.querySelector(".cal-cell__event--available")).toBeNull();
+  });
+
+  it("opens on today's agenda rather than a blank grid (Google-style)", async () => {
+    // The clock is pinned to 2026-06-09; with no events that day, the agenda shows the
+    // empty-day note immediately — proving the screen seeds selectedDate to today.
+    renderWithProviders(<CalendarScreen />);
+    await screen.findByText("В этот день нет записей и заявок.");
   });
 
   it("dedupes: the already-booked training is NOT also shown as available", async () => {

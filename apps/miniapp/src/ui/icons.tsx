@@ -10,7 +10,6 @@
 import type { SVGProps } from "react";
 
 export type IconName =
-  | "schedule"
   | "myBookings"
   | "group"
   | "individual"
@@ -51,18 +50,7 @@ function Svg(props: SVGProps<SVGSVGElement>): JSX.Element {
   );
 }
 
-/** List-on-calendar — the upcoming-trainings schedule (S-schedule). */
-function ScheduleIcon(): JSX.Element {
-  return (
-    <Svg>
-      <rect x="3.5" y="5" width="17" height="15" rx="2.5" />
-      <path d="M3.5 9.5h17M8 3.5v3M16 3.5v3" />
-      <path d="M7 13h2M7 16.5h2M11.5 13h5.5M11.5 16.5h5.5" />
-    </Svg>
-  );
-}
-
-/** Month-grid — the per-user court + training calendar (S-calendar). */
+/** Month-grid — the unified per-user court + training calendar. */
 function CalendarGridIcon(): JSX.Element {
   return (
     <Svg>
@@ -151,7 +139,6 @@ function WaitlistIcon(): JSX.Element {
 }
 
 const ICONS: Record<IconName, () => JSX.Element> = {
-  schedule: ScheduleIcon,
   myBookings: MyBookingsIcon,
   group: GroupIcon,
   individual: IndividualIcon,
