@@ -40,6 +40,7 @@ function item(over: Partial<MyBookingItem> = {}): MyBookingItem {
     endTime: "19:30",
     trainerName: "Марко",
     levelName: "Начинающий",
+    groupSubscriptionId: null,
     bookingStatus: "booked",
     trainingStatus: "open",
     canCancel: true,

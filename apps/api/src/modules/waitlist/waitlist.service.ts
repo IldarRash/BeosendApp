@@ -14,7 +14,6 @@ import type { Booking, BookingSource, WaitlistAdminItem, WaitlistEntry } from "@
 import {
   bookingSchema,
   isBookable,
-  monthBounds,
   recomputeTrainingStatus,
   waitlistAdminItemSchema,
   waitlistEntrySchema
@@ -38,18 +37,21 @@ interface JoinInput {
 }
 
 /**
- * Owns the waitlist domain logic (T2.1). Invariants live here:
- * - Ownership: a client may only join/accept for its own record (resolved from
+ * Owns the waitlist domain logic (frictionless waitlist). Invariants live here:
+ * - GROUP trainings only: a training with a null groupId never enters any waitlist
+ *   flow (join rejects it; promote/sweep ignore it).
+ * - Ownership: a client may only join for its own record (resolved from
  *   telegram_id); ADMIN_TELEGRAM_IDS may act on any. The bot-supplied clientId is
  *   never trusted — it must equal the resolved row.
  * - Join is only for a FULL slot: a still-bookable training is rejected with a
  *   typed 409 (a client must never sit on a waitlist for a slot they could book).
  * - Positions are contiguous per training (append at max+1) and promotion respects
  *   order (lowest position first).
- * - Accept is atomic and never oversells: inside one transaction the training is
- *   locked FOR UPDATE, a seat is re-confirmed free (isBookable), a `booked` booking
- *   is created, bookedCount is incremented and status recomputed (open ⇔ full), and
- *   the entry is marked `promoted`.
+ * - Promotion is AUTO-BOOK + notify (no confirm window): when a seat frees the head
+ *   `waiting` entry is booked server-side inside one transaction — training locked
+ *   FOR UPDATE, seat re-confirmed free (isBookable), a `booked` booking created,
+ *   bookedCount incremented and status recomputed (open ⇔ full), the entry marked
+ *   `promoted` — then the promoted client is notified post-commit.
  */
 @Injectable()
 export class WaitlistService {
@@ -75,6 +77,11 @@ export class WaitlistService {
       const training = await this.waitlist.findTrainingForUpdate(tx, input.trainingId);
       if (!training) {
         throw new NotFoundException(`Training ${input.trainingId} not found`);
+      }
+
+      if (training.groupId === null) {
+        // Waitlist is for group trainings only; individual sessions never queue.
+        throw new BadRequestException("Waitlist is for group trainings only");
       }
 
       if (training.status === "cancelled" || training.status === "completed") {
@@ -153,47 +160,6 @@ export class WaitlistService {
   }
 
   /**
-   * Accept a promoted ("notified") waitlist slot within the window (T2.1). In one
-   * transaction: load the entry FOR UPDATE, assert ownership, require `notified`
-   * and a still-open window, re-check the training FOR UPDATE for a free seat
-   * (isBookable), create a `booked` booking, increment bookedCount + recompute
-   * status, mark the entry `promoted`. Any failed precondition (expired window,
-   * seat re-taken, not the owner) is a typed exception that books nothing.
-   */
-  async accept(actorTelegramId: number, entryId: string): Promise<Booking> {
-    const booking = await this.waitlist.transaction(async (tx) => {
-      const entry = await this.waitlist.findEntryForUpdate(tx, entryId);
-      if (!entry) {
-        throw new NotFoundException(`Waitlist entry ${entryId} not found`);
-      }
-
-      await this.assertOwnsClient(actorTelegramId, entry.clientId);
-
-      if (entry.status !== "notified") {
-        throw new ConflictException(`Waitlist entry is not acceptable (status ${entry.status})`);
-      }
-
-      if (!entry.notifiedAt || !this.isWindowOpen(entry.notifiedAt, new Date())) {
-        // Window has closed; mark expired here so a concurrent sweep doesn't double-promote.
-        await this.waitlist.setStatus(tx, entry.id, "expired");
-        throw new ConflictException("Confirmation window has expired");
-      }
-
-      const training = await this.waitlist.findTrainingForUpdate(tx, entry.trainingId);
-      if (!training) {
-        throw new NotFoundException(`Training ${entry.trainingId} not found`);
-      }
-
-      // Shared with the admin promote: require a free seat, group-aware book the
-      // entry, increment + recompute, mark the entry `promoted`. The window check
-      // above is the only accept-specific guard. Client accept → source "telegram".
-      return this.promoteIntoFreeSeat(tx, entry, training, "telegram", "accepted");
-    });
-
-    return toBooking(booking);
-  }
-
-  /**
    * Admin: promote a waitlist entry straight to a booking (no confirmation window).
    * Admin-gated here (never in the controller/bot). In one transaction: load the
    * entry FOR UPDATE (must be `waiting`|`notified`), load its training FOR UPDATE,
@@ -219,8 +185,11 @@ export class WaitlistService {
         throw new NotFoundException(`Training ${entry.trainingId} not found`);
       }
       // Admin promote → source "admin".
-      return this.promoteIntoFreeSeat(tx, entry, training, "admin", "promoted");
+      return this.promoteIntoFreeSeat(tx, entry, training, "admin");
     });
+
+    // Post-commit: tell the promoted client they were booked. Self-tolerant.
+    await this.notifyPromotedSafely(booking.clientId, booking.trainingId);
 
     return toBooking(booking);
   }
@@ -334,20 +303,29 @@ export class WaitlistService {
       return { promoted: created, displaced: displacedEntry };
     });
 
+    // Post-commit: notify the promoted client (booked) AND the displaced client
+    // (bumped back onto the waitlist at their new position). Self-tolerant — a
+    // notification failure never undoes the committed swap.
+    await this.notifyPromotedSafely(result.promoted.clientId, result.promoted.trainingId);
+    await this.notifyDisplacedSafely(
+      result.displaced.clientId,
+      result.displaced.trainingId,
+      result.displaced.position
+    );
+
     return { promoted: toBooking(result.promoted), displaced: result.displaced };
   }
 
   /**
    * Admin: remove a waitlist entry (status → `cancelled`). Admin-gated here. A
-   * `notified` entry is HOLDING the open seat its window owns, so after cancelling
-   * it we promote the next head (post-commit) — the freed seat must not be wasted.
-   * A plain `waiting` removal holds no seat, so nothing else runs. Returns the
+   * `waiting` entry holds no seat (promotion is auto-book, not a reservation), so
+   * removing it simply drops it from the queue — nothing else runs. Returns the
    * cancelled entry.
    */
   async removeEntry(actorTelegramId: number, entryId: string): Promise<WaitlistEntry> {
     this.assertAdmin(actorTelegramId);
 
-    const { cancelled, wasNotified } = await this.waitlist.transaction(async (tx) => {
+    const cancelled = await this.waitlist.transaction(async (tx) => {
       const entry = await this.waitlist.findEntryForUpdate(tx, entryId);
       if (!entry) {
         throw new NotFoundException(`Waitlist entry ${entryId} not found`);
@@ -357,14 +335,8 @@ export class WaitlistService {
       }
       const updated = await this.waitlist.setStatus(tx, entry.id, "cancelled");
       this.logger.log(`Admin removed waitlist entry ${entry.id} (was ${entry.status})`);
-      return { cancelled: updated, wasNotified: entry.status === "notified" };
+      return updated;
     });
-
-    // A removed `notified` entry held the open seat; offer it to the next in line.
-    // Self-tolerant — a promotion failure never undoes the committed removal.
-    if (wasNotified) {
-      await this.promoteNext(cancelled.trainingId);
-    }
 
     return waitlistEntrySchema.parse(cancelled);
   }
@@ -390,22 +362,6 @@ export class WaitlistService {
   async listForTraining(actorTelegramId: number, trainingId: string): Promise<WaitlistAdminItem[]> {
     this.assertAdmin(actorTelegramId);
     const rows = await this.waitlist.listForTraining(trainingId);
-    return rows.map((row) => toAdminItem(row));
-  }
-
-  /**
-   * Admin: active queue entries across a group's trainings in a month (the "group
-   * queue"), ordered by date then position.
-   */
-  async listForGroupMonth(
-    actorTelegramId: number,
-    groupId: string,
-    year: number,
-    month: number
-  ): Promise<WaitlistAdminItem[]> {
-    this.assertAdmin(actorTelegramId);
-    const [from, to] = monthBounds(year, month);
-    const rows = await this.waitlist.listForGroupMonth(groupId, from, to);
     return rows.map((row) => toAdminItem(row));
   }
 
@@ -441,21 +397,21 @@ export class WaitlistService {
   }
 
   /**
-   * Shared promote-into-a-free-seat core for `accept` (client) and `promoteEntry`
-   * (admin): require a free seat (`isBookable`) — else a typed 409 (the admin path
-   * tells the manager to swap) — guard an already-booked client, group-aware insert
+   * Shared promote-into-a-free-seat core for the auto-promote (`promoteNext`/
+   * `sweepPromotable`) and the admin `promoteEntry`: require a free seat
+   * (`isBookable`) — else a typed 409 (the admin path tells the manager to swap;
+   * the auto path swallows it) — guard an already-booked client, group-aware insert
    * the booking, increment bookedCount + recompute (open ⇔ full) so it never
    * oversells, and mark the entry `promoted`. Returns the raw booking row. The
    * caller holds the tx and has already locked the entry + training. `source`
-   * records who booked it: "telegram" for the client accept, "admin" for the
+   * records who booked it: "telegram" for the auto-promote, "admin" for the
    * manager promote.
    */
   private async promoteIntoFreeSeat(
     tx: Database,
     entry: WaitlistLockRow,
     training: TrainingLockRow,
-    source: BookingSource,
-    verb: "accepted" | "promoted"
+    source: BookingSource
   ): Promise<BookingRow> {
     if (
       !isBookable({
@@ -464,8 +420,8 @@ export class WaitlistService {
         status: training.status
       })
     ) {
-      // No free seat. For accept the freed seat was re-taken (entry stays `notified`
-      // for the sweep); for the admin promote there is simply no room — use swap.
+      // No free seat: the freed seat was re-taken (auto path swallows) or there is
+      // simply no room for the admin promote — use swap.
       throw new ConflictException("No free seat — use swap");
     }
 
@@ -489,7 +445,7 @@ export class WaitlistService {
     await this.waitlist.setStatus(tx, entry.id, "promoted");
 
     this.logger.log(
-      `Waitlist entry ${entry.id} ${verb}: booking ${created.id} on training ${entry.trainingId} ` +
+      `Waitlist entry ${entry.id} promoted: booking ${created.id} on training ${entry.trainingId} ` +
         `(${newCount}/${training.capacity}, ${newStatus})`
     );
     return created;
@@ -543,21 +499,40 @@ export class WaitlistService {
   }
 
   /**
-   * Promote the head of a training's waitlist (internal — called from the bookings
-   * cancel post-commit seam). Locks the head `waiting` entry FOR UPDATE (lowest
-   * position), marks it `notified`, stamps `notifiedAt`, then — after commit —
-   * pushes the freed-seat message with the inline confirm button. Idempotent and
-   * self-tolerant: no head, or a Telegram failure, is logged and swallowed.
+   * AUTO-BOOK the head of a GROUP training's waitlist into a just-freed seat
+   * (internal — called from the bookings cancel/decline post-commit seam and the
+   * minutely sweep). In one transaction: lock the training FOR UPDATE; if it is a
+   * group training, still bookable, and a head `waiting` entry exists, run the
+   * shared promote core (group-aware booking insert, +1, recompute open ⇔ full,
+   * mark entry `promoted`). After commit, notify the promoted client. Idempotent
+   * and self-tolerant: an individual training, no free seat, no head, or a Telegram
+   * failure is logged/swallowed — never undoes the committed cancel.
    */
   async promoteNext(trainingId: string): Promise<void> {
-    let notified: WaitlistEntry | undefined;
+    let promoted: BookingRow | undefined;
     try {
-      notified = await this.waitlist.transaction(async (tx) => {
+      promoted = await this.waitlist.transaction(async (tx) => {
+        const training = await this.waitlist.findTrainingForUpdate(tx, trainingId);
+        if (!training || training.groupId === null) {
+          // No training, or an individual training — the waitlist is group-only.
+          return undefined;
+        }
+        if (
+          !isBookable({
+            capacity: training.capacity,
+            bookedCount: training.bookedCount,
+            status: training.status
+          })
+        ) {
+          // The seat was re-taken before we could promote; nothing to do.
+          return undefined;
+        }
         const head = await this.waitlist.findHeadWaitingForUpdate(tx, trainingId);
         if (!head) {
           return undefined;
         }
-        return this.waitlist.markNotified(tx, head.id, new Date());
+        // Auto-promote → source "telegram" (the freed-seat decision is system-made).
+        return this.promoteIntoFreeSeat(tx, head, training, "telegram");
       });
     } catch (error) {
       this.logger.error(
@@ -567,70 +542,56 @@ export class WaitlistService {
       return;
     }
 
-    if (!notified) {
+    if (!promoted) {
       return;
     }
 
-    await this.notifications.sendWaitlistSlot(
-      notified.clientId,
-      notified.trainingId,
-      this.env.WAITLIST_WINDOW_MINUTES,
-      notified.id
-    );
+    await this.notifyPromotedSafely(promoted.clientId, promoted.trainingId);
   }
 
   /**
-   * Sweep expired confirmation windows (the minutely scheduler). For each
-   * `notified` entry past its window, mark it `expired` (locked FOR UPDATE so a
-   * concurrent accept can't race) and promote the next head for that training.
-   * Idempotent and self-tolerant; returns the number expired.
+   * The minutely safety net: find every GROUP training that is still bookable AND
+   * has a `waiting` head, and auto-promote each (closes any freed-seat gap a direct
+   * post-commit call missed, e.g. transferGroup). Idempotent and self-tolerant;
+   * returns the number of trainings it attempted to promote.
    */
-  async sweepExpired(now: Date): Promise<number> {
-    const cutoff = new Date(now.getTime() - this.env.WAITLIST_WINDOW_MINUTES * 60 * 1000);
-    const candidates = await this.waitlist.findExpiredNotified(cutoff);
-
-    const expiredTrainings: string[] = [];
-    for (const candidate of candidates) {
-      const expired = await this.waitlist
-        .transaction(async (tx) => {
-          const entry = await this.waitlist.findEntryForUpdate(tx, candidate.id);
-          if (!entry || entry.status !== "notified") {
-            return false;
-          }
-          if (entry.notifiedAt && this.isWindowOpen(entry.notifiedAt, now)) {
-            // Re-stamped or still open — not actually expired.
-            return false;
-          }
-          await this.waitlist.setStatus(tx, entry.id, "expired");
-          return true;
-        })
-        .catch((error: unknown) => {
-          this.logger.error(
-            `Expiring waitlist entry ${candidate.id} failed: ` +
-              (error instanceof Error ? error.message : String(error))
-          );
-          return false;
-        });
-      if (expired) {
-        expiredTrainings.push(candidate.trainingId);
-      }
-    }
-
-    // Promote the next head for each training that just lost a notified entry.
-    for (const trainingId of new Set(expiredTrainings)) {
+  async sweepPromotable(): Promise<number> {
+    const trainingIds = await this.waitlist.findPromotableTrainings();
+    for (const trainingId of trainingIds) {
       await this.promoteNext(trainingId);
     }
-
-    if (expiredTrainings.length > 0) {
-      this.logger.log(`Waitlist sweep expired ${expiredTrainings.length} entries`);
+    if (trainingIds.length > 0) {
+      this.logger.log(`Waitlist sweep auto-promoted up to ${trainingIds.length} trainings`);
     }
-    return expiredTrainings.length;
+    return trainingIds.length;
   }
 
-  /** The confirmation window is open while now <= notifiedAt + WAITLIST_WINDOW_MINUTES. */
-  private isWindowOpen(notifiedAt: Date, now: Date): boolean {
-    const deadline = notifiedAt.getTime() + this.env.WAITLIST_WINDOW_MINUTES * 60 * 1000;
-    return now.getTime() <= deadline;
+  /** Post-commit: notify a promoted client they were auto-booked. Self-tolerant. */
+  private async notifyPromotedSafely(clientId: string, trainingId: string): Promise<void> {
+    try {
+      await this.notifications.sendWaitlistPromoted(clientId, trainingId);
+    } catch (error) {
+      this.logger.error(
+        `Waitlist-promoted notification (client ${clientId}, training ${trainingId}) failed: ` +
+          (error instanceof Error ? error.message : String(error))
+      );
+    }
+  }
+
+  /** Post-commit: notify a displaced client they are back on the waitlist. Self-tolerant. */
+  private async notifyDisplacedSafely(
+    clientId: string,
+    trainingId: string,
+    position: number
+  ): Promise<void> {
+    try {
+      await this.notifications.sendWaitlistDisplaced(clientId, trainingId, position);
+    } catch (error) {
+      this.logger.error(
+        `Waitlist-displaced notification (client ${clientId}, training ${trainingId}) failed: ` +
+          (error instanceof Error ? error.message : String(error))
+      );
+    }
   }
 
   /**

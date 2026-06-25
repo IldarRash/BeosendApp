@@ -126,6 +126,7 @@ const PREVIEW_SAMPLES: Record<string, string> = {
   "{levelName}": "Начинающий",
   "{trainerName}": "Милена",
   "{windowMinutes}": "15",
+  "{position}": "2",
   "{clientName}": "Анна",
   "{clientTelegramId}": "123456789",
   "{courtLabel}": "Корт 3",

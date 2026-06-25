@@ -16,7 +16,8 @@ describe("notification template contracts", () => {
       "training-cancelled",
       "booking-pending",
       "booking-declined",
-      "waitlist-slot",
+      "waitlist-promoted",
+      "waitlist-displaced",
       "court-request-confirmed",
       "court-request-rejected",
       "booking-pending-admin",
@@ -25,12 +26,12 @@ describe("notification template contracts", () => {
     ]);
   });
 
-  it("offers a non-empty placeholder list for every key, with windowMinutes only on waitlist-slot", () => {
+  it("offers a non-empty placeholder list for every key, with {position} only on waitlist-displaced", () => {
     for (const key of notificationTemplateKey.options) {
       const placeholders = NOTIFICATION_TEMPLATE_PLACEHOLDERS[key];
       expect(placeholders.length).toBeGreaterThan(0);
-      const hasWindow = placeholders.includes("{windowMinutes}");
-      expect(hasWindow).toBe(key === "waitlist-slot");
+      const hasPosition = placeholders.includes("{position}");
+      expect(hasPosition).toBe(key === "waitlist-displaced");
     }
   });
 

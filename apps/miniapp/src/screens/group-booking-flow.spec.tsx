@@ -91,6 +91,8 @@ interface FakeApi {
   listGroups: ReturnType<typeof vi.fn>;
   listLevels: ReturnType<typeof vi.fn>;
   createGroupBooking: ReturnType<typeof vi.fn>;
+  getGroupMembers: ReturnType<typeof vi.fn>;
+  getMyWaitlist: ReturnType<typeof vi.fn>;
 }
 
 let api: FakeApi;
@@ -102,6 +104,8 @@ function makeApi(overrides: Partial<FakeApi> = {}): FakeApi {
     listGroups: vi.fn().mockResolvedValue([GROUP]),
     listLevels: vi.fn().mockResolvedValue([{ id: LEVEL_ID, name: "Про", status: "active" }]),
     createGroupBooking: vi.fn().mockResolvedValue(RESULT_WITH_SKIPPED),
+    getGroupMembers: vi.fn().mockResolvedValue({ memberCount: 0, members: [] }),
+    getMyWaitlist: vi.fn().mockResolvedValue([]),
     ...overrides
   };
 }

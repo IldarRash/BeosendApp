@@ -1,17 +1,12 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { cleanup, fireEvent, render, screen, within } from "@testing-library/react";
 import type { Group, TrainingRoster, WaitlistAdminItem } from "@beosand/types";
-import { MemoryRouter } from "react-router-dom";
 
 // --- Mocks ---------------------------------------------------------------
 
 const notify = vi.fn();
-vi.mock("../ui/Toast", () => ({
+vi.mock("./Toast", () => ({
   useToast: () => ({ notify })
-}));
-
-vi.mock("../ui/AppShell", () => ({
-  AppShell: ({ children }: { children: React.ReactNode }) => <div>{children}</div>
 }));
 
 vi.mock("../i18n/LanguageProvider", async () => import("../i18n/test-utils"));
@@ -27,18 +22,23 @@ vi.mock("../hooks/useGroupMembers", () => ({
   useTransferGroupMember: () => useTransferGroupMember()
 }));
 
-const useGroupWaitlist = vi.fn();
+const useTrainingWaitlist = vi.fn();
 const usePromoteWaitlistEntry = vi.fn();
 const useRemoveWaitlistEntry = vi.fn();
 const useSwapWaitlistEntry = vi.fn();
 vi.mock("../hooks/useWaitlist", () => ({
-  useGroupWaitlist: (q: unknown) => useGroupWaitlist(q),
+  useTrainingWaitlist: (id: string | null) => useTrainingWaitlist(id),
   usePromoteWaitlistEntry: () => usePromoteWaitlistEntry(),
   useRemoveWaitlistEntry: () => useRemoveWaitlistEntry(),
   useSwapWaitlistEntry: () => useSwapWaitlistEntry()
 }));
 
-import { Waitlist } from "./Waitlist";
+import { WaitlistSection } from "./WaitlistSection";
+import { DEFAULT_LOCALE, getStaticCatalog, t as resolve } from "@beosand/i18n";
+
+const STATIC_RU = getStaticCatalog(DEFAULT_LOCALE);
+const t = (key: string, params?: Record<string, string | number>): string =>
+  resolve(STATIC_RU, key, params);
 
 const GROUP_ID = "11111111-1111-1111-1111-111111111111";
 const TRAINING_ID = "22222222-2222-2222-2222-222222222222";
@@ -96,33 +96,18 @@ const ROSTER: TrainingRoster = {
   ]
 };
 
-/** A passive (no-op) mutation result the page can call .reset()/.mutate() on. */
 function idleMutation(over: Record<string, unknown> = {}): Record<string, unknown> {
   return { mutate: vi.fn(), reset: vi.fn(), isPending: false, isError: false, error: null, ...over };
 }
 
-/** A settled list query the page reads (isPending/isError/data). */
 function listQuery(data: WaitlistAdminItem[]): Record<string, unknown> {
   return { isPending: false, isError: false, error: null, data };
-}
-
-function renderPage(): void {
-  render(
-    <MemoryRouter>
-      <Waitlist />
-    </MemoryRouter>
-  );
-}
-
-/** Pick the only group so the queue query becomes enabled and the table renders. */
-function selectGroup(): void {
-  fireEvent.change(screen.getByLabelText("Группа"), { target: { value: GROUP_ID } });
 }
 
 beforeEach(() => {
   vi.clearAllMocks();
   useGroups.mockReturnValue({ data: [GROUP], isLoading: false, isError: false });
-  useGroupWaitlist.mockReturnValue(listQuery([ENTRY]));
+  useTrainingWaitlist.mockReturnValue(listQuery([ENTRY]));
   usePromoteWaitlistEntry.mockReturnValue(idleMutation());
   useRemoveWaitlistEntry.mockReturnValue(idleMutation());
   useSwapWaitlistEntry.mockReturnValue(idleMutation());
@@ -132,33 +117,30 @@ beforeEach(() => {
 
 afterEach(cleanup);
 
-describe("Waitlist page", () => {
-  it("prompts to pick a filter before a group is selected", () => {
-    renderPage();
-    expect(
-      screen.getByText("Выберите группу и месяц, чтобы увидеть лист ожидания.")
-    ).toBeTruthy();
-    // No queue is fetched until a group is chosen.
-    const lastArg = useGroupWaitlist.mock.calls.at(-1)?.[0];
-    expect(lastArg).toBeNull();
+describe("WaitlistSection (under the roster)", () => {
+  it("renders the validated waitlist rows for a group training", () => {
+    render(<WaitlistSection trainingId={TRAINING_ID} groupId={GROUP_ID} date="2026-06-10" t={t} />);
+    expect(screen.getByText("Аня")).toBeTruthy();
+    // The heading carries the row count.
+    expect(screen.getByText("Лист ожидания (1)")).toBeTruthy();
+    // The training waitlist is fetched for the training id.
+    expect(useTrainingWaitlist.mock.calls.at(-1)?.[0]).toBe(TRAINING_ID);
   });
 
-  it("renders the validated queue rows once a group is selected", () => {
-    renderPage();
-    selectGroup();
-    expect(screen.getByText("Аня")).toBeTruthy();
-    expect(screen.getByText("2026-06-10")).toBeTruthy();
-    expect(screen.getByText("18:00–19:30")).toBeTruthy();
-    // The queue query is enabled with the selected group + current year/month.
-    const lastArg = useGroupWaitlist.mock.calls.at(-1)?.[0] as { groupId: string } | null;
-    expect(lastArg?.groupId).toBe(GROUP_ID);
+  it("renders nothing and makes no call for an individual training (no groupId)", () => {
+    const { container } = render(
+      <WaitlistSection trainingId={TRAINING_ID} groupId={null} date="2026-06-10" t={t} />
+    );
+    expect(container.childElementCount).toBe(0);
+    expect(screen.queryByText("Аня")).toBeNull();
+    // The waitlist query is gated off (called with null).
+    expect(useTrainingWaitlist.mock.calls.at(-1)?.[0]).toBeNull();
   });
 
   it("promotes an entry from the confirm dialog", () => {
     const mutate = vi.fn((_id, opts: { onSuccess: () => void }) => opts.onSuccess());
     usePromoteWaitlistEntry.mockReturnValue(idleMutation({ mutate }));
-    renderPage();
-    selectGroup();
+    render(<WaitlistSection trainingId={TRAINING_ID} groupId={GROUP_ID} date="2026-06-10" t={t} />);
 
     fireEvent.click(screen.getByRole("button", { name: "Записать клиента Аня из листа ожидания" }));
     const dialog = screen.getByRole("dialog", { name: "Записать из листа ожидания" });
@@ -172,12 +154,10 @@ describe("Waitlist page", () => {
   it("swaps an entry ahead of a booked roster member", () => {
     const mutate = vi.fn((_args, opts: { onSuccess: () => void }) => opts.onSuccess());
     useSwapWaitlistEntry.mockReturnValue(idleMutation({ mutate }));
-    renderPage();
-    selectGroup();
+    render(<WaitlistSection trainingId={TRAINING_ID} groupId={GROUP_ID} date="2026-06-10" t={t} />);
 
     fireEvent.click(screen.getByRole("button", { name: "Заменить участника клиентом Аня" }));
     const dialog = screen.getByRole("dialog", { name: "Заменить участника на Аня" });
-    // The roster member is offered as a radio option; pick Игорь, then confirm.
     fireEvent.click(within(dialog).getByLabelText("Игорь"));
     fireEvent.click(within(dialog).getByRole("button", { name: "Заменить" }));
 
@@ -188,29 +168,14 @@ describe("Waitlist page", () => {
     });
   });
 
-  it("removes an entry from the confirm dialog", () => {
-    const mutate = vi.fn((_id, opts: { onSuccess: () => void }) => opts.onSuccess());
-    useRemoveWaitlistEntry.mockReturnValue(idleMutation({ mutate }));
-    renderPage();
-    selectGroup();
-
-    fireEvent.click(screen.getByRole("button", { name: "Убрать клиента Аня из листа ожидания" }));
-    const dialog = screen.getByRole("dialog", { name: "Убрать из листа ожидания" });
-    fireEvent.click(within(dialog).getByRole("button", { name: "Убрать" }));
-
-    expect(mutate).toHaveBeenCalledTimes(1);
-    expect(mutate.mock.calls[0][0]).toBe(ENTRY.id);
-  });
-
-  it("surfaces a queue load error", () => {
-    useGroupWaitlist.mockReturnValue({
+  it("surfaces a waitlist load error", () => {
+    useTrainingWaitlist.mockReturnValue({
       isPending: false,
       isError: true,
       error: new Error("boom"),
       data: undefined
     });
-    renderPage();
-    selectGroup();
+    render(<WaitlistSection trainingId={TRAINING_ID} groupId={GROUP_ID} date="2026-06-10" t={t} />);
     expect(screen.getByRole("alert").textContent).toContain("boom");
   });
 });

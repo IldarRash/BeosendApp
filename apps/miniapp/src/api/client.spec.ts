@@ -526,58 +526,10 @@ describe("MiniappApiClient.joinWaitlist", () => {
   });
 });
 
-describe("MiniappApiClient.acceptWaitlist", () => {
-  it("POSTs the accept (no body) and validates the promoted booking", async () => {
-    const fetchMock = vi.fn().mockResolvedValue(jsonResponse(200, BOOKING));
-    vi.stubGlobal("fetch", fetchMock);
-    const client = new MiniappApiClient(BASE);
-
-    const result = await client.acceptWaitlist(WAITLIST_ENTRY.id);
-
-    expect(result).toEqual(BOOKING);
-    const [url, init] = fetchMock.mock.calls[0];
-    expect(url).toBe(`${BASE}/waitlist/${WAITLIST_ENTRY.id}/accept`);
-    expect((init as RequestInit).method).toBe("POST");
-    // No body — the entry id is in the path; the server promotes from the session.
-    expect((init as RequestInit).body).toBeUndefined();
-  });
-
-  it("rejects a malformed booking response via the contract (unsafe path)", async () => {
-    vi.stubGlobal(
-      "fetch",
-      vi.fn().mockResolvedValue(jsonResponse(200, { ...BOOKING, status: "bogus" }))
-    );
-    const client = new MiniappApiClient(BASE);
-
-    await expect(client.acceptWaitlist(WAITLIST_ENTRY.id)).rejects.toThrow();
-  });
-
-  it("surfaces a 409 (window closed / seat re-taken) as ConflictError, NOT a booking", async () => {
-    // The over-book invariant at the seam: a closed window arrives as a ConflictError
-    // the screen renders as "window closed", never as a confirmed booking card.
-    vi.stubGlobal(
-      "fetch",
-      vi.fn().mockResolvedValue(jsonResponse(409, { message: "Окно подтверждения закрылось." }))
-    );
-    const client = new MiniappApiClient(BASE);
-
-    await expect(client.acceptWaitlist(WAITLIST_ENTRY.id)).rejects.toBeInstanceOf(ConflictError);
-    await expect(client.acceptWaitlist(WAITLIST_ENTRY.id)).rejects.toMatchObject({
-      message: "Окно подтверждения закрылось."
-    });
-  });
-
-  it("maps a 404 (unknown entry) to NotFoundError", async () => {
-    vi.stubGlobal("fetch", vi.fn().mockResolvedValue(jsonResponse(404, { message: "no entry" })));
-    const client = new MiniappApiClient(BASE);
-
-    await expect(client.acceptWaitlist(WAITLIST_ENTRY.id)).rejects.toBeInstanceOf(NotFoundError);
-  });
-});
-
 const MY_BOOKING_ITEM: MyBookingItem = {
   bookingId: BOOKING.id,
   trainingId: SLOT.trainingId,
+  groupSubscriptionId: null,
   date: "2026-06-10",
   dayOfWeek: 3,
   startTime: "18:00",

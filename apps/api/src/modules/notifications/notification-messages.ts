@@ -49,8 +49,9 @@ export const DEFAULT_TEMPLATES: Record<Locale, Record<NotificationTemplateKey, s
     "booking-pending": "Заявка отправлена ⏳\n{training}\nОжидаем подтверждения тренера.",
     "booking-declined":
       "Заявка отклонена ❌\n{training}\nК сожалению, тренер не подтвердил запись.",
-    "waitlist-slot":
-      "Освободилось место 🎉\n{training}\nПодтвердите запись в течение {windowMinutes} мин.",
+    "waitlist-promoted": "Вы больше не в листе ожидания 🎉\nВы записаны: {training}",
+    "waitlist-displaced":
+      "Ваше место было переназначено.\n{training}\nВы снова в листе ожидания, позиция {position}.",
     "court-request-confirmed": "{courtLabel}, {date} {startTime}–{endTime}, итог: {priceRsd} RSD",
     "court-request-rejected":
       "К сожалению, нет свободных мест на это время — выберите, пожалуйста, другое время.",
@@ -71,8 +72,9 @@ export const DEFAULT_TEMPLATES: Record<Locale, Record<NotificationTemplateKey, s
     "booking-pending": "Zahtev je poslat ⏳\n{training}\nČekamo potvrdu trenera.",
     "booking-declined":
       "Zahtev je odbijen ❌\n{training}\nNažalost, trener nije potvrdio termin.",
-    "waitlist-slot":
-      "Oslobodilo se mesto 🎉\n{training}\nPotvrdite termin u roku od {windowMinutes} min.",
+    "waitlist-promoted": "Više niste na listi čekanja 🎉\nPrijavljeni ste: {training}",
+    "waitlist-displaced":
+      "Vaše mesto je prerasporedjeno.\n{training}\nPonovo ste na listi čekanja, pozicija {position}.",
     "court-request-confirmed": "{courtLabel}, {date} {startTime}–{endTime}, ukupno: {priceRsd} RSD",
     "court-request-rejected":
       "Nažalost, nema slobodnih mesta u to vreme — izaberite, molimo, drugo vreme.",
@@ -93,8 +95,9 @@ export const DEFAULT_TEMPLATES: Record<Locale, Record<NotificationTemplateKey, s
     "booking-pending": "Request sent ⏳\n{training}\nAwaiting the trainer's confirmation.",
     "booking-declined":
       "Request declined ❌\n{training}\nUnfortunately, the trainer did not confirm the booking.",
-    "waitlist-slot":
-      "A spot opened up 🎉\n{training}\nConfirm your booking within {windowMinutes} min.",
+    "waitlist-promoted": "You're off the waitlist 🎉\nYou're booked: {training}",
+    "waitlist-displaced":
+      "Your seat was reassigned.\n{training}\nYou're back on the waitlist, position {position}.",
     "court-request-confirmed": "{courtLabel}, {date} {startTime}–{endTime}, total: {priceRsd} RSD",
     "court-request-rejected":
       "Unfortunately, there are no free courts at that time — please pick another time.",
@@ -140,11 +143,11 @@ export function renderNotificationTemplate(
 
 /**
  * The placeholder values for a recipient: the composite `{training}` line plus
- * the individual fields, and an optional `{windowMinutes}` (waitlist-slot).
+ * the individual fields, and an optional `{position}` (waitlist-displaced).
  */
 export function buildTemplateVars(
   recipient: NotificationRecipient,
-  extra?: { windowMinutes?: number }
+  extra?: { position?: number }
 ): Record<string, string | number> {
   const vars: Record<string, string | number> = {
     training: trainingLine(recipient),
@@ -154,8 +157,8 @@ export function buildTemplateVars(
     levelName: recipient.levelName,
     trainerName: recipient.trainerName
   };
-  if (extra?.windowMinutes !== undefined) {
-    vars.windowMinutes = extra.windowMinutes;
+  if (extra?.position !== undefined) {
+    vars.position = extra.position;
   }
   return vars;
 }
@@ -303,19 +306,34 @@ export function groupPendingAdminMessage(
 }
 
 /**
- * Waitlist-slot message (T2.1): a seat freed up on a training the client is
- * waiting for. Carries an inline "Подтвердить" button (added by the service) and
- * states the confirmation window so the client knows it is time-limited. In the
- * client's locale.
+ * Waitlist-promoted message (frictionless waitlist): a seat freed up and the
+ * client was AUTO-BOOKED off the waitlist — no confirmation window, no button.
+ * In the client's locale.
  */
-export function waitlistSlotMessage(
+export function waitlistPromotedMessage(
   recipient: NotificationRecipient,
-  windowMinutes: number,
   locale: Locale,
   override?: string
 ): string {
   return renderNotificationTemplate(
-    resolveTemplateBody("waitlist-slot", locale, override),
-    buildTemplateVars(recipient, { windowMinutes })
+    resolveTemplateBody("waitlist-promoted", locale, override),
+    buildTemplateVars(recipient)
+  );
+}
+
+/**
+ * Waitlist-displaced message (frictionless waitlist): the admin swap reassigned
+ * this client's seat, so they were pushed back onto the waitlist at `position`.
+ * In the client's locale.
+ */
+export function waitlistDisplacedMessage(
+  recipient: NotificationRecipient,
+  position: number,
+  locale: Locale,
+  override?: string
+): string {
+  return renderNotificationTemplate(
+    resolveTemplateBody("waitlist-displaced", locale, override),
+    buildTemplateVars(recipient, { position })
   );
 }

@@ -214,6 +214,7 @@ describe("ApiClient.listMyBookings", () => {
     endTime: "19:30",
     trainerName: "Марко",
     levelName: "Начинающий",
+    groupSubscriptionId: null,
     bookingStatus: "booked",
     trainingStatus: "open",
     canCancel: true
@@ -297,36 +298,6 @@ describe("ApiClient.joinWaitlist", () => {
         999
       )
     ).rejects.toThrow(/403/);
-  });
-});
-
-describe("ApiClient.acceptWaitlist", () => {
-  afterEach(() => {
-    vi.unstubAllGlobals();
-  });
-
-  it("POSTs /waitlist/:id/accept and returns the created booking", async () => {
-    const fetchMock = mockFetch(booking, true, 201);
-    const result = await new ApiClient("http://api.test").acceptWaitlist(waitlistEntry.id, 999);
-    expect(result).toEqual({ ok: true, booking });
-    const [url, init] = fetchMock.mock.calls[0] as [string, RequestInit];
-    expect(url).toBe(`http://api.test/waitlist/${waitlistEntry.id}/accept`);
-    expect(init.method).toBe("POST");
-    expect((init.headers as Record<string, string>)["x-telegram-id"]).toBe("999");
-  });
-
-  // Unsafe path: window expired / seat re-taken is a 409, mapped to conflict.
-  it("maps a 409 to a conflict result rather than throwing", async () => {
-    mockFetch({}, false, 409);
-    const result = await new ApiClient("http://api.test").acceptWaitlist(waitlistEntry.id, 999);
-    expect(result).toEqual({ ok: false, reason: "conflict" });
-  });
-
-  it("throws on any other non-2xx", async () => {
-    mockFetch({}, false, 500);
-    await expect(
-      new ApiClient("http://api.test").acceptWaitlist(waitlistEntry.id, 999)
-    ).rejects.toThrow(/500/);
   });
 });
 

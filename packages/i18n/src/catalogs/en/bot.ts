@@ -105,9 +105,6 @@ export const botEn: Record<string, string> = {
   "bot.slots.bookedReminder": "We'll send a reminder before the training.",
   "bot.slots.bookedShort": "✅ You're booked! We'll send a reminder before the training.",
   "bot.slots.moreTrainings": "🏐 More trainings",
-  "bot.slots.full":
-    "Unfortunately, there are no more seats for this training 😔\n\nWould you like to join the waitlist? We'll let you know when a seat opens up.",
-  "bot.slots.joinWaitlist": "⏳ Join the waitlist",
   "bot.slots.otherTrainings": "🏐 Other trainings",
 
   // --- My bookings (my-bookings.ts) ---
@@ -150,13 +147,11 @@ export const botEn: Record<string, string> = {
   "bot.group.monthNotGenerated":
     "The schedule for the selected month hasn't been generated yet 😔\n\nTry another month or contact the manager.",
 
-  // --- Waitlist (waitlist.ts) ---
-  "bot.waitlist.joined":
-    "✅ You're on the waitlist!\n\nAs soon as a seat opens up, we'll send a notification with a confirm button.",
+  // --- Waitlist (booking.ts auto-join on a full slot) ---
+  "bot.waitlist.autoJoined":
+    "There are no more seats for this training 😔\n\nYou're automatically on the waitlist, position {position}. As soon as a seat opens up, we'll book you in and send a notification.",
   "bot.waitlist.joinConflict":
     "Couldn't add you to the waitlist: the seat is still available for a regular booking, or you're already on the list.",
-  "bot.waitlist.acceptConflict":
-    "Unfortunately, the seat is already taken or the confirmation time has expired 😔\n\nCheck the available trainings — there may be other seats.",
 
   // --- Court rental (court.ts) ---
   "bot.court.open": "🏖 Court rental\n\nChoose a date:",

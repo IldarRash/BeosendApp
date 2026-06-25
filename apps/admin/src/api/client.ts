@@ -91,7 +91,6 @@ import {
   type GenerationStatusQuery,
   type Group,
   type GroupMembers,
-  type GroupWaitlistQuery,
   type LabelCatalog,
   type LabelEntry,
   type Level,
@@ -771,24 +770,11 @@ export class ApiClient {
   // ── Waitlist admin tools (subscription waitlisting + promotion) ─────────────
 
   /**
-   * The admin waitlist queue for one group's month (GET /waitlist/group?groupId=
-   * &year=&month=). Each row is a waitlist entry joined with the client's name and
-   * the training's date/time/status + group name; validated against
-   * `waitlistAdminItemSchema`. Ordering/membership are the server's. Admin-only.
-   */
-  listGroupWaitlist(query: GroupWaitlistQuery): Promise<WaitlistAdminItem[]> {
-    const params = new URLSearchParams({
-      groupId: query.groupId,
-      year: String(query.year),
-      month: String(query.month)
-    }).toString();
-    return this.request(`/waitlist/group?${params}`, waitlistAdminItemsSchema);
-  }
-
-  /**
-   * The admin waitlist queue for one training (GET /waitlist/training/:trainingId).
-   * Same enriched row shape as the group queue; backs the swap picker's context.
-   * Admin-only server-side.
+   * The admin waitlist queue for one group training
+   * (GET /waitlist/training/:trainingId). Each row is a waitlist entry joined with
+   * the client's name and the training's date/time/status + group name; validated
+   * against `waitlistAdminItemSchema`. Backs the under-roster waitlist section and
+   * the swap picker's context. Admin-only server-side.
    */
   listTrainingWaitlist(trainingId: string): Promise<WaitlistAdminItem[]> {
     return this.request(`/waitlist/training/${trainingId}`, waitlistAdminItemsSchema);

@@ -44,6 +44,7 @@ const partial: SubscriptionSummary = {
   month: 6,
   dateCount: 8,
   paidCount: 3,
+  waitlistedCount: 0,
   totalRsd: 12000,
   paymentState: "partial"
 };
@@ -76,6 +77,19 @@ describe("Subscriptions page", () => {
     expect(screen.getByText("3/8")).toBeTruthy();
     // The partial-state tag is rendered (also an option in the filter select).
     expect(screen.getAllByText("Частично").length).toBeGreaterThanOrEqual(1);
+  });
+
+  it("shows the waitlisted badge only when waitlistedCount > 0", () => {
+    const waitlisted: SubscriptionSummary = { ...partial, waitlistedCount: 2 };
+    useSubscriptions.mockReturnValue(listQuery([waitlisted]));
+    renderPage();
+    expect(screen.getByText("В ожидании: 2")).toBeTruthy();
+  });
+
+  it("hides the waitlisted badge when waitlistedCount is 0", () => {
+    useSubscriptions.mockReturnValue(listQuery([partial]));
+    renderPage();
+    expect(screen.queryByText(/В ожидании/)).toBeNull();
   });
 
   it("shows an empty state when no subscriptions match", () => {

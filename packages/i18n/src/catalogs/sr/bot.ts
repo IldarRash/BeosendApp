@@ -105,9 +105,6 @@ export const botSr: Record<string, string> = {
   "bot.slots.bookedReminder": "Poslaćemo podsetnik pre treninga.",
   "bot.slots.bookedShort": "✅ Prijavljeni ste! Poslaćemo podsetnik pre treninga.",
   "bot.slots.moreTrainings": "🏐 Još treninga",
-  "bot.slots.full":
-    "Nažalost, mesta za ovaj trening više nema 😔\n\nŽelite li da se upišete na listu čekanja? Obavestićemo vas kada se mesto oslobodi.",
-  "bot.slots.joinWaitlist": "⏳ Upiši se na listu čekanja",
   "bot.slots.otherTrainings": "🏐 Drugi treninzi",
 
   // --- My bookings (my-bookings.ts) ---
@@ -150,13 +147,11 @@ export const botSr: Record<string, string> = {
   "bot.group.monthNotGenerated":
     "Za izabrani mesec raspored još nije formiran 😔\n\nProbajte drugi mesec ili se obratite menadžeru.",
 
-  // --- Waitlist (waitlist.ts) ---
-  "bot.waitlist.joined":
-    "✅ Na listi ste čekanja!\n\nČim se mesto oslobodi, poslaćemo obaveštenje sa dugmetom za potvrdu.",
+  // --- Waitlist (booking.ts auto-join on a full slot) ---
+  "bot.waitlist.autoJoined":
+    "Mesta za ovaj trening više nema 😔\n\nAutomatski ste na listi čekanja, pozicija {position}. Čim se mesto oslobodi, prijavićemo vas i poslati obaveštenje.",
   "bot.waitlist.joinConflict":
     "Nije bilo moguće upisati na listu čekanja: mesto je još dostupno za običnu prijavu ili ste već na listi.",
-  "bot.waitlist.acceptConflict":
-    "Nažalost, mesto je već zauzeto ili je vreme za potvrdu isteklo 😔\n\nPogledajte dostupne treninge — možda ima drugih mesta.",
 
   // --- Court rental (court.ts) ---
   "bot.court.open": "🏖 Iznajmljivanje terena\n\nIzaberite datum:",

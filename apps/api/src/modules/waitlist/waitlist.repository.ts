@@ -1,15 +1,17 @@
 import { Injectable } from "@nestjs/common";
 import { type Database, tables } from "@beosand/db";
 import type { BookingStatus, TrainingStatus, WaitlistEntry, WaitlistStatus } from "@beosand/types";
-import { type SQL, and, asc, eq, gte, inArray, lte, sql } from "drizzle-orm";
+import { type SQL, and, asc, eq, gte, inArray, isNotNull, lte, sql } from "drizzle-orm";
 import { DatabaseService } from "../../db/database.service";
 
 type WaitlistRow = typeof tables.waitlist.$inferSelect;
 type NewWaitlistRow = typeof tables.waitlist.$inferInsert;
 
-/** A training row's capacity state, read FOR UPDATE so the accept recompute is race-safe. */
+/** A training row's capacity state, read FOR UPDATE so the promote recompute is race-safe. */
 export interface TrainingLockRow {
   id: string;
+  /** null for an individual training; set for a group training. Waitlist is group-only. */
+  groupId: string | null;
   capacity: number;
   bookedCount: number;
   status: TrainingStatus;
@@ -70,12 +72,6 @@ export interface WaitlistLockRow {
   notifiedAt: Date | null;
 }
 
-/** An expired-window candidate: a `notified` entry whose window has passed. */
-export interface ExpiredCandidate {
-  id: string;
-  trainingId: string;
-}
-
 /** Only place waitlist DB access lives. Returns typed rows; no business rules. */
 @Injectable()
 export class WaitlistRepository {
@@ -94,6 +90,7 @@ export class WaitlistRepository {
     const [row] = await tx
       .select({
         id: tables.trainings.id,
+        groupId: tables.trainings.groupId,
         capacity: tables.trainings.capacity,
         bookedCount: tables.trainings.bookedCount,
         status: tables.trainings.status
@@ -259,17 +256,7 @@ export class WaitlistRepository {
     return row;
   }
 
-  /** Mark an entry `notified` and stamp `notifiedAt`; returns the updated row. */
-  async markNotified(tx: Database, id: string, notifiedAt: Date): Promise<WaitlistEntry> {
-    const [row] = await tx
-      .update(tables.waitlist)
-      .set({ status: "notified", notifiedAt })
-      .where(eq(tables.waitlist.id, id))
-      .returning();
-    return toEntry(row);
-  }
-
-  /** Set an entry's status (e.g. `promoted` / `expired`) inside the caller's transaction. */
+  /** Set an entry's status (e.g. `promoted` / `cancelled`) inside the caller's transaction. */
   async setStatus(tx: Database, id: string, status: WaitlistStatus): Promise<WaitlistEntry> {
     const [row] = await tx
       .update(tables.waitlist)
@@ -361,16 +348,26 @@ export class WaitlistRepository {
   }
 
   /**
-   * Every `notified` entry whose confirmation window has closed (`notifiedAt <=
-   * cutoff`). Drives the minutely sweep; no lock here — the sweep re-loads each
-   * entry FOR UPDATE before expiring it.
+   * Distinct GROUP trainings that are still `open` with a free seat AND carry at
+   * least one active `waiting` waitlist entry — the minutely sweep's candidates for
+   * auto-promotion (the safety net that closes any freed-seat gap, e.g. transferGroup).
+   * No lock here — promoteNext re-loads the training + head FOR UPDATE before booking.
+   * Individual trainings (null groupId) are excluded: the waitlist is group-only.
    */
-  async findExpiredNotified(cutoff: Date): Promise<ExpiredCandidate[]> {
-    return this.database.db
-      .select({ id: tables.waitlist.id, trainingId: tables.waitlist.trainingId })
+  async findPromotableTrainings(): Promise<string[]> {
+    const rows = await this.database.db
+      .selectDistinct({ trainingId: tables.waitlist.trainingId })
       .from(tables.waitlist)
-      .where(and(eq(tables.waitlist.status, "notified"), lte(tables.waitlist.notifiedAt, cutoff)))
-      .orderBy(asc(tables.waitlist.position));
+      .innerJoin(tables.trainings, eq(tables.waitlist.trainingId, tables.trainings.id))
+      .where(
+        and(
+          eq(tables.waitlist.status, "waiting"),
+          isNotNull(tables.trainings.groupId),
+          eq(tables.trainings.status, "open"),
+          sql`${tables.trainings.bookedCount} < ${tables.trainings.capacity}`
+        )
+      );
+    return rows.map((row) => row.trainingId);
   }
 
   /**
@@ -386,28 +383,6 @@ export class WaitlistRepository {
         inArray(tables.waitlist.status, ["waiting", "notified"])
       ),
       [asc(tables.waitlist.position)]
-    );
-  }
-
-  /**
-   * Active (`waiting`|`notified`) entries across a group's trainings within
-   * [from, to] (a calendar month), joined to the display fields, ordered by
-   * training date then position — the admin "group queue" for the month. Caller
-   * owns the admin gate.
-   */
-  async listForGroupMonth(
-    groupId: string,
-    from: string,
-    to: string
-  ): Promise<WaitlistAdminRow[]> {
-    return this.selectAdminRows(
-      and(
-        eq(tables.trainings.groupId, groupId),
-        gte(tables.trainings.date, from),
-        lte(tables.trainings.date, to),
-        inArray(tables.waitlist.status, ["waiting", "notified"])
-      ),
-      [asc(tables.trainings.date), asc(tables.waitlist.position)]
     );
   }
 

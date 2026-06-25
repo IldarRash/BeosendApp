@@ -25,16 +25,18 @@ interface ConfirmViewProps {
    * confirmation. The Mini App never decides this — it reflects the API's status.
    */
   bookingStatus?: BookingStatus;
-  /** A 409/error message to surface verbatim above the summary, if any. */
+  /**
+   * Set once a booking 409 ("full group session") auto-queued the caller onto the
+   * waitlist: the returned 1-based queue position. When present the view renders the
+   * calm "you're on the waitlist · position N" result instead of the summary or a
+   * booked-success state — the user made exactly one decision (tap Book) and the full
+   * session queued them automatically.
+   */
+  waitlistedPosition?: number | null;
+  /** A hard (non-409) error message to surface verbatim above the summary, if any. */
   errorMessage?: string;
   /** Return to the browse list (also the BackButton target, wired by the screen). */
   onBackToList: () => void;
-  /**
-   * Offered only when the booking failed with a 409 ("slot filled meanwhile"): switch
-   * the primary action to "join the waitlist" for the very slot just attempted, so the
-   * user can queue without leaving the flow. Absent in the normal (no-conflict) state.
-   */
-  onJoinWaitlist?: () => void;
 }
 
 /**
@@ -42,9 +44,15 @@ interface ConfirmViewProps {
  * for the summary rows and a note hint. No money or availability math — every value
  * is the API's.
  *
- * On success it shows a success state with a path back to Browse; the haptic + list
- * refetch are fired by the screen. A 409 ("slot filled meanwhile") arrives as
- * `errorMessage` and is shown verbatim; the primary action becomes "join waitlist".
+ * Three terminal states, one native MainButton each:
+ *   - summary    → MainButton "Записаться" fires {@link onConfirm}
+ *   - booked     → a success `.stateview`; MainButton becomes "back to list"
+ *   - waitlisted → a full group session 409'd and the caller was auto-queued; the
+ *                  calm "you're on the waitlist · position N" result (NO extra tap —
+ *                  the join already fired); MainButton becomes "back to list"
+ *
+ * A hard (non-409) failure arrives as `errorMessage` and is shown verbatim above the
+ * summary so the user can retry.
  */
 export function ConfirmView({
   slot,
@@ -52,9 +60,9 @@ export function ConfirmView({
   submitting,
   succeeded,
   bookingStatus,
+  waitlistedPosition,
   errorMessage,
-  onBackToList,
-  onJoinWaitlist
+  onBackToList
 }: ConfirmViewProps): JSX.Element {
   const t = useT();
 
@@ -62,25 +70,45 @@ export function ConfirmView({
   // decides this (auto-confirmed to `booked` when the trainer has no Telegram). The
   // Mini App only reflects it in the success copy.
   const isPending = bookingStatus === "pending";
+  const waitlisted = waitlistedPosition != null;
 
   const dateLine = `${t(weekdayFullKey(slot.dayOfWeek))}, ${formatDayMonth(slot.date)}`;
   const timeLine = formatTimeRange(slot.startTime, slot.endTime);
   const priceLine = t("miniapp.browse.price", { price: formatRsd(slot.priceSingleRsd) });
   const seatsLine = t("miniapp.browse.seats", { count: slot.freeSeats });
 
-  // After a 409 the seat is gone, so the one primary action becomes "join the
-  // waitlist" for this slot rather than a retry that would 409 again.
-  const offerWaitlist = onJoinWaitlist !== undefined;
+  const terminal = succeeded || waitlisted;
 
   useMainButton({
-    text: succeeded
-      ? t("miniapp.booking.backToList")
-      : offerWaitlist
-        ? t("miniapp.waitlist.joinConfirm")
-        : t("miniapp.booking.confirm"),
-    onClick: succeeded ? onBackToList : offerWaitlist ? onJoinWaitlist : onConfirm,
+    text: terminal ? t("miniapp.booking.backToList") : t("miniapp.booking.confirm"),
+    onClick: terminal ? onBackToList : onConfirm,
     isLoading: submitting
   });
+
+  if (waitlisted) {
+    // The full session 409'd and we auto-queued the caller — a calm waitlisted result,
+    // never a red error. role="status" so it reads as the expected outcome of Book.
+    return (
+      <div className="screen" role="status" aria-live="polite">
+        <div className="stateview">
+          <div className="stateview__ic" aria-hidden="true">
+            <Glyph name="waitlist" />
+          </div>
+          <div className="stateview__title">{t("miniapp.waitlist.autoJoinedTitle")}</div>
+          <div className="stateview__sub">{t("miniapp.waitlist.autoJoinedBody")}</div>
+          <div className="stateview__sub">{dateLine} · {timeLine}</div>
+        </div>
+        <div className="note" role="note">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={1.8} strokeLinecap="round" strokeLinejoin="round" aria-hidden="true" focusable="false">
+            <circle cx="12" cy="12" r="8.5" />
+            <path d="M12 11v5M12 8h.01" />
+          </svg>
+          <span>{t("miniapp.waitlist.autoJoinedPosition", { position: waitlistedPosition })}</span>
+        </div>
+        <FallbackButton text={t("miniapp.booking.backToList")} onClick={onBackToList} />
+      </div>
+    );
+  }
 
   if (succeeded) {
     return (
@@ -148,8 +176,8 @@ export function ConfirmView({
       )}
 
       <FallbackButton
-        text={offerWaitlist ? t("miniapp.waitlist.joinConfirm") : t("miniapp.booking.confirm")}
-        onClick={offerWaitlist ? onJoinWaitlist! : onConfirm}
+        text={t("miniapp.booking.confirm")}
+        onClick={onConfirm}
         loading={submitting}
       />
     </div>

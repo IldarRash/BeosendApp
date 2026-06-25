@@ -30,8 +30,6 @@ const envSchema = z.object({
     ),
   /** Contact handle/text shown by the bot's "Связаться с менеджером" action. */
   MANAGER_CONTACT: z.string().min(1).default("@beosand_manager"),
-  /** Minutes a promoted waitlist entry stays acceptable before the sweep expires it (T2.1). */
-  WAITLIST_WINDOW_MINUTES: z.coerce.number().int().positive().default(30),
   /** Comma-separated browser origins allowed to call the API in production. */
   ADMIN_ALLOWED_ORIGINS: z
     .string()

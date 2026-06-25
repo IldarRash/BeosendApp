@@ -111,9 +111,6 @@ export const botRu: Record<string, string> = {
   "bot.slots.bookedReminder": "Мы пришлём напоминание перед тренировкой.",
   "bot.slots.bookedShort": "✅ Вы записаны! Мы пришлём напоминание перед тренировкой.",
   "bot.slots.moreTrainings": "🏐 Еще тренировки",
-  "bot.slots.full":
-    "К сожалению, мест на эту тренировку уже нет 😔\n\nХотите записаться в лист ожидания? Мы сообщим, когда место освободится.",
-  "bot.slots.joinWaitlist": "⏳ Встать в лист ожидания",
   "bot.slots.otherTrainings": "🏐 Другие тренировки",
 
   // --- My bookings (my-bookings.ts) ---
@@ -156,13 +153,11 @@ export const botRu: Record<string, string> = {
   "bot.group.monthNotGenerated":
     "На выбранный месяц расписание ещё не сформировано 😔\n\nПопробуйте другой месяц или свяжитесь с менеджером.",
 
-  // --- Waitlist (waitlist.ts) ---
-  "bot.waitlist.joined":
-    "✅ Вы в листе ожидания!\n\nКак только освободится место, мы пришлём уведомление с кнопкой подтверждения.",
+  // --- Waitlist (booking.ts auto-join on a full slot) ---
+  "bot.waitlist.autoJoined":
+    "Мест на эту тренировку уже нет 😔\n\nВы автоматически в листе ожидания, позиция {position}. Как только освободится место, мы запишем вас и пришлём уведомление.",
   "bot.waitlist.joinConflict":
     "Не удалось записать в лист ожидания: место ещё доступно для обычной записи или вы уже в листе.",
-  "bot.waitlist.acceptConflict":
-    "К сожалению, место уже занято или время подтверждения истекло 😔\n\nЗагляните в доступные тренировки — возможно, есть другие места.",
 
   // --- Court rental (court.ts) ---
   "bot.court.open": "🏖 Аренда корта\n\nВыберите дату:",

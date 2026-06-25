@@ -1,6 +1,6 @@
 import { Injectable } from "@nestjs/common";
 import { type Database, tables } from "@beosand/db";
-import { and, count, eq, isNotNull, ne, sql } from "drizzle-orm";
+import { type SQL, and, count, eq, isNotNull, ne, sql } from "drizzle-orm";
 import { DatabaseService } from "../../db/database.service";
 
 /**
@@ -21,6 +21,8 @@ export interface SubscriptionAggregateRow {
   minDate: string;
   dateCount: number;
   paidCount: number;
+  /** Active (`waiting`) waitlist dates queued under this subscription's id. */
+  waitlistedCount: number;
 }
 
 /** Only place subscriptions DB access lives. Returns typed rows; no business rules. */
@@ -58,7 +60,8 @@ export class SubscriptionsRepository {
         dateCount: count(tables.bookings.id),
         paidCount: count(
           sql`case when ${tables.bookings.paymentStatus} = 'paid' then 1 end`
-        )
+        ),
+        waitlistedCount: this.waitlistedCountExpr()
       })
       .from(tables.bookings)
       .innerJoin(tables.clients, eq(tables.bookings.clientId, tables.clients.id))
@@ -84,7 +87,8 @@ export class SubscriptionsRepository {
       priceMonthRsd: row.priceMonthRsd,
       minDate: row.minDate,
       dateCount: Number(row.dateCount),
-      paidCount: Number(row.paidCount)
+      paidCount: Number(row.paidCount),
+      waitlistedCount: Number(row.waitlistedCount)
     }));
   }
 
@@ -110,7 +114,8 @@ export class SubscriptionsRepository {
         dateCount: count(tables.bookings.id),
         paidCount: count(
           sql`case when ${tables.bookings.paymentStatus} = 'paid' then 1 end`
-        )
+        ),
+        waitlistedCount: this.waitlistedCountExpr()
       })
       .from(tables.bookings)
       .innerJoin(tables.clients, eq(tables.bookings.clientId, tables.clients.id))
@@ -142,8 +147,23 @@ export class SubscriptionsRepository {
       priceMonthRsd: row.priceMonthRsd,
       minDate: row.minDate,
       dateCount: Number(row.dateCount),
-      paidCount: Number(row.paidCount)
+      paidCount: Number(row.paidCount),
+      waitlistedCount: Number(row.waitlistedCount)
     };
+  }
+
+  /**
+   * Correlated scalar: the count of active (`waiting`) waitlist rows sharing the
+   * grouped subscription's id. A subquery (not a join) so it never multiplies the
+   * booking-aggregate rows. The waitlist is group-only, so this is the subscription
+   * buyer's queued-but-not-yet-booked dates.
+   */
+  private waitlistedCountExpr(): SQL<number> {
+    return sql<number>`(
+      select count(*) from ${tables.waitlist}
+      where ${tables.waitlist.groupSubscriptionId} = ${tables.bookings.groupSubscriptionId}
+        and ${tables.waitlist.status} = 'waiting'
+    )`;
   }
 
   /**

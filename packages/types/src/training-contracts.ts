@@ -387,6 +387,8 @@ export const subscriptionSummarySchema = z.object({
   month: z.number().int().min(1).max(12),
   dateCount: z.number().int().nonnegative(),
   paidCount: z.number().int().nonnegative(),
+  /** Active (`waiting`) waitlist dates in this batch — shown alongside the booked dates. */
+  waitlistedCount: z.number().int().nonnegative(),
   totalRsd: rsd,
   paymentState: subscriptionPaymentState
 });
@@ -431,6 +433,7 @@ export type MyBookingsQuery = z.infer<typeof myBookingsQuerySchema>;
 export const myBookingItemSchema = z.object({
   bookingId: uuid,
   trainingId: uuid,
+  groupSubscriptionId: uuid.nullable(),
   date: dateString,
   dayOfWeek,
   startTime: timeString,
@@ -660,19 +663,6 @@ export const waitlistAdminItemSchema = waitlistEntrySchema.extend({
 export type WaitlistAdminItem = z.infer<typeof waitlistAdminItemSchema>;
 
 /**
- * Query for the admin "group waitlist for a month" view. Reuses the year/month
- * primitives of createGroupBookingSchema so the window can't drift. Strict.
- */
-export const groupWaitlistQuerySchema = z
-  .object({
-    groupId: uuid,
-    year: z.number().int().min(2024),
-    month: z.number().int().min(1).max(12)
-  })
-  .strict();
-export type GroupWaitlistQuery = z.infer<typeof groupWaitlistQuerySchema>;
-
-/**
  * Body for swapping a waitlist entry ahead of an existing booking (admin): the
  * entry id is the path param, the body names the booking it replaces. Strict.
  */
@@ -785,7 +775,8 @@ export const notificationType = z.enum([
   "booking-declined",
   "reminder-24h",
   "reminder-3h",
-  "waitlist-slot",
+  "waitlist-promoted",
+  "waitlist-displaced",
   "training-cancelled"
 ]);
 export type NotificationType = z.infer<typeof notificationType>;

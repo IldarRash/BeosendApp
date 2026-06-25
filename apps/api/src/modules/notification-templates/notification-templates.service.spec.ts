@@ -59,9 +59,9 @@ describe("NotificationTemplatesService", () => {
   });
 
   describe("list", () => {
-    it("returns all 12 events with default + audience + isOverridden + placeholders", async () => {
+    it("returns all 13 events with default + audience + isOverridden + placeholders", async () => {
       const entries = await service.list(ADMIN_ID, "ru");
-      expect(entries).toHaveLength(12);
+      expect(entries).toHaveLength(13);
       const confirmed = entries.find((e) => e.eventKey === "booking-confirmed");
       expect(confirmed?.audience).toBe("client");
       expect(confirmed?.isOverridden).toBe(false);
@@ -72,8 +72,8 @@ describe("NotificationTemplatesService", () => {
       const adminEvent = entries.find((e) => e.eventKey === "booking-pending-admin");
       expect(adminEvent?.audience).toBe("staff");
 
-      const waitlist = entries.find((e) => e.eventKey === "waitlist-slot");
-      expect(waitlist?.placeholders).toContain("{windowMinutes}");
+      const waitlist = entries.find((e) => e.eventKey === "waitlist-displaced");
+      expect(waitlist?.placeholders).toContain("{position}");
     });
 
     it("serves the locale default body when no override is set", async () => {

@@ -95,7 +95,16 @@ export function Subscriptions(): JSX.Element {
       key: "dates",
       header: t("admin.subscriptions.colDates"),
       numeric: true,
-      render: (s) => `${s.paidCount}/${s.dateCount}`
+      render: (s) => (
+        <span className="cluster" style={{ justifyContent: "flex-end", gap: 8 }}>
+          {`${s.paidCount}/${s.dateCount}`}
+          {s.waitlistedCount > 0 ? (
+            <span className="tag tag--info">
+              {t("admin.subscriptions.waitlisted", { count: s.waitlistedCount })}
+            </span>
+          ) : null}
+        </span>
+      )
     },
     {
       key: "total",

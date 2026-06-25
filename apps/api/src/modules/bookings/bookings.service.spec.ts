@@ -1003,6 +1003,7 @@ describe("BookingsService.listMine", () => {
   const row = (over: Partial<MyBookingRow> = {}): MyBookingRow => ({
     bookingId: "dddddddd-dddd-dddd-dddd-dddddddddddd",
     trainingId: TRAINING_ID,
+    groupSubscriptionId: null,
     date: future,
     startTime: "18:00",
     endTime: "19:30",

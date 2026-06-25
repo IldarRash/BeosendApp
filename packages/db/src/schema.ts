@@ -51,8 +51,9 @@ export const notificationType = pgEnum("notification_type", [
   "booking-declined",
   "reminder-24h",
   "reminder-3h",
-  "waitlist-slot",
-  "training-cancelled"
+  "waitlist-promoted",
+  "training-cancelled",
+  "waitlist-displaced"
 ]);
 /**
  * The client-facing, single-training notification events whose body text the
@@ -68,12 +69,13 @@ export const notificationTemplateKey = pgEnum("notification_template_key", [
   "training-cancelled",
   "booking-pending",
   "booking-declined",
-  "waitlist-slot",
+  "waitlist-promoted",
   "court-request-confirmed",
   "court-request-rejected",
   "booking-pending-admin",
   "individual-request-admin",
-  "court-request-created-admin"
+  "court-request-created-admin",
+  "waitlist-displaced"
 ]);
 export const courtRequestStatus = pgEnum("court_request_status", [
   "pending",

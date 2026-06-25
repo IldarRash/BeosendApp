@@ -695,6 +695,7 @@ export class BookingsService {
       return myBookingItemSchema.parse({
         bookingId: row.bookingId,
         trainingId: row.trainingId,
+        groupSubscriptionId: row.groupSubscriptionId,
         date: row.date,
         dayOfWeek: isoWeekdayOf(row.date),
         startTime: row.startTime,

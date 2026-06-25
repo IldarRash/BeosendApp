@@ -1,12 +1,13 @@
 import { useMemo, useState } from "react";
 import { Placeholder } from "@telegram-apps/telegram-ui";
-import type { Group, GroupBookingResult, GroupMember } from "@beosand/types";
+import type { Group, GroupBookingResult, GroupMember, WaitlistAdminItem } from "@beosand/types";
 import { resolveErrorMessage } from "../api/errors";
 import {
   useCreateGroupBooking,
   useGroupMembers,
   useGroups,
   useLevels,
+  useMyWaitlist,
   useTrainers
 } from "../api/hooks";
 import { useT } from "../i18n/LanguageProvider";
@@ -370,6 +371,8 @@ function GroupDetail({
 
       <GroupMembersBlock group={group} year={previewMonth.year} month={previewMonth.month} />
 
+      <OwnWaitlistNote group={group} year={previewMonth.year} month={previewMonth.month} />
+
       {selectedKey !== undefined && (
         <FallbackButton text={t("miniapp.group.confirm")} onClick={onContinue} />
       )}
@@ -557,6 +560,65 @@ function GroupMembersBlock({
       )}
     </section>
   );
+}
+
+/**
+ * "Вы в листе ожидания" — the CURRENT client's OWN waitlist standing for this group's
+ * previewed month, derived from {@link useMyWaitlist}. Privacy: it shows ONLY the
+ * caller's own entries (the endpoint is self-scoped) — never another client's identity
+ * or a global waitlist roster. Renders nothing when the client has no queued date for
+ * this group/month, and stays quiet while loading / on error (it is supplementary).
+ *
+ * Matching is by the entry's `groupName` (the same name the group carries) AND the
+ * previewed year+month parsed from the entry's date — both display-only fields the
+ * server returned; the Mini App does no queue math.
+ */
+function OwnWaitlistNote({
+  group,
+  year,
+  month
+}: {
+  group: Group;
+  year: number;
+  month: number;
+}): JSX.Element | null {
+  const t = useT();
+  const waitlist = useMyWaitlist();
+
+  if (waitlist.isLoading || waitlist.isError || !waitlist.data) {
+    return null;
+  }
+
+  const mine = waitlist.data.filter(
+    (entry: WaitlistAdminItem) =>
+      entry.groupName === group.name && isInMonth(entry.date, year, month)
+  );
+  if (mine.length === 0) {
+    return null;
+  }
+
+  const note =
+    mine.length === 1
+      ? t("miniapp.group.ownWaitlist.one", {
+          date: formatDayMonth(mine[0].date),
+          position: mine[0].position
+        })
+      : t("miniapp.group.ownWaitlist.many", { count: mine.length });
+
+  return (
+    <div className="note" role="status">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={1.8} strokeLinecap="round" strokeLinejoin="round" aria-hidden="true" focusable="false">
+        <circle cx="12" cy="12" r="8.5" />
+        <path d="M12 11v5M12 8h.01" />
+      </svg>
+      <span>{note}</span>
+    </div>
+  );
+}
+
+/** True when an ISO `YYYY-MM-DD` date falls in the given year + 1-based month. */
+function isInMonth(isoDate: string, year: number, month: number): boolean {
+  return isoDate.slice(0, 7) === `${year}-${String(month).padStart(2, "0")}`;
 }
 
 /** One roster member: a coral-tint avatar circle with the initial + the first name. */

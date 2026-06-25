@@ -6,15 +6,7 @@ import type { ReactNode } from "react";
 import type { Client, Level, MiniappMe } from "@beosand/types";
 import { LanguageProvider } from "../i18n/LanguageProvider";
 import { Router } from "./Router";
-import {
-  HOME_SECTIONS,
-  parseWaitlistAccept,
-  resolveStartParam,
-  resolveStartTarget,
-  toRouteId
-} from "./routes";
-
-const ACCEPT_UUID = "66666666-6666-6666-6666-666666666666";
+import { HOME_SECTIONS, resolveStartParam, resolveStartTarget, toRouteId } from "./routes";
 
 /**
  * S2 navigation-shell tests. Two layers:
@@ -61,7 +53,6 @@ interface FakeApi {
   getClientByTelegramId: ReturnType<typeof vi.fn>;
   onboardClient: ReturnType<typeof vi.fn>;
   setLanguage: ReturnType<typeof vi.fn>;
-  acceptWaitlist: ReturnType<typeof vi.fn>;
 }
 
 let api: FakeApi;
@@ -78,7 +69,6 @@ function makeApi(overrides: Partial<FakeApi> = {}): FakeApi {
     getClientByTelegramId: vi.fn().mockResolvedValue(ONBOARDED),
     onboardClient: vi.fn().mockResolvedValue(ONBOARDED),
     setLanguage: vi.fn().mockResolvedValue(ONBOARDED),
-    acceptWaitlist: vi.fn(),
     ...overrides
   };
 }
@@ -140,10 +130,10 @@ describe("route table (pure)", () => {
     expect(resolveStartParam(null)).toBe("home");
     expect(resolveStartParam("")).toBe("home");
     expect(resolveStartParam("%%%")).toBe("home");
-    // Id-carrying targets whose screens aren't built in S2 → Home (no throw, no leak).
+    // Not-yet-reachable id-carrying targets → Home (no throw, no leak). The waitlist is
+    // now auto-book + notify, so there is no accept deep link — `waitlist_*` is unknown.
     expect(resolveStartParam("waitlist_123")).toBe("home");
     expect(resolveStartParam("book_456")).toBe("home");
-    expect(resolveStartParam("waitlist_")).toBe("home");
   });
 
   it("narrows only real route ids; rejects anything else", () => {
@@ -153,26 +143,9 @@ describe("route table (pure)", () => {
     expect(toRouteId("")).toBeNull();
   });
 
-  it("parses waitlist_<uuid> into the entry id; rejects a non-uuid / non-prefix", () => {
-    expect(parseWaitlistAccept(`waitlist_${ACCEPT_UUID}`)).toBe(ACCEPT_UUID);
-    // Case-insensitive prefix; the uuid itself is matched case-insensitively too.
-    expect(parseWaitlistAccept(`Waitlist_${ACCEPT_UUID.toUpperCase()}`)).toBe(
-      ACCEPT_UUID.toUpperCase()
-    );
-    // A non-uuid id never reaches the API.
-    expect(parseWaitlistAccept("waitlist_123")).toBeNull();
-    expect(parseWaitlistAccept("waitlist_")).toBeNull();
-    expect(parseWaitlistAccept("book_456")).toBeNull();
-    expect(parseWaitlistAccept(null)).toBeNull();
-  });
-
-  it("resolveStartTarget routes a waitlist_<uuid> to the accept screen carrying the id", () => {
-    expect(resolveStartTarget(`waitlist_${ACCEPT_UUID}`)).toEqual({
-      route: "waitlist-accept",
-      entryId: ACCEPT_UUID
-    });
-    // Bare known prefixes keep their route; everything else (incl. a bad waitlist id) → home.
+  it("resolveStartTarget wraps a bare route; unknown/absent → home", () => {
     expect(resolveStartTarget("profile")).toEqual({ route: "profile" });
+    expect(resolveStartTarget("mybookings")).toEqual({ route: "my-bookings" });
     expect(resolveStartTarget("waitlist_nope")).toEqual({ route: "home" });
     expect(resolveStartTarget("book_456")).toEqual({ route: "home" });
     expect(resolveStartTarget(null)).toEqual({ route: "home" });
@@ -264,37 +237,13 @@ describe("navigation shell", () => {
   });
 
   it("opens Home for an unknown/unreachable deep link, never an error", async () => {
+    // The waitlist is now auto-book + notify, so `waitlist_*` is an unknown deep link
+    // that falls back to Home; the hub renders, no throw, no leak.
     startParam = "waitlist_999";
     renderWithProviders(<Router />);
 
-    // A waitlist_ link whose id is not a uuid is dropped; the hub renders, no throw.
     await screen.findByText("Расписание тренировок");
     expect(latestBackButton().visible).toBe(false);
-  });
-
-  it("never reaches the accept write for a malformed waitlist deep link (uuid-gated seam)", async () => {
-    startParam = "waitlist_not-a-uuid";
-    renderWithProviders(<Router />);
-
-    // The bad id is rejected at parse time, so the shell seeds Home and the accept
-    // screen is never mounted — acceptWaitlist must not be invoked for a malformed link.
-    await screen.findByText("Расписание тренировок");
-    expect(screen.queryByText("Освободилось место")).toBeNull();
-    expect(api.acceptWaitlist).not.toHaveBeenCalled();
-  });
-
-  it("deep-links waitlist_<uuid> into the accept screen; BackButton returns to Home", async () => {
-    startParam = `waitlist_${ACCEPT_UUID}`;
-    renderWithProviders(<Router />);
-
-    // Boot lands on the accept prompt (seeded ["home","waitlist-accept"]); the
-    // BackButton pops to Home. No API call fires until the user confirms.
-    await screen.findByText("Освободилось место");
-    expect(api.acceptWaitlist).not.toHaveBeenCalled();
-    expect(latestBackButton().visible).toBe(true);
-
-    latestBackButton().onBack();
-    await waitFor(() => expect(screen.getByText("Тренировки")).toBeTruthy());
   });
 
   it("routes a not-onboarded caller to the wizard, not the Home menu", async () => {

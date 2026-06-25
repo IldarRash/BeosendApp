@@ -53,6 +53,7 @@ const ONBOARDED: Client = {
 const UPCOMING: MyBookingItem = {
   bookingId: "55555555-5555-5555-5555-555555555555",
   trainingId: "33333333-3333-3333-3333-333333333333",
+  groupSubscriptionId: null,
   date: "2026-06-10",
   dayOfWeek: 3,
   startTime: "18:00",
@@ -87,6 +88,7 @@ const UPCOMING_PENDING: MyBookingItem = {
 const PAST_ATTENDED: MyBookingItem = {
   bookingId: "66666666-6666-6666-6666-666666666666",
   trainingId: "44444444-4444-4444-4444-444444444444",
+  groupSubscriptionId: null,
   date: "2026-05-01",
   dayOfWeek: 4,
   startTime: "18:00",

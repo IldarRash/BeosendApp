@@ -218,26 +218,6 @@ export function useJoinWaitlist(): UseMutationResult<WaitlistEntry, Error, strin
   });
 }
 
-/**
- * Accept a freed seat from the waitlist (POST /waitlist/:id/accept). The mutation
- * argument is the entry id carried by the deep link; the server promotes it to a
- * booking, enforcing ownership, the confirmation window, and capacity (no over-book).
- *
- * On settle it invalidates every available-slots query so the bookable list reflects
- * the server's capacity recompute (a promotion may have consumed the slot's last open
- * seat). A 409 (window closed / seat re-taken) surfaces as a {@link ConflictError}.
- */
-export function useAcceptWaitlist(): UseMutationResult<Booking, Error, string> {
-  const apiClient = useApiClient();
-  const qc = useQueryClient();
-  return useMutation<Booking, Error, string>({
-    mutationFn: (entryId) => apiClient.acceptWaitlist(entryId),
-    onSettled: () => {
-      void qc.invalidateQueries({ queryKey: [AVAILABLE_SLOTS_KEY_PREFIX] });
-    }
-  });
-}
-
 /** The shared query-key prefix for every my-bookings request (for invalidation). */
 const MY_BOOKINGS_KEY_PREFIX = "my-bookings";
 

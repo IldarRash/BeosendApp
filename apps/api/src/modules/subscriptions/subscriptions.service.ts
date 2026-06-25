@@ -82,6 +82,7 @@ export class SubscriptionsService {
       month,
       dateCount: row.dateCount,
       paidCount: row.paidCount,
+      waitlistedCount: row.waitlistedCount,
       totalRsd,
       paymentState: paymentStateOf(row.dateCount, row.paidCount)
     });

@@ -318,9 +318,9 @@ export class NotificationsRepository {
 
   /**
    * Render fields + Telegram id for one (client, training) pair regardless of any
-   * booking — the waitlist-slot send (T2.1) targets a client who is waiting, not
-   * booked, so the booked-only lookups don't fit. No log anti-join: the waitlist
-   * promotion is a fresh event each time a seat frees, so it is sent every time.
+   * booking — the waitlist-promoted/-displaced sends target a client off the back
+   * of a queue change, so the booked-only lookups don't fit. No log anti-join: the
+   * waitlist promotion is a fresh event each time a seat frees, so it is sent every time.
    */
   async findWaitlistRecipient(
     clientId: string,

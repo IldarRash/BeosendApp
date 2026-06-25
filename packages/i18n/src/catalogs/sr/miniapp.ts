@@ -86,13 +86,10 @@ export const miniappSr: Record<string, string> = {
   "miniapp.timeOfDay.afternoon": "Dan",
   "miniapp.timeOfDay.evening": "Veče",
 
-  // --- Slot card labels (shared by the schedule day-detail + confirm/waitlist views) ---
+  // --- Slot card labels (shared by the schedule day-detail + confirm views) ---
   "miniapp.browse.seats": "{count} mesta",
-  "miniapp.browse.seatsNone": "Nema mesta",
   "miniapp.browse.price": "{price} RSD",
   "miniapp.browse.bookAria": "Prijavi se",
-  "miniapp.browse.waitlist": "Lista čekanja",
-  "miniapp.browse.waitlistAria": "Stani na listu čekanja",
 
   // --- Filter sheet labels (shared by the group-list filter) ---
   "miniapp.browse.filter.any": "Bilo koji",
@@ -117,27 +114,13 @@ export const miniappSr: Record<string, string> = {
   "miniapp.booking.backToList": "Na raspored",
   "miniapp.booking.conflict": "Ovo mesto je upravo zauzeto. Izaberite drugi trening.",
 
-  // --- Waitlist (S6): join + accept ---
-  "miniapp.waitlist.joinConfirm": "Stani na listu čekanja",
-  "miniapp.waitlist.joinConfirmHeader": "Lista čekanja",
-  "miniapp.waitlist.joinConfirmBody":
-    "Ovo mesto je zauzeto. Stanite na listu čekanja — poslaćemo obaveštenje čim se oslobodi.",
-  "miniapp.waitlist.joinOfferTitle": "Mesto je upravo zauzeto",
-  "miniapp.waitlist.joinedTitle": "Na listi ste čekanja",
-  "miniapp.waitlist.joinedBody": "Obavestićemo vas čim se mesto oslobodi.",
-  "miniapp.waitlist.positionLabel": "Vaša pozicija: {position}",
+  // --- Waitlist (frictionless: auto-join on a full group session) ---
+  "miniapp.waitlist.autoJoinedTitle": "Na listi ste čekanja",
+  "miniapp.waitlist.autoJoinedBody":
+    "Nema više mesta, pa smo vas dodali na listu čekanja. Obavestićemo vas čim se mesto oslobodi.",
+  "miniapp.waitlist.autoJoinedPosition": "Na listi ste čekanja · pozicija {position}",
   "miniapp.waitlist.joinConflict":
     "Nije uspelo dodavanje na listu čekanja. Možda ste već na njoj ili je mesto ponovo dostupno.",
-  "miniapp.waitlist.acceptHeader": "Oslobodilo se mesto",
-  "miniapp.waitlist.acceptBody": "Potvrdite prijavu dok je mesto slobodno.",
-  "miniapp.waitlist.accept": "Potvrdi",
-  "miniapp.waitlist.acceptedTitle": "Prijavljeni ste!",
-  "miniapp.waitlist.acceptedBody": "Mesto je vaše. Detalji su u odeljku „Moje prijave”.",
-  "miniapp.waitlist.expiredTitle": "Prozor za potvrdu je zatvoren",
-  "miniapp.waitlist.expiredBody": "Mesto je već zauzeto ili je isteklo vreme za potvrdu.",
-  "miniapp.waitlist.toSchedule": "Na raspored",
-  "miniapp.waitlist.toMyBookings": "Na moje prijave",
-  "miniapp.waitlist.toHome": "Na početnu",
 
   // --- My bookings + cancel (S5) ---
   "miniapp.myBookings.title": "Moje prijave",
@@ -167,6 +150,9 @@ export const miniappSr: Record<string, string> = {
   "miniapp.myBookings.errorBody": "Učitavanje vaših prijava nije uspelo. Pokušajte ponovo.",
   "miniapp.myBookings.waitlistTitle": "Na listi čekanja",
   "miniapp.myBookings.waitlistPosition": "na čekanju, pozicija {position}",
+  "miniapp.myBookings.subscription.title": "Pretplata",
+  "miniapp.myBookings.subscription.summary":
+    "Prijava: {booked} · na listi čekanja: {waitlisted}",
 
   // --- Group monthly subscription (S7) ---
   "miniapp.group.listTitle": "Grupe",
@@ -194,6 +180,8 @@ export const miniappSr: Record<string, string> = {
   "miniapp.group.toHome": "Na početnu",
   "miniapp.group.roster.title": "Ko je prijavljen",
   "miniapp.group.roster.empty": "Još niko nije prijavljen",
+  "miniapp.group.ownWaitlist.one": "Na listi ste čekanja za {date} · pozicija {position}",
+  "miniapp.group.ownWaitlist.many": "Na listi ste čekanja · {count} datuma",
   "miniapp.group.filtersAria": "Filteri grupa",
   "miniapp.group.filter.title": "Filteri",
   "miniapp.group.filterEmpty": "Nema odgovarajućih grupa",

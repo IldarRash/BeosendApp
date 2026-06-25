@@ -17,7 +17,8 @@ import {
   reminderWindow,
   resolveTemplateBody,
   trainingCancelledMessage,
-  waitlistSlotMessage
+  waitlistDisplacedMessage,
+  waitlistPromotedMessage
 } from "./notification-messages";
 import { ChannelDispatcher } from "../connectors/channels/channel-dispatcher.service";
 import { ManagersRepository } from "../managers/managers.repository";
@@ -31,7 +32,6 @@ import { TelegramSender } from "./telegram-sender";
 import {
   adminDeepLinkMarkup,
   confirmDeclineKeyboard,
-  waitlistAcceptKeyboard,
   withAdminDeepLink
 } from "./notification-keyboards";
 import { ENV } from "../../config/config.module";
@@ -356,41 +356,34 @@ export class NotificationsService {
   }
 
   /**
-   * Push a freed-seat ("waitlist-slot") message to the promoted client, carrying
-   * an inline "Подтвердить" button (T2.1). Each promotion is a fresh event (a new
-   * seat freed), so this is sent every time — no log anti-join — but the send is
-   * still logged for analytics. A send failure is logged and swallowed (the
-   * sweep/cancel flow must never be undone because Telegram was unreachable);
-   * returns whether the message was sent so the caller can decide on a retry.
+   * Tell a client they were AUTO-BOOKED off the waitlist (frictionless waitlist):
+   * a seat freed and the head of the queue was promoted into it server-side — no
+   * confirmation window, no button. Each promotion is a fresh event, so this is
+   * sent every time and logged for analytics. A send failure is logged and
+   * swallowed (the committed promote must never be undone because Telegram was
+   * unreachable); returns whether the message was sent.
    */
-  async sendWaitlistSlot(
-    clientId: string,
-    trainingId: string,
-    windowMinutes: number,
-    entryId: string
-  ): Promise<boolean> {
+  async sendWaitlistPromoted(clientId: string, trainingId: string): Promise<boolean> {
     const recipient = await this.repo.findWaitlistRecipient(clientId, trainingId);
     if (!recipient) {
       this.logger.warn(
-        `No training ${trainingId} render fields for client ${clientId}; skipping waitlist-slot`
+        `No training ${trainingId} render fields for client ${clientId}; skipping waitlist-promoted`
       );
       return false;
     }
     if (recipient.telegramId === null) {
-      // Walk-in client: no Telegram channel. Skip the waitlist-slot send.
-      this.logger.debug(`Client ${clientId} has no telegram_id; skipping waitlist-slot`);
+      // Walk-in client: no Telegram channel. Skip the send.
+      this.logger.debug(`Client ${clientId} has no telegram_id; skipping waitlist-promoted`);
       return false;
     }
-    const override = await this.templates.findOverride("waitlist-slot", recipient.language);
-    const replyMarkup = waitlistAcceptKeyboard(recipient.language, entryId);
+    const override = await this.templates.findOverride("waitlist-promoted", recipient.language);
     try {
       await this.sender.sendMessage(
         recipient.telegramId,
-        waitlistSlotMessage(recipient, windowMinutes, recipient.language, override),
-        replyMarkup
+        waitlistPromotedMessage(recipient, recipient.language, override)
       );
       await this.repo.logSent({
-        type: "waitlist-slot",
+        type: "waitlist-promoted",
         clientId: recipient.clientId,
         trainingId: recipient.trainingId,
         channel: "telegram"
@@ -398,7 +391,52 @@ export class NotificationsService {
       return true;
     } catch (error) {
       this.logger.error(
-        `Waitlist-slot to client ${clientId} (training ${trainingId}) failed: ` +
+        `Waitlist-promoted to client ${clientId} (training ${trainingId}) failed: ` +
+          (error instanceof Error ? error.message : String(error))
+      );
+      return false;
+    }
+  }
+
+  /**
+   * Tell a client their seat was reassigned (admin swap) and they are back on the
+   * waitlist at `position` (frictionless waitlist). Same shape as
+   * sendWaitlistPromoted: resolve recipient + locale, skip walk-ins, render the
+   * template, log the send. Failures are logged and swallowed; returns whether the
+   * message was sent.
+   */
+  async sendWaitlistDisplaced(
+    clientId: string,
+    trainingId: string,
+    position: number
+  ): Promise<boolean> {
+    const recipient = await this.repo.findWaitlistRecipient(clientId, trainingId);
+    if (!recipient) {
+      this.logger.warn(
+        `No training ${trainingId} render fields for client ${clientId}; skipping waitlist-displaced`
+      );
+      return false;
+    }
+    if (recipient.telegramId === null) {
+      this.logger.debug(`Client ${clientId} has no telegram_id; skipping waitlist-displaced`);
+      return false;
+    }
+    const override = await this.templates.findOverride("waitlist-displaced", recipient.language);
+    try {
+      await this.sender.sendMessage(
+        recipient.telegramId,
+        waitlistDisplacedMessage(recipient, position, recipient.language, override)
+      );
+      await this.repo.logSent({
+        type: "waitlist-displaced",
+        clientId: recipient.clientId,
+        trainingId: recipient.trainingId,
+        channel: "telegram"
+      });
+      return true;
+    } catch (error) {
+      this.logger.error(
+        `Waitlist-displaced to client ${clientId} (training ${trainingId}) failed: ` +
           (error instanceof Error ? error.message : String(error))
       );
       return false;
