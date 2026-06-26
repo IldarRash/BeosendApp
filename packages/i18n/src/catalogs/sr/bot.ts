@@ -14,7 +14,7 @@ export const botSr: Record<string, string> = {
   "bot.notify.decline": "❌ Odbij",
   "bot.notify.openAdmin": "Otvori u admin panelu",
   "bot.notify.openRequest": "Otvori zahtev",
-  "bot.notify.book": "Prijavi se",
+  "bot.notify.bookSlot": "Prijavi se · {time} · {level}",
 
   // --- Main menu (menu.ts) ---
   "bot.menu.welcomeFull":
