@@ -91,11 +91,25 @@ export const groupSchema = z.object({
   capacity: z.number().int().positive(),
   priceSingleRsd: rsd,
   priceMonthRsd: rsd,
+  /**
+   * Hidden groups are excluded from client-facing listings (kept for admin and
+   * existing subscriptions) while staying bookable server-side. Always present —
+   * the DB default guarantees a value on every row. Toggled via updateGroupSchema.
+   */
+  hidden: z.boolean(),
   status: entityStatus
 });
-// Court is required at creation (override the entity's nullable courtId).
+// Court is required at creation (override the entity's nullable courtId). Hidden is
+// omitted: creation defaults to visible via the DB default.
 export const createGroupSchema = groupSchema
-  .omit({ id: true, status: true, trainerName: true, courtNumber: true, courtId: true })
+  .omit({
+    id: true,
+    status: true,
+    trainerName: true,
+    courtNumber: true,
+    courtId: true,
+    hidden: true
+  })
   .extend({ courtId: uuid });
 // On update court is optional; null clears it (group reverts to auto-pick at generation).
 export const updateGroupSchema = groupSchema
@@ -138,8 +152,12 @@ export const trainingSchema = z.object({
   startTime: timeString,
   endTime: timeString,
   trainerId: uuid,
+  /** Owning client of an individual (1-on-1) training; null for group/regular trainings. */
+  clientId: uuid.nullable(),
   capacity: z.number().int().positive(),
   bookedCount: z.number().int().nonnegative(),
+  /** Per-session RSD for an individual training; null for group trainings (price comes from the group). */
+  priceSingleRsd: rsd.nullable(),
   status: trainingStatus
 });
 export type Training = z.infer<typeof trainingSchema>;
@@ -153,7 +171,13 @@ export type Training = z.infer<typeof trainingSchema>;
 export const trainingCalendarItemSchema = trainingSchema.extend({
   groupName: z.string().nullable(),
   trainerName: z.string(),
-  courtNumber: z.number().int().min(1).nullable()
+  courtNumber: z.number().int().min(1).nullable(),
+  /**
+   * Owning client's name for an individual training; null for group trainings.
+   * Optional so existing admin-calendar responses without the field still parse
+   * (a later task populates it). Admin-only, like the rest of this view.
+   */
+  clientName: z.string().nullable().optional()
 });
 export type TrainingCalendarItem = z.infer<typeof trainingCalendarItemSchema>;
 
@@ -192,6 +216,47 @@ export const generateAllResultSchema = z.object({
   perGroup: z.array(generateGroupResultSchema)
 });
 export type GenerateAllResult = z.infer<typeof generateAllResultSchema>;
+
+/**
+ * Generate a month of individual (1-on-1) trainings for one client with one
+ * trainer (mirrors generateMonthSchema's year/month bounds). Each generated
+ * training carries the client and an admin-set per-session RSD price. Strict so
+ * stray fields are rejected.
+ */
+export const generateIndividualMonthSchema = z
+  .object({
+    clientId: uuid,
+    trainerId: uuid,
+    daysOfWeek: z.array(dayOfWeek).min(1),
+    startTime: timeString,
+    endTime: timeString,
+    year: z.number().int().min(2024),
+    month: z.number().int().min(1).max(12),
+    priceSingleRsd: rsd
+  })
+  .strict();
+export type GenerateIndividualMonthInput = z.infer<typeof generateIndividualMonthSchema>;
+
+/** Result of an individual-month generation: the batch id and the created trainings. */
+export const generateIndividualResultSchema = z.object({
+  groupSubscriptionId: uuid,
+  created: z.array(trainingSchema)
+});
+export type GenerateIndividualResult = z.infer<typeof generateIndividualResultSchema>;
+
+/**
+ * Body for rescheduling a single training to a new time window (admin). The
+ * training id is the path param; the body carries the new start/end. Strict, and
+ * the end must be strictly after the start.
+ */
+export const rescheduleTrainingSchema = z
+  .object({
+    startTime: timeString,
+    endTime: timeString
+  })
+  .strict()
+  .refine((v) => v.endTime > v.startTime, { message: "endTime must be after startTime" });
+export type RescheduleTrainingInput = z.infer<typeof rescheduleTrainingSchema>;
 
 /** Query for GET /trainings/generation-status — which year/month to report per-group coverage for. */
 export const generationStatusQuerySchema = z.object({

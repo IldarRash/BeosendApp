@@ -15,9 +15,12 @@ import {
   generateAllMonthSchema,
   generateAllResultSchema,
   generateGroupResultSchema,
+  generateIndividualMonthSchema,
   generateMonthSchema,
   groupBookingResultSchema,
   groupSchema,
+  rescheduleTrainingSchema,
+  trainingSchema,
   listSubscriptionsQuerySchema,
   markSubscriptionPaidSchema,
   subscriptionSummarySchema,
@@ -110,6 +113,14 @@ describe("createGroupSchema", () => {
       expect("trainerName" in parsed.data).toBe(false);
     }
   });
+
+  it("parses with hidden omitted (creation defaults to visible via the DB default)", () => {
+    const parsed = createGroupSchema.safeParse(valid);
+    expect(parsed.success).toBe(true);
+    if (parsed.success) {
+      expect("hidden" in parsed.data).toBe(false);
+    }
+  });
 });
 
 describe("groupSchema (bot-facing, includes trainerName)", () => {
@@ -118,6 +129,7 @@ describe("groupSchema (bot-facing, includes trainerName)", () => {
     id: "11111111-1111-1111-1111-111111111111",
     trainerName: "Jovana",
     courtNumber: null,
+    hidden: false,
     status: "active"
   };
 
@@ -128,6 +140,15 @@ describe("groupSchema (bot-facing, includes trainerName)", () => {
   it("rejects a group missing trainerName", () => {
     const { trainerName: _omitted, ...withoutName } = fullGroup;
     expect(groupSchema.safeParse(withoutName).success).toBe(false);
+  });
+
+  it("accepts a group with hidden: false (always present, DB default guarantees it)", () => {
+    expect(groupSchema.safeParse({ ...fullGroup, hidden: false }).success).toBe(true);
+  });
+
+  it("rejects a group missing hidden", () => {
+    const { hidden: _omitted, ...withoutHidden } = fullGroup;
+    expect(groupSchema.safeParse(withoutHidden).success).toBe(false);
   });
 });
 
@@ -151,6 +172,18 @@ describe("updateGroupSchema", () => {
     if (parsed.success) {
       expect("trainerName" in parsed.data).toBe(false);
     }
+  });
+
+  it("accepts a hidden toggle in the patch", () => {
+    const parsed = updateGroupSchema.safeParse({ hidden: true });
+    expect(parsed.success).toBe(true);
+    if (parsed.success) {
+      expect(parsed.data.hidden).toBe(true);
+    }
+  });
+
+  it("rejects a non-boolean hidden", () => {
+    expect(updateGroupSchema.safeParse({ hidden: "x" }).success).toBe(false);
   });
 });
 
@@ -282,6 +315,113 @@ describe("generateGroupResult / generateAllResult schemas (T10)", () => {
 
   it("accepts a perGroup envelope", () => {
     expect(generateAllResultSchema.safeParse({ perGroup: [groupResult] }).success).toBe(true);
+  });
+});
+
+describe("trainingSchema (individual-training fields)", () => {
+  const groupTraining = {
+    id: "11111111-1111-1111-1111-111111111111",
+    groupId: "22222222-2222-2222-2222-222222222222",
+    date: "2026-07-01",
+    startTime: "20:00",
+    endTime: "21:30",
+    trainerId: "33333333-3333-3333-3333-333333333333",
+    clientId: null,
+    capacity: 12,
+    bookedCount: 0,
+    priceSingleRsd: null,
+    status: "open"
+  };
+
+  it("accepts a group training with null clientId and priceSingleRsd", () => {
+    expect(trainingSchema.safeParse(groupTraining).success).toBe(true);
+  });
+
+  it("accepts an individual training with clientId + priceSingleRsd set", () => {
+    expect(
+      trainingSchema.safeParse({
+        ...groupTraining,
+        groupId: null,
+        clientId: "44444444-4444-4444-4444-444444444444",
+        priceSingleRsd: 2500
+      }).success
+    ).toBe(true);
+  });
+
+  it("rejects a non-uuid clientId or fractional/negative priceSingleRsd", () => {
+    expect(trainingSchema.safeParse({ ...groupTraining, clientId: "nope" }).success).toBe(false);
+    expect(trainingSchema.safeParse({ ...groupTraining, priceSingleRsd: 2500.5 }).success).toBe(
+      false
+    );
+    expect(trainingSchema.safeParse({ ...groupTraining, priceSingleRsd: -1 }).success).toBe(false);
+  });
+
+  it("rejects a training missing clientId or priceSingleRsd entirely", () => {
+    const { clientId: _c, ...withoutClient } = groupTraining;
+    const { priceSingleRsd: _p, ...withoutPrice } = groupTraining;
+    expect(trainingSchema.safeParse(withoutClient).success).toBe(false);
+    expect(trainingSchema.safeParse(withoutPrice).success).toBe(false);
+  });
+});
+
+describe("generateIndividualMonthSchema", () => {
+  const validBody = {
+    clientId: "11111111-1111-1111-1111-111111111111",
+    trainerId: "22222222-2222-2222-2222-222222222222",
+    daysOfWeek: [1, 3],
+    startTime: "07:30",
+    endTime: "09:00",
+    year: 2026,
+    month: 7,
+    priceSingleRsd: 2500
+  };
+
+  it("accepts a valid payload", () => {
+    expect(generateIndividualMonthSchema.safeParse(validBody).success).toBe(true);
+  });
+
+  it("rejects an empty daysOfWeek", () => {
+    expect(generateIndividualMonthSchema.safeParse({ ...validBody, daysOfWeek: [] }).success).toBe(
+      false
+    );
+  });
+
+  it("rejects an out-of-range month/year and a non-uuid id", () => {
+    expect(generateIndividualMonthSchema.safeParse({ ...validBody, month: 13 }).success).toBe(false);
+    expect(generateIndividualMonthSchema.safeParse({ ...validBody, year: 2023 }).success).toBe(
+      false
+    );
+    expect(generateIndividualMonthSchema.safeParse({ ...validBody, clientId: "nope" }).success).toBe(
+      false
+    );
+  });
+
+  it("rejects a stray field (strict)", () => {
+    expect(generateIndividualMonthSchema.safeParse({ ...validBody, extra: 1 }).success).toBe(false);
+  });
+});
+
+describe("rescheduleTrainingSchema", () => {
+  it("accepts a window where end is after start", () => {
+    expect(
+      rescheduleTrainingSchema.safeParse({ startTime: "07:30", endTime: "09:00" }).success
+    ).toBe(true);
+  });
+
+  it("rejects end equal to or before start", () => {
+    expect(
+      rescheduleTrainingSchema.safeParse({ startTime: "09:00", endTime: "09:00" }).success
+    ).toBe(false);
+    expect(
+      rescheduleTrainingSchema.safeParse({ startTime: "09:00", endTime: "07:30" }).success
+    ).toBe(false);
+  });
+
+  it("rejects extra fields (strict)", () => {
+    expect(
+      rescheduleTrainingSchema.safeParse({ startTime: "07:30", endTime: "09:00", date: "2026-07-01" })
+        .success
+    ).toBe(false);
   });
 });
 
