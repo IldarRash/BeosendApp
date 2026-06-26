@@ -14,6 +14,8 @@ import type {
 const useTrainings = vi.fn();
 const useGenerateMonth = vi.fn();
 const useGenerateAllGroups = vi.fn();
+const useGenerateIndividualMonth = vi.fn();
+const useRescheduleTraining = vi.fn();
 const useDeleteTraining = vi.fn();
 const useChangeCapacity = vi.fn();
 const useGroups = vi.fn();
@@ -30,6 +32,8 @@ vi.mock("../hooks/useTrainings", () => ({
   useTrainings: (...args: unknown[]) => useTrainings(...args),
   useGenerateMonth: () => useGenerateMonth(),
   useGenerateAllGroups: () => useGenerateAllGroups(),
+  useGenerateIndividualMonth: () => useGenerateIndividualMonth(),
+  useRescheduleTraining: () => useRescheduleTraining(),
   useDeleteTraining: () => useDeleteTraining(),
   useChangeCapacity: () => useChangeCapacity()
 }));
@@ -86,6 +90,7 @@ const GROUP: Group = {
   capacity: 12,
   priceSingleRsd: 1500,
   priceMonthRsd: 9000,
+  hidden: false,
   status: "active"
 };
 
@@ -113,6 +118,23 @@ const TRAINING: Training = {
   trainerId: TRAINER.id,
   capacity: 12,
   bookedCount: 4,
+  priceSingleRsd: 1500,
+  clientId: null,
+  status: "open"
+};
+
+/** An individual (1-on-1) training: group-less, with an owning client + price. */
+const INDIVIDUAL: Training = {
+  id: "99999999-9999-4999-8999-999999999999",
+  groupId: null,
+  date: "2026-07-07",
+  startTime: "18:00",
+  endTime: "19:00",
+  trainerId: TRAINER.id,
+  capacity: 1,
+  bookedCount: 1,
+  priceSingleRsd: 2500,
+  clientId: "55555555-5555-5555-5555-555555555555",
   status: "open"
 };
 
@@ -142,6 +164,8 @@ const DETAIL: TrainingCalendarItem = {
   trainerId: TRAINER.id,
   capacity: 12,
   bookedCount: 4,
+  priceSingleRsd: 1500,
+  clientId: null,
   status: "open",
   groupName: "Утренняя группа",
   trainerName: "Анна",
@@ -192,6 +216,8 @@ beforeEach(() => {
   useCourts.mockReturnValue({ data: COURTS });
   useGenerateMonth.mockReturnValue(idleMutation());
   useGenerateAllGroups.mockReturnValue(idleMutation());
+  useGenerateIndividualMonth.mockReturnValue(idleMutation());
+  useRescheduleTraining.mockReturnValue(idleMutation());
   useDeleteTraining.mockReturnValue(idleMutation());
   useChangeCapacity.mockReturnValue(idleMutation());
   useClientsList.mockReturnValue(idleQuery([CLIENT]));
@@ -567,5 +593,107 @@ describe("Trainings page", () => {
     expect(screen.getByRole("button", { name: "Добавить человека" }).hasAttribute("disabled")).toBe(
       true
     );
+  });
+
+  it("labels a group training, an individual training, and a one-off distinctly", () => {
+    useTrainings.mockReturnValue({
+      isPending: false,
+      isError: false,
+      error: null,
+      data: [TRAINING, INDIVIDUAL, { ...TRAINING, id: "one-off", groupId: null, clientId: null }]
+    });
+    render(<Trainings />);
+    setRange();
+
+    const table = screen.getByRole("table");
+    // Group training shows the group name; the individual one a dedicated label;
+    // the plain group-less/client-less row stays "Разовая".
+    expect(within(table).getByText("Утренняя группа")).toBeTruthy();
+    expect(within(table).getByText("Индивидуальная")).toBeTruthy();
+    expect(within(table).getByText("Разовая")).toBeTruthy();
+  });
+
+  it("generates individual trainings with the chosen client/trainer/days/time/price", () => {
+    const mutate = vi.fn();
+    useGenerateIndividualMonth.mockReturnValue({ ...idleMutation(), mutate });
+    render(<Trainings />);
+
+    fireEvent.click(screen.getByRole("button", { name: "Сгенерировать индивидуальные" }));
+    const dialog = screen.getByRole("dialog", { name: "Индивидуальные тренировки (1-на-1)" });
+    fireEvent.change(within(dialog).getByLabelText("Клиент"), { target: { value: CLIENT.id } });
+    fireEvent.change(within(dialog).getByLabelText("Тренер"), { target: { value: TRAINER.id } });
+    // Toggle Monday + Wednesday in the weekday picker.
+    fireEvent.click(within(dialog).getByRole("button", { name: "Понедельник" }));
+    fireEvent.click(within(dialog).getByRole("button", { name: "Среда" }));
+    fireEvent.change(within(dialog).getByLabelText("Начало"), { target: { value: "18:00" } });
+    fireEvent.change(within(dialog).getByLabelText("Окончание"), { target: { value: "19:00" } });
+    fireEvent.change(within(dialog).getByLabelText("Год"), { target: { value: "2026" } });
+    fireEvent.change(within(dialog).getByLabelText("Месяц"), { target: { value: "7" } });
+    fireEvent.change(within(dialog).getByLabelText("Цена за тренировку, RSD"), {
+      target: { value: "2500" }
+    });
+    fireEvent.click(within(dialog).getByRole("button", { name: "Сгенерировать" }));
+
+    expect(mutate).toHaveBeenCalledTimes(1);
+    expect(mutate.mock.calls[0][0]).toEqual({
+      clientId: CLIENT.id,
+      trainerId: TRAINER.id,
+      daysOfWeek: [1, 3],
+      startTime: "18:00",
+      endTime: "19:00",
+      year: 2026,
+      month: 7,
+      priceSingleRsd: 2500
+    });
+  });
+
+  it("reschedules only this instance for a group training (no series option)", () => {
+    const mutate = vi.fn();
+    useRescheduleTraining.mockReturnValue({ ...idleMutation(), mutate });
+    render(<Trainings />);
+    setRange();
+
+    fireEvent.click(screen.getByRole("button", { name: "Изменить время" }));
+    const dialog = screen.getByRole("dialog", { name: "Изменить время тренировки" });
+    // A group training cannot move a whole series — the scope picker is absent.
+    expect(within(dialog).queryByLabelText("Что изменить")).toBeNull();
+    fireEvent.change(within(dialog).getByLabelText("Начало"), { target: { value: "09:00" } });
+    fireEvent.change(within(dialog).getByLabelText("Окончание"), { target: { value: "10:30" } });
+    fireEvent.click(within(dialog).getByRole("button", { name: "Сохранить время" }));
+
+    expect(mutate).toHaveBeenCalledTimes(1);
+    expect(mutate.mock.calls[0][0]).toEqual({
+      id: TRAINING.id,
+      input: { startTime: "09:00", endTime: "10:30" },
+      series: false
+    });
+  });
+
+  it("reschedules the whole series when chosen for an individual training", () => {
+    const mutate = vi.fn();
+    useRescheduleTraining.mockReturnValue({ ...idleMutation(), mutate });
+    useTrainings.mockReturnValue({
+      isPending: false,
+      isError: false,
+      error: null,
+      data: [INDIVIDUAL]
+    });
+    render(<Trainings />);
+    setRange();
+
+    fireEvent.click(screen.getByRole("button", { name: "Изменить время" }));
+    const dialog = screen.getByRole("dialog", { name: "Изменить время тренировки" });
+    // The individual row offers the series scope; pick it and submit the new window.
+    fireEvent.change(within(dialog).getByLabelText("Что изменить"), { target: { value: "series" } });
+    fireEvent.change(within(dialog).getByLabelText("Начало"), { target: { value: "19:00" } });
+    fireEvent.change(within(dialog).getByLabelText("Окончание"), { target: { value: "20:00" } });
+    fireEvent.click(within(dialog).getByRole("button", { name: "Сохранить время" }));
+
+    expect(mutate).toHaveBeenCalledTimes(1);
+    expect(mutate.mock.calls[0][0]).toEqual({
+      id: INDIVIDUAL.id,
+      input: { startTime: "19:00", endTime: "20:00" },
+      series: true
+    });
   });
 });

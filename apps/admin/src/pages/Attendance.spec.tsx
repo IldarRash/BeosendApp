@@ -39,6 +39,8 @@ const TRAINING: Training = {
   trainerId: "33333333-3333-3333-3333-333333333333",
   capacity: 12,
   bookedCount: 2,
+  priceSingleRsd: 1500,
+  clientId: null,
   status: "completed"
 };
 

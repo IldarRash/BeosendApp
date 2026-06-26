@@ -1,6 +1,6 @@
 import { BadRequestException, ForbiddenException, NotFoundException } from "@nestjs/common";
 import type { Env } from "@beosand/config";
-import type { Group, Trainer, Training } from "@beosand/types";
+import type { Client, Group, Trainer, Training } from "@beosand/types";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { TrainerTodayController, TrainingsController } from "./trainings.controller";
 import { TrainingsService } from "./trainings.service";
@@ -11,6 +11,7 @@ import type {
   TrainingLockRow,
   TrainingsRepository
 } from "./trainings.repository";
+import type { BookingsRepository } from "../bookings/bookings.repository";
 import type { ClientsRepository } from "../clients/clients.repository";
 import type { GroupsRepository } from "../groups/groups.repository";
 import type { CourtBlocksRepository } from "../courts/court-blocks.repository";
@@ -38,6 +39,7 @@ const group: Group = {
   capacity: 12,
   priceSingleRsd: 1500,
   priceMonthRsd: 10000,
+  hidden: false,
   status: "active"
 };
 
@@ -48,8 +50,10 @@ const sampleTraining: Training = {
   startTime: "20:00",
   endTime: "21:30",
   trainerId: "33333333-3333-3333-3333-333333333333",
+  clientId: null,
   capacity: 12,
   bookedCount: 0,
+  priceSingleRsd: null,
   status: "open"
 };
 
@@ -88,6 +92,14 @@ function makeCourtBlocksRepo(
     deleteByGroupTrainingId: vi.fn(async () => true),
     ...overrides
   } as unknown as CourtBlocksRepository;
+}
+
+function makeBookingsRepo(overrides: Partial<BookingsRepository> = {}): BookingsRepository {
+  return {
+    insertBooking: vi.fn(async () => ({ id: "b0000000-0000-4000-8000-000000000001" })),
+    updateTrainingCount: vi.fn(async () => undefined),
+    ...overrides
+  } as unknown as BookingsRepository;
 }
 
 function makeTrainersRepo(overrides: Partial<TrainersRepository> = {}): TrainersRepository {
@@ -138,6 +150,7 @@ describe("TrainingsController", () => {
         makeClientsRepo(),
         makeNotifications(),
         makeCourtBlocksRepo(),
+        makeBookingsRepo(),
         makeDomainEvents(),
         env
       )
@@ -253,6 +266,114 @@ describe("TrainingsController", () => {
   });
 });
 
+// POST /trainings/generate-individual at the controller boundary. A real service +
+// fake repos exercises the genuine admin gate, so the unsafe path (a non-admin
+// generating individual trainings) is rejected with 403 in the service and writes
+// nothing — never gated only in the controller. Header + body are Zod-validated first.
+describe("TrainingsController generate-individual", () => {
+  const CLIENT_ID = "c1111111-1111-4111-8111-111111111111";
+  const TRAINER_ID = "33333333-3333-3333-3333-333333333333";
+  const individualBody = {
+    clientId: CLIENT_ID,
+    trainerId: TRAINER_ID,
+    daysOfWeek: [1, 3],
+    startTime: "18:00",
+    endTime: "19:00",
+    year: 2026,
+    month: 7,
+    priceSingleRsd: 3000
+  };
+
+  const client: Client = {
+    id: CLIENT_ID,
+    name: "Ивана",
+    telegramId: 4242,
+    telegramUsername: null,
+    levelId: null,
+    source: "telegram",
+    phone: null,
+    email: null,
+    note: null,
+    language: "ru",
+    registeredAt: new Date().toISOString(),
+    consentGivenAt: null,
+    status: "active",
+    bonusTrainingCredits: 0
+  };
+
+  const trainer: Trainer = {
+    id: TRAINER_ID,
+    name: "Coach",
+    type: "main",
+    status: "active",
+    telegramId: 555,
+    telegramUsername: null,
+    language: "ru"
+  };
+
+  function makeController(): { controller: TrainingsController; trainingsRepo: TrainingsRepository } {
+    const trainingsRepo = makeTrainingsRepo({
+      existingIndividualDatesForClient: vi.fn(async () => []),
+      insertMany: vi.fn(async () => [
+        { ...sampleTraining, groupId: null, clientId: CLIENT_ID, capacity: 1, priceSingleRsd: 3000 }
+      ])
+    } as unknown as Partial<TrainingsRepository>);
+    const controller = new TrainingsController(
+      new TrainingsService(
+        trainingsRepo,
+        makeGroupsRepo(),
+        makeTrainersRepo({ findById: vi.fn(async () => trainer) } as unknown as Partial<TrainersRepository>),
+        makeClientsRepo({ findById: vi.fn(async () => client) } as unknown as Partial<ClientsRepository>),
+        makeNotifications(),
+        makeCourtBlocksRepo(),
+        makeBookingsRepo(),
+        makeDomainEvents(),
+        env
+      )
+    );
+    return { controller, trainingsRepo };
+  }
+
+  it("an admin header generates the individual month and returns the batch id + created", async () => {
+    const { controller } = makeController();
+    const result = await controller.generateIndividual(String(ADMIN_ID), individualBody);
+    expect(result.created).toHaveLength(1);
+    expect(result.created[0].clientId).toBe(CLIENT_ID);
+    expect(result.groupSubscriptionId).toBeTruthy();
+  });
+
+  it("rejects a non-admin header with 403 and writes nothing", async () => {
+    const { controller, trainingsRepo } = makeController();
+    await expect(
+      controller.generateIndividual(String(NON_ADMIN_ID), individualBody)
+    ).rejects.toBeInstanceOf(ForbiddenException);
+    expect(trainingsRepo.insertMany).not.toHaveBeenCalled();
+  });
+
+  it("rejects a missing/invalid x-telegram-id header (400) before any work", () => {
+    const { controller } = makeController();
+    expect(() => controller.generateIndividual(undefined, individualBody)).toThrow(
+      BadRequestException
+    );
+    expect(() => controller.generateIndividual("not-a-number", individualBody)).toThrow(
+      BadRequestException
+    );
+  });
+
+  it("rejects an invalid body (bad month, non-uuid client, stray field) with 400", () => {
+    const { controller } = makeController();
+    expect(() =>
+      controller.generateIndividual(String(ADMIN_ID), { ...individualBody, month: 13 })
+    ).toThrow(BadRequestException);
+    expect(() =>
+      controller.generateIndividual(String(ADMIN_ID), { ...individualBody, clientId: "nope" })
+    ).toThrow(BadRequestException);
+    expect(() =>
+      controller.generateIndividual(String(ADMIN_ID), { ...individualBody, extra: 1 })
+    ).toThrow(BadRequestException);
+  });
+});
+
 // T2.3 trainer-scoped reads at the controller boundary. A real service + fake
 // repos exercises the genuine trainer-ownership gate so the unsafe path (another
 // trainer / a non-trainer hitting GET /trainings/:id/roster, or a query
@@ -328,6 +449,7 @@ describe("Trainer-scoped reads (T2.3)", () => {
       makeClientsRepo(),
       makeNotifications(),
       makeCourtBlocksRepo(),
+      makeBookingsRepo(),
       makeDomainEvents(),
       env
     );
@@ -475,8 +597,10 @@ describe("Admin manager writes (A1)", () => {
       startTime: "20:00",
       endTime: "21:30",
       trainerId: row.trainerId,
+      clientId: null,
       capacity: row.capacity,
       bookedCount: row.bookedCount,
+      priceSingleRsd: null,
       status: row.status
     });
     const repo = makeTrainingsRepo({
@@ -529,6 +653,7 @@ describe("Admin manager writes (A1)", () => {
         makeClientsRepo(),
         notifications,
         makeCourtBlocksRepo(),
+        makeBookingsRepo(),
         makeDomainEvents(),
         env
       )
@@ -679,6 +804,214 @@ describe("Admin manager writes (A1)", () => {
       ).toThrow(BadRequestException);
       expect(() =>
         controller.changeCapacity(String(ADMIN_ID), TRAINING_ID, { capacity: 8, status: "open" })
+      ).toThrow(BadRequestException);
+    });
+  });
+});
+
+// Reschedule writes at the controller boundary (part 2). The actor id arrives only on
+// the x-telegram-id header; a real service + fake repos exercises the genuine admin
+// gate. Invariants: PATCH /trainings/:id/time and :id/time-series are admin-gated in
+// the service (never only in the controller / future admin UI) and write nothing for a
+// non-admin; reschedule (single and whole-series) rejects a GROUP training with 400; header and
+// body are parsed + Zod-validated (endTime > startTime, no stray fields) before any
+// service work.
+describe("Admin reschedule writes (PATCH /trainings/:id/time[-series])", () => {
+  const TRAINING_ID = "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa";
+  const TRAINER_ID = "33333333-3333-3333-3333-333333333333";
+  const CLIENT_ID = "c1111111-1111-4111-8111-111111111111";
+  const SUBSCRIPTION_ID = "5b000000-0000-4000-8000-000000000001";
+  const validReschedule = { startTime: "10:00", endTime: "11:30" };
+
+  const individualLock = (over: Partial<Training> = {}): Training => ({
+    id: TRAINING_ID,
+    groupId: null,
+    date: "2099-07-06",
+    startTime: "18:00",
+    endTime: "19:00",
+    trainerId: TRAINER_ID,
+    clientId: CLIENT_ID,
+    capacity: 1,
+    bookedCount: 1,
+    priceSingleRsd: 3000,
+    status: "full",
+    ...over
+  });
+
+  /**
+   * A trainings repo with the reschedule reads/writes. `lock` is the full row read FOR
+   * UPDATE; `updateTimes` records which ids it wrote and returns the moved row. The
+   * series read returns only the locked individual training (one-off) so the controller
+   * test focuses on routing + gating, not the resolver's batch math (covered in the
+   * service spec).
+   */
+  function makeRescheduleController(lock: Training | undefined): {
+    controller: TrainingsController;
+    updatedIds: () => string[];
+  } {
+    const updatedIds: string[] = [];
+    const repo = makeTrainingsRepo({
+      transaction: vi.fn(async (work: (tx: unknown) => Promise<unknown>) => work({})),
+      findFullForUpdate: vi.fn(async (_tx: unknown, id: string) =>
+        lock && lock.id === id ? lock : undefined
+      ),
+      updateTimes: vi.fn(
+        async (_tx: unknown, id: string, startTime: string, endTime: string) => {
+          updatedIds.push(id);
+          return { ...(lock as Training), id, startTime, endTime };
+        }
+      ),
+      listFutureNonCancelledIndividual: vi.fn(async () => (lock ? [{ id: lock.id }] : []))
+    } as unknown as Partial<TrainingsRepository>);
+    const bookingsRepo = makeBookingsRepo({
+      findSubscriptionIdForTrainingOwner: vi.fn(async () => SUBSCRIPTION_ID),
+      findSubscriptionTrainingIds: vi.fn(async () => (lock ? [lock.id] : []))
+    } as unknown as Partial<BookingsRepository>);
+    const controller = new TrainingsController(
+      new TrainingsService(
+        repo,
+        makeGroupsRepo(),
+        makeTrainersRepo(),
+        makeClientsRepo(),
+        makeNotifications(),
+        makeCourtBlocksRepo(),
+        bookingsRepo,
+        makeDomainEvents(),
+        env
+      )
+    );
+    return { controller, updatedIds: () => updatedIds };
+  }
+
+  describe("PATCH /trainings/:id/time (single)", () => {
+    it("an admin header reschedules the one instance and returns the moved training", async () => {
+      const { controller, updatedIds } = makeRescheduleController(individualLock());
+      const result = await controller.rescheduleOne(String(ADMIN_ID), TRAINING_ID, validReschedule);
+      expect(result.startTime).toBe("10:00");
+      expect(result.endTime).toBe("11:30");
+      expect(updatedIds()).toEqual([TRAINING_ID]);
+    });
+
+    it("rejects a GROUP training with 400 and writes nothing (single is individual-only)", async () => {
+      const { controller, updatedIds } = makeRescheduleController(
+        individualLock({ groupId: GROUP_ID, clientId: null, capacity: 12, status: "open" })
+      );
+      await expect(
+        controller.rescheduleOne(String(ADMIN_ID), TRAINING_ID, validReschedule)
+      ).rejects.toBeInstanceOf(BadRequestException);
+      expect(updatedIds()).toEqual([]);
+    });
+
+    it("rejects a non-admin header with 403 and writes nothing", async () => {
+      const { controller, updatedIds } = makeRescheduleController(individualLock());
+      await expect(
+        controller.rescheduleOne(String(NON_ADMIN_ID), TRAINING_ID, validReschedule)
+      ).rejects.toBeInstanceOf(ForbiddenException);
+      expect(updatedIds()).toEqual([]);
+    });
+
+    it("404s an unknown training", async () => {
+      const { controller } = makeRescheduleController(undefined);
+      await expect(
+        controller.rescheduleOne(String(ADMIN_ID), TRAINING_ID, validReschedule)
+      ).rejects.toBeInstanceOf(NotFoundException);
+    });
+
+    it("rejects a missing/invalid x-telegram-id header (400) before any work", () => {
+      const { controller, updatedIds } = makeRescheduleController(individualLock());
+      expect(() => controller.rescheduleOne(undefined, TRAINING_ID, validReschedule)).toThrow(
+        BadRequestException
+      );
+      expect(() => controller.rescheduleOne("not-a-number", TRAINING_ID, validReschedule)).toThrow(
+        BadRequestException
+      );
+      expect(updatedIds()).toEqual([]);
+    });
+
+    it("rejects a non-uuid path id (Zod) (400)", () => {
+      const { controller } = makeRescheduleController(individualLock());
+      expect(() => controller.rescheduleOne(String(ADMIN_ID), "nope", validReschedule)).toThrow(
+        BadRequestException
+      );
+    });
+
+    it("rejects an invalid body (endTime <= startTime, stray field) (400)", () => {
+      const { controller } = makeRescheduleController(individualLock());
+      expect(() =>
+        controller.rescheduleOne(String(ADMIN_ID), TRAINING_ID, {
+          startTime: "11:00",
+          endTime: "11:00"
+        })
+      ).toThrow(BadRequestException);
+      expect(() =>
+        controller.rescheduleOne(String(ADMIN_ID), TRAINING_ID, {
+          startTime: "11:00",
+          endTime: "10:00"
+        })
+      ).toThrow(BadRequestException);
+      expect(() =>
+        controller.rescheduleOne(String(ADMIN_ID), TRAINING_ID, { ...validReschedule, extra: 1 })
+      ).toThrow(BadRequestException);
+    });
+  });
+
+  describe("PATCH /trainings/:id/time-series", () => {
+    it("an admin header reschedules the individual series and returns the moved instances", async () => {
+      const { controller, updatedIds } = makeRescheduleController(individualLock());
+      const result = await controller.rescheduleSeries(
+        String(ADMIN_ID),
+        TRAINING_ID,
+        validReschedule
+      );
+      expect(result).toHaveLength(1);
+      expect(result[0].startTime).toBe("10:00");
+      expect(updatedIds()).toEqual([TRAINING_ID]);
+    });
+
+    // Unsafe path: a whole-series reschedule of a GROUP training is 400 and writes nothing.
+    it("rejects a GROUP training with 400 and writes nothing", async () => {
+      const { controller, updatedIds } = makeRescheduleController(
+        individualLock({ groupId: GROUP_ID, clientId: null, capacity: 12, status: "open" })
+      );
+      await expect(
+        controller.rescheduleSeries(String(ADMIN_ID), TRAINING_ID, validReschedule)
+      ).rejects.toBeInstanceOf(BadRequestException);
+      expect(updatedIds()).toEqual([]);
+    });
+
+    it("rejects a non-admin header with 403 and writes nothing", async () => {
+      const { controller, updatedIds } = makeRescheduleController(individualLock());
+      await expect(
+        controller.rescheduleSeries(String(NON_ADMIN_ID), TRAINING_ID, validReschedule)
+      ).rejects.toBeInstanceOf(ForbiddenException);
+      expect(updatedIds()).toEqual([]);
+    });
+
+    it("404s an unknown training", async () => {
+      const { controller } = makeRescheduleController(undefined);
+      await expect(
+        controller.rescheduleSeries(String(ADMIN_ID), TRAINING_ID, validReschedule)
+      ).rejects.toBeInstanceOf(NotFoundException);
+    });
+
+    it("rejects a missing/invalid x-telegram-id header (400) before any work", () => {
+      const { controller, updatedIds } = makeRescheduleController(individualLock());
+      expect(() => controller.rescheduleSeries(undefined, TRAINING_ID, validReschedule)).toThrow(
+        BadRequestException
+      );
+      expect(() =>
+        controller.rescheduleSeries("12.5", TRAINING_ID, validReschedule)
+      ).toThrow(BadRequestException);
+      expect(updatedIds()).toEqual([]);
+    });
+
+    it("rejects an invalid body (endTime <= startTime) (400)", () => {
+      const { controller } = makeRescheduleController(individualLock());
+      expect(() =>
+        controller.rescheduleSeries(String(ADMIN_ID), TRAINING_ID, {
+          startTime: "11:00",
+          endTime: "10:30"
+        })
       ).toThrow(BadRequestException);
     });
   });

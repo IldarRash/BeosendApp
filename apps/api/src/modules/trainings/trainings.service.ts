@@ -1,3 +1,4 @@
+import { randomUUID } from "node:crypto";
 import {
   BadRequestException,
   ConflictException,
@@ -22,11 +23,14 @@ import type {
   GenerateAllMonthInput,
   GenerateAllResult,
   GenerateGroupResult,
+  GenerateIndividualMonthInput,
+  GenerateIndividualResult,
   GenerateMonthInput,
   GenerationStatusItem,
   GenerationStatusQuery,
   Group,
   ListTrainingsQuery,
+  RescheduleTrainingInput,
   SlotCard,
   Training,
   TrainerTodayItem,
@@ -45,6 +49,7 @@ import {
   freeSeats,
   generateAllResultSchema,
   generateGroupResultSchema,
+  generateIndividualResultSchema,
   generationStatusItemSchema,
   isBookable,
   isoWeekdayOf,
@@ -62,6 +67,7 @@ import {
 } from "@beosand/types";
 import { z } from "zod";
 import { ENV } from "../../config/config.module";
+import { BookingsRepository } from "../bookings/bookings.repository";
 import { DomainEventsService } from "../connectors/domain-events.service";
 import { ClientsRepository } from "../clients/clients.repository";
 import {
@@ -92,6 +98,7 @@ export class TrainingsService {
     private readonly clients: ClientsRepository,
     private readonly notifications: NotificationsService,
     private readonly courtBlocks: CourtBlocksRepository,
+    private readonly bookings: BookingsRepository,
     private readonly domainEvents: DomainEventsService,
     @Inject(ENV) private readonly env: Env
   ) {}
@@ -125,6 +132,132 @@ export class TrainingsService {
   }
 
   /**
+   * Generate a MONTH of individual (1-on-1) trainings for one client with one trainer
+   * (mirrors the group monthly-generation flow). Admin-only, idempotent, ONE transaction.
+   *
+   * An INDIVIDUAL training is `groupId IS NULL AND clientId IS NOT NULL`, capacity 1,
+   * with ONE owner booking so it (a) appears in that client's calendar and (b) counts
+   * the slot full. The month's instances are linked by a shared `groupSubscriptionId`
+   * on their bookings — the exact group monthly pattern (bookGroupMonth) — so a later
+   * single-date cancel removes one date without dropping the rest of the month.
+   *
+   * Invariants enforced here:
+   * - The client (404 if missing) and the trainer (404 if missing, 400 if not active)
+   *   are validated before any write.
+   * - Candidate dates are the month's chosen weekdays, skipping any date before today
+   *   (same `today` source as the group flow) — already-happened sessions are never
+   *   created. Re-running is safe: dates already holding a non-cancelled individual
+   *   training for this client+trainer are dropped (existingIndividualDatesForClient),
+   *   so no duplicate trainings or bookings.
+   * - Each created instance gets exactly one owner booking (type "single", status
+   *   "booked", source "admin", sharing the subscription id) and its counter is bumped
+   *   to full via the shared recompute — reusing the bookings seat-write path, no
+   *   parallel seat math.
+   * - No court is auto-assigned (skips pickCourtForSlots): an individual session does
+   *   not reserve a court here.
+   * Individual trainings are automatically hidden from the public feed + broadcasts
+   * because those reads require `groupId IS NOT NULL` (no extra visibility filter).
+   */
+  async generateIndividualMonth(
+    actorTelegramId: number,
+    input: GenerateIndividualMonthInput
+  ): Promise<GenerateIndividualResult> {
+    this.assertAdmin(actorTelegramId);
+
+    const client = await this.clients.findById(input.clientId);
+    if (!client) {
+      throw new NotFoundException(`Client ${input.clientId} not found`);
+    }
+    const trainer = await this.trainers.findById(input.trainerId);
+    if (!trainer) {
+      throw new NotFoundException(`Trainer ${input.trainerId} not found`);
+    }
+    if (trainer.status !== "active") {
+      throw new BadRequestException("Cannot generate trainings for an inactive trainer");
+    }
+
+    // Same "today" source as generateMonthForGroup: past dates are never generated.
+    const today = new Date().toISOString().slice(0, 10);
+    const candidateDates = monthTrainingDates(input.daysOfWeek, input.year, input.month).filter(
+      (date) => date >= today
+    );
+
+    const groupSubscriptionId = randomUUID();
+
+    const created = await this.trainings.transaction(async (tx) => {
+      // Idempotency: drop dates that already hold a non-cancelled individual training
+      // for this client + trainer, so a re-run creates zero duplicates.
+      const existing = new Set(
+        await this.trainings.existingIndividualDatesForClient(
+          input.clientId,
+          input.trainerId,
+          candidateDates
+        )
+      );
+      const newDates = candidateDates.filter((date) => !existing.has(date));
+      if (newDates.length === 0) {
+        return [];
+      }
+
+      const trainings = await this.trainings.insertMany(
+        tx,
+        newDates.map((date) => ({
+          groupId: null,
+          clientId: input.clientId,
+          date,
+          startTime: input.startTime,
+          endTime: input.endTime,
+          trainerId: input.trainerId,
+          capacity: 1,
+          bookedCount: 0,
+          priceSingleRsd: input.priceSingleRsd,
+          status: "open" as const
+        }))
+      );
+
+      // One owner booking per instance, all sharing the subscription id, then bump the
+      // counter to full — the same insertBooking + updateTrainingCount path the group
+      // monthly batch (bookGroupMonth) uses. capacity is 1, so the single booking flips
+      // open → full via the shared recompute.
+      for (const training of trainings) {
+        await this.bookings.insertBooking(tx, {
+          clientId: input.clientId,
+          trainingId: training.id,
+          type: "single",
+          groupSubscriptionId,
+          status: "booked",
+          source: "admin"
+        });
+        const newStatus = recomputeTrainingStatus({
+          capacity: training.capacity,
+          bookedCount: 1,
+          status: training.status
+        });
+        await this.bookings.updateTrainingCount(tx, training.id, 1, newStatus);
+      }
+
+      // Reflect the booked seat in the returned rows (the insert returned them with
+      // bookedCount 0 / status open); the persisted rows are full.
+      return trainings.map((training) => ({
+        ...training,
+        bookedCount: 1,
+        status: recomputeTrainingStatus({
+          capacity: training.capacity,
+          bookedCount: 1,
+          status: training.status
+        })
+      }));
+    });
+
+    this.logger.log(
+      `Individual month ${groupSubscriptionId} for client ${input.clientId} with trainer ` +
+        `${input.trainerId} ${input.year}-${input.month}: ${created.length} trainings created`
+    );
+
+    return generateIndividualResultSchema.parse({ groupSubscriptionId, created });
+  }
+
+  /**
    * Feature 3 — generate the month for every ACTIVE group at once. Admin-only. Each
    * group runs in its own transaction so one failing group records its partial
    * result and never aborts the batch. Auto-picks the court per training (no
@@ -136,7 +269,9 @@ export class TrainingsService {
   ): Promise<GenerateAllResult> {
     this.assertAdmin(actorTelegramId);
 
-    const groups = await this.groups.listActive();
+    // Hidden groups are still generated: hiding only removes them from client-facing
+    // listings (Slice B), not from admin generation. Include them here (admin path).
+    const groups = await this.groups.listActive(true);
     const perGroup: GenerateGroupResult[] = [];
     for (const group of groups) {
       try {
@@ -185,7 +320,9 @@ export class TrainingsService {
   ): Promise<GenerationStatusItem[]> {
     this.assertAdmin(actorTelegramId);
 
-    const groups = await this.groups.listActive();
+    // Hidden groups remain in the admin generation-status view (hiding is client-facing
+    // only, Slice B); include them so the admin can still complete their month.
+    const groups = await this.groups.listActive(true);
     const today = new Date().toISOString().slice(0, 10);
 
     const items: GenerationStatusItem[] = [];
@@ -918,6 +1055,136 @@ export class TrainingsService {
     });
 
     return trainingSchema.parse(updated);
+  }
+
+  /**
+   * Admin: reschedule the TIME of a training (manager console). A single edit moves
+   * ONE instance; the series edit (`series: true`) moves this instance plus every
+   * FUTURE non-cancelled sibling of its individual 1-on-1 series. ONE transaction.
+   *
+   * Invariants enforced here:
+   * - Admin-only (gated before any read/write).
+   * - The target is locked FOR UPDATE (404 if missing); a terminal training
+   *   (cancelled/completed) is rejected (409) so a frozen instance is never mutated
+   *   — the same terminal-status guard as changeCapacity.
+   * - Whole-series reschedule is INDIVIDUAL-only: the target must be a 1-on-1
+   *   training (groupId null AND clientId set), else 400 — a group series is not
+   *   rescheduled as a batch here.
+   * - The series target set is the target's subscription batch (resolved from its
+   *   owner booking's groupSubscriptionId) intersected with FUTURE (date >= today,
+   *   same `today` source the generate flow uses) non-cancelled individual trainings.
+   *   PAST instances are deliberately left untouched (history is never rewritten).
+   * - Each target is updated via updateTimes, which writes ONLY start/end: the row
+   *   keeps its id, status, bookedCount, and all bookings — no booking is recreated or
+   *   cancelled, so a single-instance edit provably never drops the rest of the batch.
+   *
+   * FOLLOW-UP: the owner-notification DM (telling the client their session moved) is
+   * intentionally deferred to a later task — no notification types/templates are added
+   * here.
+   */
+  async rescheduleTraining(
+    actorTelegramId: number,
+    id: string,
+    input: RescheduleTrainingInput,
+    options: { series: false }
+  ): Promise<Training>;
+  async rescheduleTraining(
+    actorTelegramId: number,
+    id: string,
+    input: RescheduleTrainingInput,
+    options: { series: true }
+  ): Promise<Training[]>;
+  async rescheduleTraining(
+    actorTelegramId: number,
+    id: string,
+    input: RescheduleTrainingInput,
+    options: { series: boolean }
+  ): Promise<Training | Training[]> {
+    this.assertAdmin(actorTelegramId);
+
+    const updated = await this.trainings.transaction(async (tx) => {
+      const target = await this.trainings.findFullForUpdate(tx, id);
+      if (!target) {
+        throw new NotFoundException(`Training ${id} not found`);
+      }
+      if (target.status === "cancelled" || target.status === "completed") {
+        throw new ConflictException(`Cannot reschedule a ${target.status} training`);
+      }
+
+      // Reschedule (single OR series) is individual-only: an individual training is
+      // groupId null AND clientId set. A group training's time comes from its group
+      // schedule and carries an auto court-block; moving only the training row would
+      // leave the block at the old time and desync the court grid, so group
+      // rescheduling is out of scope here.
+      if (target.groupId !== null || target.clientId === null) {
+        throw new BadRequestException(
+          "Reschedule applies only to individual (1-on-1) trainings"
+        );
+      }
+
+      if (!options.series) {
+        const row = await this.trainings.updateTimes(tx, id, input.startTime, input.endTime);
+        return trainingSchema.parse(row);
+      }
+
+      const targets = await this.resolveFutureSeriesTargets(tx, target);
+      const rows: Training[] = [];
+      for (const seriesId of targets) {
+        rows.push(await this.trainings.updateTimes(tx, seriesId, input.startTime, input.endTime));
+      }
+      // Order by date for a stable, predictable response (the resolver's ids carry no
+      // guaranteed order); siblings share the new window, so date is the only key.
+      rows.sort((a, b) => a.date.localeCompare(b.date) || a.startTime.localeCompare(b.startTime));
+      return z.array(trainingSchema).parse(rows);
+    });
+
+    return updated;
+  }
+
+  /**
+   * The FUTURE non-cancelled INDIVIDUAL trainings of the locked target's series,
+   * including the target itself. The series is resolved from the owner booking's
+   * groupSubscriptionId; with no subscription link the series is just the target. The
+   * subscription's training ids are intersected with the future non-cancelled
+   * individual trainings of the same client + trainer (the same set the generator's
+   * idempotency read covers), so PAST and cancelled siblings are excluded. Returns the
+   * ids to reschedule; the caller writes each inside its tx.
+   */
+  private async resolveFutureSeriesTargets(tx: Database, target: Training): Promise<string[]> {
+    if (target.clientId === null) {
+      return [target.id];
+    }
+
+    const subscriptionId = await this.bookings.findSubscriptionIdForTrainingOwner(
+      tx,
+      target.id,
+      target.clientId
+    );
+    if (!subscriptionId) {
+      // No subscription link → a one-off individual training; only itself moves.
+      return [target.id];
+    }
+
+    const subscriptionTrainingIds = new Set(
+      await this.bookings.findSubscriptionTrainingIds(tx, subscriptionId)
+    );
+
+    // Same "today" source as the generate flow: past instances are never rescheduled.
+    const today = new Date().toISOString().slice(0, 10);
+    const future = await this.trainings.listFutureNonCancelledIndividual(
+      target.clientId,
+      target.trainerId,
+      today
+    );
+
+    const ids = future
+      .filter((row) => subscriptionTrainingIds.has(row.id))
+      .map((row) => row.id);
+    // The target is always included even if its date is "today" and edge filters drift.
+    if (!ids.includes(target.id)) {
+      ids.push(target.id);
+    }
+    return ids;
   }
 
   /**

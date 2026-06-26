@@ -16,14 +16,17 @@ import {
   availableSlotsQuerySchema,
   changeCapacitySchema,
   generateAllMonthSchema,
+  generateIndividualMonthSchema,
   generateMonthSchema,
   generationStatusQuerySchema,
   listTrainingsQuerySchema,
+  rescheduleTrainingSchema,
   trainerTodayQuerySchema,
   trainerUpcomingQuerySchema,
   uuid,
   type AutoAssignResult,
   type GenerateAllResult,
+  type GenerateIndividualResult,
   type GenerationStatusItem,
   type SlotCard,
   type Training,
@@ -60,6 +63,21 @@ export class TrainingsController {
     const actorTelegramId = parseTelegramId(telegramIdHeader);
     const input = validate(generateAllMonthSchema, body ?? {});
     return this.trainings.generateMonthForAll(actorTelegramId, input);
+  }
+
+  /**
+   * Admin: generate a month of individual (1-on-1) trainings for one client with one
+   * trainer. A literal route declared before any `:id` route so "generate-individual"
+   * is never captured as an id. Gated in the service.
+   */
+  @Post("generate-individual")
+  generateIndividual(
+    @Headers("x-telegram-id") telegramIdHeader: string | undefined,
+    @Body() body: unknown
+  ): Promise<GenerateIndividualResult> {
+    const actorTelegramId = parseTelegramId(telegramIdHeader);
+    const input = validate(generateIndividualMonthSchema, body ?? {});
+    return this.trainings.generateIndividualMonth(actorTelegramId, input);
   }
 
   /**
@@ -196,6 +214,39 @@ export class TrainingsController {
     const trainingId = validate(uuid, id);
     const input = validate(changeCapacitySchema, body ?? {});
     return this.trainings.changeCapacity(actorTelegramId, trainingId, input);
+  }
+
+  /** Admin: reschedule the time of ONE training instance. Gated in the service. */
+  @Patch(":id/time")
+  rescheduleOne(
+    @Headers("x-telegram-id") telegramIdHeader: string | undefined,
+    @Param("id") id: string,
+    @Body() body: unknown
+  ): Promise<Training> {
+    const actorTelegramId = parseTelegramId(telegramIdHeader);
+    const trainingId = validate(uuid, id);
+    const input = validate(rescheduleTrainingSchema, body ?? {});
+    return this.trainings.rescheduleTraining(actorTelegramId, trainingId, input, {
+      series: false
+    });
+  }
+
+  /**
+   * Admin: reschedule the time of this instance plus all FUTURE non-cancelled siblings
+   * of its individual series. Individual-only (400 otherwise). Gated in the service.
+   */
+  @Patch(":id/time-series")
+  rescheduleSeries(
+    @Headers("x-telegram-id") telegramIdHeader: string | undefined,
+    @Param("id") id: string,
+    @Body() body: unknown
+  ): Promise<Training[]> {
+    const actorTelegramId = parseTelegramId(telegramIdHeader);
+    const trainingId = validate(uuid, id);
+    const input = validate(rescheduleTrainingSchema, body ?? {});
+    return this.trainings.rescheduleTraining(actorTelegramId, trainingId, input, {
+      series: true
+    });
   }
 }
 
