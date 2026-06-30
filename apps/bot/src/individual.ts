@@ -8,10 +8,11 @@ import { t, type Catalog } from "./i18n";
 /**
  * Individual-training request flow (Feature 8). The bot is an interaction layer
  * only: it renders the active-trainer picker and forwards the chosen trainerId +
- * the caller's telegram id to the API, which DMs the trainer with a clickable
- * link to the client. No persistence, no domain text composed here — the trainer
- * DM is composed server-side. Works for clients without a username (the API uses
- * an id-based mention).
+ * the caller's telegram id to the API, which sends an admin/manager staff
+ * notification naming the chosen trainer with a clickable link to the client. No
+ * persistence, no domain text composed here — the staff notification is composed
+ * server-side. Works for clients without a username (the API uses an id-based
+ * mention).
  *
  * Callback-data is namespaced and carries only the trainerId, well under
  * Telegram's 64-byte cap:
@@ -61,15 +62,15 @@ export function trainerPickKeyboard(catalog: Catalog, trainers: Trainer[]): Inli
 }
 
 /** Slice of the ApiClient the individual-training handlers need. */
-export type IndividualApi = Pick<ApiClient, "listTrainers" | "requestIndividualSession">;
+export type IndividualApi = Pick<ApiClient, "listIndividualTrainers" | "requestIndividualSession">;
 
-/** Entry: render the active-trainer picker, or a soft message when none. */
+/** Entry: render the API-scoped trainer picker, or a soft message when none. */
 export async function handleIndividualEntry(
   ctx: MenuReplyCtx,
-  api: Pick<ApiClient, "listTrainers">,
+  api: Pick<ApiClient, "listIndividualTrainers">,
   catalog: Catalog
 ): Promise<void> {
-  const trainers = await api.listTrainers();
+  const trainers = await api.listIndividualTrainers();
   if (trainers.length === 0) {
     await ctx.reply(t(catalog, "bot.individual.noTrainers"), {
       reply_markup: backHomeKeyboard(catalog)
@@ -83,10 +84,11 @@ export async function handleIndividualEntry(
 
 /**
  * Trainer picked → request an individual session. Identity is the caller's
- * telegram id (forwarded to the API, which DMs the trainer); a lost identity
+ * telegram id (forwarded to the API for admin/manager staff notification naming
+ * the chosen trainer); a lost identity
  * falls back to the main menu. The API decides delivery — `delivered:false`
- * (trainer has no Telegram, send failed, or unknown trainer) renders a soft
- * message. The bot never composes the trainer DM.
+ * (no staff notification delivered, send failed, or unknown trainer) renders a
+ * soft message. The bot never composes the staff notification.
  */
 export async function handleIndividualPick(
   ctx: MenuReplyCtx,

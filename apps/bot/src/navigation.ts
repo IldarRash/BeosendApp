@@ -39,6 +39,7 @@ export interface MenuHandlerDeps {
     | "listGroups"
     | "getClientByTelegramId"
     | "listMyBookings"
+    | "listIndividualTrainers"
     | "listTrainers"
     | "listLevels"
   >;
@@ -97,7 +98,8 @@ export const menuHandlers: Partial<Record<MenuAction, MenuHandler>> = {
   },
   // Individual training (Feature 8): render the active-trainer picker. Picking a
   // trainer (ind:pick:<id>) is routed in index.ts so the caller's telegram id can
-  // be forwarded to the API, which DMs the trainer. The bot only renders.
+  // be forwarded to the API for an admin/manager staff notification naming the
+  // chosen trainer. The bot only renders.
   [MENU_ACTIONS.individual]: async (ctx, deps) => {
     await handleIndividualEntry(ctx, deps.api, deps.catalog);
   },

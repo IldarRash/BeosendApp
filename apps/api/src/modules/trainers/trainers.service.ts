@@ -29,7 +29,10 @@ export class TrainersService {
   ) {}
 
   /** Reference-facing list: active trainers only. */
-  async listActive(): Promise<Trainer[]> {
+  async listActive(scope?: "individual"): Promise<Trainer[]> {
+    if (scope === "individual") {
+      return this.trainers.listVisibleForIndividual();
+    }
     return this.trainers.listActive();
   }
 

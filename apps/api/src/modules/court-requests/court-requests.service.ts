@@ -87,7 +87,7 @@ export class CourtRequestsService {
   async getAvailability(date: string): Promise<CourtAvailability> {
     const [activeCourtCount, confirmedRows, blockRows] = await Promise.all([
       this.repository.countActiveCourts(),
-      this.repository.confirmedRequestsForDate(date),
+      this.repository.requestHoldSpansForDate(date),
       this.repository.blocksForDate(date)
     ]);
 
@@ -175,7 +175,7 @@ export class CourtRequestsService {
         priceRsd: courtPriceRsd(input.durationHours, 1)
       });
       await this.notifyAdminsOfNewRequest(row);
-      return this.toEntity(row);
+      return this.toClientEntity(row);
     }
 
     const slots = courtSlotsCovered(input.startTime, durationMinutesOf(input.durationHours));
@@ -190,7 +190,7 @@ export class CourtRequestsService {
       }
 
       const [confirmed, blocks] = await Promise.all([
-        tx.confirmedCourtOccupancyForDate(input.date),
+        tx.requestHoldCourtOccupancyForDate(input.date),
         tx.blocksByCourtForDate(input.date)
       ]);
       const occupants = toCellOccupants(confirmed, blocks);
@@ -212,7 +212,7 @@ export class CourtRequestsService {
     });
 
     await this.notifyAdminsOfNewRequest(row);
-    return this.toEntity(row);
+    return this.toClientEntity(row);
   }
 
   /**
@@ -259,7 +259,7 @@ export class CourtRequestsService {
 
     const [courts, confirmed, blocks] = await Promise.all([
       this.repository.activeCourts(),
-      this.repository.confirmedCourtOccupancyForDate(input.date),
+      this.repository.requestHoldCourtOccupancyForDate(input.date),
       this.repository.blocksByCourtForDate(input.date)
     ]);
 
@@ -290,7 +290,7 @@ export class CourtRequestsService {
     }
 
     const rows = await this.repository.listMineForClient(client.id);
-    return rows.map((row) => myCourtRequestItemSchema.parse(row));
+    return rows.map((row) => this.toClientMineItem(row));
   }
 
   /**
@@ -341,7 +341,7 @@ export class CourtRequestsService {
     const duration = parseDuration(request.durationHours);
     const [courts, confirmed, blocks] = await Promise.all([
       this.repository.activeCourts(),
-      this.repository.confirmedCourtOccupancyForDate(request.date),
+      this.repository.requestHoldCourtOccupancyForDate(request.date),
       this.repository.blocksByCourtForDate(request.date)
     ]);
 
@@ -402,7 +402,7 @@ export class CourtRequestsService {
       const slots = courtSlotsCovered(request.startTime, durationMinutesOf(duration));
       const [activeCourtCount, confirmed, blocks] = await Promise.all([
         tx.countActiveCourts(),
-        tx.confirmedCourtOccupancyForDate(request.date),
+        tx.requestHoldCourtOccupancyForDate(request.date),
         tx.blocksByCourtForDate(request.date)
       ]);
 
@@ -435,7 +435,7 @@ export class CourtRequestsService {
         id: request.id,
         status: "confirmed",
         courtIds,
-        decidedBy: input.decidedBy
+        decidedBy: callerTelegramId
       });
     });
 
@@ -461,11 +461,12 @@ export class CourtRequestsService {
       if (request.status !== "pending") {
         throw new ConflictException("This request has already been decided.");
       }
+      await tx.lockDate(request.date);
       return tx.decide({
         id: request.id,
         status: "rejected",
         courtIds: [],
-        decidedBy: input.decidedBy
+        decidedBy: callerTelegramId
       });
     });
 
@@ -573,6 +574,29 @@ export class CourtRequestsService {
     });
   }
 
+  /**
+   * Client-facing request response. Held court numbers remain persisted for
+   * availability/admin moderation, but the client learns court numbers only after
+   * admin confirmation.
+   */
+  private toClientEntity(row: CourtRequestRow): CourtRequest {
+    return courtRequestSchema.parse({
+      ...this.toEntity(row),
+      courtNumbers: confirmedCourtNumbers(row)
+    });
+  }
+
+  /**
+   * Client-facing "mine" row. Same redaction rule as create: a pending hold is
+   * internal until an admin confirms the final court assignment.
+   */
+  private toClientMineItem(row: MyCourtRequestItem): MyCourtRequestItem {
+    return myCourtRequestItemSchema.parse({
+      ...row,
+      courtNumbers: confirmedCourtNumbers(row)
+    });
+  }
+
   /** Map a persisted request row to the entity contract the bot/admin renders. */
   private toEntity(row: CourtRequestRow): CourtRequest {
     return courtRequestSchema.parse({
@@ -615,7 +639,7 @@ export class CourtRequestsService {
   ): Promise<boolean> {
     const [activeCourtCount, confirmedRows, blockRows] = await Promise.all([
       this.repository.countActiveCourts(),
-      this.repository.confirmedRequestsForDate(date),
+      this.repository.requestHoldSpansForDate(date),
       this.repository.blocksForDate(date)
     ]);
 
@@ -639,7 +663,7 @@ export class CourtRequestsService {
   ): Promise<boolean> {
     const [courts, confirmed, blocks] = await Promise.all([
       this.repository.activeCourtIdsForNumbers(courtNumbers),
-      this.repository.confirmedCourtOccupancyForDate(date),
+      this.repository.requestHoldCourtOccupancyForDate(date),
       this.repository.blocksByCourtForDate(date)
     ]);
     // An unknown/inactive picked court is never "free".
@@ -653,6 +677,10 @@ export class CourtRequestsService {
   private endTimeFor(startTime: string, durationHours: CourtDurationHours): string {
     return timeOfMinutes(minutesOfDay(startTime) + durationMinutesOf(durationHours));
   }
+}
+
+function confirmedCourtNumbers(row: { status: CourtRequestStatus; courtNumbers: number[] }): number[] {
+  return row.status === "confirmed" ? row.courtNumbers : [];
 }
 
 function pad(hour: number): string {

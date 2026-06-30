@@ -1,5 +1,5 @@
 import { Injectable } from "@nestjs/common";
-import { and, asc, eq, gte, lte, tables, type Database } from "@beosand/db";
+import { and, asc, eq, gte, inArray, lte, sql, tables, type Database } from "@beosand/db";
 import { DatabaseService } from "../../db/database.service";
 
 /** Row inserted for a court block. `groupTrainingId` is null for a manual block. */
@@ -29,6 +29,13 @@ export interface ConfirmedSpanRow {
   endTime: string;
 }
 
+/** An existing block occupying a specific court on a date: its half-open [start, end). */
+export interface BlockSpanRow {
+  id: string;
+  startTime: string;
+  endTime: string;
+}
+
 /** An occupant holding a specific court on a date: court id + minute span. */
 export interface CourtOccupancyRow {
   courtId: string;
@@ -41,6 +48,18 @@ export interface CourtOccupancyRow {
 @Injectable()
 export class CourtBlocksRepository {
   constructor(private readonly database: DatabaseService) {}
+
+  transaction<T>(work: (db: Database) => Promise<T>): Promise<T> {
+    return this.database.db.transaction(work);
+  }
+
+  /**
+   * Take the shared per-date advisory lock (xact-scoped). Court requests use the
+   * same key, so all occupancy writers serialize before overlap reads and writes.
+   */
+  async lockDate(date: string, db: Database): Promise<void> {
+    await db.execute(sql`select pg_advisory_xact_lock(hashtext(${date}))`);
+  }
 
   /**
    * All blocks whose date falls in the inclusive [from, to] range, ordered by date
@@ -57,8 +76,8 @@ export class CourtBlocksRepository {
   }
 
   /** A single block by id, or null. */
-  async findById(id: string): Promise<CourtBlockRow | null> {
-    const rows = await this.database.db
+  async findById(id: string, db: Database = this.database.db): Promise<CourtBlockRow | null> {
+    const rows = await db
       .select(blockColumns)
       .from(tables.courtBlocks)
       .where(eq(tables.courtBlocks.id, id))
@@ -72,8 +91,12 @@ export class CourtBlocksRepository {
    * request's courts live there. Confirmed only — a manual block can still be placed
    * over a still-pending hold (blocks are admin-authoritative; behavior unchanged).
    */
-  async confirmedSpansForCourtAndDate(courtId: string, date: string): Promise<ConfirmedSpanRow[]> {
-    const rows = await this.database.db
+  async confirmedSpansForCourtAndDate(
+    courtId: string,
+    date: string,
+    db: Database = this.database.db
+  ): Promise<ConfirmedSpanRow[]> {
+    const rows = await db
       .select({
         startTime: tables.courtRequests.startTime,
         durationHours: tables.courtRequests.durationHours
@@ -101,9 +124,33 @@ export class CourtBlocksRepository {
     });
   }
 
+  /** Existing blocks on a specific court/date, for block-vs-block overlap guards. */
+  async blockSpansForCourtAndDate(
+    courtId: string,
+    date: string,
+    db: Database = this.database.db,
+    excludeBlockId?: string
+  ): Promise<BlockSpanRow[]> {
+    const rows = await db
+      .select({
+        id: tables.courtBlocks.id,
+        startTime: tables.courtBlocks.startTime,
+        endTime: tables.courtBlocks.endTime
+      })
+      .from(tables.courtBlocks)
+      .where(and(eq(tables.courtBlocks.courtId, courtId), eq(tables.courtBlocks.date, date)));
+    return rows
+      .filter((row) => row.id !== excludeBlockId)
+      .map((row) => ({
+        id: row.id,
+        startTime: row.startTime.slice(0, 5),
+        endTime: row.endTime.slice(0, 5)
+      }));
+  }
+
   /** True when the referenced court exists and is active. */
-  async isActiveCourt(courtId: string): Promise<boolean> {
-    const rows = await this.database.db
+  async isActiveCourt(courtId: string, db: Database = this.database.db): Promise<boolean> {
+    const rows = await db
       .select({ id: tables.courts.id })
       .from(tables.courts)
       .where(and(eq(tables.courts.id, courtId), eq(tables.courts.status, "active")))
@@ -130,14 +177,33 @@ export class CourtBlocksRepository {
   }
 
   /**
-   * Confirmed requests on a date keyed by the court they hold (per-court occupancy),
-   * read from the join table `court_request_courts ⋈ court_requests`. Confirmed only —
-   * the auto-block court selection must still avoid a court a confirmed request holds.
-   * Optionally runs inside a caller's transaction.
+   * Confirmed requests on a date keyed by the court they hold (per-court occupancy).
+   * Manual block reassign keeps using this confirmed-only read; manual blocks are
+   * admin-authoritative and may intentionally overlap pending holds.
    */
   async confirmedOccupancyForDate(
     date: string,
     db: Database = this.database.db
+  ): Promise<CourtOccupancyRow[]> {
+    return this.requestOccupancyForDate(date, ["confirmed"], db);
+  }
+
+  /**
+   * Pending + confirmed court-request holds on a date keyed by held court. Training
+   * generation and assignment use this reader so a picked court held by a pending
+   * request is unavailable to auto/manual training court placement.
+   */
+  async heldOccupancyForDate(
+    date: string,
+    db: Database = this.database.db
+  ): Promise<CourtOccupancyRow[]> {
+    return this.requestOccupancyForDate(date, ["pending", "confirmed"], db);
+  }
+
+  private async requestOccupancyForDate(
+    date: string,
+    statuses: readonly ("pending" | "confirmed")[],
+    db: Database
   ): Promise<CourtOccupancyRow[]> {
     const rows = await db
       .select({
@@ -151,7 +217,12 @@ export class CourtBlocksRepository {
         tables.courtRequests,
         eq(tables.courtRequestCourts.requestId, tables.courtRequests.id)
       )
-      .where(and(eq(tables.courtRequests.date, date), eq(tables.courtRequests.status, "confirmed")));
+      .where(
+        and(
+          eq(tables.courtRequests.date, date),
+          inArray(tables.courtRequests.status, [...statuses])
+        )
+      );
     return rows.map((row) => ({
       requestId: row.requestId,
       courtId: row.courtId,
@@ -206,8 +277,12 @@ export class CourtBlocksRepository {
   }
 
   /** Move a block to another court (reassign). Returns the updated row. */
-  async updateCourt(id: string, courtId: string): Promise<CourtBlockRow> {
-    const rows = await this.database.db
+  async updateCourt(
+    id: string,
+    courtId: string,
+    db: Database = this.database.db
+  ): Promise<CourtBlockRow> {
+    const rows = await db
       .update(tables.courtBlocks)
       .set({ courtId })
       .where(eq(tables.courtBlocks.id, id))
@@ -216,8 +291,8 @@ export class CourtBlocksRepository {
   }
 
   /** Delete a block by id. Returns true when a row was removed. */
-  async deleteById(id: string): Promise<boolean> {
-    const rows = await this.database.db
+  async deleteById(id: string, db: Database = this.database.db): Promise<boolean> {
+    const rows = await db
       .delete(tables.courtBlocks)
       .where(eq(tables.courtBlocks.id, id))
       .returning({ id: tables.courtBlocks.id });

@@ -1,17 +1,25 @@
 import { useMemo, useState } from "react";
-import type { Court, CourtBlock, CreateCourtBlock } from "@beosand/types";
+import type {
+  Court,
+  CourtBlock,
+  CreateCourtBlock,
+  CreateRecurringCourtBlocks,
+  DayOfWeek
+} from "@beosand/types";
 import { formatDayMonth } from "@beosand/types";
 import { AppShell } from "../ui/AppShell";
 import { Button } from "../ui/Button";
 import { DataTable, type Column } from "../ui/DataTable";
 import { Modal } from "../ui/Modal";
 import { SelectField, TextField, TimeField } from "../ui/Field";
+import { DayOfWeekPicker } from "../ui/DayOfWeekPicker";
 import { useToast } from "../ui/Toast";
 import { useT } from "../i18n/LanguageProvider";
 import { useCourts } from "../hooks/useCourts";
 import {
   useCourtBlocks,
   useCreateCourtBlock,
+  useCreateRecurringCourtBlocks,
   useDeleteCourtBlock
 } from "../hooks/useCourtBlocks";
 import { ReassignCourtDialog } from "../components/ReassignCourtDialog";
@@ -263,24 +271,50 @@ interface CreateBlockDialogProps {
   onClose: () => void;
 }
 
-/** Create dialog for a single court block. Server owns all validation. */
+/** Create dialog for one manual court block or a recurring series. Server owns validation. */
 function CreateBlockDialog({ date, courts, onClose }: CreateBlockDialogProps): JSX.Element {
   const t = useT();
   const { notify } = useToast();
   const create = useCreateCourtBlock();
+  const createRecurring = useCreateRecurringCourtBlocks();
 
+  const [mode, setMode] = useState<"single" | "recurring">("single");
   const [courtId, setCourtId] = useState(courts[0]?.id ?? "");
   const [blockDate, setBlockDate] = useState(date);
+  const [from, setFrom] = useState(date);
+  const [to, setTo] = useState(date);
+  const [daysOfWeek, setDaysOfWeek] = useState<DayOfWeek[]>([1]);
   const [startTime, setStartTime] = useState("");
   const [endTime, setEndTime] = useState("");
   const [reason, setReason] = useState("");
+  const pending = create.isPending || createRecurring.isPending;
+  const error = mode === "recurring" ? createRecurring.error : create.error;
 
   function handleSubmit(event: React.FormEvent): void {
     event.preventDefault();
-    const input: CreateCourtBlock = { courtId, date: blockDate, startTime, endTime, reason };
-    create.mutate(input, {
-      onSuccess: () => {
-        notify(t("admin.courtBlocks.created"), "success");
+    if (mode === "single") {
+      const input: CreateCourtBlock = { courtId, date: blockDate, startTime, endTime, reason };
+      create.mutate(input, {
+        onSuccess: () => {
+          notify(t("admin.courtBlocks.created"), "success");
+          onClose();
+        }
+      });
+      return;
+    }
+
+    const input: CreateRecurringCourtBlocks = {
+      courtId,
+      from,
+      to,
+      daysOfWeek,
+      startTime,
+      endTime,
+      reason
+    };
+    createRecurring.mutate(input, {
+      onSuccess: (created) => {
+        notify(t("admin.courtBlocks.createdRecurring", { count: created.length }), "success");
         onClose();
       }
     });
@@ -293,11 +327,11 @@ function CreateBlockDialog({ date, courts, onClose }: CreateBlockDialogProps): J
       title={t("admin.courtBlocks.newTitle")}
       footer={
         <>
-          <Button variant="ghost" onClick={onClose} disabled={create.isPending}>
+          <Button variant="ghost" onClick={onClose} disabled={pending}>
             {t("admin.action.cancel")}
           </Button>
-          <Button type="submit" form="court-block-form" disabled={create.isPending}>
-            {create.isPending ? t("admin.action.saving") : t("admin.action.save")}
+          <Button type="submit" form="court-block-form" disabled={pending}>
+            {pending ? t("admin.action.saving") : t("admin.action.save")}
           </Button>
         </>
       }
@@ -313,13 +347,60 @@ function CreateBlockDialog({ date, courts, onClose }: CreateBlockDialogProps): J
             label: t("admin.courtBlocks.court", { number: court.number })
           }))}
         />
-        <TextField
-          label={t("admin.field.date")}
-          type="date"
-          value={blockDate}
-          onChange={(e) => setBlockDate(e.target.value)}
-          required
-        />
+        <div className="field">
+          <span className="field__label" id="court-block-mode">
+            {t("admin.courtBlocks.modeLabel")}
+          </span>
+          <div className="view-toggle" role="group" aria-labelledby="court-block-mode">
+            <button
+              type="button"
+              className="view-toggle__btn"
+              aria-pressed={mode === "single"}
+              onClick={() => setMode("single")}
+            >
+              {t("admin.courtBlocks.modeSingle")}
+            </button>
+            <button
+              type="button"
+              className="view-toggle__btn"
+              aria-pressed={mode === "recurring"}
+              onClick={() => setMode("recurring")}
+            >
+              {t("admin.courtBlocks.modeRecurring")}
+            </button>
+          </div>
+        </div>
+        {mode === "single" ? (
+          <TextField
+            label={t("admin.field.date")}
+            type="date"
+            value={blockDate}
+            onChange={(e) => setBlockDate(e.target.value)}
+            required
+          />
+        ) : (
+          <>
+            <TextField
+              label={t("admin.courtBlocks.fromDate")}
+              type="date"
+              value={from}
+              onChange={(e) => setFrom(e.target.value)}
+              required
+            />
+            <TextField
+              label={t("admin.courtBlocks.toDate")}
+              type="date"
+              value={to}
+              onChange={(e) => setTo(e.target.value)}
+              required
+            />
+            <DayOfWeekPicker
+              label={t("admin.courtBlocks.daysOfWeek")}
+              value={daysOfWeek}
+              onChange={setDaysOfWeek}
+            />
+          </>
+        )}
         <TimeField
           label={t("admin.field.startTime")}
           value={startTime}
@@ -341,9 +422,9 @@ function CreateBlockDialog({ date, courts, onClose }: CreateBlockDialogProps): J
           required
           autoComplete="off"
         />
-        {create.error ? (
+        {error ? (
           <p className="state state--error" role="alert">
-            {errorText(create.error, t)}
+            {errorText(error, t)}
           </p>
         ) : null}
       </form>

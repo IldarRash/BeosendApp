@@ -355,7 +355,8 @@ describe("NotificationsService", () => {
       status: "active" as const,
       telegramId: 555 as number | null,
       telegramUsername: null,
-      language: "ru" as const
+      language: "ru" as const,
+      individualVisible: true
     };
     const client: Client = {
       id: "client-1",

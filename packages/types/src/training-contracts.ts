@@ -43,15 +43,18 @@ export const trainerSchema = z.object({
    */
   telegramUsername: z.string().nullable(),
   /** Staff DM locale; drives the language of trainer-facing notifications. */
-  language: localeSchema
+  language: localeSchema,
+  /** Whether this trainer is offered in the Mini App individual request picker. */
+  individualVisible: z.boolean()
 });
 // Identity is optional: a trainer can exist as reference data (shown in slots)
 // with neither id nor username, and gain bot access once either is linked.
 export const createTrainerSchema = trainerSchema.pick({ name: true, type: true }).extend({
   telegramId: z.number().int().nullable().optional(),
   telegramUsername: telegramUsername.nullable().optional(),
-  language: localeSchema.optional()
-});
+  language: localeSchema.optional(),
+  individualVisible: z.boolean().optional()
+}).strict();
 export const updateTrainerSchema = z
   .object({
     name: z.string().min(1),
@@ -59,9 +62,11 @@ export const updateTrainerSchema = z
     status: entityStatus,
     telegramId: z.number().int().nullable(),
     telegramUsername: telegramUsername.nullable(),
-    language: localeSchema.optional()
+    language: localeSchema.optional(),
+    individualVisible: z.boolean()
   })
-  .partial();
+  .partial()
+  .strict();
 export type Trainer = z.infer<typeof trainerSchema>;
 export type CreateTrainerInput = z.infer<typeof createTrainerSchema>;
 export type UpdateTrainerInput = z.infer<typeof updateTrainerSchema>;

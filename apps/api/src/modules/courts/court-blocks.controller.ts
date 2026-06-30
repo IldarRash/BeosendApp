@@ -15,6 +15,7 @@ import { z } from "zod";
 import {
   courtBlocksListQuerySchema,
   createCourtBlockSchema,
+  createRecurringCourtBlocksSchema,
   reassignCourtBlockSchema,
   uuid,
   type CourtBlock
@@ -42,6 +43,22 @@ export class CourtBlocksController {
       );
     }
     return this.service.createBlock(telegramId, parsed.data);
+  }
+
+  /** Admin-only. Create a repeated manual block over an inclusive date range. */
+  @Post("recurring")
+  async createRecurring(
+    @Headers("x-telegram-id") rawTelegramId: string | undefined,
+    @Body() body: unknown
+  ): Promise<CourtBlock[]> {
+    const telegramId = parseTelegramId(rawTelegramId);
+    const parsed = createRecurringCourtBlocksSchema.safeParse(body);
+    if (!parsed.success) {
+      throw new BadRequestException(
+        "Invalid recurring block body: expected { courtId, from, to, daysOfWeek, startTime, endTime, reason }."
+      );
+    }
+    return this.service.createRecurringBlocks(telegramId, parsed.data);
   }
 
   /**

@@ -1,7 +1,7 @@
 import { useState } from "react";
 import { Placeholder } from "@telegram-apps/telegram-ui";
 import type { IndividualRequestResult, Trainer } from "@beosand/types";
-import { useRequestIndividual, useTrainers } from "../api/hooks";
+import { useIndividualTrainers, useRequestIndividual } from "../api/hooks";
 import { resolveErrorMessage } from "../api/errors";
 import { useT, type TranslateFn } from "../i18n/LanguageProvider";
 import { useNav } from "../router/NavProvider";
@@ -31,7 +31,7 @@ import { EmptyState, ErrorState, LoadingState } from "../ui/StateView";
  * MainButton per actionable sub-state (none on the bare list).
  */
 export function TrainerRequestScreen(): JSX.Element {
-  const trainers = useTrainers();
+  const trainers = useIndividualTrainers();
   const [selected, setSelected] = useState<Trainer | null>(null);
 
   if (selected) {

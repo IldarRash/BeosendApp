@@ -28,8 +28,8 @@ const FIRST_DATE = offeredDates()[0];
  *  - the court step renders the server's FREE courts as selectable, and every other
  *    court (taken) is disabled/greyed — the client never picks a court the server
  *    didn't sanction.
- *  - the client may pick MORE THAN ONE court; the preview + pending show the picked
- *    numbers and the count.
+ *  - the client may pick MORE THAN ONE court; the preview shows the picked numbers
+ *    and count, while the pending response redacts court numbers until confirmation.
  *  - durations up to 6h are offered (COURT_DURATION_CHOICES).
  *  - the price is the server's preview.priceRsd, shown read-only.
  *  - a slot taken meanwhile (preview unavailable, or a submit 409) is a CALM
@@ -93,7 +93,7 @@ const COURT_REQUEST: CourtRequest = {
   priceRsd: 6000,
   status: "pending",
   courtCount: 2,
-  courtNumbers: [1, 3],
+  courtNumbers: [],
   createdAt: "2026-06-05T10:00:00.000Z",
   decidedAt: null,
   decidedBy: null
@@ -225,7 +225,7 @@ describe("CourtRequestScreen", () => {
     expect((screen.getByRole("button", { name: "Корт 4 занят" }) as HTMLButtonElement).disabled).toBe(true);
   });
 
-  it("supports multi-select, then previews and submits the PICKED courts; pending shows the numbers", async () => {
+  it("supports multi-select, previews and submits the picked courts, then hides pending numbers", async () => {
     renderScreen();
     await advanceToPreview();
 
@@ -253,11 +253,11 @@ describe("CourtRequestScreen", () => {
       courtNumbers: [1, 3]
     });
 
-    // Pending state: calm success (role=status), and the picked courts ARE shown.
+    // Pending state: calm success (role=status), with court numbers redacted until confirmation.
     const sent = await screen.findByText("Запрос отправлен");
     expect(sent.closest('[role="status"]')).not.toBeNull();
     expect(screen.queryByRole("alert")).toBeNull();
-    expect(screen.getByText("Выбранные корты: 1, 3")).toBeTruthy();
+    expect(screen.queryByText("Выбранные корты: 1, 3")).toBeNull();
   });
 
   it("shows an empty state when no courts are free for the chosen slot", async () => {

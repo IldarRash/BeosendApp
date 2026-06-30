@@ -13,6 +13,7 @@ import {
   courtSchema,
   createCourtRequestSchema,
   createCourtBlockSchema,
+  createRecurringCourtBlocksSchema,
   previewCourtRequestSchema,
   reassignCourtBlockSchema,
   rejectCourtRequestSchema,
@@ -51,15 +52,68 @@ describe("createCourtBlockSchema", () => {
     expect(createCourtBlockSchema.safeParse(withoutTime).success).toBe(false);
   });
 
-  it("T10 — strips groupTrainingId (manual create never sets the link)", () => {
+  it("T10 - rejects groupTrainingId (manual create never sets the link)", () => {
     const parsed = createCourtBlockSchema.safeParse({
       ...validBlock,
       groupTrainingId: "22222222-2222-4222-8222-222222222222"
     });
-    expect(parsed.success).toBe(true);
-    if (parsed.success) {
-      expect("groupTrainingId" in parsed.data).toBe(false);
+    expect(parsed.success).toBe(false);
+    if (!parsed.success) {
+      expect(parsed.error.issues[0]?.code).toBe("unrecognized_keys");
     }
+  });
+});
+
+describe("createRecurringCourtBlocksSchema", () => {
+  const validRecurring = {
+    courtId: "11111111-1111-4111-8111-111111111111",
+    from: "2026-06-01",
+    to: "2026-06-14",
+    daysOfWeek: [1, 3, 7],
+    startTime: "08:00",
+    endTime: "10:00",
+    reason: "Tournament"
+  };
+
+  it("accepts a valid inclusive range with ISO weekdays", () => {
+    expect(createRecurringCourtBlocksSchema.safeParse(validRecurring).success).toBe(true);
+  });
+
+  it("rejects empty weekdays and weekdays outside ISO 1-7", () => {
+    expect(
+      createRecurringCourtBlocksSchema.safeParse({ ...validRecurring, daysOfWeek: [] }).success
+    ).toBe(false);
+    expect(
+      createRecurringCourtBlocksSchema.safeParse({ ...validRecurring, daysOfWeek: [0] }).success
+    ).toBe(false);
+    expect(
+      createRecurringCourtBlocksSchema.safeParse({ ...validRecurring, daysOfWeek: [8] }).success
+    ).toBe(false);
+  });
+
+  it("rejects an inverted date range", () => {
+    expect(
+      createRecurringCourtBlocksSchema.safeParse({
+        ...validRecurring,
+        from: "2026-06-14",
+        to: "2026-06-01"
+      }).success
+    ).toBe(false);
+  });
+
+  it("rejects malformed times", () => {
+    expect(
+      createRecurringCourtBlocksSchema.safeParse({ ...validRecurring, startTime: "8:00" }).success
+    ).toBe(false);
+    expect(
+      createRecurringCourtBlocksSchema.safeParse({ ...validRecurring, endTime: "25:00" }).success
+    ).toBe(false);
+  });
+
+  it("rejects unknown fields", () => {
+    expect(
+      createRecurringCourtBlocksSchema.safeParse({ ...validRecurring, groupTrainingId: null }).success
+    ).toBe(false);
   });
 });
 
@@ -96,6 +150,17 @@ describe("reassignCourtBlockSchema (T10)", () => {
 
   it("rejects a non-uuid courtId", () => {
     expect(reassignCourtBlockSchema.safeParse({ courtId: "nope" }).success).toBe(false);
+  });
+
+  it("rejects unknown fields", () => {
+    const parsed = reassignCourtBlockSchema.safeParse({
+      courtId: "55555555-5555-4555-8555-555555555555",
+      groupTrainingId: "44444444-4444-4444-8444-444444444444"
+    });
+    expect(parsed.success).toBe(false);
+    if (!parsed.success) {
+      expect(parsed.error.issues[0]?.code).toBe("unrecognized_keys");
+    }
   });
 });
 
@@ -348,6 +413,22 @@ describe("courtBlocksListQuerySchema (admin list — single day or multi-day ran
     expect(courtBlocksListQuerySchema.safeParse({ to: "2026-06-12" }).success).toBe(false);
   });
 
+  it("rejects mixing date with range bounds", () => {
+    expect(
+      courtBlocksListQuerySchema.safeParse({
+        date: "2026-06-09",
+        from: "2026-06-10",
+        to: "2026-06-12"
+      }).success
+    ).toBe(false);
+    expect(
+      courtBlocksListQuerySchema.safeParse({ date: "2026-06-09", from: "2026-06-10" }).success
+    ).toBe(false);
+    expect(
+      courtBlocksListQuerySchema.safeParse({ date: "2026-06-09", to: "2026-06-12" }).success
+    ).toBe(false);
+  });
+
   it("rejects an inverted range (from > to)", () => {
     expect(
       courtBlocksListQuerySchema.safeParse({ from: "2026-06-12", to: "2026-06-10" }).success
@@ -359,6 +440,17 @@ describe("courtBlocksListQuerySchema (admin list — single day or multi-day ran
     expect(
       courtBlocksListQuerySchema.safeParse({ from: "2026-06-10", to: "12-06-2026" }).success
     ).toBe(false);
+  });
+
+  it("rejects unknown query fields", () => {
+    const parsed = courtBlocksListQuerySchema.safeParse({
+      date: "2026-06-10",
+      groupTrainingId: "44444444-4444-4444-8444-444444444444"
+    });
+    expect(parsed.success).toBe(false);
+    if (!parsed.success) {
+      expect(parsed.error.issues[0]?.code).toBe("unrecognized_keys");
+    }
   });
 });
 
@@ -395,9 +487,9 @@ const uuidA = "11111111-1111-4111-8111-111111111111";
 const uuidB = "22222222-2222-4222-8222-222222222222";
 
 describe("confirmCourtRequestSchema (C4 admin confirm input)", () => {
-  const validBody = { requestId: uuidA, courtIds: [uuidB], decidedBy: 9001 };
+  const validBody = { requestId: uuidA, courtIds: [uuidB] };
 
-  it("accepts a valid confirm body (request id + chosen courts + admin id)", () => {
+  it("accepts a valid confirm body (request id + chosen courts)", () => {
     expect(confirmCourtRequestSchema.safeParse(validBody).success).toBe(true);
   });
 
@@ -416,39 +508,44 @@ describe("confirmCourtRequestSchema (C4 admin confirm input)", () => {
     expect(confirmCourtRequestSchema.safeParse(withoutCourts).success).toBe(false);
   });
 
-  it("rejects a non-uuid courtId and a non-integer decidedBy", () => {
+  it("rejects a non-uuid courtId", () => {
     expect(
       confirmCourtRequestSchema.safeParse({ ...validBody, courtIds: ["court-1"] }).success
     ).toBe(false);
-    expect(confirmCourtRequestSchema.safeParse({ ...validBody, decidedBy: 1.5 }).success).toBe(
-      false
-    );
+  });
+
+  it("rejects a spoofed decidedBy field", () => {
+    const result = confirmCourtRequestSchema.safeParse({ ...validBody, decidedBy: 9001 });
+    expect(result.success).toBe(false);
+    if (!result.success) {
+      expect(result.error.issues[0]?.code).toBe("unrecognized_keys");
+    }
   });
 });
 
 describe("rejectCourtRequestSchema (C4 admin reject input)", () => {
-  const validBody = { requestId: uuidA, decidedBy: 9001 };
+  const validBody = { requestId: uuidA };
 
   it("accepts a valid reject body", () => {
     expect(rejectCourtRequestSchema.safeParse(validBody).success).toBe(true);
   });
 
-  it("requires a uuid requestId and an integer decidedBy", () => {
-    expect(rejectCourtRequestSchema.safeParse({ requestId: "nope", decidedBy: 9001 }).success).toBe(
-      false
-    );
-    expect(
-      rejectCourtRequestSchema.safeParse({ requestId: uuidA, decidedBy: "9001" }).success
-    ).toBe(false);
-    expect(rejectCourtRequestSchema.safeParse({ requestId: uuidA }).success).toBe(false);
+  it("requires a uuid requestId", () => {
+    expect(rejectCourtRequestSchema.safeParse({ requestId: "nope" }).success).toBe(false);
+    expect(rejectCourtRequestSchema.safeParse({}).success).toBe(false);
   });
 
-  it("strips a smuggled courtId — reject never assigns a court", () => {
-    // Forbidden path: a reject body carries no court decision. Even if one is
-    // crafted in, the contract parses it away so reject can only stamp rejected.
-    const parsed = rejectCourtRequestSchema.parse({ ...validBody, courtId: uuidB });
-    expect(Object.keys(parsed).sort()).toEqual(["decidedBy", "requestId"]);
-    expect("courtId" in parsed).toBe(false);
+  it("rejects spoofed decision fields", () => {
+    for (const body of [
+      { ...validBody, decidedBy: 9001 },
+      { ...validBody, courtId: uuidB }
+    ]) {
+      const result = rejectCourtRequestSchema.safeParse(body);
+      expect(result.success).toBe(false);
+      if (!result.success) {
+        expect(result.error.issues[0]?.code).toBe("unrecognized_keys");
+      }
+    }
   });
 });
 

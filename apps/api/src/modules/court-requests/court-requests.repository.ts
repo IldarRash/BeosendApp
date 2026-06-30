@@ -101,7 +101,7 @@ export class CourtRequestsRepository {
    * (via the join table). A pending hold reduces availability the same as a confirmed
    * request; a bot request that picked no court (no join rows) holds nothing.
    */
-  async confirmedRequestsForDate(date: string): Promise<OccupantRow[]> {
+  async requestHoldSpansForDate(date: string): Promise<OccupantRow[]> {
     const rows = await this.joinedCourtOccupancy(this.database.db, date, ["pending", "confirmed"]);
     return rows.map((row) => ({
       startTime: row.startTime,
@@ -302,7 +302,7 @@ export class CourtRequestsRepository {
    * (pending or confirmed) request holds, with the holding request id and span.
    * Pending holds and confirmed assignments both reserve their courts.
    */
-  confirmedCourtOccupancyForDate(date: string): Promise<CourtOccupancyRow[]> {
+  requestHoldCourtOccupancyForDate(date: string): Promise<CourtOccupancyRow[]> {
     return this.joinedCourtOccupancy(this.database.db, date, ["pending", "confirmed"]);
   }
 
@@ -570,7 +570,7 @@ export class CourtModerationTx {
   }
 
   /** Per-court occupancy on a date (pending + confirmed) from the join table. */
-  async confirmedCourtOccupancyForDate(date: string): Promise<CourtOccupancyRow[]> {
+  async requestHoldCourtOccupancyForDate(date: string): Promise<CourtOccupancyRow[]> {
     const rows = await this.db
       .select({
         requestId: tables.courtRequests.id,

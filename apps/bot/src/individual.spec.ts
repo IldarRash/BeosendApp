@@ -18,7 +18,16 @@ const ru = getStaticCatalog("ru");
 const trainerId = "33333333-3333-3333-3333-333333333333";
 
 const trainers: Trainer[] = [
-  { id: trainerId, name: "Jovana", type: "main", telegramId: 555, status: "active", telegramUsername: null, language: "ru" },
+  {
+    id: trainerId,
+    name: "Jovana",
+    type: "main",
+    telegramId: 555,
+    status: "active",
+    telegramUsername: null,
+    language: "ru",
+    individualVisible: true
+  },
   {
     id: "44444444-4444-4444-4444-444444444444",
     name: "Милена",
@@ -26,9 +35,21 @@ const trainers: Trainer[] = [
     telegramId: null,
     status: "active",
     telegramUsername: null,
-    language: "ru"
+    language: "ru",
+    individualVisible: true
   }
 ];
+
+const hiddenTrainer: Trainer = {
+  id: "55555555-5555-5555-5555-555555555555",
+  name: "Hidden",
+  type: "main",
+  telegramId: 777,
+  status: "active",
+  telegramUsername: null,
+  language: "ru",
+  individualVisible: false
+};
 
 function callbacksOf(keyboard: { inline_keyboard: unknown[][] }): (string | undefined)[] {
   return keyboard.inline_keyboard
@@ -75,15 +96,30 @@ describe("trainerPickKeyboard", () => {
 describe("handleIndividualEntry", () => {
   it("renders the trainer picker when trainers are available", async () => {
     const { ctx, reply } = fakeCtx();
-    const api = { listTrainers: vi.fn().mockResolvedValue(trainers) };
+    const api = { listIndividualTrainers: vi.fn().mockResolvedValue(trainers) };
     await handleIndividualEntry(ctx, api, ru);
+    expect(api.listIndividualTrainers).toHaveBeenCalledOnce();
     expect(reply.mock.calls[0][0]).toBe(ru["bot.individual.pickTrainer"]);
     expect(callbacksOf(reply.mock.calls[0][1].reply_markup)).toContain(buildPickData(trainerId));
   });
 
+  it("uses the individual-scoped API roster so hidden trainers are not offered", async () => {
+    const { ctx, reply } = fakeCtx();
+    const api = {
+      listIndividualTrainers: vi.fn().mockResolvedValue([trainers[0]]),
+      listTrainers: vi.fn().mockResolvedValue([trainers[0], hiddenTrainer])
+    };
+    await handleIndividualEntry(ctx, api, ru);
+    const callbacks = callbacksOf(reply.mock.calls[0][1].reply_markup);
+    expect(api.listIndividualTrainers).toHaveBeenCalledOnce();
+    expect(api.listTrainers).not.toHaveBeenCalled();
+    expect(callbacks).toContain(buildPickData(trainers[0].id));
+    expect(callbacks).not.toContain(buildPickData(hiddenTrainer.id));
+  });
+
   it("shows the soft no-trainers message when the list is empty", async () => {
     const { ctx, reply } = fakeCtx();
-    const api = { listTrainers: vi.fn().mockResolvedValue([]) };
+    const api = { listIndividualTrainers: vi.fn().mockResolvedValue([]) };
     await handleIndividualEntry(ctx, api, ru);
     expect(reply.mock.calls[0][0]).toBe(ru["bot.individual.noTrainers"]);
     expect(callbacksOf(reply.mock.calls[0][1].reply_markup)).toEqual([
@@ -96,7 +132,7 @@ describe("handleIndividualEntry", () => {
 describe("handleIndividualPick", () => {
   function api(result: IndividualRequestResult): IndividualApi {
     return {
-      listTrainers: vi.fn(),
+      listIndividualTrainers: vi.fn(),
       requestIndividualSession: vi.fn().mockResolvedValue(result)
     };
   }

@@ -40,7 +40,7 @@ import {
  *   duration → pick 1…6 hours on the 0.5 grid (OptionList)
  *   courts   → pick ONE OR MORE specific free courts (.courtgrid / .ccell)
  *   preview  → review the SERVER's price (= 2000 × hours × count) + availability (.sumrow)
- *   pending  → the created request (pending; the picked court numbers ARE shown)
+ *   pending  → the created request (pending; court numbers are redacted by the API)
  *
  * Interaction layer only: the client picks a TIME + DURATION + COURTS; the server owns
  * the price (`preview.priceRsd`, shown read-only) and which courts are free (only the
@@ -402,7 +402,7 @@ function CourtStep({
 /**
  * Steps 5/6 — fetch the server preview for the chosen slot (incl. the picked courts),
  * then submit. The price shown is the server's; the client computes nothing. On success
- * the request is created (pending), and the pending state shows the PICKED court numbers.
+ * the request is created pending; the API redacts court numbers until confirmation.
  */
 function CourtPreviewFlow({
   slot,
@@ -543,8 +543,8 @@ function CourtPreview({
 }
 
 /**
- * The pending-success state: the request reached the admin queue. The client's PICKED
- * court numbers ARE shown now (the owner approved clients seeing their picked courts).
+ * The pending-success state: the request reached the admin queue. Pending client-facing
+ * responses carry `courtNumbers: []`, so no court number is shown before confirmation.
  * Calm `role="status"`.
  */
 function CourtPending({

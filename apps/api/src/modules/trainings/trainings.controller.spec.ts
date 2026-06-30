@@ -65,6 +65,7 @@ function makeTrainingsRepo(
 ): TrainingsRepository {
   return {
     existingDatesForGroup: vi.fn(async () => []),
+    lockIndividualGenerationCandidate: vi.fn(async () => undefined),
     insertMany: vi.fn(async () => [sampleTraining]),
     transaction: vi.fn(async (work: (tx: unknown) => Promise<unknown>) => work({})),
     listInRange: vi.fn(async () => [sampleTraining]),
@@ -84,9 +85,11 @@ function makeCourtBlocksRepo(
   overrides: Partial<CourtBlocksRepository> = {}
 ): CourtBlocksRepository {
   return {
+    lockDate: vi.fn(async () => undefined),
     activeCourts: vi.fn(async () => [{ id: "c0000000-0000-4000-8000-000000000001", number: 1 }]),
     countActiveCourts: vi.fn(async () => 1),
     confirmedOccupancyForDate: vi.fn(async () => []),
+    heldOccupancyForDate: vi.fn(async () => []),
     blocksOccupancyForDate: vi.fn(async () => []),
     insert: vi.fn(async (input) => ({ id: "b0000000-0000-4000-8000-000000000001", ...input })),
     deleteByGroupTrainingId: vi.fn(async () => true),
@@ -308,7 +311,8 @@ describe("TrainingsController generate-individual", () => {
     status: "active",
     telegramId: 555,
     telegramUsername: null,
-    language: "ru"
+    language: "ru",
+    individualVisible: true
   };
 
   function makeController(): { controller: TrainingsController; trainingsRepo: TrainingsRepository } {
@@ -397,6 +401,7 @@ describe("Trainer-scoped reads (T2.3)", () => {
     telegramId: TRAINER_TG,
     telegramUsername: null,
     language: "ru",
+    individualVisible: true,
     ...over
   });
 
@@ -607,6 +612,14 @@ describe("Admin manager writes (A1)", () => {
       transaction: vi.fn(async (work: (tx: unknown) => Promise<unknown>) => work({})),
       findForUpdate: vi.fn(async (_tx: unknown, id: string) =>
         lockRef.current && lockRef.current.id === id ? lockRef.current : undefined
+      ),
+      findFullForUpdate: vi.fn(async (_tx: unknown, id: string) =>
+        lockRef.current && lockRef.current.id === id ? lockToTraining(lockRef.current) : undefined
+      ),
+      findDateById: vi.fn(async (id: string) =>
+        lockRef.current && lockRef.current.id === id
+          ? { date: lockToTraining(lockRef.current).date }
+          : undefined
       ),
       cancelBookedBookingsForTraining: vi.fn(async () => {
         cancelBookedCalls += 1;

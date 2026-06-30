@@ -129,6 +129,11 @@ export function trainersQueryKey(): readonly [string] {
   return ["trainers"] as const;
 }
 
+/** Trainers for the individual request picker (GET /trainers?scope=individual). */
+export function individualTrainersQueryKey(): readonly [string, string] {
+  return ["trainers", "individual"] as const;
+}
+
 /**
  * Bookable slots for the browse screen (GET /trainings/available), keyed by the
  * filter set so a filter change refetches. The server returns only bookable slots
@@ -149,6 +154,15 @@ export function useTrainers(): UseQueryResult<Trainer[]> {
   return useQuery<Trainer[]>({
     queryKey: trainersQueryKey(),
     queryFn: () => client.listTrainers()
+  });
+}
+
+/** Individual-visible trainers for the one-on-one request picker. */
+export function useIndividualTrainers(): UseQueryResult<Trainer[]> {
+  const client = useApiClient();
+  return useQuery<Trainer[]>({
+    queryKey: individualTrainersQueryKey(),
+    queryFn: () => client.listIndividualTrainers()
   });
 }
 

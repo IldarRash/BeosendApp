@@ -52,19 +52,29 @@ const milena: Trainer = {
   status: "active",
   telegramId: null,
   telegramUsername: null,
-  language: "ru"
+  language: "ru",
+  individualVisible: true
 };
 
 function makeRepo(overrides: Partial<TrainersRepository> = {}): TrainersRepository {
   return {
     listActive: vi.fn(async () => [milena]),
+    listVisibleForIndividual: vi.fn(async () => [milena]),
     findById: vi.fn(async () => milena),
-    create: vi.fn(async (input: { name: string; type: Trainer["type"]; telegramId?: number | null }) => ({
-      ...milena,
-      name: input.name,
-      type: input.type,
-      telegramId: input.telegramId ?? null
-    })),
+    create: vi.fn(
+      async (input: {
+        name: string;
+        type: Trainer["type"];
+        telegramId?: number | null;
+        individualVisible?: boolean;
+      }) => ({
+        ...milena,
+        name: input.name,
+        type: input.type,
+        telegramId: input.telegramId ?? null,
+        individualVisible: input.individualVisible ?? true
+      })
+    ),
     update: vi.fn(
       async (id: string, patch: Partial<Pick<Trainer, "name" | "type" | "status" | "telegramId">>) => ({
         ...milena,
@@ -94,11 +104,36 @@ describe("TrainersService", () => {
     expect(repo.listActive).toHaveBeenCalledOnce();
   });
 
+  it("lists only active individual-visible trainers for the individual picker scope", async () => {
+    const visible = { ...milena, id: "22222222-2222-4222-8222-222222222222" };
+    repo = makeRepo({ listVisibleForIndividual: vi.fn(async () => [visible]) });
+    service = new TrainersService(repo, clients, notifications, env);
+
+    await expect(service.listActive("individual")).resolves.toEqual([visible]);
+    expect(repo.listVisibleForIndividual).toHaveBeenCalledOnce();
+    expect(repo.listActive).not.toHaveBeenCalled();
+  });
+
   it("admin can create a guest trainer", async () => {
     await expect(service.create(ADMIN_ID, { name: "Guest Bob", type: "guest" })).resolves.toMatchObject(
       { name: "Guest Bob", type: "guest" }
     );
     expect(repo.create).toHaveBeenCalledWith({ name: "Guest Bob", type: "guest" });
+  });
+
+  it("admin can create a trainer hidden from individual requests", async () => {
+    await expect(
+      service.create(ADMIN_ID, {
+        name: "Guest Hidden",
+        type: "guest",
+        individualVisible: false
+      })
+    ).resolves.toMatchObject({ individualVisible: false });
+    expect(repo.create).toHaveBeenCalledWith({
+      name: "Guest Hidden",
+      type: "guest",
+      individualVisible: false
+    });
   });
 
   it("admin can edit type and flip status (never deletes)", async () => {
@@ -108,6 +143,15 @@ describe("TrainersService", () => {
     expect(deactivated.status).toBe("inactive");
     expect(repo.update).toHaveBeenCalledWith(milena.id, { type: "guest" });
     expect(repo.update).toHaveBeenCalledWith(milena.id, { status: "inactive" });
+  });
+
+  it("admin can hide and show a trainer in the individual picker", async () => {
+    const hidden = await service.update(ADMIN_ID, milena.id, { individualVisible: false });
+    expect(hidden.individualVisible).toBe(false);
+    const visible = await service.update(ADMIN_ID, milena.id, { individualVisible: true });
+    expect(visible.individualVisible).toBe(true);
+    expect(repo.update).toHaveBeenCalledWith(milena.id, { individualVisible: false });
+    expect(repo.update).toHaveBeenCalledWith(milena.id, { individualVisible: true });
   });
 
   it("admin can set telegram_id (enables trainer UI) and clear it to null", async () => {
@@ -191,6 +235,20 @@ describe("TrainersService", () => {
       expect(notifications.notifyAdminsOfIndividualRequest).toHaveBeenCalledWith(
         [ADMIN_ID],
         expect.objectContaining({ id: milena.id }),
+        client
+      );
+    });
+
+    it("allows a direct request for a hidden active trainer", async () => {
+      repo = makeRepo({ findById: vi.fn(async () => ({ ...milena, individualVisible: false })) });
+      service = new TrainersService(repo, clients, notifications, env);
+
+      await expect(service.requestIndividual(milena.id, 777)).resolves.toEqual({
+        delivered: true
+      });
+      expect(notifications.notifyAdminsOfIndividualRequest).toHaveBeenCalledWith(
+        [ADMIN_ID],
+        expect.objectContaining({ id: milena.id, individualVisible: false }),
         client
       );
     });

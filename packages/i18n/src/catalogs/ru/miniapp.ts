@@ -223,7 +223,7 @@ export const miniappRu: Record<string, string> = {
   "miniapp.court.previewTitle": "Подтверждение заявки",
   "miniapp.court.previewBody": "Выбранные корты закреплены за вами до подтверждения администратором.",
   "miniapp.court.submit": "Отправить заявку",
-  // Step 6 — pending. The picked courts ARE shown now (owner-approved).
+  // Step 6 — pending. Court numbers are redacted until admin confirmation.
   "miniapp.court.sentTitle": "Запрос отправлен",
   "miniapp.court.sentBody": "Мы подтвердим выбранные корты и сообщим вам.",
   "miniapp.court.sentCourts": "Выбранные корты: {courts}",

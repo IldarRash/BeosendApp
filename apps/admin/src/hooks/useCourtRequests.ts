@@ -95,7 +95,7 @@ function invalidateAfterDecision(queryClient: ReturnType<typeof useQueryClient>)
 export function useConfirmRequest(): UseMutationResult<
   CourtRequest,
   Error,
-  { id: string; input: { courtIds: string[]; decidedBy: number } }
+  { id: string; input: { courtIds: string[] } }
 > {
   const api = useApiClient();
   const queryClient = useQueryClient();
@@ -111,12 +111,12 @@ export function useConfirmRequest(): UseMutationResult<
 export function useRejectRequest(): UseMutationResult<
   CourtRequest,
   Error,
-  { id: string; input: { decidedBy: number } }
+  { id: string }
 > {
   const api = useApiClient();
   const queryClient = useQueryClient();
   return useMutation({
-    mutationFn: ({ id, input }) => api.rejectRequest(id, input),
+    mutationFn: ({ id }) => api.rejectRequest(id),
     // Refetch on settle (see useConfirmRequest): a 409 still needs the queue refreshed.
     onSettled: () => invalidateAfterDecision(queryClient)
   });

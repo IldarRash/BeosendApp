@@ -115,6 +115,9 @@ export const trainers = pgTable(
     // Staff DM locale; defaults to SR (the primary staff language). Drives the
     // locale of trainer-facing notifications.
     language: locale("language").notNull().default("sr"),
+    // Controls whether clients see this active trainer in the Mini App
+    // individual-training picker. It does not deactivate the trainer.
+    individualVisible: boolean("individual_visible").notNull().default(true),
     // Rotating counter that revokes a trainer's signed calendar feed token: a
     // valid feed token must match the current version (connectors, account-light
     // stateless feed). "Revoke / rotate" = increment this.

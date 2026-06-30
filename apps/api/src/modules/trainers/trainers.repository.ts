@@ -17,6 +17,14 @@ export class TrainersRepository {
       .orderBy(asc(tables.trainers.name));
   }
 
+  async listVisibleForIndividual(): Promise<Trainer[]> {
+    return this.database.db
+      .select()
+      .from(tables.trainers)
+      .where(and(eq(tables.trainers.status, "active"), eq(tables.trainers.individualVisible, true)))
+      .orderBy(asc(tables.trainers.name));
+  }
+
   async findById(id: string): Promise<Trainer | undefined> {
     const [row] = await this.database.db
       .select()
@@ -54,6 +62,8 @@ export class TrainersRepository {
     type: Trainer["type"];
     telegramId?: number | null;
     telegramUsername?: string | null;
+    language?: Trainer["language"];
+    individualVisible?: boolean;
   }): Promise<Trainer> {
     const [row] = await this.database.db
       .insert(tables.trainers)
@@ -61,7 +71,9 @@ export class TrainersRepository {
         name: input.name,
         type: input.type,
         telegramId: input.telegramId ?? null,
-        telegramUsername: input.telegramUsername ?? null
+        telegramUsername: input.telegramUsername ?? null,
+        language: input.language,
+        individualVisible: input.individualVisible
       })
       .returning();
     return row;
@@ -69,7 +81,12 @@ export class TrainersRepository {
 
   async update(
     id: string,
-    patch: Partial<Pick<Trainer, "name" | "type" | "status" | "telegramId" | "telegramUsername">>
+    patch: Partial<
+      Pick<
+        Trainer,
+        "name" | "type" | "status" | "telegramId" | "telegramUsername" | "language" | "individualVisible"
+      >
+    >
   ): Promise<Trainer | undefined> {
     const [row] = await this.database.db
       .update(tables.trainers)

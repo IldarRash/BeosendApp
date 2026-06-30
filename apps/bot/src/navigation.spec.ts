@@ -37,6 +37,7 @@ function makeDeps(): MenuHandlerDeps {
       listGroups: vi.fn().mockResolvedValue([]),
       getClientByTelegramId: vi.fn().mockResolvedValue(CLIENT),
       listMyBookings: vi.fn().mockResolvedValue([]),
+      listIndividualTrainers: vi.fn().mockResolvedValue([]),
       listTrainers: vi.fn().mockResolvedValue([]),
       listLevels: vi.fn().mockResolvedValue([])
     },
@@ -196,10 +197,12 @@ describe("menu dispatch table", () => {
   it("renders the trainer picker for menu:individual", async () => {
     const { ctx, reply } = fakeCtx();
     const localDeps = makeDeps();
-    (localDeps.api.listTrainers as ReturnType<typeof vi.fn>).mockResolvedValue([
+    (localDeps.api.listIndividualTrainers as ReturnType<typeof vi.fn>).mockResolvedValue([
       { id: "33333333-3333-3333-3333-333333333333", name: "Jovana", type: "main", telegramId: 5, status: "active" }
     ]);
     await menuHandlers[MENU_ACTIONS.individual]!(ctx, localDeps);
+    expect(localDeps.api.listIndividualTrainers).toHaveBeenCalledOnce();
+    expect(localDeps.api.listTrainers).not.toHaveBeenCalled();
     expect(reply.mock.calls[0][0]).toBe(ru["bot.individual.pickTrainer"]);
     expect(callbacksOf(reply)).toContain("ind:pick:33333333-3333-3333-3333-333333333333");
   });

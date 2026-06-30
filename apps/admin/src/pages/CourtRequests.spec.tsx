@@ -8,7 +8,6 @@ const useFreeCourts = vi.fn();
 const useConfirmRequest = vi.fn();
 const useRejectRequest = vi.fn();
 const useCourts = vi.fn();
-const useMe = vi.fn();
 
 vi.mock("../hooks/useCourtRequests", () => ({
   useCourtRequests: (...args: unknown[]) => useCourtRequests(...args),
@@ -17,7 +16,6 @@ vi.mock("../hooks/useCourtRequests", () => ({
   useRejectRequest: () => useRejectRequest()
 }));
 vi.mock("../hooks/useCourts", () => ({ useCourts: () => useCourts() }));
-vi.mock("../hooks/useSession", () => ({ useMe: () => useMe() }));
 
 // AppShell pulls in the router/nav; stub it to a passthrough for an isolated test.
 vi.mock("../ui/AppShell", () => ({
@@ -84,7 +82,6 @@ function idleMutation(): Record<string, unknown> {
 
 beforeEach(() => {
   vi.clearAllMocks();
-  useMe.mockReturnValue({ data: { telegramId: 99, name: "Ана" } });
   useCourts.mockReturnValue({ data: FREE_COURTS });
   useCourtRequests.mockReturnValue({
     isPending: false,
@@ -179,8 +176,7 @@ describe("CourtRequests page", () => {
         courtIds: [
           "44444444-4444-4444-4444-444444444444",
           "77777777-7777-4777-8777-777777777777"
-        ],
-        decidedBy: 99
+        ]
       }
     });
   });
@@ -263,7 +259,7 @@ describe("CourtRequests page", () => {
     );
   });
 
-  it("rejects a pending request with the admin's telegram id", () => {
+  it("rejects a pending request by id", () => {
     const mutate = vi.fn();
     useRejectRequest.mockReturnValue({ ...idleMutation(), mutate });
     render(<CourtRequests />);
@@ -272,8 +268,7 @@ describe("CourtRequests page", () => {
 
     expect(mutate).toHaveBeenCalledTimes(1);
     expect(mutate.mock.calls[0][0]).toEqual({
-      id: PENDING.id,
-      input: { decidedBy: 99 }
+      id: PENDING.id
     });
   });
 });

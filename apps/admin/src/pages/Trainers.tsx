@@ -51,6 +51,16 @@ export function Trainers(): JSX.Element {
           <span className="tag tag--warn">{t("admin.trainers.pending")}</span>
         )
     },
+    {
+      key: "individualVisible",
+      header: t("admin.trainers.colIndividualVisible"),
+      render: (row) =>
+        row.individualVisible ? (
+          <span className="tag tag--ok">{t("admin.trainers.individualVisible")}</span>
+        ) : (
+          <span className="tag">{t("admin.trainers.individualHidden")}</span>
+        )
+    },
     { key: "status", header: t("admin.trainers.colStatus"), render: (row) => statusLabel(row.status) },
     {
       key: "actions",
@@ -119,6 +129,9 @@ function TrainerEditor({ state, onClose }: TrainerEditorProps): JSX.Element {
     isEdit ? state.trainer.status : "active"
   );
   const [language, setLanguage] = useState<Locale>(isEdit ? state.trainer.language : "sr");
+  const [individualVisible, setIndividualVisible] = useState(
+    isEdit ? state.trainer.individualVisible : true
+  );
 
   const languageOptions = LOCALES.map((value) => ({ value, label: localeLabel[value] }));
 
@@ -133,7 +146,7 @@ function TrainerEditor({ state, onClose }: TrainerEditorProps): JSX.Element {
       update.mutate(
         {
           id: state.trainer.id,
-          input: { name, type, status, telegramId, telegramUsername, language }
+          input: { name, type, status, telegramId, telegramUsername, language, individualVisible }
         },
         {
           onSuccess: () => {
@@ -144,7 +157,7 @@ function TrainerEditor({ state, onClose }: TrainerEditorProps): JSX.Element {
       );
     } else {
       create.mutate(
-        { name, type, telegramId, telegramUsername, language },
+        { name, type, telegramId, telegramUsername, language, individualVisible },
         {
           onSuccess: () => {
             toast.notify(t("admin.trainers.created"), "success");
@@ -207,6 +220,14 @@ function TrainerEditor({ state, onClose }: TrainerEditorProps): JSX.Element {
           onChange={(event) => setLanguage(event.target.value as Locale)}
           options={languageOptions}
         />
+        <label className="cluster">
+          <input
+            type="checkbox"
+            checked={individualVisible}
+            onChange={(event) => setIndividualVisible(event.target.checked)}
+          />
+          <span>{t("admin.trainers.fieldIndividualVisible")}</span>
+        </label>
         {isEdit ? (
           <SelectField
             label={t("admin.field.status")}

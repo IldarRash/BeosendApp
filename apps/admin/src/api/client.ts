@@ -21,6 +21,7 @@ import {
   clientSchema,
   autoAssignResultSchema,
   courtBlockSchema,
+  createRecurringCourtBlocksSchema,
   courtLoadGridSchema,
   generateAllResultSchema,
   generateIndividualResultSchema,
@@ -79,6 +80,7 @@ import {
   type CourtRequestAdminView,
   type CourtRequestStatus,
   type CreateCourtBlock,
+  type CreateRecurringCourtBlocks,
   type CreateGroupInput,
   type CreateManualBookingInput,
   type CreateTrainerInput,
@@ -293,6 +295,14 @@ export class ApiClient {
     });
   }
 
+  /** C5 — admin creates one manual block per selected weekday in an inclusive range. */
+  createRecurringCourtBlocks(input: CreateRecurringCourtBlocks): Promise<CourtBlock[]> {
+    return this.request("/court-blocks/recurring", courtBlocksSchema, {
+      method: "POST",
+      body: JSON.stringify(createRecurringCourtBlocksSchema.parse(input))
+    });
+  }
+
   /**
    * C5/C6 — admin lists court blocks over an inclusive date range
    * (GET /court-blocks?from=…&to=…, both `yyyy-mm-dd`). A single day is the
@@ -365,30 +375,29 @@ export class ApiClient {
 
   /**
    * C4 — confirm a pending request onto a chosen set of courts (POST
-   * /court-requests/:id/confirm). Body is { requestId, courtIds, decidedBy };
-   * `requestId` is fixed to the path id here. `courtIds.length` must equal the
+   * /court-requests/:id/confirm). Body is { requestId, courtIds }; `requestId`
+   * is fixed to the path id here. The server stamps decidedBy from the authenticated
+   * admin session, never from browser input. `courtIds.length` must equal the
    * request's `courtCount` — the admin may keep the client's picked courts or swap
    * them. The server atomically re-checks freeness for every covered slot — a court
    * filled meanwhile surfaces as a thrown Error (409).
    */
-  confirmRequest(
-    id: string,
-    input: { courtIds: string[]; decidedBy: number }
-  ): Promise<CourtRequest> {
+  confirmRequest(id: string, input: { courtIds: string[] }): Promise<CourtRequest> {
     return this.request(`/court-requests/${id}/confirm`, courtRequestSchema, {
       method: "POST",
-      body: JSON.stringify({ requestId: id, courtIds: input.courtIds, decidedBy: input.decidedBy })
+      body: JSON.stringify({ requestId: id, courtIds: input.courtIds })
     });
   }
 
   /**
    * C4 — reject a pending request (POST /court-requests/:id/reject). Body is
-   * { requestId, decidedBy }; the server stamps decided_* and notifies the client.
+   * { requestId }; the server stamps decided_* from the authenticated admin and
+   * notifies the client.
    */
-  rejectRequest(id: string, input: { decidedBy: number }): Promise<CourtRequest> {
+  rejectRequest(id: string): Promise<CourtRequest> {
     return this.request(`/court-requests/${id}/reject`, courtRequestSchema, {
       method: "POST",
-      body: JSON.stringify({ requestId: id, decidedBy: input.decidedBy })
+      body: JSON.stringify({ requestId: id })
     });
   }
 
@@ -474,7 +483,7 @@ export class ApiClient {
     });
   }
 
-  /** Edit a trainer (name/type/status/telegramId/telegramUsername). */
+  /** Edit a trainer (name/type/status/telegramId/telegramUsername/individual visibility). */
   updateTrainer(id: string, input: UpdateTrainerInput): Promise<Trainer> {
     return this.request(`/trainers/${id}`, trainerSchema, {
       method: "PATCH",

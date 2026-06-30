@@ -191,7 +191,7 @@ export class CourtRequestsController {
     const parsed = confirmCourtRequestSchema.safeParse(body);
     if (!parsed.success) {
       throw new BadRequestException(
-        "Invalid confirm body: expected { requestId, courtIds: string[], decidedBy }."
+        "Invalid confirm body: expected { requestId, courtIds: string[] }."
       );
     }
     if (parsed.data.requestId !== id) {
@@ -211,7 +211,7 @@ export class CourtRequestsController {
     const id = parseRequestId(rawId);
     const parsed = rejectCourtRequestSchema.safeParse(body);
     if (!parsed.success) {
-      throw new BadRequestException("Invalid reject body: expected { requestId, decidedBy }.");
+      throw new BadRequestException("Invalid reject body: expected { requestId }.");
     }
     if (parsed.data.requestId !== id) {
       throw new BadRequestException("Path id and body requestId must match.");

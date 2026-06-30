@@ -25,7 +25,8 @@ function makeTrainer(): Trainer {
     status: "active",
     telegramId: TG_ID,
     telegramUsername: "ivan",
-    language: "ru"
+    language: "ru",
+    individualVisible: true
   };
 }
 
