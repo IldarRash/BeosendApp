@@ -116,11 +116,6 @@ export function OnboardingWizard({ onDone }: OnboardingWizardProps): JSX.Element
   });
   useBackButton(step > 0, goBack);
 
-  const toggleConsent = useCallback(() => {
-    hapticSelection();
-    setConsentAccepted((v) => !v);
-  }, []);
-
   const onPickLanguage = useCallback(
     (next: Locale) => {
       hapticSelection();
@@ -165,25 +160,20 @@ export function OnboardingWizard({ onDone }: OnboardingWizardProps): JSX.Element
             {t("miniapp.consent.body")}
           </div>
           <div className="card">
-            {/* Square-checkbox variant of `.optrow`: a visually hidden real checkbox
-                carries the semantics (checked, aria-label, focus); the row toggles it. */}
+            {/* Square-checkbox variant of `.optrow`: the real checkbox carries the
+                semantics while the row provides the Telegram-style visual affordance. */}
             <label
               htmlFor="onboarding-consent"
               className={consentAccepted ? "optrow is-on" : "optrow"}
-              onClick={toggleConsent}
-              onKeyDown={(e) => {
-                if (e.key === "Enter" || e.key === " ") {
-                  e.preventDefault();
-                  toggleConsent();
-                }
-              }}
-              tabIndex={0}
             >
               <input
                 id="onboarding-consent"
                 type="checkbox"
                 checked={consentAccepted}
-                readOnly
+                onChange={(e) => {
+                  hapticSelection();
+                  setConsentAccepted(e.currentTarget.checked);
+                }}
                 aria-label={consentLabel}
                 style={{ position: "absolute", opacity: 0, width: 0, height: 0, pointerEvents: "none" }}
               />
