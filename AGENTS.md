@@ -4,6 +4,11 @@ BeoSand ships a Codex operating layer under `.codex/`. For anything larger than 
 run the heavier flow below instead of editing ad hoc. The same guidance applies whether the main
 agent or a delegated subagent does the work.
 
+Hard rule: once the planner or feature-planning flow is engaged, the main agent does not implement
+code, tests, migrations, UI, docs, or cleanup directly. The planner/main agent only orchestrates,
+reviews, verifies, and commits; every file change is delegated to the smallest appropriate role
+subagent.
+
 Older operating-layer mirrors may still exist, but Codex should prefer `.codex/agents`,
 `.codex/skills`, and `.codex/rules` whenever multiple versions are present.
 
