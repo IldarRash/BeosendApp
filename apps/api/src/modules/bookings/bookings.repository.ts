@@ -421,6 +421,50 @@ export class BookingsRepository {
       .set({ bookedCount, status })
       .where(eq(tables.trainings.id, trainingId));
   }
+
+  /**
+   * The subscription id of an individual training's owner booking — the link that
+   * groups one month's 1-on-1 instances. An individual training has capacity 1 and
+   * exactly one owner booking (clientId = the training's owning client) carrying the
+   * shared groupSubscriptionId; this returns that id (or null if the owner booking
+   * has none). Matched by trainingId + clientId so a stray same-training booking from
+   * another client can never be read. No business rules; returns undefined when no
+   * such owner booking exists.
+   */
+  async findSubscriptionIdForTrainingOwner(
+    tx: Database,
+    trainingId: string,
+    clientId: string
+  ): Promise<string | null | undefined> {
+    const [row] = await tx
+      .select({ groupSubscriptionId: tables.bookings.groupSubscriptionId })
+      .from(tables.bookings)
+      .where(
+        and(
+          eq(tables.bookings.trainingId, trainingId),
+          eq(tables.bookings.clientId, clientId)
+        )
+      )
+      .limit(1);
+    return row?.groupSubscriptionId;
+  }
+
+  /**
+   * The distinct training ids whose bookings share one groupSubscriptionId — the
+   * month's batch of instances linked by that subscription. Drives the whole-series
+   * reschedule (intersected with future non-cancelled individual trainings in the
+   * service). No business rules; order is unspecified.
+   */
+  async findSubscriptionTrainingIds(
+    tx: Database,
+    groupSubscriptionId: string
+  ): Promise<string[]> {
+    const rows = await tx
+      .selectDistinct({ trainingId: tables.bookings.trainingId })
+      .from(tables.bookings)
+      .where(eq(tables.bookings.groupSubscriptionId, groupSubscriptionId));
+    return rows.map((row) => row.trainingId);
+  }
 }
 
 /** The DB returns `createdAt` as a Date; the contract wants an ISO string. */

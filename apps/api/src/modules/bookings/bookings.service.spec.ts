@@ -513,6 +513,7 @@ const activeGroup: Group = {
   capacity: 6,
   priceSingleRsd: 1200,
   priceMonthRsd: 8000,
+  hidden: false,
   status: "active"
 };
 

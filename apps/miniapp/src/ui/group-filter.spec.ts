@@ -19,6 +19,7 @@ function makeGroup(overrides: Partial<Group> = {}): Group {
     priceSingleRsd: 1500,
     priceMonthRsd: 12000,
     status: "active",
+    hidden: false,
     ...overrides
   };
 }

@@ -1,6 +1,7 @@
 import { sql } from "drizzle-orm";
 import {
   bigint,
+  boolean,
   date,
   integer,
   numeric,
@@ -223,6 +224,10 @@ export const groups = pgTable("groups", {
   capacity: integer("capacity").notNull(),
   priceSingleRsd: integer("price_single_rsd").notNull(),
   priceMonthRsd: integer("price_month_rsd").notNull(),
+  // Hidden groups are excluded from client-facing listings (kept for admin/history
+  // and ongoing subscriptions) while staying fully bookable server-side. Defaults
+  // to visible so existing groups are unaffected.
+  hidden: boolean("hidden").notNull().default(false),
   status: entityStatus("status").notNull().default("active")
 });
 
@@ -235,8 +240,15 @@ export const trainings = pgTable("trainings", {
   trainerId: uuid("trainer_id")
     .notNull()
     .references(() => trainers.id),
+  // The owning client of an individual (1-on-1) training; NULL for all group /
+  // regular trainings. Distinguishes an individual session (single attendee, its
+  // own per-session price) from a group instance generated off a group.
+  clientId: uuid("client_id").references(() => clients.id),
   capacity: integer("capacity").notNull(),
   bookedCount: integer("booked_count").notNull().default(0),
+  // Admin-set per-session RSD for an individual training; NULL for group trainings
+  // (whose price comes from the joined group's priceSingleRsd). Whole dinars.
+  priceSingleRsd: integer("price_single_rsd"),
   status: trainingStatus("status").notNull().default("open")
 });
 

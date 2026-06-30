@@ -46,9 +46,15 @@ export class GroupsService {
     @Inject(ENV) private readonly env: Env
   ) {}
 
-  /** Reference-facing list: active groups only. */
-  async listActive(): Promise<Group[]> {
-    return this.groups.listActive();
+  /**
+   * Reference-facing list: active groups. Hidden groups are excluded for clients
+   * (and anonymous callers) but included for an admin, so a hidden group stays
+   * visible to admin and can be un-hidden. Admin detection reuses the same
+   * isAdmin(env) gate as create/update/delete; an undefined actor is non-admin.
+   */
+  async listActive(actorTelegramId?: number): Promise<Group[]> {
+    const includeHidden = actorTelegramId !== undefined && isAdmin(this.env, actorTelegramId);
+    return this.groups.listActive(includeHidden);
   }
 
   /**

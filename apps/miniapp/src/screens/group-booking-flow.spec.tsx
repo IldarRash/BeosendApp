@@ -58,7 +58,8 @@ const GROUP: Group = {
   capacity: 8,
   priceSingleRsd: 1500,
   priceMonthRsd: 12000,
-  status: "active"
+  status: "active",
+  hidden: false
 };
 
 const BOOKING = (id: string): Booking => ({

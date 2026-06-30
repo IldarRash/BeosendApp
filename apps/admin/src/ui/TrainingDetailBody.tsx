@@ -27,12 +27,27 @@ export function TrainingDetailBody({
   item: TrainingCalendarItem;
   t: Translate;
 }): JSX.Element {
+  // An individual (1-on-1) training is group-less with an owning client; label it
+  // as such and surface the client, rather than the generic "one-off".
+  const isIndividual = item.groupId === null && item.clientId !== null;
+  const groupValue = item.groupName
+    ? item.groupName
+    : isIndividual
+      ? t("admin.trainings.individual")
+      : t("admin.trainings.oneOff");
+
   return (
     <dl className="detail-list">
       <div className="detail-list__row">
         <dt>{t("admin.trainings.colGroup")}</dt>
-        <dd>{item.groupName ?? t("admin.trainings.oneOff")}</dd>
+        <dd>{groupValue}</dd>
       </div>
+      {isIndividual ? (
+        <div className="detail-list__row">
+          <dt>{t("admin.trainings.individualClient")}</dt>
+          <dd>{item.clientName ?? "—"}</dd>
+        </div>
+      ) : null}
       <div className="detail-list__row">
         <dt>{t("admin.trainings.colTrainer")}</dt>
         <dd>{item.trainerName}</dd>

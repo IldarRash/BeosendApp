@@ -30,9 +30,12 @@ class FakeGroupsRepository {
   private rows = new Map<string, Group>();
   private seq = 0;
 
-  async listActive(): Promise<Group[]> {
+  /** Records the includeHidden flag the service passed on the last call, for assertions. */
+  lastIncludeHidden: boolean | undefined;
+  async listActive(includeHidden = false): Promise<Group[]> {
+    this.lastIncludeHidden = includeHidden;
     return [...this.rows.values()]
-      .filter((g) => g.status === "active")
+      .filter((g) => g.status === "active" && (includeHidden || !g.hidden))
       .sort((a, b) => a.name.localeCompare(b.name));
   }
 
@@ -42,7 +45,15 @@ class FakeGroupsRepository {
 
   async create(input: CreateGroupInput): Promise<Group> {
     const id = `00000000-0000-0000-0000-00000000000${++this.seq}`;
-    const row: Group = { ...input, id, status: "active", trainerName: "Jovana", courtNumber: 1 };
+    // A freshly created group defaults to visible, mirroring the DB default.
+    const row: Group = {
+      ...input,
+      id,
+      status: "active",
+      hidden: false,
+      trainerName: "Jovana",
+      courtNumber: 1
+    };
     this.rows.set(id, row);
     return row;
   }
@@ -281,6 +292,43 @@ describe("GroupsService", () => {
         service.deleteGroup(ADMIN_ID, "33333333-3333-3333-3333-333333333333")
       ).rejects.toBeInstanceOf(NotFoundException);
       expect(trainingsService.cancelledFor).toHaveLength(0);
+    });
+  });
+
+  describe("listActive (role-aware hidden filter)", () => {
+    it("excludes hidden groups for an anonymous caller (no actor → includeHidden=false)", async () => {
+      const visible = await service.create(ADMIN_ID, baseInput);
+      const hidden = await service.create(ADMIN_ID, baseInput);
+      await service.update(ADMIN_ID, hidden.id, { hidden: true });
+
+      const result = await service.listActive();
+
+      expect(repo.lastIncludeHidden).toBe(false);
+      expect(result).toContainEqual(visible);
+      expect(result.some((g) => g.id === hidden.id)).toBe(false);
+    });
+
+    it("excludes hidden groups for a non-admin caller (includeHidden=false)", async () => {
+      await service.create(ADMIN_ID, baseInput);
+      const hidden = await service.create(ADMIN_ID, baseInput);
+      await service.update(ADMIN_ID, hidden.id, { hidden: true });
+
+      const result = await service.listActive(NON_ADMIN_ID);
+
+      expect(repo.lastIncludeHidden).toBe(false);
+      expect(result.some((g) => g.id === hidden.id)).toBe(false);
+    });
+
+    it("includes hidden groups for an admin caller (includeHidden=true) so they can be un-hidden", async () => {
+      const visible = await service.create(ADMIN_ID, baseInput);
+      const hidden = await service.create(ADMIN_ID, baseInput);
+      await service.update(ADMIN_ID, hidden.id, { hidden: true });
+
+      const result = await service.listActive(ADMIN_ID);
+
+      expect(repo.lastIncludeHidden).toBe(true);
+      expect(result).toContainEqual(visible);
+      expect(result.some((g) => g.id === hidden.id)).toBe(true);
     });
   });
 });

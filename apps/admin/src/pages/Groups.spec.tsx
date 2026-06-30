@@ -63,6 +63,7 @@ const GROUP: Group = {
   capacity: 12,
   priceSingleRsd: 1500,
   priceMonthRsd: 12000,
+  hidden: false,
   status: "active"
 };
 const GROUP_B: Group = {
@@ -127,6 +128,48 @@ describe("Groups", () => {
     // formatRsd renders whole dinars with a ru-RU thousands separator.
     expect(cells.getByText("1 500 RSD")).toBeTruthy();
     expect(cells.getByText("12 000 RSD")).toBeTruthy();
+  });
+
+  it("renders the visibility column from group.hidden (shown vs hidden)", () => {
+    const hiddenGroup: Group = { ...GROUP_B, name: "Скрытая группа", hidden: true };
+    useGroups.mockReturnValue(query<Group[]>({ data: [GROUP, hiddenGroup] }));
+    renderPage();
+    const table = screen.getByRole("table", { name: "Группы тренировок" });
+
+    const visibleRow = within(table).getByText("Утренняя группа").closest("tr") as HTMLElement;
+    expect(within(visibleRow).getByText("Показывается")).toBeTruthy();
+
+    const hiddenRow = within(table).getByText("Скрытая группа").closest("tr") as HTMLElement;
+    expect(within(hiddenRow).getByText("Скрыта")).toBeTruthy();
+  });
+
+  it("includes hidden in the update payload when editing a group's visibility", () => {
+    const mutate = vi.fn();
+    useUpdateGroup.mockReturnValue(mutation({ mutate }));
+    renderPage();
+
+    fireEvent.click(screen.getByRole("button", { name: "Изменить группу Утренняя группа" }));
+    const dialog = screen.getByRole("dialog", { name: "Изменить группу" });
+    const inDialog = within(dialog);
+
+    // The visibility control is present only in edit mode and defaults to the group's value.
+    const visibility = inDialog.getByLabelText("Видимость для клиентов") as HTMLSelectElement;
+    expect(visibility.value).toBe("visible");
+    fireEvent.change(visibility, { target: { value: "hidden" } });
+
+    fireEvent.click(inDialog.getByRole("button", { name: "Сохранить" }));
+
+    expect(mutate).toHaveBeenCalledTimes(1);
+    const [args] = mutate.mock.calls[0];
+    expect(args.id).toBe(GROUP.id);
+    expect(args.input).toMatchObject({ hidden: true });
+  });
+
+  it("omits the visibility control when creating a group", () => {
+    renderPage();
+    fireEvent.click(screen.getByRole("button", { name: "Создать группу" }));
+    const dialog = screen.getByRole("dialog", { name: "Создать группу" });
+    expect(within(dialog).queryByLabelText("Видимость для клиентов")).toBeNull();
   });
 
   it("orders rows by first weekday then start time, regardless of input order", () => {

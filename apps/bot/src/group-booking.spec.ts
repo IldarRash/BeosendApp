@@ -38,7 +38,8 @@ const group: Group = {
   capacity: 10,
   priceSingleRsd: 1500,
   priceMonthRsd: 9000,
-  status: "active"
+  status: "active",
+  hidden: false
 };
 
 function callbacksOf(keyboard: { inline_keyboard: unknown[][] }): (string | undefined)[] {

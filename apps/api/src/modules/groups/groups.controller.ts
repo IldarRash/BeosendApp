@@ -26,10 +26,16 @@ import { GroupsService } from "./groups.service";
 export class GroupsController {
   constructor(private readonly groups: GroupsService) {}
 
-  /** Reference-facing: active groups for the client "join a group" list. */
+  /**
+   * Reference-facing list. Shared by the Mini App "join a group" list and the admin
+   * Groups table, so it is role-aware: an admin (x-telegram-id ∈ ADMIN_TELEGRAM_IDS,
+   * bridged from the admin session) sees hidden groups too — so a hidden group can be
+   * un-hidden — while clients (no admin header) never see them. The header is optional
+   * and parsed leniently: absent or non-numeric means anonymous/non-admin, never a 400.
+   */
   @Get()
-  list(): Promise<Group[]> {
-    return this.groups.listActive();
+  list(@Headers("x-telegram-id") telegramIdHeader?: string): Promise<Group[]> {
+    return this.groups.listActive(parseOptionalTelegramId(telegramIdHeader));
   }
 
   /**
@@ -95,6 +101,16 @@ function parseTelegramId(header: string | undefined): number {
     throw new BadRequestException("Missing or invalid x-telegram-id header");
   }
   return value;
+}
+
+/**
+ * Lenient variant for the public list: an absent or non-numeric x-telegram-id is
+ * treated as anonymous (undefined), never a 400, so the endpoint keeps working for
+ * clients that send no admin header. Only a well-formed admin id is surfaced.
+ */
+function parseOptionalTelegramId(header: string | undefined): number | undefined {
+  const value = Number(header);
+  return header && Number.isInteger(value) ? value : undefined;
 }
 
 /** Zod-validate at the boundary; surface failures as 400 instead of 500. */

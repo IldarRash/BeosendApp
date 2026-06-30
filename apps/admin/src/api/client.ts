@@ -23,6 +23,7 @@ import {
   courtBlockSchema,
   courtLoadGridSchema,
   generateAllResultSchema,
+  generateIndividualResultSchema,
   generationStatusItemSchema,
   groupMembersSchema,
   transferGroupResultSchema,
@@ -86,6 +87,8 @@ import {
   type FillRate,
   type GenerateAllMonthInput,
   type GenerateAllResult,
+  type GenerateIndividualMonthInput,
+  type GenerateIndividualResult,
   type GenerateMonthInput,
   type GenerationStatusItem,
   type GenerationStatusQuery,
@@ -107,6 +110,7 @@ import {
   type NotificationTemplateKey,
   type OnboardClientInput,
   type PopularSlot,
+  type RescheduleTrainingInput,
   type SendBroadcastInput,
   type SubscriptionSummary,
   type TelegramLoginPayload,
@@ -642,6 +646,46 @@ export class ApiClient {
   /** Change a training's capacity (server rejects below booked, recomputes status). */
   changeCapacity(id: string, input: ChangeCapacityInput): Promise<Training> {
     return this.request(`/trainings/${id}/capacity`, trainingSchema, {
+      method: "PATCH",
+      body: JSON.stringify(input)
+    });
+  }
+
+  /**
+   * Generate a month of individual (1-on-1) trainings for one client with one
+   * trainer (POST /trainings/generate-individual). The body carries the weekday
+   * set, time window, year/month and an admin-set per-session RSD price; the server
+   * creates one training per matching date, linked as a batch by the returned
+   * `groupSubscriptionId`. Admin-only; the console computes no schedule or money.
+   */
+  generateIndividualMonth(input: GenerateIndividualMonthInput): Promise<GenerateIndividualResult> {
+    return this.request("/trainings/generate-individual", generateIndividualResultSchema, {
+      method: "POST",
+      body: JSON.stringify(input)
+    });
+  }
+
+  /**
+   * Reschedule a single training to a new time window (PATCH /trainings/:id/time).
+   * The body is `{ startTime, endTime }`; the server re-checks the slot and returns
+   * the updated training. Admin-only; the console only collects the new window.
+   */
+  rescheduleTraining(id: string, input: RescheduleTrainingInput): Promise<Training> {
+    return this.request(`/trainings/${id}/time`, trainingSchema, {
+      method: "PATCH",
+      body: JSON.stringify(input)
+    });
+  }
+
+  /**
+   * Reschedule a whole individual series from this date forward (PATCH
+   * /trainings/:id/time-series): shifts every future instance of the same batch to
+   * the new window in one transaction and returns the updated trainings. The
+   * server enforces that this is only valid for an individual training; the console
+   * surfaces its verbatim error (e.g. a group training rejected) and computes nothing.
+   */
+  rescheduleTrainingSeries(id: string, input: RescheduleTrainingInput): Promise<Training[]> {
+    return this.request(`/trainings/${id}/time-series`, trainingsSchema, {
       method: "PATCH",
       body: JSON.stringify(input)
     });

@@ -54,6 +54,7 @@ const baseGroup: Group = {
   capacity: 12,
   priceSingleRsd: 1500,
   priceMonthRsd: 10000,
+  hidden: false,
   status: "active"
 };
 
@@ -65,6 +66,23 @@ class FakeTrainingsRepository {
   async existingDatesForGroup(groupId: string, dates: readonly string[]): Promise<string[]> {
     return this.rows
       .filter((r) => r.groupId === groupId && dates.includes(r.date))
+      .map((r) => r.date);
+  }
+
+  // Mirrors the real query: non-cancelled individual rows for this client + trainer.
+  async existingIndividualDatesForClient(
+    clientId: string,
+    trainerId: string,
+    dates: readonly string[]
+  ): Promise<string[]> {
+    return this.rows
+      .filter(
+        (r) =>
+          r.clientId === clientId &&
+          r.trainerId === trainerId &&
+          r.status !== "cancelled" &&
+          dates.includes(r.date)
+      )
       .map((r) => r.date);
   }
 
@@ -80,8 +98,10 @@ class FakeTrainingsRepository {
         startTime: row.startTime,
         endTime: row.endTime,
         trainerId: row.trainerId,
+        clientId: row.clientId ?? null,
         capacity: row.capacity,
         bookedCount: row.bookedCount ?? 0,
+        priceSingleRsd: row.priceSingleRsd ?? null,
         status: row.status ?? "open"
       };
       this.rows.push(training);
@@ -282,6 +302,43 @@ class FakeTrainingsRepository {
     return this.lockToTraining(this.lock);
   }
 
+  // Reschedule write: mutate the stored row's start/end in place (keeping its id,
+  // status, bookedCount and — since bookings live elsewhere — all its bookings).
+  updateTimesIds: string[] = [];
+  async updateTimes(
+    _tx: Database,
+    id: string,
+    startTime: string,
+    endTime: string
+  ): Promise<Training> {
+    this.updateTimesIds.push(id);
+    const row = this.rows.find((r) => r.id === id);
+    if (!row) {
+      throw new Error("row not found");
+    }
+    row.startTime = startTime;
+    row.endTime = endTime;
+    return { ...row };
+  }
+
+  // Mirrors the real query: future non-cancelled individual rows for client + trainer.
+  async listFutureNonCancelledIndividual(
+    clientId: string,
+    trainerId: string,
+    fromDate: string
+  ): Promise<{ id: string }[]> {
+    return this.rows
+      .filter(
+        (r) =>
+          r.clientId === clientId &&
+          r.trainerId === trainerId &&
+          r.date >= fromDate &&
+          r.status !== "cancelled"
+      )
+      .sort((a, b) => a.date.localeCompare(b.date) || a.startTime.localeCompare(b.startTime))
+      .map((r) => ({ id: r.id }));
+  }
+
   private requireLock(id: string): TrainingLockRow {
     if (!this.lock || this.lock.id !== id) {
       throw new Error("lock not set");
@@ -297,8 +354,10 @@ class FakeTrainingsRepository {
       startTime: "20:00",
       endTime: "21:30",
       trainerId: lock.trainerId,
+      clientId: null,
       capacity: lock.capacity,
       bookedCount: lock.bookedCount,
+      priceSingleRsd: null,
       status: lock.status
     };
   }
@@ -309,12 +368,18 @@ class FakeTrainersRepository {
   async findByTelegramId(telegramId: number): Promise<Trainer | undefined> {
     return this.trainers.find((t) => t.telegramId === telegramId && t.status === "active");
   }
+  async findById(id: string): Promise<Trainer | undefined> {
+    return this.trainers.find((t) => t.id === id);
+  }
 }
 
 class FakeClientsRepository {
   client: Client | undefined;
   async findByTelegramId(telegramId: number): Promise<Client | undefined> {
     return this.client && this.client.telegramId === telegramId ? this.client : undefined;
+  }
+  async findById(id: string): Promise<Client | undefined> {
+    return this.client && this.client.id === id ? this.client : undefined;
   }
 }
 
@@ -408,6 +473,90 @@ class FakeCourtBlocksRepository {
   }
 }
 
+/**
+ * In-memory stand-in for the bookings repo's seat-write path, reused by the
+ * individual-month generator. `insertBooking` records the created booking;
+ * `updateTrainingCount` mirrors the real recompute by mutating the stored training
+ * row in `trainings.rows`, so a test sees the instance flip open → full after its
+ * owner booking — exactly as the real bookGroupMonth path persists it.
+ */
+class FakeBookingsRepository {
+  inserted: {
+    clientId: string;
+    trainingId: string;
+    type: string;
+    groupSubscriptionId: string | null;
+    status: string;
+    source: string;
+  }[] = [];
+  private seq = 0;
+
+  constructor(private readonly trainingsRepo: FakeTrainingsRepository) {}
+
+  async insertBooking(
+    _tx: Database,
+    values: {
+      clientId: string;
+      trainingId: string;
+      type: string;
+      groupSubscriptionId?: string | null;
+      status: string;
+      source: string;
+    }
+  ): Promise<{ id: string }> {
+    const id = `b0000000-0000-4000-8000-0000000000${String(++this.seq).padStart(2, "0")}`;
+    this.inserted.push({
+      clientId: values.clientId,
+      trainingId: values.trainingId,
+      type: values.type,
+      groupSubscriptionId: values.groupSubscriptionId ?? null,
+      status: values.status,
+      source: values.source
+    });
+    return { id };
+  }
+
+  async updateTrainingCount(
+    _tx: Database,
+    trainingId: string,
+    bookedCount: number,
+    status: TrainingLockRow["status"]
+  ): Promise<void> {
+    const row = this.trainingsRepo.rows.find((r) => r.id === trainingId);
+    if (row) {
+      row.bookedCount = bookedCount;
+      row.status = status;
+    }
+  }
+
+  // The subscription id of a training's owner booking (matched by trainingId +
+  // clientId), mirroring the real read against the inserted owner bookings.
+  async findSubscriptionIdForTrainingOwner(
+    _tx: Database,
+    trainingId: string,
+    clientId: string
+  ): Promise<string | null | undefined> {
+    const booking = this.inserted.find(
+      (b) => b.trainingId === trainingId && b.clientId === clientId
+    );
+    return booking ? booking.groupSubscriptionId : undefined;
+  }
+
+  // Distinct training ids whose bookings share one groupSubscriptionId.
+  async findSubscriptionTrainingIds(
+    _tx: Database,
+    groupSubscriptionId: string
+  ): Promise<string[]> {
+    return [
+      ...new Set(
+        this.inserted
+          .filter((b) => b.groupSubscriptionId === groupSubscriptionId)
+          .map((b) => b.trainingId)
+      )
+    ];
+  }
+}
+
 const env = { ADMIN_TELEGRAM_IDS: [String(ADMIN_ID)] } as unknown as Env;
 
 describe("TrainingsService", () => {
@@ -417,6 +566,7 @@ describe("TrainingsService", () => {
   let clientsRepo: FakeClientsRepository;
   let notifications: { sendTrainingCancelled: ReturnType<typeof vi.fn> };
   let courtBlocksRepo: FakeCourtBlocksRepository;
+  let bookingsRepo: FakeBookingsRepository;
   let service: TrainingsService;
 
   beforeEach(() => {
@@ -426,6 +576,7 @@ describe("TrainingsService", () => {
     clientsRepo = new FakeClientsRepository();
     notifications = { sendTrainingCancelled: vi.fn().mockResolvedValue(0) };
     courtBlocksRepo = new FakeCourtBlocksRepository();
+    bookingsRepo = new FakeBookingsRepository(trainingsRepo);
     service = new TrainingsService(
       trainingsRepo as unknown as TrainingsRepository,
       groupsRepo as unknown as GroupsRepository,
@@ -433,6 +584,7 @@ describe("TrainingsService", () => {
       clientsRepo as unknown as ClientsRepository,
       notifications as unknown as NotificationsService,
       courtBlocksRepo as unknown as import("../courts/court-blocks.repository").CourtBlocksRepository,
+      bookingsRepo as unknown as import("../bookings/bookings.repository").BookingsRepository,
       fakeDomainEvents,
       env
     );
@@ -514,12 +666,15 @@ describe("TrainingsService", () => {
       startTime: "20:00",
       endTime: "21:30",
       trainerId: TRAINER_A,
+      clientId: null,
       capacity: 12,
       bookedCount: 3,
+      priceSingleRsd: null,
       status: "open",
       groupName: "Intermediate",
       trainerName: "Jovana",
       courtNumber: 2,
+      clientName: null,
       ...over
     });
 
@@ -1389,6 +1544,168 @@ describe("TrainingsService", () => {
     });
   });
 
+  describe("generateIndividualMonth (1-on-1 month generation)", () => {
+    const CLIENT_ID = "c1111111-1111-4111-8111-111111111111";
+    const TRAINER_ID = "33333333-3333-3333-3333-333333333333";
+
+    const individualClient = (): Client => ({
+      id: CLIENT_ID,
+      name: "Ивана",
+      telegramId: 4242,
+      telegramUsername: null,
+      levelId: null,
+      source: "telegram",
+      phone: null,
+      email: null,
+      note: null,
+      language: "ru",
+      registeredAt: new Date().toISOString(),
+      consentGivenAt: null,
+      status: "active",
+      bonusTrainingCredits: 0
+    });
+
+    const activeTrainer = (over: Partial<Trainer> = {}): Trainer => ({
+      id: TRAINER_ID,
+      name: "Coach",
+      type: "main",
+      status: "active",
+      telegramId: 555,
+      telegramUsername: null,
+      language: "ru",
+      ...over
+    });
+
+    const input = (
+      over: Partial<Parameters<TrainingsService["generateIndividualMonth"]>[1]> = {}
+    ): Parameters<TrainingsService["generateIndividualMonth"]>[1] => ({
+      clientId: CLIENT_ID,
+      trainerId: TRAINER_ID,
+      daysOfWeek: [1, 3],
+      startTime: "18:00",
+      endTime: "19:00",
+      year: FUTURE_YEAR,
+      month: FUTURE_MONTH,
+      priceSingleRsd: 3000,
+      ...over
+    });
+
+    beforeEach(() => {
+      clientsRepo.client = individualClient();
+      trainersRepo.trainers = [activeTrainer()];
+    });
+
+    it("creates one individual instance per chosen weekday (9 for Mon+Wed July 2026)", async () => {
+      const result = await service.generateIndividualMonth(ADMIN_ID, input());
+      expect(result.created).toHaveLength(9);
+    });
+
+    it("each instance is capacity 1, groupId null, clientId set, priced, and full after the owner booking", async () => {
+      const result = await service.generateIndividualMonth(ADMIN_ID, input());
+      for (const training of result.created) {
+        expect(training.capacity).toBe(1);
+        expect(training.groupId).toBeNull();
+        expect(training.clientId).toBe(CLIENT_ID);
+        expect(training.priceSingleRsd).toBe(3000);
+        expect(training.trainerId).toBe(TRAINER_ID);
+        expect(training.startTime).toBe("18:00");
+        expect(training.endTime).toBe("19:00");
+        // The owner booking took the single seat → recomputed full.
+        expect(training.bookedCount).toBe(1);
+        expect(training.status).toBe("full");
+      }
+    });
+
+    it("inserts exactly one owner booking per instance, all sharing ONE groupSubscriptionId", async () => {
+      const result = await service.generateIndividualMonth(ADMIN_ID, input());
+      expect(bookingsRepo.inserted).toHaveLength(9);
+      const subscriptionIds = new Set(bookingsRepo.inserted.map((b) => b.groupSubscriptionId));
+      expect(subscriptionIds.size).toBe(1);
+      expect([...subscriptionIds][0]).toBe(result.groupSubscriptionId);
+      for (const booking of bookingsRepo.inserted) {
+        expect(booking.clientId).toBe(CLIENT_ID);
+        expect(booking.type).toBe("single");
+        expect(booking.status).toBe("booked");
+        expect(booking.source).toBe("admin");
+      }
+      // One booking per created instance, on distinct trainings.
+      expect(new Set(bookingsRepo.inserted.map((b) => b.trainingId)).size).toBe(9);
+    });
+
+    it("does NOT auto-assign a court (no court block inserted)", async () => {
+      await service.generateIndividualMonth(ADMIN_ID, input());
+      expect(courtBlocksRepo.inserted).toHaveLength(0);
+    });
+
+    it("is idempotent: a second run creates zero duplicate trainings and bookings", async () => {
+      const first = await service.generateIndividualMonth(ADMIN_ID, input());
+      expect(first.created).toHaveLength(9);
+      const bookingsAfterFirst = bookingsRepo.inserted.length;
+
+      const second = await service.generateIndividualMonth(ADMIN_ID, input());
+      expect(second.created).toEqual([]);
+      // No new trainings and no new owner bookings on the re-run.
+      expect(trainingsRepo.rows).toHaveLength(9);
+      expect(bookingsRepo.inserted).toHaveLength(bookingsAfterFirst);
+    });
+
+    it("generated individual trainings never appear in listAvailable (group-null exclusion holds)", async () => {
+      await service.generateIndividualMonth(ADMIN_ID, input());
+      // The bookable catalogue only ever surfaces grouped slots (the repo requires
+      // groupId IS NOT NULL); the in-memory `available` set is untouched here, so the
+      // individual rows are structurally absent from the client feed.
+      expect(trainingsRepo.available).toEqual([]);
+      expect(await service.listAvailable({})).toEqual([]);
+    });
+
+    it("skips dates before today, creating only future instances", async () => {
+      vi.useFakeTimers();
+      // Freeze "today" mid-month so only the remaining Mondays/Wednesdays are created.
+      vi.setSystemTime(new Date("2026-07-15T12:00:00Z"));
+      try {
+        const result = await service.generateIndividualMonth(ADMIN_ID, input());
+        expect(result.created.every((t) => t.date >= "2026-07-15")).toBe(true);
+        expect(result.created.length).toBeLessThan(9);
+        expect(result.created.length).toBeGreaterThan(0);
+      } finally {
+        vi.useRealTimers();
+      }
+    });
+
+    it("404s an unknown client and writes nothing", async () => {
+      clientsRepo.client = undefined;
+      await expect(service.generateIndividualMonth(ADMIN_ID, input())).rejects.toBeInstanceOf(
+        NotFoundException
+      );
+      expect(trainingsRepo.rows).toHaveLength(0);
+      expect(bookingsRepo.inserted).toHaveLength(0);
+    });
+
+    it("404s an unknown trainer and writes nothing", async () => {
+      trainersRepo.trainers = [];
+      await expect(service.generateIndividualMonth(ADMIN_ID, input())).rejects.toBeInstanceOf(
+        NotFoundException
+      );
+      expect(trainingsRepo.rows).toHaveLength(0);
+    });
+
+    it("400s an inactive trainer and writes nothing", async () => {
+      trainersRepo.trainers = [activeTrainer({ status: "inactive" })];
+      await expect(service.generateIndividualMonth(ADMIN_ID, input())).rejects.toBeInstanceOf(
+        BadRequestException
+      );
+      expect(trainingsRepo.rows).toHaveLength(0);
+    });
+
+    it("is admin-only: a non-admin is rejected with 403 before any write", async () => {
+      await expect(
+        service.generateIndividualMonth(NON_ADMIN_ID, input())
+      ).rejects.toBeInstanceOf(ForbiddenException);
+      expect(trainingsRepo.rows).toHaveLength(0);
+      expect(bookingsRepo.inserted).toHaveLength(0);
+    });
+  });
+
   describe("assignCourt (manual court assignment for an orphan training)", () => {
     const COURT_1 = "c0000000-0000-4000-8000-000000000001";
     const COURT_2 = "c0000000-0000-4000-8000-000000000002";
@@ -1401,8 +1718,10 @@ describe("TrainingsService", () => {
       startTime: "20:00",
       endTime: "21:30",
       trainerId: baseGroup.trainerId,
+      clientId: null,
       capacity: 12,
       bookedCount: 0,
+      priceSingleRsd: null,
       status: "open",
       ...over
     });
@@ -1494,8 +1813,10 @@ describe("TrainingsService", () => {
       startTime,
       endTime,
       trainerId: baseGroup.trainerId,
+      clientId: null,
       capacity: 12,
       bookedCount: 0,
+      priceSingleRsd: null,
       status: "open"
     });
 
@@ -1580,8 +1901,10 @@ describe("TrainingsService", () => {
       startTime: "20:00",
       endTime: "21:30",
       trainerId: TRAINER_ID,
+      clientId: null,
       capacity: 12,
       bookedCount: 0,
+      priceSingleRsd: null,
       status: "open",
       ...over
     });
@@ -1633,4 +1956,225 @@ describe("TrainingsService", () => {
       expect(count).toBe(0);
     });
   });
+
+  describe("rescheduleTraining (admin time reschedule, part 2)", () => {
+    const CLIENT_ID = "c1111111-1111-4111-8111-111111111111";
+    const TRAINER_ID = baseGroup.trainerId;
+    const SUBSCRIPTION_ID = "5b000000-0000-4000-8000-000000000001";
+    const NEW_START = "10:00";
+    const NEW_END = "11:30";
+
+    // An individual (1-on-1) instance: groupId null, clientId set, capacity 1.
+    const individual = (over: Partial<Training>): Training => ({
+      id: "10000000-0000-4000-8000-000000000000",
+      groupId: null,
+      date: "2099-07-06",
+      startTime: "18:00",
+      endTime: "19:00",
+      trainerId: TRAINER_ID,
+      clientId: CLIENT_ID,
+      capacity: 1,
+      bookedCount: 1,
+      priceSingleRsd: 3000,
+      status: "full",
+      ...over
+    });
+
+    // An owner booking row in the FakeBookingsRepository's `inserted` log (the shape
+    // its subscription reads inspect), linking a training to the series subscription.
+    const ownerBooking = (trainingId: string, subscriptionId: string | null) => ({
+      clientId: CLIENT_ID,
+      trainingId,
+      type: "single",
+      groupSubscriptionId: subscriptionId,
+      status: "booked",
+      source: "admin"
+    });
+
+    const groupTraining = (over: Partial<Training> = {}): Training => ({
+      id: "a0000000-0000-4000-8000-000000000099",
+      groupId: GROUP_ID,
+      date: "2099-07-06",
+      startTime: "20:00",
+      endTime: "21:30",
+      trainerId: TRAINER_ID,
+      clientId: null,
+      capacity: 12,
+      bookedCount: 3,
+      priceSingleRsd: null,
+      status: "open",
+      ...over
+    });
+
+    it("/time changes ONLY the target row's start/end; siblings and all bookings are untouched", async () => {
+      const targetId = "10000000-0000-4000-8000-000000000001";
+      const siblingId = "10000000-0000-4000-8000-000000000002";
+      trainingsRepo.rows = [
+        individual({ id: targetId, date: "2099-07-06" }),
+        individual({ id: siblingId, date: "2099-07-13" })
+      ];
+      bookingsRepo.inserted = [
+        ownerBooking(targetId, SUBSCRIPTION_ID),
+        ownerBooking(siblingId, SUBSCRIPTION_ID)
+      ];
+
+      const result = (await service.rescheduleTraining(
+        ADMIN_ID,
+        targetId,
+        { startTime: NEW_START, endTime: NEW_END },
+        { series: false }
+      )) as Training;
+
+      expect(result.id).toBe(targetId);
+      expect(result.startTime).toBe(NEW_START);
+      expect(result.endTime).toBe(NEW_END);
+      // Only the target row was written.
+      expect(trainingsRepo.updateTimesIds).toEqual([targetId]);
+      // The sibling keeps its original window — the batch is not dropped/moved.
+      const sibling = trainingsRepo.rows.find((r) => r.id === siblingId)!;
+      expect(sibling.startTime).toBe("18:00");
+      expect(sibling.endTime).toBe("19:00");
+      // No booking was re-created or cancelled (the reschedule never touches bookings).
+      expect(bookingsRepo.inserted).toHaveLength(2);
+      expect(bookingsRepo.inserted.every((b) => b.status === "booked")).toBe(true);
+    });
+
+    it("/time-series moves every FUTURE sibling and leaves PAST instances unchanged; bookings intact", async () => {
+      const pastId = "10000000-0000-4000-8000-00000000000a";
+      const targetId = "10000000-0000-4000-8000-00000000000b";
+      const futureId = "10000000-0000-4000-8000-00000000000c";
+      const today = new Date().toISOString().slice(0, 10);
+
+      trainingsRepo.rows = [
+        individual({ id: pastId, date: "2000-01-01" }),
+        individual({ id: targetId, date: addDaysLocal(today, 1) }),
+        individual({ id: futureId, date: addDaysLocal(today, 8) })
+      ];
+      bookingsRepo.inserted = [
+        ownerBooking(pastId, SUBSCRIPTION_ID),
+        ownerBooking(targetId, SUBSCRIPTION_ID),
+        ownerBooking(futureId, SUBSCRIPTION_ID)
+      ];
+
+      const result = (await service.rescheduleTraining(
+        ADMIN_ID,
+        targetId,
+        { startTime: NEW_START, endTime: NEW_END },
+        { series: true }
+      )) as Training[];
+
+      // Both future instances (target + later sibling) were moved, ordered by date.
+      expect(result.map((t) => t.id)).toEqual([targetId, futureId]);
+      expect(result.every((t) => t.startTime === NEW_START && t.endTime === NEW_END)).toBe(true);
+      expect(trainingsRepo.updateTimesIds.sort()).toEqual([targetId, futureId].sort());
+      // The PAST instance is never written and keeps its original window (history rule).
+      expect(trainingsRepo.updateTimesIds).not.toContain(pastId);
+      const pastRow = trainingsRepo.rows.find((r) => r.id === pastId)!;
+      expect(pastRow.startTime).toBe("18:00");
+      expect(pastRow.endTime).toBe("19:00");
+      // No booking was re-created or cancelled across the series move.
+      expect(bookingsRepo.inserted).toHaveLength(3);
+      expect(bookingsRepo.inserted.every((b) => b.status === "booked")).toBe(true);
+    });
+
+    it("/time-series on a one-off individual (no subscription link) moves only itself", async () => {
+      const targetId = "10000000-0000-4000-8000-00000000000d";
+      trainingsRepo.rows = [individual({ id: targetId, date: "2099-07-06" })];
+      bookingsRepo.inserted = [ownerBooking(targetId, null)];
+
+      const result = (await service.rescheduleTraining(
+        ADMIN_ID,
+        targetId,
+        { startTime: NEW_START, endTime: NEW_END },
+        { series: true }
+      )) as Training[];
+
+      expect(result.map((t) => t.id)).toEqual([targetId]);
+      expect(trainingsRepo.updateTimesIds).toEqual([targetId]);
+    });
+
+    it("/time-series rejects a GROUP training with 400 and writes nothing", async () => {
+      const id = "a0000000-0000-4000-8000-000000000099";
+      trainingsRepo.rows = [groupTraining({ id })];
+
+      await expect(
+        service.rescheduleTraining(
+          ADMIN_ID,
+          id,
+          { startTime: NEW_START, endTime: NEW_END },
+          { series: true }
+        )
+      ).rejects.toBeInstanceOf(BadRequestException);
+      expect(trainingsRepo.updateTimesIds).toEqual([]);
+    });
+
+    it("rejects a non-admin with 403 and writes nothing (single and series)", async () => {
+      const id = "10000000-0000-4000-8000-00000000000e";
+      trainingsRepo.rows = [individual({ id })];
+
+      await expect(
+        service.rescheduleTraining(
+          NON_ADMIN_ID,
+          id,
+          { startTime: NEW_START, endTime: NEW_END },
+          { series: false }
+        )
+      ).rejects.toBeInstanceOf(ForbiddenException);
+      await expect(
+        service.rescheduleTraining(
+          NON_ADMIN_ID,
+          id,
+          { startTime: NEW_START, endTime: NEW_END },
+          { series: true }
+        )
+      ).rejects.toBeInstanceOf(ForbiddenException);
+      expect(trainingsRepo.updateTimesIds).toEqual([]);
+    });
+
+    it("404s a missing training", async () => {
+      await expect(
+        service.rescheduleTraining(
+          ADMIN_ID,
+          "00000000-0000-0000-0000-000000000000",
+          { startTime: NEW_START, endTime: NEW_END },
+          { series: false }
+        )
+      ).rejects.toBeInstanceOf(NotFoundException);
+    });
+
+    it("409s a cancelled training and writes nothing", async () => {
+      const id = "10000000-0000-4000-8000-00000000000f";
+      trainingsRepo.rows = [individual({ id, status: "cancelled" })];
+      await expect(
+        service.rescheduleTraining(
+          ADMIN_ID,
+          id,
+          { startTime: NEW_START, endTime: NEW_END },
+          { series: false }
+        )
+      ).rejects.toBeInstanceOf(ConflictException);
+      expect(trainingsRepo.updateTimesIds).toEqual([]);
+    });
+
+    it("409s a completed training and writes nothing", async () => {
+      const id = "10000000-0000-4000-8000-000000000010";
+      trainingsRepo.rows = [individual({ id, status: "completed" })];
+      await expect(
+        service.rescheduleTraining(
+          ADMIN_ID,
+          id,
+          { startTime: NEW_START, endTime: NEW_END },
+          { series: true }
+        )
+      ).rejects.toBeInstanceOf(ConflictException);
+      expect(trainingsRepo.updateTimesIds).toEqual([]);
+    });
+  });
 });
+
+/** Add whole days to a "YYYY-MM-DD" date (test-local mirror of the service helper). */
+function addDaysLocal(isoDate: string, days: number): string {
+  const cursor = new Date(`${isoDate}T00:00:00Z`);
+  cursor.setUTCDate(cursor.getUTCDate() + days);
+  return cursor.toISOString().slice(0, 10);
+}

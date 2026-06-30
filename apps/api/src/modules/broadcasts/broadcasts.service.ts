@@ -11,7 +11,7 @@ import type {
 import { broadcastPreviewSchema, freeSeats, isBookable, isoWeekdayOf } from "@beosand/types";
 import { ENV } from "../../config/config.module";
 import { TelegramSender } from "../notifications/telegram-sender";
-import { bookSlotsKeyboard } from "../notifications/notification-keyboards";
+import { type BookSlotButton, bookSlotsKeyboard } from "../notifications/notification-keyboards";
 import { composeBroadcastText } from "./broadcast-messages";
 import {
   type BroadcastRecipient,
@@ -84,13 +84,18 @@ export class BroadcastsService {
 
     const slots = await this.selectBookableSlots(type);
     const text = composeBroadcastText(type, slots);
-    const trainingIds = slots.map((slot) => slot.trainingId);
+    const buttons: BookSlotButton[] = slots.map((s) => ({
+      trainingId: s.trainingId,
+      startTime: s.startTime,
+      levelName: s.levelName
+    }));
     const recipients = await this.resolveRecipients(audience);
 
     for (const recipient of recipients) {
       try {
-        // Localize the per-slot "book" button to each recipient's language (the body stays RU).
-        const replyMarkup = bookSlotsKeyboard(recipient.language, trainingIds);
+        // Localize each per-slot button (TIME + LEVEL) to the recipient's language; the
+        // body stays RU and the book:slot:<id> callback_data is identical across locales.
+        const replyMarkup = bookSlotsKeyboard(recipient.language, buttons);
         await this.sender.sendMessage(recipient.telegramId, text, replyMarkup);
       } catch (error) {
         this.logger.error(
