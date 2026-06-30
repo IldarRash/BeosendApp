@@ -66,9 +66,11 @@ export class TrainersController {
    * x-client-telegram-id only, no x-telegram-id) and the bot both work. The body
    * `telegramId` must equal the resolved actor — the requester acts only as
    * themselves; a mismatched body id is rejected (no impersonation). Not
-   * admin-gated. The service notifies admin/manager staff with the requested
-   * trainer named and returns a typed result (soft `trainer-unavailable` rather
-   * than a 500 when no staff notification can be delivered).
+   * admin-gated. The service owns trainer-first delivery: it attempts
+   * `trainer.telegramId` first, then falls back to admin/manager staff. The
+   * route and typed result stay unchanged (soft `trainer-unavailable` rather
+   * than a 500 when no notification can be delivered). `trainerUsername` alone
+   * is not a Telegram DM target.
    */
   @Post(":id/individual-request")
   requestIndividual(

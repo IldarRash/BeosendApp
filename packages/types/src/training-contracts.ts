@@ -135,9 +135,10 @@ export const individualRequestSchema = z
 export type IndividualRequestInput = z.infer<typeof individualRequestSchema>;
 
 /**
- * Result of an individual-training request. `delivered` is whether the trainer
- * DM was sent; `reason` is present only on failure so the bot picks its message.
- * The single soft case is a trainer with no/unreachable Telegram channel.
+ * Result of an individual-training request. `delivered` is whether at least one
+ * notification recipient received it (trainer first, then admin fallback);
+ * `reason` is present only on failure so the bot picks its message. The single
+ * soft case is no reachable trainer/admin notification channel.
  */
 export const individualRequestResultSchema = z
   .object({

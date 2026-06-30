@@ -8,9 +8,10 @@ import { t, type Catalog } from "./i18n";
 /**
  * Individual-training request flow (Feature 8). The bot is an interaction layer
  * only: it renders the active-trainer picker and forwards the chosen trainerId +
- * the caller's telegram id to the API, which sends an admin/manager staff
- * notification naming the chosen trainer with a clickable link to the client. No
- * persistence, no domain text composed here — the staff notification is composed
+ * the caller's telegram id to the unchanged POST /trainers/:id/individual-request
+ * API. The API owns trainer-first delivery via `trainer.telegramId` with
+ * admin/manager fallback; `trainerUsername` alone is not a DM target. No
+ * persistence, no domain text composed here — notification copy is composed
  * server-side. Works for clients without a username (the API uses an id-based
  * mention).
  *
@@ -84,11 +85,11 @@ export async function handleIndividualEntry(
 
 /**
  * Trainer picked → request an individual session. Identity is the caller's
- * telegram id (forwarded to the API for admin/manager staff notification naming
- * the chosen trainer); a lost identity
- * falls back to the main menu. The API decides delivery — `delivered:false`
- * (no staff notification delivered, send failed, or unknown trainer) renders a
- * soft message. The bot never composes the staff notification.
+ * telegram id (forwarded to the unchanged individual-request API); a lost identity
+ * falls back to the main menu. The API decides trainer-first delivery with
+ * admin/manager fallback — `delivered:false` (no notification delivered, send
+ * failed, or unknown trainer) renders a soft message. The bot never composes
+ * the notification.
  */
 export async function handleIndividualPick(
   ctx: MenuReplyCtx,

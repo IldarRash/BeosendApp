@@ -29,8 +29,8 @@ trainer for groups, schedules, history, or direct individual-request compatibili
   - Returns only active trainers with `individualVisible = true`.
 - `POST /trainers/:id/individual-request`
   - Stays compatible: an active hidden trainer can still be requested directly by id.
-  - Individual requests notify admins/manager staff with the chosen trainer named; they do not DM the
-    trainer directly.
+  - Individual requests use trainer-first delivery; admins/managers are fallback only when the
+    trainer has no numeric `telegramId` or trainer DM delivery fails.
 - `POST /trainers` and `PATCH /trainers/:id`
   - Admin can set/update `individualVisible`.
 
@@ -47,8 +47,8 @@ trainer for groups, schedules, history, or direct individual-request compatibili
 - `status = inactive` still removes a trainer from active reference reads.
 - `individualVisible = false` only hides the trainer from the individual picker.
 - Direct individual requests still require an onboarded client and an active trainer.
-- Direct individual requests keep the admin/manager notification path and include the chosen trainer
-  name.
+- Direct individual requests keep trainer-first notification routing; a hidden trainer can still be
+  reached directly by id if active.
 - Admin writes remain admin-only.
 
 ## Acceptance criteria

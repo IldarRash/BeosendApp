@@ -39,11 +39,12 @@ export class TrainersService {
   /**
    * Client-facing, self-only (Feature 8): an onboarded client requests an
    * individual session with a trainer. Resolves the requesting client and the
-   * target trainer, then DMs the admins a "contact the client" message naming the
-   * requested trainer. No reachable admin (or a failed send) yields a soft
-   * `trainer-unavailable` result rather than an error so the bot can offer
-   * another trainer. Notification-only: no persisted booking. The header/body
-   * telegram-id equality (self-only authz) is enforced in the controller.
+   * target trainer, then DMs the trainer first. If the trainer has no telegram_id
+   * or the send fails, admins receive the fallback "contact the client" message.
+   * No reachable trainer/admin yields a soft `trainer-unavailable` result rather
+   * than an error so the bot can offer another trainer. Notification-only: no
+   * persisted booking. The header/body telegram-id equality (self-only authz) is
+   * enforced in the controller.
    */
   async requestIndividual(
     trainerId: string,
@@ -57,12 +58,22 @@ export class TrainersService {
     if (!trainer || trainer.status !== "active") {
       throw new NotFoundException(`Trainer ${trainerId} not found`);
     }
-    const delivered = await this.notifications.notifyAdminsOfIndividualRequest(
+    const trainerDelivered =
+      trainer.telegramId !== null
+        ? await this.notifications.notifyTrainerOfIndividualRequest(trainer, client)
+        : false;
+    if (trainerDelivered) {
+      return { delivered: true };
+    }
+
+    const adminDelivered = await this.notifications.notifyAdminsOfIndividualRequest(
       adminTelegramIds(this.env),
       trainer,
       client
     );
-    return delivered ? { delivered: true } : { delivered: false, reason: "trainer-unavailable" };
+    return adminDelivered
+      ? { delivered: true }
+      : { delivered: false, reason: "trainer-unavailable" };
   }
 
   async create(actorTelegramId: number, input: CreateTrainerInput): Promise<Trainer> {

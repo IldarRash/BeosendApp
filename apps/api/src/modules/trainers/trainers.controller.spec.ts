@@ -78,10 +78,19 @@ function makeClients(overrides: Partial<ClientsRepository> = {}): ClientsReposit
   } as unknown as ClientsRepository;
 }
 
-function makeNotifications(): NotificationsService {
+type IndividualRequestNotifications = NotificationsService & {
+  notifyTrainerOfIndividualRequest: ReturnType<typeof vi.fn>;
+  notifyAdminsOfIndividualRequest: ReturnType<typeof vi.fn>;
+};
+
+function makeNotifications(
+  overrides: Partial<IndividualRequestNotifications> = {}
+): IndividualRequestNotifications {
   return {
-    notifyAdminsOfIndividualRequest: vi.fn(async () => true)
-  } as unknown as NotificationsService;
+    notifyTrainerOfIndividualRequest: vi.fn(async () => true),
+    notifyAdminsOfIndividualRequest: vi.fn(async () => true),
+    ...overrides
+  } as unknown as IndividualRequestNotifications;
 }
 
 /**
@@ -92,7 +101,7 @@ function makeNotifications(): NotificationsService {
  */
 describe("TrainersController", () => {
   let repo: TrainersRepository;
-  let notifications: NotificationsService;
+  let notifications: IndividualRequestNotifications;
   let controller: TrainersController;
 
   beforeEach(() => {
@@ -197,13 +206,14 @@ describe("TrainersController", () => {
     expect(repo.update).not.toHaveBeenCalled();
   });
 
-  describe("POST :id/individual-request (Feature 8, self-only)", () => {
+  describe("POST :id/individual-request (Feature 8, self-only trainer-first with admin fallback)", () => {
     const TRAINER_ID = "11111111-1111-1111-1111-111111111111";
 
     it("rejects a non-self request (body id ≠ header id) with ForbiddenException and no send", () => {
       expect(() => controller.requestIndividual(String(777), TRAINER_ID, { telegramId: 888 })).toThrow(
         ForbiddenException
       );
+      expect(notifications.notifyTrainerOfIndividualRequest).not.toHaveBeenCalled();
       expect(notifications.notifyAdminsOfIndividualRequest).not.toHaveBeenCalled();
     });
 
@@ -228,7 +238,7 @@ describe("TrainersController", () => {
       ).toThrow(BadRequestException);
     });
 
-    it("on a self request via the bot header (x-telegram-id + matching body) delivers", async () => {
+    it("on a self request via the bot header delivers to the trainer first", async () => {
       const reachable: Trainer = { ...milena, telegramId: 555 };
       repo = makeRepo({ findById: vi.fn(async () => reachable) });
       notifications = makeNotifications();
@@ -238,7 +248,11 @@ describe("TrainersController", () => {
       await expect(
         controller.requestIndividual(String(777), TRAINER_ID, { telegramId: 777 })
       ).resolves.toEqual({ delivered: true });
-      expect(notifications.notifyAdminsOfIndividualRequest).toHaveBeenCalledOnce();
+      expect(notifications.notifyTrainerOfIndividualRequest).toHaveBeenCalledWith(
+        reachable,
+        client
+      );
+      expect(notifications.notifyAdminsOfIndividualRequest).not.toHaveBeenCalled();
     });
 
     it("resolves the actor from x-client-telegram-id when no x-telegram-id is sent (Mini App)", async () => {
@@ -251,7 +265,11 @@ describe("TrainersController", () => {
       await expect(
         controller.requestIndividual(undefined, TRAINER_ID, { telegramId: 777 }, String(777))
       ).resolves.toEqual({ delivered: true });
-      expect(notifications.notifyAdminsOfIndividualRequest).toHaveBeenCalledOnce();
+      expect(notifications.notifyTrainerOfIndividualRequest).toHaveBeenCalledWith(
+        reachable,
+        client
+      );
+      expect(notifications.notifyAdminsOfIndividualRequest).not.toHaveBeenCalled();
     });
 
     it("prefers x-client-telegram-id over x-telegram-id for the actor", async () => {
@@ -265,13 +283,42 @@ describe("TrainersController", () => {
       await expect(
         controller.requestIndividual(String(888), TRAINER_ID, { telegramId: 777 }, String(777))
       ).resolves.toEqual({ delivered: true });
-      expect(notifications.notifyAdminsOfIndividualRequest).toHaveBeenCalledOnce();
+      expect(notifications.notifyTrainerOfIndividualRequest).toHaveBeenCalledWith(
+        reachable,
+        client
+      );
+      expect(notifications.notifyAdminsOfIndividualRequest).not.toHaveBeenCalled();
+    });
+
+    it("falls back to admins when trainer delivery returns false", async () => {
+      const reachable: Trainer = { ...milena, telegramId: 555 };
+      repo = makeRepo({ findById: vi.fn(async () => reachable) });
+      notifications = makeNotifications({
+        notifyTrainerOfIndividualRequest: vi.fn(async () => false)
+      });
+      controller = new TrainersController(
+        new TrainersService(repo, makeClients(), notifications, env)
+      );
+
+      await expect(
+        controller.requestIndividual(String(777), TRAINER_ID, { telegramId: 777 })
+      ).resolves.toEqual({ delivered: true });
+      expect(notifications.notifyTrainerOfIndividualRequest).toHaveBeenCalledWith(
+        reachable,
+        client
+      );
+      expect(notifications.notifyAdminsOfIndividualRequest).toHaveBeenCalledWith(
+        [ADMIN_ID],
+        reachable,
+        client
+      );
     });
 
     it("rejects a foreign body id against the client-header actor with ForbiddenException and no send", () => {
       expect(() =>
         controller.requestIndividual(undefined, TRAINER_ID, { telegramId: 888 }, String(777))
       ).toThrow(ForbiddenException);
+      expect(notifications.notifyTrainerOfIndividualRequest).not.toHaveBeenCalled();
       expect(notifications.notifyAdminsOfIndividualRequest).not.toHaveBeenCalled();
     });
 

@@ -14,10 +14,10 @@ vertical slice:
   scoped to **today** by reusing the existing available-slots path (`from = to = today`). No API
   change.
 - **Feature 8 (individual training)** — on `menu:individual`, the client picks an **active,
-  individual-visible trainer** and the API notifies admins/manager staff that the client wants an
-  individual session with the chosen trainer named. The notification includes a **clickable link to
-  the client** (username link, or an id-based mention so it works for clients **without** a username).
-  Notification-only; no persistent booking row.
+  individual-visible trainer** and the unchanged `POST /trainers/:id/individual-request` endpoint
+  handles notification-only delivery. Routing is now trainer-first: attempt `trainer.telegramId`
+  before falling back to admins/managers, and do not notify admins/managers after a successful trainer
+  DM. No persistent booking row.
 
 All four reuse existing helpers (`showFilteredSlots` / `formatSlotLine` / `listAvailableSlots`,
 `ApiClient.listTrainers` for reference lists, `NotificationsService` / `TelegramSender`). The
@@ -79,9 +79,8 @@ machine.
 - **Notifications** (`apps/api/src/modules/notifications`): `NotificationsModule` provides + exports
   `NotificationsService` and `TelegramSender`. `TelegramSender.sendMessage(telegramId, text,
   replyMarkup?)` posts to the Bot API with `parse_mode: "HTML"` and **never logs the token**; throws
-  on non-OK. Individual requests are admin-routed through
-  `NotificationsService.notifyAdminsOfIndividualRequest(...)`, which names the chosen trainer and
-  links the client.
+  on non-OK. Individual request routing is trainer-first; admins/managers are fallback recipients only
+  when the trainer has no numeric `telegramId` or trainer delivery fails.
 - **Clients API**: `ClientsRepository.findByTelegramId(telegramId)` → `Client` (carries `name`,
   `telegramId`, `telegramUsername`). `clientSchema.telegramUsername: string|null`. `ClientsModule`
   exports — confirm `ClientsRepository` is exported (it is consumed by other modules); if not, export
@@ -107,17 +106,18 @@ machine.
    (that table is keyed by `(clientId, trainingId, type)` and there is no training here) and add no new
    table. *Default chosen* to keep the slice minimal; a future "individual booking" feature can add a
    table.
-4. **Admin notification failure = soft result, not 500.** The service returns a typed discriminated
-   result; if no configured admin/manager can be notified, the endpoint returns HTTP **200** with
-   `{ delivered: false, reason: "trainer-unavailable" }` so the bot shows the existing soft message
-   without an error. (A genuinely missing/inactive trainer → `404`; the bot treats that the same soft
-   way.) *Default chosen* over a 422 so the bot's happy ApiClient path stays a single `request` call
-   returning a typed body.
-5. **Clickable link rule.** If the **client** has a `telegramUsername`, the admin/manager DM links
+4. **Delivery failure = soft result, not 500.** The service returns a typed discriminated result. It
+   attempts `trainer.telegramId` first; admins/managers are fallback only when the trainer has no
+   numeric `telegramId` or the trainer DM fails. If neither trainer nor fallback staff delivery works,
+   the endpoint returns HTTP **200** with `{ delivered: false, reason: "trainer-unavailable" }` so the
+   bot shows the existing soft message without an error. (A genuinely missing/inactive trainer →
+   `404`; the bot treats that the same soft way.) *Default chosen* over a 422 so the bot's happy
+   ApiClient path stays a single `request` call returning a typed body.
+5. **Clickable link rule.** If the **client** has a `telegramUsername`, the staff/trainer DM links
    `https://t.me/<username>`; otherwise it uses an HTML mention `<a href="tg://user?id=<clientTelegramId>">name</a>`
    (works without a username). `TelegramSender` already sends `parse_mode: "HTML"`, so the mention
-   renders. The chosen trainer is named in the notification; the trainer is not the direct DM
-   recipient.
+   renders. `trainerUsername` alone is not enough for Telegram DM delivery; the direct trainer path
+   requires numeric `trainer.telegramId`.
 6. **`telegramId` numeric range.** Telegram ids exceed 2^31; the contract uses `z.number().int()`
    (no 32-bit bound), matching `clientSchema`/`trainerSchema`. No change needed.
 
@@ -160,8 +160,8 @@ flow, and session filters are untouched (only the label string changes).
 - `bot.today.none`: RU `"На сегодня свободных мест нет. Загляните позже 🙌"` · sr/en mirrored
 - `bot.individual.pickTrainer`: RU `"К какому тренеру записаться?"` · sr/en mirrored
 - `bot.individual.noTrainers`: RU `"Сейчас нет доступных тренеров. Загляните позже 🙌"` · sr/en mirrored
-- `bot.individual.requested`: RU confirmation that the individual request was sent; do not describe
-  the request as a direct trainer DM. sr/en mirrored
+- `bot.individual.requested`: RU confirmation that the individual request was sent; do not promise
+  which staff recipient received it. sr/en mirrored
 - `bot.individual.trainerUnavailable`: RU `"Этот тренер пока недоступен в Telegram. Выберите другого
   или свяжитесь с менеджером."` · sr/en mirrored
 - `bot.individual.pickButton`: RU `"🧑‍🏫 {name}"` (one button per trainer) · sr/en mirrored
@@ -169,10 +169,10 @@ flow, and session filters are untouched (only the label string changes).
 **Remove** (superseded): `bot.menu.todayStub` — the stub handler is replaced; delete the key from
 ru/sr/en.
 
-The admin/manager notification text is composed **server-side** (the API holds the bot token and
-composes notification text; the bot never composes domain text). It is not added to the bot catalog;
-the API renders the `individual-request-admin` notification template with `clientName` and
-`trainerName`.
+Individual-request notification text is composed **server-side** (the API holds the bot token and
+composes notification text; the bot never composes domain text). It is not added to the bot catalog.
+The trainer-first delivery rules are documented in
+`docs/product/features/trainer-first-individual-request-routing.md`.
 
 ## Contracts (packages/types)
 
@@ -239,17 +239,15 @@ Export both from the package barrel and rebuild `@beosand/types`.
      `404`/throw `NotFoundException` if not onboarded (bot treats softly → menu).
   2. Resolve the **trainer** via `TrainersRepository.findById(trainerId)`; if missing or not active →
      `NotFoundException` (bot shows `trainerUnavailable`).
-  3. Call `NotificationsService.notifyAdminsOfIndividualRequest(adminTelegramIds(env), trainer,
-     client)`, which DMs admin/manager staff with the chosen trainer named and a clickable client
-     link.
-  4. Return `{ delivered: true }` if at least one admin/manager DM succeeds; if no admin is configured
-     or all sends fail, return `{ delivered: false, reason: "trainer-unavailable" }` so the client is
-     told to try again/contact the manager. Log failed attempts (no token).
+  3. Attempt direct delivery to `trainer.telegramId` first. If it succeeds, return
+     `{ delivered: true }` and do not notify admins/managers.
+  4. If `trainer.telegramId` is absent or trainer delivery fails, fall back to admins/managers.
+     Return `{ delivered: true }` if at least one fallback DM succeeds; otherwise return
+     `{ delivered: false, reason: "trainer-unavailable" }` so the client is told to try again/contact
+     the manager. Log failed attempts (no token).
 - **Authorization**: self-only — enforced in the controller/service (header id === body id). Not admin.
-- **NotificationsService.notifyAdminsOfIndividualRequest(adminIds, trainer, client):
-  Promise<boolean>**: renders the `individual-request-admin` template with a clickable client link
-  and escaped `trainerName`, sends it to each configured admin/manager, and returns whether at least
-  one send succeeded. No send-log row.
+- **NotificationsService / TelegramSender**: render staff/trainer notification text server-side with
+  a clickable client link. No send-log row.
 
 ### Module wiring
 
@@ -308,8 +306,8 @@ Replace the `MENU_ACTIONS.todayFreeSlots` handler in `navigation.ts`:
 - Identity by numeric telegram id; the individual flow works for clients **without** a username (the
   id-based mention path). Nothing keys off username for identity — username is only the link form.
 - Authorization on the new write is **self-only**, enforced in the API (header id === body id), not
-  the bot. Admin/manager notification uses the API's bot token via `TelegramSender`; the token is
-  never logged.
+  the bot. Trainer-first notification delivery uses the API's bot token via `TelegramSender`; the
+  token is never logged.
 - Callback data stays namespaced and `< 64` bytes (`menu:individual`, `ind:pick:<uuid>`).
 - i18n RU authoritative, sr/en mirrored; the bundled catalog stays the offline fallback.
 
@@ -328,16 +326,16 @@ Replace the `MENU_ACTIONS.todayFreeSlots` handler in `navigation.ts`:
   `GET /trainers?scope=individual`); picking one calls
   `POST /trainers/:id/individual-request` with the caller's telegram id and shows the
   "заявка отправлена" confirmation.
-- AC5: Admins/manager staff receive a DM naming the chosen trainer and carrying a **clickable link**
-  to the client: `https://t.me/<username>` if the client has one, else an
-  `<a href="tg://user?id=…">name</a>` mention that works **without** a username.
-- AC6: Missing/inactive trainers yield the existing soft bot result; if no admin/manager notification
-  can be delivered, the endpoint returns `{ delivered:false, reason:"trainer-unavailable" }` rather
-  than a 500.
+- AC5: The selected trainer receives the first DM attempt when `trainer.telegramId` is present; a
+  successful trainer DM does **not** notify admins/managers. `trainerUsername` alone is not treated as
+  deliverable.
+- AC6: Missing/inactive trainers yield the existing soft bot result; if direct trainer delivery and
+  fallback admin/manager delivery both fail, the endpoint returns
+  `{ delivered:false, reason:"trainer-unavailable" }` rather than a 500.
 - AC7: A non-self caller (body `telegramId` ≠ header id) is rejected with 403 and no DM is sent.
 - AC8: `pnpm typecheck && pnpm lint && pnpm test && pnpm build` green; verified live (menu order, group
-  name, today list, an individual request DM landing on an admin/manager test account, and a username-less
-  client producing the id-mention link).
+  name, today list, an individual request DM landing first on a trainer test account, fallback landing
+  on an admin/manager test account, and a username-less client producing the id-mention link).
 
 ## Test list
 
@@ -374,15 +372,15 @@ API (vitest):
 - `TrainersController` individual-request: 403 when body `telegramId` ≠ header id (no send); 400 on
   missing/invalid header or non-uuid id; success path calls the service once.
 - `TrainersService.requestIndividual`: not-onboarded client → NotFound; unknown/inactive trainer →
-  NotFound; happy path calls `NotificationsService.notifyAdminsOfIndividualRequest` with the trainer
-  and client and returns `{ delivered:true }`; send failure/no configured admin →
-  `{ delivered:false }`.
-- `notifyAdminsOfIndividualRequest`: username present → `https://t.me/<username>` in text; username
-  null but telegramId present → `tg://user?id=<id>` mention with HTML-escaped name; the chosen
-  trainer name is included and escaped.
-- `TelegramSender` is called with configured admin/manager telegram ids (not the trainer's or
-  client's), and the token is never present in any thrown/logged string (existing sender invariant,
-  asserted for the new path).
+  NotFound; trainer with `telegramId` is attempted first and returns `{ delivered:true }` without
+  fallback when the send succeeds; no `telegramId` or trainer-send failure falls back to
+  admins/managers; total delivery failure returns `{ delivered:false }`.
+- Individual-request notification text: username present → `https://t.me/<username>` in text;
+  username null but telegramId present → `tg://user?id=<id>` mention with HTML-escaped name; the
+  chosen trainer name is included and escaped.
+- `TelegramSender` is called with the trainer's numeric `telegramId` first when available; configured
+  admin/manager telegram ids are called only on fallback. The token is never present in any
+  thrown/logged string (existing sender invariant, asserted for the new path).
 
 ## Dependencies / sequencing
 
@@ -391,7 +389,7 @@ API (vitest):
 2. `packages/i18n`: rename `bot.menu.availableTrainings`, add the new keys, remove `bot.menu.todayStub`
    (ru/sr/en). Rebuild `@beosand/i18n`.
 3. API (parallel after step 1): groups join (`trainerName`); trainers individual-request
-   controller/service + admin-routed notification + module wiring.
+   controller/service + trainer-first notification routing + module wiring.
 4. Bot (parallel after steps 1–2 and the API contract is agreed): menu reorder + constant; today
    handler; individual module + ApiClient method + dispatcher wiring.
 5. Tests alongside each; then the full gate + live run.
@@ -400,8 +398,7 @@ API (vitest):
 
 - `backend-implementer`: contracts (step 1), groups `trainerName` join, the
   `POST /trainers/:id/individual-request` endpoint (controller/service/authz), the
-  `NotificationsService.notifyAdminsOfIndividualRequest` admin-routed notification, module wiring,
-  and the API tests.
+  trainer-first notification routing, module wiring, and the API tests.
 - `bot-implementer`: i18n changes (step 2), menu reorder + `MENU_ACTIONS.individual`, the Feature 6
   today handler, the `individual.ts` module + `ApiClient.requestIndividualSession` + dispatcher wiring,
   and the bot tests. Reuse `showFilteredSlots`/`formatSlotLine`/`listAvailableSlots`,

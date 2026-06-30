@@ -287,8 +287,10 @@ export class MiniappApiClient {
 
   /**
    * Request a one-on-one training with a trainer (POST /trainers/:id/individual-request).
-   * Notification-only: the server notifies admin/manager staff with the requested
-   * trainer named and persists no booking. The body still carries the caller's
+   * Notification-only: the unchanged route/result lets the server own
+   * trainer-first delivery through `trainer.telegramId`, with admin/manager
+   * fallback when the trainer cannot be reached. `trainerUsername` alone is not a
+   * DM target, and no booking is persisted. The body still carries the caller's
    * OWN Telegram id (from the verified session via {@link getMe}) for
    * bot back-compat, but the server now authoritatively resolves the requester from the
    * verified Mini App session and REJECTS a mismatch (no impersonation) — the body id is

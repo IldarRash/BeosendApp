@@ -98,8 +98,9 @@ export const menuHandlers: Partial<Record<MenuAction, MenuHandler>> = {
   },
   // Individual training (Feature 8): render the active-trainer picker. Picking a
   // trainer (ind:pick:<id>) is routed in index.ts so the caller's telegram id can
-  // be forwarded to the API for an admin/manager staff notification naming the
-  // chosen trainer. The bot only renders.
+  // be forwarded to the unchanged individual-request API. The API owns
+  // trainer-first delivery through trainer.telegramId with admin/manager fallback;
+  // trainerUsername alone is not a DM target. The bot only renders.
   [MENU_ACTIONS.individual]: async (ctx, deps) => {
     await handleIndividualEntry(ctx, deps.api, deps.catalog);
   },
