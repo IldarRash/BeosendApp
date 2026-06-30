@@ -23,7 +23,15 @@ export interface GroupMemberRow {
 export class GroupsRepository {
   constructor(private readonly database: DatabaseService) {}
 
-  async listActive(): Promise<Group[]> {
+  /**
+   * Active groups. By default hidden groups are excluded (the client-facing list);
+   * pass includeHidden=true (admin) to keep them so a hidden group can be un-hidden.
+   */
+  async listActive(includeHidden = false): Promise<Group[]> {
+    const filters = [eq(tables.groups.status, "active")];
+    if (!includeHidden) {
+      filters.push(eq(tables.groups.hidden, false));
+    }
     const rows = await this.database.db
       .select({
         group: tables.groups,
@@ -33,7 +41,7 @@ export class GroupsRepository {
       .from(tables.groups)
       .innerJoin(tables.trainers, eq(tables.groups.trainerId, tables.trainers.id))
       .leftJoin(tables.courts, eq(tables.groups.courtId, tables.courts.id))
-      .where(eq(tables.groups.status, "active"))
+      .where(and(...filters))
       .orderBy(asc(tables.groups.name));
     return rows.map((row) =>
       toGroup({ ...row.group, trainerName: row.trainerName, courtNumber: row.courtNumber })

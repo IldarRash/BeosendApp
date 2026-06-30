@@ -9,8 +9,11 @@ import type {
   ChangeCapacityInput,
   GenerateAllMonthInput,
   GenerateAllResult,
-  GenerateMonthInput,
+  GenerateIndividualMonthInput,
+  GenerateIndividualResult,
   ListTrainingsQuery,
+  GenerateMonthInput,
+  RescheduleTrainingInput,
   Training
 } from "@beosand/types";
 import { useApiClient } from "../api/ApiProvider";
@@ -104,6 +107,54 @@ export function useChangeCapacity(): UseMutationResult<
   return useMutation({
     mutationFn: ({ id, input }: { id: string; input: ChangeCapacityInput }) =>
       api.changeCapacity(id, input),
+    onSuccess: () => invalidateTrainings(queryClient)
+  });
+}
+
+/**
+ * Generate a month of individual (1-on-1) trainings for one client + trainer.
+ * Refreshes the trainings lists (and the calendar, a sub-key of TRAININGS_KEY) so
+ * the new instances appear; the batch id/created rows are surfaced by the caller
+ * from the resolved result.
+ */
+export function useGenerateIndividualMonth(): UseMutationResult<
+  GenerateIndividualResult,
+  Error,
+  GenerateIndividualMonthInput
+> {
+  const api = useApiClient();
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (input: GenerateIndividualMonthInput) => api.generateIndividualMonth(input),
+    onSuccess: () => invalidateTrainings(queryClient)
+  });
+}
+
+/**
+ * Reschedule a training's time window — either just this instance (`series:
+ * false` → PATCH /trainings/:id/time) or every future instance of an individual
+ * series (`series: true` → PATCH /trainings/:id/time-series). The server owns the
+ * slot re-check and the individual-only rule for the series path; on success the
+ * trainings lists (and calendar) refetch so the shifted time(s) re-render.
+ */
+export function useRescheduleTraining(): UseMutationResult<
+  Training | Training[],
+  Error,
+  { id: string; input: RescheduleTrainingInput; series: boolean }
+> {
+  const api = useApiClient();
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: ({
+      id,
+      input,
+      series
+    }: {
+      id: string;
+      input: RescheduleTrainingInput;
+      series: boolean;
+    }): Promise<Training | Training[]> =>
+      series ? api.rescheduleTrainingSeries(id, input) : api.rescheduleTraining(id, input),
     onSuccess: () => invalidateTrainings(queryClient)
   });
 }

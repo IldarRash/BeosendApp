@@ -64,7 +64,8 @@ export interface TrainingHeaderRow {
 /**
  * A training joined to its (nullable) group/court display names and its trainer
  * name, for the admin calendar + detail views. `groupName`/`courtNumber` are null
- * when the training has no group / no auto-block court. No business rules applied.
+ * when the training has no group / no auto-block court; `clientName` is null unless
+ * the training is individual (joined from its owning client). No business rules applied.
  */
 export interface TrainingCalendarRow {
   id: string;
@@ -73,12 +74,15 @@ export interface TrainingCalendarRow {
   startTime: string;
   endTime: string;
   trainerId: string;
+  clientId: string | null;
   capacity: number;
   bookedCount: number;
+  priceSingleRsd: number | null;
   status: TrainingStatus;
   groupName: string | null;
   trainerName: string;
   courtNumber: number | null;
+  clientName: string | null;
 }
 
 /** One roster row: a booking joined to its client name — no business rules applied. */
@@ -125,6 +129,62 @@ export class TrainingsRepository {
         and(eq(tables.trainings.groupId, groupId), inArray(tables.trainings.date, [...dates]))
       );
     return rows.map((row) => row.date);
+  }
+
+  /**
+   * Dates (within `dates`) that already have a non-cancelled INDIVIDUAL training for
+   * this client + trainer — the individual-month generator's idempotency key (mirrors
+   * existingDatesForGroup). A cancelled instance is ignored so a re-run can re-create a
+   * date the admin previously cancelled. Individual trainings carry the client on
+   * trainings.clientId, so the date is keyed on clientId + trainerId.
+   */
+  async existingIndividualDatesForClient(
+    clientId: string,
+    trainerId: string,
+    dates: readonly string[]
+  ): Promise<string[]> {
+    if (dates.length === 0) {
+      return [];
+    }
+    const rows = await this.database.db
+      .select({ date: tables.trainings.date })
+      .from(tables.trainings)
+      .where(
+        and(
+          eq(tables.trainings.clientId, clientId),
+          eq(tables.trainings.trainerId, trainerId),
+          ne(tables.trainings.status, "cancelled"),
+          inArray(tables.trainings.date, [...dates])
+        )
+      );
+    return rows.map((row) => row.date);
+  }
+
+  /**
+   * Future (date >= fromDate) non-cancelled INDIVIDUAL trainings for one client +
+   * trainer — the whole-series reschedule candidate set, intersected with the
+   * subscription's training ids in the service. Individual trainings carry the client
+   * on trainings.clientId, so the series is keyed on clientId + trainerId. Only the id
+   * is needed (the service writes each inside a tx). Past + cancelled instances are
+   * excluded so history is never rewritten.
+   */
+  async listFutureNonCancelledIndividual(
+    clientId: string,
+    trainerId: string,
+    fromDate: string
+  ): Promise<{ id: string }[]> {
+    return this.database.db
+      .select({ id: tables.trainings.id })
+      .from(tables.trainings)
+      .where(
+        and(
+          eq(tables.trainings.clientId, clientId),
+          eq(tables.trainings.trainerId, trainerId),
+          gte(tables.trainings.date, fromDate),
+          ne(tables.trainings.status, "cancelled")
+        )
+      )
+      .orderBy(asc(tables.trainings.date), asc(tables.trainings.startTime));
   }
 
   /**
@@ -318,6 +378,26 @@ export class TrainingsRepository {
     return toTraining(row);
   }
 
+  /**
+   * Persist a new start/end time onto the training inside the caller's tx (the admin
+   * reschedule write). Only the times change: the row keeps its id, status,
+   * bookedCount, and all its bookings — so a single-instance reschedule provably never
+   * drops the rest of a monthly batch. Returns the updated row.
+   */
+  async updateTimes(
+    tx: Database,
+    id: string,
+    startTime: string,
+    endTime: string
+  ): Promise<Training> {
+    const [row] = await tx
+      .update(tables.trainings)
+      .set({ startTime, endTime })
+      .where(eq(tables.trainings.id, id))
+      .returning();
+    return toTraining(row);
+  }
+
   /** Trainings whose date is in [from, to], optionally for one group, ordered for admin views. */
   async listInRange(from: string, to: string, groupId?: string): Promise<Training[]> {
     const dateRange = and(gte(tables.trainings.date, from), lte(tables.trainings.date, to));
@@ -362,6 +442,7 @@ export class TrainingsRepository {
       .from(tables.trainings)
       .leftJoin(tables.groups, eq(tables.trainings.groupId, tables.groups.id))
       .innerJoin(tables.trainers, eq(tables.trainings.trainerId, tables.trainers.id))
+      .leftJoin(tables.clients, eq(tables.clients.id, tables.trainings.clientId))
       .leftJoin(tables.courtBlocks, eq(tables.courtBlocks.groupTrainingId, tables.trainings.id))
       .leftJoin(tables.courts, eq(tables.courts.id, tables.courtBlocks.courtId))
       .where(and(...filters))
@@ -377,6 +458,7 @@ export class TrainingsRepository {
       .from(tables.trainings)
       .leftJoin(tables.groups, eq(tables.trainings.groupId, tables.groups.id))
       .innerJoin(tables.trainers, eq(tables.trainings.trainerId, tables.trainers.id))
+      .leftJoin(tables.clients, eq(tables.clients.id, tables.trainings.clientId))
       .leftJoin(tables.courtBlocks, eq(tables.courtBlocks.groupTrainingId, tables.trainings.id))
       .leftJoin(tables.courts, eq(tables.courts.id, tables.courtBlocks.courtId))
       .where(eq(tables.trainings.id, id))
@@ -403,6 +485,7 @@ export class TrainingsRepository {
       sql`${tables.trainings.bookedCount} < ${tables.trainings.capacity}`,
       isNotNull(tables.trainings.groupId),
       eq(tables.groups.status, "active"),
+      eq(tables.groups.hidden, false),
       eq(tables.trainers.status, "active"),
       eq(tables.levels.status, "active")
     ];
@@ -692,12 +775,15 @@ const calendarSelection = {
   startTime: tables.trainings.startTime,
   endTime: tables.trainings.endTime,
   trainerId: tables.trainings.trainerId,
+  clientId: tables.trainings.clientId,
   capacity: tables.trainings.capacity,
   bookedCount: tables.trainings.bookedCount,
+  priceSingleRsd: tables.trainings.priceSingleRsd,
   status: tables.trainings.status,
   groupName: tables.groups.name,
   trainerName: tables.trainers.name,
-  number: tables.courts.number
+  number: tables.courts.number,
+  clientName: tables.clients.name
 } as const;
 
 type CalendarSelectionRow = {
@@ -707,12 +793,15 @@ type CalendarSelectionRow = {
   startTime: string;
   endTime: string;
   trainerId: string;
+  clientId: string | null;
   capacity: number;
   bookedCount: number;
+  priceSingleRsd: number | null;
   status: TrainingStatus;
   groupName: string | null;
   trainerName: string;
   number: number | null;
+  clientName: string | null;
 };
 
 /** Column selection shared by the trainer and client calendar-feed reads. */
@@ -761,11 +850,14 @@ function toCalendarRow(row: CalendarSelectionRow): TrainingCalendarRow {
     startTime: row.startTime.slice(0, 5),
     endTime: row.endTime.slice(0, 5),
     trainerId: row.trainerId,
+    clientId: row.clientId,
     capacity: row.capacity,
     bookedCount: row.bookedCount,
+    priceSingleRsd: row.priceSingleRsd,
     status: row.status,
     groupName: row.groupName ?? null,
     trainerName: row.trainerName,
-    courtNumber: row.number ?? null
+    courtNumber: row.number ?? null,
+    clientName: row.clientName ?? null
   } satisfies TrainingCalendarItem;
 }

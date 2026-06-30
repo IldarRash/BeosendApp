@@ -58,6 +58,7 @@ const GROUP: Group = {
   capacity: 12,
   priceSingleRsd: 1500,
   priceMonthRsd: 9000,
+  hidden: false,
   status: "active"
 };
 

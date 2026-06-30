@@ -159,6 +159,8 @@ const TRAINING: TrainingCalendarItem = {
   endTime: "10:30",
   capacity: 12,
   bookedCount: 6,
+  priceSingleRsd: 1500,
+  clientId: null,
   status: "open",
   courtNumber: 1
 };

@@ -1,4 +1,5 @@
 import { forwardRef, Module } from "@nestjs/common";
+import { BookingsRepository } from "../bookings/bookings.repository";
 import { ClientsRepository } from "../clients/clients.repository";
 import { ConnectorsModule } from "../connectors/connectors.module";
 import { CourtsModule } from "../courts/courts.module";
@@ -20,9 +21,16 @@ import { TrainingsService } from "./trainings.service";
     ConnectorsModule
   ],
   controllers: [TrainingsController, TrainerTodayController],
-  // ClientsRepository (only deps DatabaseService) is provided directly so
-  // listParticipants can resolve a non-admin caller's client, mirroring GroupsModule.
-  providers: [TrainingsService, TrainingsRepository, ClientsRepository],
+  // ClientsRepository and BookingsRepository (each only deps DatabaseService) are
+  // provided directly — listParticipants resolves a non-admin caller's client and the
+  // individual-month generator reuses the bookings seat-write path — mirroring how
+  // GroupsModule provides repos directly to avoid a module cycle.
+  providers: [
+    TrainingsService,
+    TrainingsRepository,
+    ClientsRepository,
+    BookingsRepository
+  ],
   exports: [TrainingsService]
 })
 export class TrainingsModule {}

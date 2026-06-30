@@ -58,6 +58,7 @@ const GROUP: Group = {
   capacity: 12,
   priceSingleRsd: 1500,
   priceMonthRsd: 9000,
+  hidden: false,
   status: "active"
 };
 
@@ -81,6 +82,8 @@ const ITEM: TrainingCalendarItem = {
   trainerId: TRAINER.id,
   capacity: 12,
   bookedCount: 4,
+  priceSingleRsd: 1500,
+  clientId: null,
   status: "open",
   groupName: "Утренняя группа",
   trainerName: "Анна",
@@ -134,6 +137,30 @@ describe("TrainingsCalendar", () => {
     // The visible label is time + group, not colour alone.
     expect(event.textContent).toContain("08:00");
     expect(event.textContent).toContain("Утренняя группа");
+  });
+
+  it("names an individual (1-on-1) event by its client on the chip and in the detail", () => {
+    const individual: TrainingCalendarItem = {
+      ...ITEM,
+      groupId: null,
+      groupName: null,
+      clientId: "55555555-5555-4555-8555-555555555555",
+      clientName: "Петар",
+      courtNumber: null
+    };
+    useTrainingsCalendar.mockReturnValue(idleQuery([individual]));
+    useTrainingDetail.mockReturnValue(idleQuery(individual));
+    renderPage();
+
+    // The chip shows the client (not the trainer) for a group-less individual training.
+    const event = screen.getByRole("button", { name: /2026-07-06 08:00–09:30/ });
+    expect(event.textContent).toContain("Петар");
+
+    fireEvent.click(event);
+    const dialog = screen.getByRole("dialog", { name: "Тренировка" });
+    // The detail labels it "Индивидуальная" and surfaces the owning client.
+    expect(within(dialog).getByText("Индивидуальная")).toBeTruthy();
+    expect(within(dialog).getByText("Петар")).toBeTruthy();
   });
 
   it("passes the selected month bounds and trainer filter to the API query", () => {

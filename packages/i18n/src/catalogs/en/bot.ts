@@ -14,7 +14,7 @@ export const botEn: Record<string, string> = {
   "bot.notify.decline": "❌ Decline",
   "bot.notify.openAdmin": "Open in admin",
   "bot.notify.openRequest": "Open request",
-  "bot.notify.book": "Sign up",
+  "bot.notify.bookSlot": "Sign up · {time} · {level}",
 
   // --- Main menu (menu.ts) ---
   "bot.menu.welcomeFull":

@@ -44,6 +44,7 @@ const intermediate: Group = {
   capacity: 12,
   priceSingleRsd: 1500,
   priceMonthRsd: 10000,
+  hidden: false,
   status: "active"
 };
 

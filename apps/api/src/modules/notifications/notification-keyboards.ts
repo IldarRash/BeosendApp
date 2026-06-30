@@ -39,21 +39,34 @@ export function confirmDeclineKeyboard(
   };
 }
 
+/** One broadcast slot, carrying the data a per-slot book button renders + routes on. */
+export interface BookSlotButton {
+  trainingId: string;
+  startTime: string;
+  levelName: string;
+}
+
 /**
- * One "book" button per broadcast slot (`book:slot:<trainingId>`), or `undefined`
- * when there are no slots (Telegram rejects an empty inline_keyboard).
+ * One "book" button per broadcast slot, labelled with the slot's TIME + LEVEL so a
+ * recipient can tell the slots apart (`Записаться · 07:30 · Advanced`). Returns
+ * `undefined` for no slots (Telegram rejects an empty inline_keyboard). The
+ * `callback_data` is `book:slot:<trainingId>` — byte-identical across locales, since
+ * only `time`/`level` params (locale-independent values) feed the localized label.
  */
 export function bookSlotsKeyboard(
   locale: Locale,
-  trainingIds: string[]
+  slots: readonly BookSlotButton[]
 ): InlineKeyboardMarkup | undefined {
-  if (trainingIds.length === 0) {
+  if (slots.length === 0) {
     return undefined;
   }
-  const text = label(locale, "bot.notify.book");
+  const catalog = getStaticCatalog(locale);
   return {
-    inline_keyboard: trainingIds.map((trainingId) => [
-      { text, callback_data: `book:slot:${trainingId}` }
+    inline_keyboard: slots.map((slot) => [
+      {
+        text: t(catalog, "bot.notify.bookSlot", { time: slot.startTime, level: slot.levelName }),
+        callback_data: `book:slot:${slot.trainingId}`
+      }
     ])
   };
 }

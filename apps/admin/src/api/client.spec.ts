@@ -278,6 +278,131 @@ describe("ApiClient group-court scheduling (features 2+3)", () => {
   });
 });
 
+describe("ApiClient individual trainings & reschedule", () => {
+  afterEach(() => {
+    vi.unstubAllGlobals();
+  });
+
+  const CLIENT_ID = "11111111-1111-1111-1111-111111111111";
+  const TRAINER_ID = "22222222-2222-2222-2222-222222222222";
+  const TRAINING_ID = "33333333-3333-3333-3333-333333333333";
+  const SUBSCRIPTION_ID = "44444444-4444-4444-4444-444444444444";
+
+  /** A valid individual training (group-less, clientId + priceSingleRsd set). */
+  const individualTraining = {
+    id: TRAINING_ID,
+    groupId: null,
+    date: "2026-07-06",
+    startTime: "18:00",
+    endTime: "19:00",
+    trainerId: TRAINER_ID,
+    clientId: CLIENT_ID,
+    capacity: 1,
+    bookedCount: 1,
+    priceSingleRsd: 2500,
+    status: "open"
+  };
+
+  const generateInput = {
+    clientId: CLIENT_ID,
+    trainerId: TRAINER_ID,
+    daysOfWeek: [1, 3] as const,
+    startTime: "18:00",
+    endTime: "19:00",
+    year: 2026,
+    month: 7,
+    priceSingleRsd: 2500
+  };
+
+  it("POSTs generate-individual and validates the batch + created trainings", async () => {
+    const calls = mockFetchOnce({
+      groupSubscriptionId: SUBSCRIPTION_ID,
+      created: [individualTraining]
+    });
+    const result = await new ApiClient("http://api.test").generateIndividualMonth({
+      ...generateInput,
+      daysOfWeek: [1, 3]
+    });
+    expect(calls[0]?.url).toBe("http://api.test/trainings/generate-individual");
+    expect(calls[0]?.init?.method).toBe("POST");
+    expect(JSON.parse(calls[0]?.init?.body as string)).toEqual({
+      clientId: CLIENT_ID,
+      trainerId: TRAINER_ID,
+      daysOfWeek: [1, 3],
+      startTime: "18:00",
+      endTime: "19:00",
+      year: 2026,
+      month: 7,
+      priceSingleRsd: 2500
+    });
+    expect(result.groupSubscriptionId).toBe(SUBSCRIPTION_ID);
+    expect(result.created[0].clientId).toBe(CLIENT_ID);
+  });
+
+  it("rejects a malformed generate-individual result (contract enforced)", async () => {
+    // groupSubscriptionId must be a uuid; a non-uuid value fails the contract.
+    mockFetchOnce({ groupSubscriptionId: "nope", created: [individualTraining] });
+    await expect(
+      new ApiClient("http://api.test").generateIndividualMonth({
+        ...generateInput,
+        daysOfWeek: [1, 3]
+      })
+    ).rejects.toThrow();
+  });
+
+  it("PATCHes a single reschedule (/time) and returns the updated training", async () => {
+    const calls = mockFetchOnce({ ...individualTraining, startTime: "19:00", endTime: "20:00" });
+    const result = await new ApiClient("http://api.test").rescheduleTraining(TRAINING_ID, {
+      startTime: "19:00",
+      endTime: "20:00"
+    });
+    expect(calls[0]?.url).toBe(`http://api.test/trainings/${TRAINING_ID}/time`);
+    expect(calls[0]?.init?.method).toBe("PATCH");
+    expect(JSON.parse(calls[0]?.init?.body as string)).toEqual({
+      startTime: "19:00",
+      endTime: "20:00"
+    });
+    expect(result.startTime).toBe("19:00");
+  });
+
+  it("rejects a malformed single-reschedule response (contract enforced)", async () => {
+    // startTime must be a valid HH:MM; a bad value fails the training contract.
+    mockFetchOnce({ ...individualTraining, startTime: "99:99" });
+    await expect(
+      new ApiClient("http://api.test").rescheduleTraining(TRAINING_ID, {
+        startTime: "19:00",
+        endTime: "20:00"
+      })
+    ).rejects.toThrow();
+  });
+
+  it("PATCHes a series reschedule (/time-series) and validates the updated rows", async () => {
+    const calls = mockFetchOnce([
+      { ...individualTraining, startTime: "19:00", endTime: "20:00" }
+    ]);
+    const result = await new ApiClient("http://api.test").rescheduleTrainingSeries(TRAINING_ID, {
+      startTime: "19:00",
+      endTime: "20:00"
+    });
+    expect(calls[0]?.url).toBe(`http://api.test/trainings/${TRAINING_ID}/time-series`);
+    expect(calls[0]?.init?.method).toBe("PATCH");
+    expect(result).toHaveLength(1);
+    expect(result[0].endTime).toBe("20:00");
+  });
+
+  it("rejects a malformed series-reschedule response (contract enforced)", async () => {
+    // A row missing the required clientId field fails the training contract.
+    const { clientId: _omit, ...withoutClient } = individualTraining;
+    mockFetchOnce([withoutClient]);
+    await expect(
+      new ApiClient("http://api.test").rescheduleTrainingSeries(TRAINING_ID, {
+        startTime: "19:00",
+        endTime: "20:00"
+      })
+    ).rejects.toThrow();
+  });
+});
+
 describe("ApiClient court blocks range (Slice C)", () => {
   afterEach(() => {
     vi.unstubAllGlobals();
@@ -338,6 +463,8 @@ describe("ApiClient trainings calendar (Slice B)", () => {
     trainerId: TRAINER_ID,
     capacity: 12,
     bookedCount: 4,
+    priceSingleRsd: 1500,
+    clientId: null,
     status: "open",
     groupName: "Утренняя группа",
     trainerName: "Анна",
@@ -888,6 +1015,8 @@ describe("ApiClient court assignment & group delete (slices 4+5)", () => {
     trainerId: TRAINER_ID,
     capacity: 12,
     bookedCount: 6,
+    priceSingleRsd: 1500,
+    clientId: null,
     status: "open"
   };
 
@@ -905,6 +1034,7 @@ describe("ApiClient court assignment & group delete (slices 4+5)", () => {
     capacity: 12,
     priceSingleRsd: 1500,
     priceMonthRsd: 12000,
+    hidden: true,
     status: "inactive"
   };
 

@@ -134,6 +134,13 @@
       "when": 1782372048018,
       "tag": "0018_unusual_ted_forrester",
       "breakpoints": true
+    },
+    {
+      "idx": 19,
+      "version": "7",
+      "when": 1782464084838,
+      "tag": "0019_dear_star_brand",
+      "breakpoints": true
     }
   ]
 }

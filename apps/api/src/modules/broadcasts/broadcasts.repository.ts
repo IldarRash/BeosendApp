@@ -79,6 +79,7 @@ export class BroadcastsRepository {
           sql`${tables.trainings.bookedCount} < ${tables.trainings.capacity}`,
           isNotNull(tables.trainings.groupId),
           eq(tables.groups.status, "active"),
+          eq(tables.groups.hidden, false),
           eq(tables.trainers.status, "active"),
           eq(tables.levels.status, "active")
         )

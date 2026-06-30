@@ -4,10 +4,14 @@ import {
   type ChangeCapacityInput,
   type Client,
   type Court,
+  type DayOfWeek,
   type GenerateAllResult,
+  type GenerateIndividualMonthInput,
   type GenerateMonthInput,
   type Group,
   type ListTrainingsQuery,
+  type RescheduleTrainingInput,
+  type Trainer,
   type Training,
   type TrainingStatus
 } from "@beosand/types";
@@ -15,8 +19,9 @@ import { AppShell } from "../ui/AppShell";
 import { Button } from "../ui/Button";
 import { DataTable, type Column } from "../ui/DataTable";
 import { Modal } from "../ui/Modal";
+import { DayOfWeekPicker } from "../ui/DayOfWeekPicker";
 import { TrainingRosterModal } from "../ui/TrainingRosterModal";
-import { NumberField, SelectField, TextField, type SelectOption } from "../ui/Field";
+import { NumberField, SelectField, TextField, TimeField, type SelectOption } from "../ui/Field";
 import { useToast } from "../ui/Toast";
 import { useT } from "../i18n/LanguageProvider";
 import { useCourts } from "../hooks/useCourts";
@@ -28,7 +33,9 @@ import {
   useChangeCapacity,
   useDeleteTraining,
   useGenerateAllGroups,
+  useGenerateIndividualMonth,
   useGenerateMonth,
+  useRescheduleTraining,
   useTrainings
 } from "../hooks/useTrainings";
 import { TrainingsCalendar } from "./TrainingsCalendar";
@@ -105,10 +112,16 @@ export function Trainings(): JSX.Element {
     [groups.data, t]
   );
 
-  const groupName = useMemo(() => {
+  // Group cell label: a group's name, or — for a group-less training — whether it is
+  // an individual (1-on-1, clientId set) session or a plain one-off. The API decides
+  // both fields; the console only renders the right label, never the court/identity.
+  const groupCell = useMemo(() => {
     const map = new Map<string, string>();
     for (const g of groups.data ?? []) map.set(g.id, g.name);
-    return (id: string | null): string => (id ? (map.get(id) ?? "—") : t("admin.trainings.oneOff"));
+    return (row: Training): string => {
+      if (row.groupId) return map.get(row.groupId) ?? "—";
+      return row.clientId ? t("admin.trainings.individual") : t("admin.trainings.oneOff");
+    };
   }, [groups.data, t]);
 
   const trainerName = useMemo(() => {
@@ -125,6 +138,14 @@ export function Trainings(): JSX.Element {
   const [genAllOpen, setGenAllOpen] = useState(false);
   const generateAll = useGenerateAllGroups();
   const [allResult, setAllResult] = useState<GenerateAllResult | null>(null);
+
+  // ── Generate individual (1-on-1) trainings ──────────────────────────────
+  const [genIndividualOpen, setGenIndividualOpen] = useState(false);
+  const generateIndividual = useGenerateIndividualMonth();
+
+  // ── Reschedule a training's time (single or whole individual series) ──────
+  const [rescheduleTarget, setRescheduleTarget] = useState<Training | null>(null);
+  const reschedule = useRescheduleTraining();
 
   // ── Delete ─────────────────────────────────────────────────────────────
   const [deleteTarget, setDeleteTarget] = useState<Training | null>(null);
@@ -147,7 +168,7 @@ export function Trainings(): JSX.Element {
       header: t("admin.trainings.colTime"),
       render: (row) => `${row.startTime}–${row.endTime}`
     },
-    { key: "group", header: t("admin.trainings.colGroup"), render: (row) => groupName(row.groupId) },
+    { key: "group", header: t("admin.trainings.colGroup"), render: (row) => groupCell(row) },
     { key: "trainer", header: t("admin.trainings.colTrainer"), render: (row) => trainerName(row.trainerId) },
     {
       key: "occupancy",
@@ -178,6 +199,16 @@ export function Trainings(): JSX.Element {
             }
           >
             {t("admin.trainings.actionAddPerson")}
+          </Button>
+          <Button
+            variant="ghost"
+            onClick={() => {
+              reschedule.reset();
+              setRescheduleTarget(row);
+            }}
+            disabled={row.status === "cancelled" || row.status === "completed"}
+          >
+            {t("admin.trainings.actionReschedule")}
           </Button>
           <Button
             variant="ghost"
@@ -232,6 +263,9 @@ export function Trainings(): JSX.Element {
           </div>
           <Button variant="ghost" onClick={() => setGenAllOpen(true)}>
             {t("admin.trainings.generateAll")}
+          </Button>
+          <Button variant="ghost" onClick={() => setGenIndividualOpen(true)}>
+            {t("admin.trainings.generateIndividual")}
           </Button>
           <Button onClick={() => setGenOpen(true)}>{t("admin.trainings.generate")}</Button>
         </div>
@@ -333,6 +367,59 @@ export function Trainings(): JSX.Element {
       />
 
       <GenerateAllResultModal result={allResult} onClose={() => setAllResult(null)} />
+
+      <GenerateIndividualModal
+        open={genIndividualOpen}
+        trainers={trainers.data ?? []}
+        pending={generateIndividual.isPending}
+        error={generateIndividual.isError ? errorText(generateIndividual.error, t) : undefined}
+        onClose={() => {
+          generateIndividual.reset();
+          setGenIndividualOpen(false);
+        }}
+        onSubmit={(input) => {
+          generateIndividual.mutate(input, {
+            onSuccess: (result) => {
+              setGenIndividualOpen(false);
+              // Move the table to the generated month so the new rows are visible.
+              const range = monthRange(input.year, input.month);
+              setFrom(range.from);
+              setTo(range.to);
+              notify(
+                t("admin.trainings.individualGenerated", { count: result.created.length }),
+                "success"
+              );
+            }
+          });
+        }}
+      />
+
+      <RescheduleModal
+        target={rescheduleTarget}
+        pending={reschedule.isPending}
+        error={reschedule.isError ? errorText(reschedule.error, t) : undefined}
+        onClose={() => {
+          reschedule.reset();
+          setRescheduleTarget(null);
+        }}
+        onSubmit={(input, series) => {
+          if (!rescheduleTarget) return;
+          reschedule.mutate(
+            { id: rescheduleTarget.id, input, series },
+            {
+              onSuccess: () => {
+                setRescheduleTarget(null);
+                notify(
+                  series
+                    ? t("admin.trainings.rescheduledSeries")
+                    : t("admin.trainings.rescheduledSingle"),
+                  "success"
+                );
+              }
+            }
+          );
+        }}
+      />
 
       <Modal
         open={deleteTarget !== null}
@@ -937,6 +1024,303 @@ function AddPersonModal({ target, onClose, onBooked }: AddPersonModalProps): JSX
         <p className="state state--error" role="alert">
           {errorMessage}
         </p>
+      ) : null}
+    </Modal>
+  );
+}
+
+// ── Generate individual (1-on-1) trainings modal ─────────────────────────────
+
+interface GenerateIndividualModalProps {
+  open: boolean;
+  trainers: Trainer[];
+  pending: boolean;
+  error?: string;
+  onClose: () => void;
+  onSubmit: (input: GenerateIndividualMonthInput) => void;
+}
+
+/**
+ * Generate a month of individual (1-on-1) trainings for one client with one
+ * trainer (POST /trainings/generate-individual). The client is picked from the
+ * server-searched list (mirroring AddPersonModal); the weekday set, time window,
+ * year/month and per-session RSD price feed the strict contract. All schedule and
+ * money decisions are the server's — the console only collects the inputs and
+ * renders its verbatim error.
+ */
+function GenerateIndividualModal({
+  open,
+  trainers,
+  pending,
+  error,
+  onClose,
+  onSubmit
+}: GenerateIndividualModalProps): JSX.Element {
+  const t = useT();
+  const now = new Date();
+
+  const [search, setSearch] = useState("");
+  const [clientId, setClientId] = useState("");
+  const [trainerId, setTrainerId] = useState("");
+  const [days, setDays] = useState<DayOfWeek[]>([]);
+  const [startTime, setStartTime] = useState("18:00");
+  const [endTime, setEndTime] = useState("19:00");
+  const [year, setYear] = useState<number | null>(now.getFullYear());
+  const [month, setMonth] = useState(String(now.getMonth() + 1));
+  const [price, setPrice] = useState<number | null>(null);
+
+  const clients = useClientsList(
+    { search: search.trim() || undefined },
+    { enabled: open }
+  );
+
+  // Reset the form whenever the modal (re)opens, so a prior draft never leaks.
+  const [wasOpen, setWasOpen] = useState(false);
+  if (open !== wasOpen) {
+    setWasOpen(open);
+    if (open) {
+      setSearch("");
+      setClientId("");
+      setTrainerId("");
+      setDays([]);
+      setStartTime("18:00");
+      setEndTime("19:00");
+      setYear(now.getFullYear());
+      setMonth(String(now.getMonth() + 1));
+      setPrice(null);
+    }
+  }
+
+  const clientOptions: SelectOption[] = [
+    { value: "", label: t("admin.trainings.individualPickClient") },
+    ...(clients.data ?? []).map((c: Client) => ({
+      value: c.id,
+      label: c.phone ? `${c.name} · ${c.phone}` : c.name
+    }))
+  ];
+
+  const trainerOptions: SelectOption[] = [
+    { value: "", label: t("admin.trainings.individualPickTrainer") },
+    ...trainers.map((tr) => ({ value: tr.id, label: tr.name }))
+  ];
+
+  const canSubmit =
+    !pending &&
+    clientId !== "" &&
+    trainerId !== "" &&
+    days.length > 0 &&
+    startTime !== "" &&
+    endTime !== "" &&
+    year !== null &&
+    price !== null;
+
+  function handleSubmit(): void {
+    if (!canSubmit || year === null || price === null) return;
+    onSubmit({
+      clientId,
+      trainerId,
+      daysOfWeek: days,
+      startTime,
+      endTime,
+      year,
+      month: Number.parseInt(month, 10),
+      priceSingleRsd: price
+    });
+  }
+
+  return (
+    <Modal
+      open={open}
+      title={t("admin.trainings.individualTitle")}
+      onClose={onClose}
+      footer={
+        <>
+          <Button variant="ghost" onClick={onClose}>
+            {t("admin.action.cancel")}
+          </Button>
+          <Button disabled={!canSubmit} onClick={handleSubmit}>
+            {pending ? t("admin.trainings.generating") : t("admin.trainings.individualSubmit")}
+          </Button>
+        </>
+      }
+    >
+      <p className="state">{t("admin.trainings.individualHint")}</p>
+      <TextField
+        label={t("admin.trainings.addPersonSearchLabel")}
+        placeholder={t("admin.trainings.addPersonSearchPlaceholder")}
+        value={search}
+        onChange={(e) => {
+          setSearch(e.target.value);
+          setClientId("");
+        }}
+      />
+      {clients.isError ? (
+        <p className="state state--error" role="alert">
+          {errorText(clients.error, t)}
+        </p>
+      ) : clients.isFetching ? (
+        <p className="state">{t("admin.trainings.addPersonSearching")}</p>
+      ) : (clients.data ?? []).length === 0 ? (
+        <p className="state">{t("admin.trainings.addPersonNoClients")}</p>
+      ) : (
+        <SelectField
+          label={t("admin.trainings.individualClient")}
+          options={clientOptions}
+          value={clientId}
+          onChange={(e) => setClientId(e.target.value)}
+        />
+      )}
+      <SelectField
+        label={t("admin.trainings.individualTrainer")}
+        options={trainerOptions}
+        value={trainerId}
+        onChange={(e) => setTrainerId(e.target.value)}
+      />
+      <DayOfWeekPicker
+        label={t("admin.trainings.individualDays")}
+        value={days}
+        onChange={setDays}
+      />
+      <TimeField
+        label={t("admin.trainings.individualStart")}
+        value={startTime}
+        onChange={(e) => setStartTime(e.target.value)}
+      />
+      <TimeField
+        label={t("admin.trainings.individualEnd")}
+        value={endTime}
+        onChange={(e) => setEndTime(e.target.value)}
+      />
+      <NumberField label={t("admin.trainings.fieldYear")} value={year} onValueChange={setYear} />
+      <SelectField
+        label={t("admin.trainings.fieldMonth")}
+        options={monthOptions(t)}
+        value={month}
+        onChange={(e) => setMonth(e.target.value)}
+      />
+      <NumberField
+        label={t("admin.trainings.individualPrice")}
+        value={price}
+        onValueChange={setPrice}
+        min={0}
+        hint={t("admin.trainings.individualPriceHint")}
+      />
+      {error ? (
+        <p className="state state--error" role="alert">
+          {error}
+        </p>
+      ) : null}
+    </Modal>
+  );
+}
+
+// ── Reschedule (change time) modal ───────────────────────────────────────────
+
+type RescheduleScope = "single" | "series";
+
+interface RescheduleModalProps {
+  target: Training | null;
+  pending: boolean;
+  error?: string;
+  onClose: () => void;
+  onSubmit: (input: RescheduleTrainingInput, series: boolean) => void;
+}
+
+/**
+ * Change a training's time window. For an individual (1-on-1) training the admin
+ * may shift "only this" instance or "the whole series" (every future instance of
+ * the batch); a group/one-off training only offers the single shift. The scope is
+ * gated to individual rows (clientId set / no group) — the server enforces the same
+ * rule, the UI just guides. Time-order and slot validation are the server's; the
+ * modal only collects the new start/end.
+ */
+function RescheduleModal({
+  target,
+  pending,
+  error,
+  onClose,
+  onSubmit
+}: RescheduleModalProps): JSX.Element {
+  const t = useT();
+  // An individual training is group-less with an owning client; only it may move
+  // a whole series.
+  const isIndividual = target !== null && target.groupId === null && target.clientId !== null;
+
+  const [scope, setScope] = useState<RescheduleScope>("single");
+  const [startTime, setStartTime] = useState("");
+  const [endTime, setEndTime] = useState("");
+
+  // Seed the time fields from the opened row, and reset the scope to "single".
+  const [seededFor, setSeededFor] = useState<string | null>(null);
+  if (target && seededFor !== target.id) {
+    setSeededFor(target.id);
+    setScope("single");
+    setStartTime(target.startTime);
+    setEndTime(target.endTime);
+  }
+
+  const scopeOptions: SelectOption[] = [
+    { value: "single", label: t("admin.trainings.rescheduleScopeSingle") },
+    { value: "series", label: t("admin.trainings.rescheduleScopeSeries") }
+  ];
+
+  const canSubmit = !pending && startTime !== "" && endTime !== "";
+
+  function handleSubmit(): void {
+    if (!canSubmit) return;
+    onSubmit({ startTime, endTime }, isIndividual && scope === "series");
+  }
+
+  return (
+    <Modal
+      open={target !== null}
+      title={t("admin.trainings.rescheduleTitle")}
+      onClose={onClose}
+      footer={
+        <>
+          <Button variant="ghost" onClick={onClose}>
+            {t("admin.action.cancel")}
+          </Button>
+          <Button disabled={!canSubmit} onClick={handleSubmit}>
+            {pending ? t("admin.action.saving") : t("admin.trainings.rescheduleSubmit")}
+          </Button>
+        </>
+      }
+    >
+      {target ? (
+        <>
+          <p className="state">
+            {t("admin.trainings.reschedulePrompt", {
+              date: target.date,
+              start: target.startTime,
+              end: target.endTime
+            })}
+          </p>
+          {isIndividual ? (
+            <SelectField
+              label={t("admin.trainings.rescheduleScope")}
+              options={scopeOptions}
+              value={scope}
+              onChange={(e) => setScope(e.target.value as RescheduleScope)}
+              hint={t("admin.trainings.rescheduleScopeHint")}
+            />
+          ) : null}
+          <TimeField
+            label={t("admin.trainings.individualStart")}
+            value={startTime}
+            onChange={(e) => setStartTime(e.target.value)}
+          />
+          <TimeField
+            label={t("admin.trainings.individualEnd")}
+            value={endTime}
+            onChange={(e) => setEndTime(e.target.value)}
+          />
+          {error ? (
+            <p className="state state--error" role="alert">
+              {error}
+            </p>
+          ) : null}
+        </>
       ) : null}
     </Modal>
   );

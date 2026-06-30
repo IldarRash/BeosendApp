@@ -55,6 +55,8 @@ interface GroupFormState {
   capacity: number | null;
   priceSingleRsd: number | null;
   priceMonthRsd: number | null;
+  /** true = hidden from clients; false = visible. New groups default to visible. */
+  hidden: boolean;
 }
 
 function emptyForm(): GroupFormState {
@@ -68,7 +70,8 @@ function emptyForm(): GroupFormState {
     endTime: "",
     capacity: null,
     priceSingleRsd: null,
-    priceMonthRsd: null
+    priceMonthRsd: null,
+    hidden: false
   };
 }
 
@@ -83,7 +86,8 @@ function formFromGroup(group: Group): GroupFormState {
     endTime: group.endTime,
     capacity: group.capacity,
     priceSingleRsd: group.priceSingleRsd,
-    priceMonthRsd: group.priceMonthRsd
+    priceMonthRsd: group.priceMonthRsd,
+    hidden: group.hidden
   };
 }
 
@@ -117,10 +121,20 @@ interface GroupFormProps {
   levels: Level[];
   trainers: Trainer[];
   courts: Court[];
+  /** Visibility is only editable on an existing group; creation defaults to visible. */
+  isEdit: boolean;
   error?: string;
 }
 
-function GroupForm({ form, onChange, levels, trainers, courts, error }: GroupFormProps): JSX.Element {
+function GroupForm({
+  form,
+  onChange,
+  levels,
+  trainers,
+  courts,
+  isEdit,
+  error
+}: GroupFormProps): JSX.Element {
   const t = useT();
   const levelOptions: SelectOption[] = [
     { value: "", label: t("admin.groups.pickLevel") },
@@ -203,6 +217,18 @@ function GroupForm({ form, onChange, levels, trainers, courts, error }: GroupFor
           min={0}
         />
       </div>
+      {isEdit ? (
+        <SelectField
+          label={t("admin.groups.fieldVisibility")}
+          value={form.hidden ? "hidden" : "visible"}
+          onChange={(event) => onChange({ ...form, hidden: event.target.value === "hidden" })}
+          options={[
+            { value: "visible", label: t("admin.groups.visShown") },
+            { value: "hidden", label: t("admin.groups.visHidden") }
+          ]}
+          hint={t("admin.groups.visibilityHint")}
+        />
+      ) : null}
       {error ? (
         <p className="field__error" role="alert">
           {error}
@@ -467,7 +493,7 @@ export function Groups(): JSX.Element {
         onError: (mutationError) => notify(mutationError.message, "error")
       });
     } else {
-      const update: UpdateGroupInput = input;
+      const update: UpdateGroupInput = { ...input, hidden: form.hidden };
       updateGroup.mutate(
         { id: target.group.id, input: update },
         {
@@ -525,6 +551,12 @@ export function Groups(): JSX.Element {
       header: t("admin.groups.colStatus"),
       render: (group) =>
         group.status === "active" ? t("admin.groups.statusActive") : t("admin.groups.statusInactive")
+    },
+    {
+      key: "visibility",
+      header: t("admin.groups.colVisibility"),
+      render: (group) =>
+        group.hidden ? t("admin.groups.visHidden") : t("admin.groups.visShown")
     },
     {
       key: "actions",
@@ -612,6 +644,7 @@ export function Groups(): JSX.Element {
             levels={levels.data ?? []}
             trainers={trainers.data ?? []}
             courts={courts.data ?? []}
+            isEdit={target?.mode === "edit"}
             error={submitError}
           />
         </form>

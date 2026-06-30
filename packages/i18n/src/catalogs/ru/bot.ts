@@ -20,7 +20,7 @@ export const botRu: Record<string, string> = {
   "bot.notify.decline": "❌ Отклонить",
   "bot.notify.openAdmin": "Открыть в админке",
   "bot.notify.openRequest": "Открыть заявку",
-  "bot.notify.book": "Записаться",
+  "bot.notify.bookSlot": "Записаться · {time} · {level}",
 
   // --- Main menu (menu.ts) ---
   "bot.menu.welcomeFull":

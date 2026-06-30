@@ -273,8 +273,13 @@ describe("BroadcastsService", () => {
       const button = (id: number): InlineCallbackButton =>
         byRecipient.get(id)!.inline_keyboard[0][0] as InlineCallbackButton;
 
-      expect(button(1).text).toBe("Prijavi se"); // SR recipient
-      expect(button(2).text).toBe("Записаться"); // RU recipient
+      // Each label is localized AND carries this slot's own TIME + LEVEL (18:00 / Beginner).
+      expect(button(1).text).toContain("Prijavi se"); // SR recipient
+      expect(button(2).text).toContain("Записаться"); // RU recipient
+      for (const id of [1, 2]) {
+        expect(button(id).text).toContain("18:00");
+        expect(button(id).text).toContain("Beginner");
+      }
       // The routing payload never depends on locale.
       expect(button(1).callback_data).toBe("book:slot:11111111-1111-1111-1111-111111111111");
       expect(button(2).callback_data).toBe(button(1).callback_data);

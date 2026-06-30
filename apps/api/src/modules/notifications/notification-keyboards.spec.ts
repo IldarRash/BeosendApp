@@ -44,10 +44,11 @@ const OPEN_REQUEST: Record<Locale, string> = {
   sr: "Otvori zahtev",
   en: "Open request"
 };
-const BOOK: Record<Locale, string> = {
-  ru: "Записаться",
-  sr: "Prijavi se",
-  en: "Sign up"
+/** Expected localized book labels for a slot at 07:30, level Advanced (TIME + LEVEL). */
+const BOOK_SLOT: Record<Locale, string> = {
+  ru: "Записаться · 07:30 · Advanced",
+  sr: "Prijavi se · 07:30 · Advanced",
+  en: "Sign up · 07:30 · Advanced"
 };
 
 const callback = (button: InlineCallbackButton | InlineUrlButton): string =>
@@ -86,16 +87,31 @@ describe("confirmDeclineKeyboard", () => {
 });
 
 describe("bookSlotsKeyboard", () => {
-  it.each(LOCALES)("renders the localized book label for %s", (locale) => {
-    const markup = bookSlotsKeyboard(locale, ["t1"]) as InlineKeyboardMarkup;
-    expect(markup.inline_keyboard[0][0].text).toBe(BOOK[locale]);
+  const slot = { trainingId: "t1", startTime: "07:30", levelName: "Advanced" };
+
+  it.each(LOCALES)("renders the localized TIME + LEVEL book label for %s", (locale) => {
+    const markup = bookSlotsKeyboard(locale, [slot]) as InlineKeyboardMarkup;
+    expect(markup.inline_keyboard[0][0].text).toBe(BOOK_SLOT[locale]);
   });
 
-  it("emits one book:slot:<id> button per id with locale-independent callback_data", () => {
+  it("emits one book:slot:<id> button per slot with locale-independent callback_data", () => {
+    const slots = [slot, { trainingId: "t2", startTime: "19:00", levelName: "Beginner" }];
     for (const locale of LOCALES) {
-      const markup = bookSlotsKeyboard(locale, ["t1", "t2"]) as InlineKeyboardMarkup;
+      const markup = bookSlotsKeyboard(locale, slots) as InlineKeyboardMarkup;
       const callbacks = markup.inline_keyboard.map((row) => callback(row[0]));
       expect(callbacks).toEqual(["book:slot:t1", "book:slot:t2"]);
+    }
+  });
+
+  it("keeps the callback_data array byte-identical across locales (only labels localize)", () => {
+    const slots = [slot, { trainingId: "t2", startTime: "19:00", levelName: "Beginner" }];
+    const callbacksFor = (locale: Locale): string[] =>
+      (bookSlotsKeyboard(locale, slots) as InlineKeyboardMarkup).inline_keyboard.map((row) =>
+        callback(row[0])
+      );
+    const ruCallbacks = callbacksFor("ru");
+    for (const locale of LOCALES) {
+      expect(callbacksFor(locale)).toEqual(ruCallbacks);
     }
   });
 

@@ -97,10 +97,18 @@ function groupByDate(items: TrainingCalendarItem[]): EventGroups {
   return { byDate };
 }
 
-/** The label shown on an event chip: time + group (or trainer when group-less). */
+/**
+ * Who an event names: the group, or — for an individual (1-on-1, group-less)
+ * training — the owning client, falling back to the trainer when neither is set.
+ * Every value is server-decided; the calendar only chooses which to show.
+ */
+function eventWho(item: TrainingCalendarItem): string {
+  return item.groupName ?? item.clientName ?? item.trainerName;
+}
+
+/** The label shown on an event chip: time + group/client (or trainer). */
 function eventLabel(item: TrainingCalendarItem): string {
-  const who = item.groupName ?? item.trainerName;
-  return `${item.startTime} ${who}`;
+  return `${item.startTime} ${eventWho(item)}`;
 }
 
 /**
@@ -258,7 +266,7 @@ export function TrainingsCalendar(): JSX.Element {
                             date: iso,
                             start: item.startTime,
                             end: item.endTime,
-                            who: item.groupName ?? item.trainerName,
+                            who: eventWho(item),
                             trainer: item.trainerName,
                             status: statusLabel(item.status, t)
                           })}
