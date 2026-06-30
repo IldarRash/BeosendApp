@@ -7,6 +7,11 @@ agent or a delegated subagent does the work.
 Older operating-layer mirrors may still exist, but Codex should prefer `.codex/agents`,
 `.codex/skills`, and `.codex/rules` whenever multiple versions are present.
 
+## Model routing
+
+- Use the frontier model for all analysis, review, planning, and research tasks.
+- Use `5.3-codex` for writing code, writing tests, and running the application.
+
 ## Roles (`.codex/agents/*.toml`)
 
 | Agent | Responsibility |
