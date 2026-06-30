@@ -7,9 +7,10 @@ Slug: `miniapp-individual-request` · Slice: S8 · Branch: `feature/miniapp` (pe
 
 Let a client request a one-on-one (individual) training with a chosen trainer from inside the
 Telegram Mini App, in **3 taps max** (Home → Individual → pick trainer → "Запросить тренировку").
-The request is **notification-only** — the API DMs the trainer "contact this client" and persists no
-booking. The Mini App replaces the shared `PlaceholderScreen` currently rendered on the `individual`
-route with a real `TrainerRequestScreen`.
+The request is **notification-only** — the API notifies admins/manager staff to contact this client,
+with the chosen trainer named, and persists no booking. The Mini App replaces the shared
+`PlaceholderScreen` currently rendered on the `individual` route with a real
+`TrainerRequestScreen`.
 
 This slice carries the slice plan's **one backend change**: a security-critical identity fix so the
 existing `POST /trainers/:id/individual-request` endpoint works for a Mini App client session (which
@@ -45,8 +46,9 @@ stays a public reference read; **no admin surface is broadened** by this slice.
 No schema change, **no new contract fields**. Reused contracts from `@beosand/types`
 (`packages/types/src/training-contracts.ts`):
 
-- `trainerSchema` / `Trainer` — `{ id, name, type: "main"|"guest", status, telegramId }` (for
-  `GET /trainers`; the Mini App renders `name`/`type` and never the trainer's `telegramId`).
+- `trainerSchema` / `Trainer` — `{ id, name, type: "main"|"guest", status, telegramId,
+  individualVisible }` (for `GET /trainers?scope=individual`; the Mini App renders `name`/`type` and
+  never the trainer's `telegramId`).
 - `individualRequestSchema` = `{ telegramId: number }` `.strict()` — the request body, **unchanged**.
   The Mini App keeps sending its own `telegramId` (from the session `getMe()`) for back-compat with
   the bot's body shape; the server now treats it as a value to **verify against the actor**, not to
@@ -55,14 +57,14 @@ No schema change, **no new contract fields**. Reused contracts from `@beosand/ty
   `{ delivered: boolean, reason?: "trainer-unavailable" }` `.strict()` — **unchanged**. `delivered:
   false` drives the calm soft state, not an error.
 
-No persisted row: the request is a DM only (notification-only by design).
+No persisted row: the request is an admin/manager notification only (notification-only by design).
 
 ## API
 
 | Method + path | Auth | Change | Notes |
 |---|---|---|---|
-| `GET /trainers` | public reference read | **none** | Already used by S3 filters via `listTrainers`. Returns active `Trainer[]`. |
-| `POST /trainers/:id/individual-request` | client self-only | **identity only** | Resolve actor from the verified session; reject a body `telegramId` that ≠ actor. Returns `IndividualRequestResult`. |
+| `GET /trainers?scope=individual` | public reference read | use for picker | Returns active trainers where `individualVisible = true`; hidden active trainers stay out of the Mini App picker. |
+| `POST /trainers/:id/individual-request` | client self-only | **identity only** | Resolve actor from the verified session; reject a body `telegramId` that ≠ actor. Active hidden trainers can still be requested directly by id. Returns `IndividualRequestResult`. |
 
 ### The backend change (security-critical, the only one in this slice)
 
@@ -82,9 +84,11 @@ the clients/bookings/waitlist controllers:
 
 `apps/api/src/modules/trainers/trainers.service.ts` — `requestIndividual` is **unchanged**: it
 already takes the resolved `requesterTelegramId`, looks up the client (404 if not onboarded) and the
-active trainer (404 if missing/inactive), and returns the soft result. The doc comment's "header/body
-telegram-id equality is enforced in the controller" stays accurate. Do **not** move authz into the
-service; do **not** add `isAdmin`/scope checks (this is a client self endpoint, not admin).
+active trainer (404 if missing/inactive), then calls `notifyAdminsOfIndividualRequest` so
+admins/manager staff receive a message naming the chosen trainer and linking the client. The doc
+comment's "header/body telegram-id equality is enforced in the controller" stays accurate. Do
+**not** move authz into the service; do **not** add `isAdmin`/scope checks (this is a client self
+endpoint, not admin).
 
 Why "reject mismatch" rather than "ignore body and use the actor": the body field is unchanged for
 bot back-compat, and the bot already sends a matching `telegramId`; rejecting a mismatch is the
@@ -106,28 +110,31 @@ exist in `router/routes.ts` — no router-table change beyond the screen swap.
 
 Three local sub-states, one native MainButton per actionable state, BackButton owned by the shell:
 
-1. **list** — `useTrainers()` (reuse the S3 hook / `listTrainers`); render active trainers as native
-   `Cell` rows (name + a `main`/`guest` type label, leading coral icon, trailing chevron). Tapping a
-   row fires a selection haptic and advances to confirm. No MainButton on the bare list. Loading /
-   error / empty via the shared `StateView` states (`LoadingState`/`ErrorState`/`EmptyState`),
-   exactly like `GroupBookingScreen`.
+1. **list** — `useIndividualTrainers()` / `listIndividualTrainers()` (`GET
+   /trainers?scope=individual`); render active, individual-visible trainers as native `Cell` rows
+   (name + a `main`/`guest` type label, leading coral icon, trailing chevron). Tapping a row fires a
+   selection haptic and advances to confirm. No MainButton on the bare list. Loading / error / empty
+   via the shared `StateView` states (`LoadingState`/`ErrorState`/`EmptyState`), exactly like
+   `GroupBookingScreen`.
 2. **confirm** — show the chosen trainer's facts; native MainButton **"Запросить тренировку"**
    (`miniapp.individual.request`) with a `FallbackButton` mirror for non-Telegram/dev. On tap:
    selection haptic, then the request mutation.
 3. **result** —
-   - `delivered: true` → success state ("Запрос отправлен, тренер свяжется с вами"), success haptic,
-     MainButton back to Home.
+   - `delivered: true` → success state ("Запрос отправлен"), success haptic, MainButton back to
+     Home.
    - `delivered: false` (`reason: "trainer-unavailable"`) → a **calm soft state**
      ("Тренер сейчас недоступен, попробуйте выбрать другого"), **not** an error/red alert; offer
      "выбрать другого тренера" (back to the list) and "на главную". No haptic-error.
 
 New ApiClient method + hook (append, ordered, per the plan's shared-touchpoints note):
 
-- `apps/miniapp/src/api/client.ts` — `requestIndividualSession(trainerId: string, telegramId: number):
+- `apps/miniapp/src/api/client.ts` — `listIndividualTrainers(): Promise<Trainer[]>`: `GET
+  /trainers?scope=individual`, response validated against `trainersSchema`.
+- `apps/miniapp/src/api/client.ts` — `requestIndividualSession(trainerId: string):
   Promise<IndividualRequestResult>`: `POST /trainers/:id/individual-request` with body
   `individualRequestSchema.parse({ telegramId })`, response validated against
-  `individualRequestResultSchema`. The `telegramId` is the caller's **own** session id
-  (`getMe()?.telegramId`), never user input — the server re-derives and verifies it.
+  `individualRequestResultSchema`. The `telegramId` is the caller's **own** verified session id,
+  never user input — the server re-derives and verifies it.
 - `apps/miniapp/src/api/hooks.ts` — `useRequestIndividual()`: a mutation whose arg is the chosen
   `trainerId`; the hook supplies `telegramId` from the session (`useApiClient().getMe()`). No
   query-cache invalidation (notification-only; nothing in the cache changes). A non-`trainer-
@@ -169,6 +176,9 @@ Reuse existing `miniapp.home.individual` / `miniapp.home.individualHint` and `mi
   `telegramId` must equal the **verified** session actor.
 - **No admin broadening:** `GET /trainers` stays public read-only; the request endpoint stays a client
   self endpoint (no `isAdmin`/admin guard added).
+- **Picker visibility:** the Mini App individual picker uses `GET /trainers?scope=individual`, so
+  hidden active trainers are excluded from the picker; direct request by id remains allowed for hidden
+  active trainers.
 - **No court/roster leakage** (N/A here — no court flow), and the trainer's `telegramId` is never
   rendered in the UI.
 - **Notification-only:** no booking/row is persisted by an individual request.
@@ -178,7 +188,8 @@ Reuse existing `miniapp.home.individual` / `miniapp.home.individualHint` and `mi
 1. From Home, a client reaches the trainer list, picks a trainer, and sends a request in **≤3 taps**;
    the chosen flow uses the native MainButton "Запросить тренировку" and BackButton.
 2. A Mini App client session (no `x-telegram-id`, only the bridged `x-client-telegram-id`) can
-   successfully send an individual request; the trainer receives the DM in the running bot.
+   successfully send an individual request; admins/manager staff receive the DM in the running bot
+   with the chosen trainer named.
 3. When the API returns `delivered: false` (`trainer-unavailable`), the screen renders a **calm soft
    state** (not a red error), offering "выбрать другого тренера" / "на главную".
 4. The existing bot individual-request flow (raw `x-telegram-id` + matching body `telegramId`) still
@@ -204,8 +215,9 @@ Backend (`apps/api`), update `trainers.controller.spec.ts` (+ keep `trainers.ser
 
 Frontend (`apps/miniapp`), a `trainer-request-flow.spec.tsx` modelled on `group-booking-flow.spec.tsx`:
 
-- **Render/validation:** list renders trainers from a stubbed client; a malformed `GET /trainers`
-  response is rejected by the contract (unsafe path) and shows the error state.
+- **Render/validation:** list renders trainers from `listIndividualTrainers()`; hidden trainers are
+  excluded by the `GET /trainers?scope=individual` API path. A malformed trainer response is rejected
+  by the contract (unsafe path) and shows the error state.
 - **3-tap happy path:** pick trainer → MainButton → `delivered:true` renders the success state.
 - **Soft failure:** `delivered:false` renders the calm `unavailable` state (assert it is NOT the
   generic error state and offers "pick another").
@@ -217,10 +229,11 @@ i18n: SR/EN parity test (existing harness) stays green with the new keys.
 ## Dependencies
 
 - FOUNDATION (auth seam, `MiniappApiClient`, providers, native shell) and **S1** (resolved/cached
-  `Client` and the session `getMe()` identity). `GET /trainers` reuse comes from S3.
+  `Client` and the session `getMe()` identity). Individual picker reuse comes from
+  `GET /trainers?scope=individual`.
 - Reuses: `tg/buttons.ts` (`useMainButton`/`useBackButton`/haptics), `ui/StateView`,
-  `ui/FallbackButton`, `router/NavProvider`, the `individual` route + Home entry + deep link already
-  in `router/routes.ts`.
+  `ui/FallbackButton`, `router/NavProvider`, `listIndividualTrainers`, the `individual` route + Home
+  entry + deep link already in `router/routes.ts`.
 
 ## Open questions (each with a chosen default)
 
@@ -232,5 +245,5 @@ i18n: SR/EN parity test (existing harness) stays green with the new keys.
    the contract once the bot's client flows are retired in S10. Recorded as future cleanup, not part
    of S8.
 3. **Render trainer `type` (main/guest) in the list?** — **Default: yes**, as a short subtitle label;
-   it is non-sensitive reference data already in `GET /trainers` and helps the choice. Never render
-   `telegramId`.
+   it is non-sensitive reference data already in `GET /trainers?scope=individual` and helps the
+   choice. Never render `telegramId`.

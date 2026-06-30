@@ -1,0 +1,1 @@
+ALTER TABLE "trainers" ADD COLUMN "individual_visible" boolean DEFAULT true NOT NULL;

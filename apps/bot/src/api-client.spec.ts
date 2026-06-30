@@ -3,6 +3,7 @@ import type {
   Booking,
   MyBookingItem,
   SlotCard,
+  Trainer,
   TrainerTodayItem,
   TrainingRoster
 } from "@beosand/types";
@@ -37,6 +38,17 @@ const card: SlotCard = {
   priceSingleRsd: 1500
 };
 
+const trainer: Trainer = {
+  id: "33333333-3333-3333-3333-333333333333",
+  name: "Jovana",
+  type: "main",
+  telegramId: 555,
+  status: "active",
+  telegramUsername: null,
+  language: "ru",
+  individualVisible: true
+};
+
 /** Capture the URL fetch is called with and reply with a canned JSON body. */
 function mockFetch(body: unknown, ok = true, status = 200): ReturnType<typeof vi.fn> {
   const fetchMock = vi.fn(async () =>
@@ -49,6 +61,26 @@ function mockFetch(body: unknown, ok = true, status = 200): ReturnType<typeof vi
   vi.stubGlobal("fetch", fetchMock);
   return fetchMock;
 }
+
+describe("ApiClient trainer rosters", () => {
+  afterEach(() => {
+    vi.unstubAllGlobals();
+  });
+
+  it("keeps the default trainer roster request unchanged", async () => {
+    const fetchMock = mockFetch([trainer]);
+    const result = await new ApiClient("http://api.test").listTrainers();
+    expect(result).toEqual([trainer]);
+    expect(fetchMock.mock.calls[0][0]).toBe("http://api.test/trainers");
+  });
+
+  it("requests the individual-scoped trainer roster for the bot picker", async () => {
+    const fetchMock = mockFetch([trainer]);
+    const result = await new ApiClient("http://api.test").listIndividualTrainers();
+    expect(result).toEqual([trainer]);
+    expect(fetchMock.mock.calls[0][0]).toBe("http://api.test/trainers?scope=individual");
+  });
+});
 
 describe("ApiClient.listAvailableSlots", () => {
   afterEach(() => {

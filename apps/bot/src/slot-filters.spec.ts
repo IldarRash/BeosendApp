@@ -24,7 +24,16 @@ const TRAINER_ID = "33333333-3333-3333-3333-333333333333";
 const LEVEL_ID = "44444444-4444-4444-4444-444444444444";
 
 const trainers: Trainer[] = [
-  { id: TRAINER_ID, name: "Марко", type: "main", status: "active", telegramId: null, telegramUsername: null, language: "ru" }
+  {
+    id: TRAINER_ID,
+    name: "Марко",
+    type: "main",
+    status: "active",
+    telegramId: null,
+    telegramUsername: null,
+    language: "ru",
+    individualVisible: true
+  }
 ];
 const levels: Level[] = [{ id: LEVEL_ID, name: "Начинающий", status: "active" }];
 

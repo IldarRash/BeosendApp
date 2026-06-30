@@ -45,7 +45,8 @@ const sampleTrainers: Trainer[] = [
     status: "active",
     telegramId: 4242,
     telegramUsername: null,
-    language: "sr"
+    language: "sr",
+    individualVisible: true
   },
   {
     id: "22222222-2222-2222-2222-222222222222",
@@ -54,7 +55,8 @@ const sampleTrainers: Trainer[] = [
     status: "active",
     telegramId: null,
     telegramUsername: "danilo",
-    language: "ru"
+    language: "ru",
+    individualVisible: false
   }
 ];
 
@@ -79,6 +81,8 @@ describe("Trainers page", () => {
     // Linked id shown; username-only trainer shown as @tag and flagged pending.
     expect(screen.getByText("4242")).toBeTruthy();
     expect(screen.getByText("@danilo")).toBeTruthy();
+    expect(screen.getByText("Показывается")).toBeTruthy();
+    expect(screen.getByText("Скрыт")).toBeTruthy();
     expect(screen.getByText("Привязан")).toBeTruthy();
     expect(screen.getByText("Ожидает привязки")).toBeTruthy();
   });
@@ -115,7 +119,8 @@ describe("Trainers page", () => {
       type: "guest",
       telegramId: 777,
       telegramUsername: "anna",
-      language: "sr"
+      language: "sr",
+      individualVisible: true
     });
   });
 
@@ -130,11 +135,12 @@ describe("Trainers page", () => {
       type: "main",
       telegramId: null,
       telegramUsername: null,
-      language: "sr"
+      language: "sr",
+      individualVisible: true
     });
   });
 
-  it("edits a trainer, sending name/type/status/telegramId", () => {
+  it("edits a trainer, sending name/type/status/telegramId and current individual visibility", () => {
     renderPage();
     fireEvent.click(screen.getAllByRole("button", { name: "Изменить" })[0]);
     const dialog = screen.getByRole("dialog");
@@ -149,9 +155,19 @@ describe("Trainers page", () => {
         status: "inactive",
         telegramId: 4242,
         telegramUsername: null,
-        language: "sr"
+        language: "sr",
+        individualVisible: true
       }
     });
+  });
+
+  it("submits the individual visibility toggle", () => {
+    renderPage();
+    fireEvent.click(screen.getAllByRole("button", { name: /Изменить/ })[0]);
+    const dialog = screen.getByRole("dialog");
+    fireEvent.click(within(dialog).getByRole("checkbox"));
+    fireEvent.click(within(dialog).getByRole("button", { name: /Сохранить/ }));
+    expect(updateMutate.mock.calls[0][0].input.individualVisible).toBe(false);
   });
 
   it("surfaces a mutation error inside the dialog", () => {

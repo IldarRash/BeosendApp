@@ -20,19 +20,29 @@ const milena: Trainer = {
   status: "active",
   telegramId: null,
   telegramUsername: null,
-  language: "ru"
+  language: "ru",
+  individualVisible: true
 };
 
 function makeRepo(overrides: Partial<TrainersRepository> = {}): TrainersRepository {
   return {
     listActive: vi.fn(async () => [milena]),
+    listVisibleForIndividual: vi.fn(async () => [milena]),
     findById: vi.fn(async () => milena),
-    create: vi.fn(async (input: { name: string; type: Trainer["type"]; telegramId?: number | null }) => ({
-      ...milena,
-      name: input.name,
-      type: input.type,
-      telegramId: input.telegramId ?? null
-    })),
+    create: vi.fn(
+      async (input: {
+        name: string;
+        type: Trainer["type"];
+        telegramId?: number | null;
+        individualVisible?: boolean;
+      }) => ({
+        ...milena,
+        name: input.name,
+        type: input.type,
+        telegramId: input.telegramId ?? null,
+        individualVisible: input.individualVisible ?? true
+      })
+    ),
     update: vi.fn(
       async (id: string, patch: Partial<Pick<Trainer, "name" | "type" | "status" | "telegramId">>) => ({
         ...milena,
@@ -98,11 +108,50 @@ describe("TrainersController", () => {
     expect(repo.listActive).toHaveBeenCalledOnce();
   });
 
+  it("GET /trainers?scope=individual returns only individual-visible trainers", async () => {
+    const visible = { ...milena, id: "22222222-2222-4222-8222-222222222222" };
+    repo = makeRepo({ listVisibleForIndividual: vi.fn(async () => [visible]) });
+    controller = new TrainersController(
+      new TrainersService(repo, makeClients(), notifications, env)
+    );
+
+    await expect(controller.list({ scope: "individual" })).resolves.toEqual([visible]);
+    expect(repo.listVisibleForIndividual).toHaveBeenCalledOnce();
+    expect(repo.listActive).not.toHaveBeenCalled();
+  });
+
+  it("rejects an unknown trainer list scope", () => {
+    expect(() => controller.list({ scope: "groups" })).toThrow(BadRequestException);
+  });
+
+  it("rejects an extra trainer list query field", () => {
+    expect(() => controller.list({ scope: "individual", extra: "ignored" })).toThrow(
+      BadRequestException
+    );
+    expect(repo.listActive).not.toHaveBeenCalled();
+    expect(repo.listVisibleForIndividual).not.toHaveBeenCalled();
+  });
+
   it("admin header resolves the actor and POST creates a guest trainer", async () => {
     await expect(
       controller.create(String(ADMIN_ID), { name: "Guest Bob", type: "guest" })
     ).resolves.toMatchObject({ name: "Guest Bob", type: "guest" });
     expect(repo.create).toHaveBeenCalledWith({ name: "Guest Bob", type: "guest" });
+  });
+
+  it("POST accepts individualVisible for admin-created trainers", async () => {
+    await expect(
+      controller.create(String(ADMIN_ID), {
+        name: "Guest Hidden",
+        type: "guest",
+        individualVisible: false
+      })
+    ).resolves.toMatchObject({ individualVisible: false });
+    expect(repo.create).toHaveBeenCalledWith({
+      name: "Guest Hidden",
+      type: "guest",
+      individualVisible: false
+    });
   });
 
   it("rejects POST from a non-admin header with ForbiddenException and writes nothing", async () => {

@@ -7,6 +7,8 @@ import type { CourtRequestsService } from "./court-requests.service";
 const ACTOR_ID = 5550001;
 const HEADER = String(ACTOR_ID);
 const FOREIGN_ID = 9990009;
+const REQUEST_ID = "33333333-3333-4333-8333-333333333333";
+const COURT_ID = "44444444-4444-4444-8444-444444444444";
 
 const validBody = {
   telegramId: ACTOR_ID,
@@ -46,6 +48,8 @@ function makeService(overrides: Partial<CourtRequestsService> = {}): CourtReques
     getAvailability: vi.fn(),
     previewRequest: vi.fn(async () => preview),
     createRequest: vi.fn(async () => created),
+    confirmRequest: vi.fn(async () => ({ ...created, status: "confirmed", decidedBy: ACTOR_ID })),
+    rejectRequest: vi.fn(async () => ({ ...created, status: "rejected", decidedBy: ACTOR_ID })),
     ...overrides
   } as unknown as CourtRequestsService;
 }
@@ -166,5 +170,63 @@ describe("CourtRequestsController.create (POST /court-requests)", () => {
       controller.create({ ...validBody, startTime: "14:15" }, HEADER)
     ).rejects.toBeInstanceOf(BadRequestException);
     expect(service.createRequest).not.toHaveBeenCalled();
+  });
+});
+
+describe("CourtRequestsController.confirm (POST /court-requests/:id/confirm)", () => {
+  let service: CourtRequestsService;
+  let controller: CourtRequestsController;
+
+  beforeEach(() => {
+    service = makeService();
+    controller = new CourtRequestsController(service);
+  });
+
+  it("forwards the authenticated admin id and body without decidedBy", async () => {
+    const body = { requestId: REQUEST_ID, courtIds: [COURT_ID] };
+
+    await expect(controller.confirm(HEADER, REQUEST_ID, body)).resolves.toMatchObject({
+      status: "confirmed",
+      decidedBy: ACTOR_ID
+    });
+    expect(service.confirmRequest).toHaveBeenCalledWith(ACTOR_ID, body);
+  });
+
+  it("rejects a spoofed decidedBy before calling the service", async () => {
+    await expect(
+      controller.confirm(HEADER, REQUEST_ID, {
+        requestId: REQUEST_ID,
+        courtIds: [COURT_ID],
+        decidedBy: FOREIGN_ID
+      })
+    ).rejects.toBeInstanceOf(BadRequestException);
+    expect(service.confirmRequest).not.toHaveBeenCalled();
+  });
+});
+
+describe("CourtRequestsController.reject (POST /court-requests/:id/reject)", () => {
+  let service: CourtRequestsService;
+  let controller: CourtRequestsController;
+
+  beforeEach(() => {
+    service = makeService();
+    controller = new CourtRequestsController(service);
+  });
+
+  it("forwards the authenticated admin id and body without decidedBy", async () => {
+    const body = { requestId: REQUEST_ID };
+
+    await expect(controller.reject(HEADER, REQUEST_ID, body)).resolves.toMatchObject({
+      status: "rejected",
+      decidedBy: ACTOR_ID
+    });
+    expect(service.rejectRequest).toHaveBeenCalledWith(ACTOR_ID, body);
+  });
+
+  it("rejects a spoofed decidedBy before calling the service", async () => {
+    await expect(
+      controller.reject(HEADER, REQUEST_ID, { requestId: REQUEST_ID, decidedBy: FOREIGN_ID })
+    ).rejects.toBeInstanceOf(BadRequestException);
+    expect(service.rejectRequest).not.toHaveBeenCalled();
   });
 });

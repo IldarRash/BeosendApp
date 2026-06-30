@@ -91,7 +91,7 @@ function makeRow(overrides: Partial<CourtRequestRow> = {}): CourtRequestRow {
 /**
  * Bot-path repo: the single-court create calls repository.createPendingRequest
  * directly (no picked courts, no held rows). The availability reads come from the
- * join-table-backed confirmedRequestsForDate + blocksForDate.
+ * join-table-backed requestHoldSpansForDate + blocksForDate.
  */
 function makeRepo(input: {
   activeCourtCount?: number;
@@ -102,7 +102,7 @@ function makeRepo(input: {
 }): CourtRequestsRepository {
   return {
     countActiveCourts: vi.fn().mockResolvedValue(input.activeCourtCount ?? 6),
-    confirmedRequestsForDate: vi.fn().mockResolvedValue(input.confirmed ?? []),
+    requestHoldSpansForDate: vi.fn().mockResolvedValue(input.confirmed ?? []),
     blocksForDate: vi.fn().mockResolvedValue(input.blocks ?? []),
     findActiveClientByTelegramId: vi
       .fn()
@@ -165,7 +165,7 @@ describe("CourtRequestsService.getAvailability", () => {
   });
 
   it("a still-PENDING hold reduces availability (the join-table read includes pending)", async () => {
-    // confirmedRequestsForDate now returns pending+confirmed held courts; a single
+    // requestHoldSpansForDate returns pending+confirmed held courts; a single
     // active court fully held at 10:00 drops that slot from the offer.
     const service = makeService(makeRepo({ activeCourtCount: 1, confirmed: [occ("10:00", 1)] }));
     const result = await service.getAvailability(date);
@@ -247,7 +247,7 @@ describe("CourtRequestsService.previewRequest (C2 price + availability)", () => 
         { id: courtIdA, number: 1 },
         { id: courtIdB, number: 3 }
       ]),
-      confirmedCourtOccupancyForDate: vi.fn().mockResolvedValue([]),
+      requestHoldCourtOccupancyForDate: vi.fn().mockResolvedValue([]),
       blocksByCourtForDate: vi.fn().mockResolvedValue([])
     } as unknown as CourtRequestsRepository;
     const service = makeService(repo);
@@ -273,7 +273,7 @@ describe("CourtRequestsService.previewRequest (C2 price + availability)", () => 
         { id: courtIdA, number: 1 },
         { id: courtIdB, number: 3 }
       ]),
-      confirmedCourtOccupancyForDate: vi
+      requestHoldCourtOccupancyForDate: vi
         .fn()
         .mockResolvedValue([courtOcc(courtIdA, "14:00", 1)]),
       blocksByCourtForDate: vi.fn().mockResolvedValue([])
@@ -333,7 +333,7 @@ describe("CourtRequestsService.createRequest (C2 pending creation)", () => {
     expect(arg.courtIds).toBeUndefined();
   });
 
-  it("with courtNumbers holds the picked courts in a tx after re-checking freeness", async () => {
+  it("with courtNumbers holds the picked courts in a tx but hides them on the pending create response", async () => {
     const created = makeRow({ courtCount: 2, courtNumbers: [1, 3], priceRsd: 8000 });
     const { tx } = makeTx({ request: null, created, activeNumbers: [
       { id: courtIdA, number: 1 },
@@ -354,7 +354,7 @@ describe("CourtRequestsService.createRequest (C2 pending creation)", () => {
     });
 
     expect(result.courtCount).toBe(2);
-    expect(result.courtNumbers).toEqual([1, 3]);
+    expect(result.courtNumbers).toEqual([]);
     expect(result.priceRsd).toBe(8000);
     const createArg = (tx.createPendingRequest as ReturnType<typeof vi.fn>).mock.calls[0][0];
     expect(createArg.courtCount).toBe(2);
@@ -581,7 +581,7 @@ function makeTx(input: {
     ),
     isActiveCourt: vi.fn(async (id: string) => activeCourtIds.includes(id)),
     countActiveCourts: vi.fn().mockResolvedValue(input.activeCourtCount ?? activeCourtIds.length),
-    confirmedCourtOccupancyForDate: vi.fn().mockResolvedValue(input.confirmed ?? []),
+    requestHoldCourtOccupancyForDate: vi.fn().mockResolvedValue(input.confirmed ?? []),
     blocksByCourtForDate: vi.fn().mockResolvedValue(input.blocks ?? []),
     decide
   } as unknown as CourtModerationTx;
@@ -612,7 +612,7 @@ function makeModerationRepo(input: {
           { id: courtIdB, number: 2 }
         ]
       ),
-    confirmedCourtOccupancyForDate: vi.fn().mockResolvedValue(input.confirmed ?? []),
+    requestHoldCourtOccupancyForDate: vi.fn().mockResolvedValue(input.confirmed ?? []),
     blocksByCourtForDate: vi.fn().mockResolvedValue(input.blocks ?? [])
   } as unknown as CourtRequestsRepository;
 }
@@ -649,7 +649,7 @@ describe("CourtRequestsService.freeCourtNumbers (C3.1 client picker)", () => {
           { id: courtIdB, number: 2 }
         ]
       ),
-      confirmedCourtOccupancyForDate: vi.fn().mockResolvedValue(input.confirmed ?? []),
+      requestHoldCourtOccupancyForDate: vi.fn().mockResolvedValue(input.confirmed ?? []),
       blocksByCourtForDate: vi.fn().mockResolvedValue(input.blocks ?? [])
     } as unknown as CourtRequestsRepository;
   }
@@ -714,7 +714,7 @@ describe("CourtRequestsService.confirmRequest (C4 admin)", () => {
     const repo = makeModerationRepo({});
     const service = makeService(repo);
     await expect(
-      service.confirmRequest(123, { requestId, courtIds: [courtIdA], decidedBy: 123 })
+      service.confirmRequest(123, { requestId, courtIds: [courtIdA] })
     ).rejects.toBeInstanceOf(ForbiddenException);
     expect(repo.transaction).not.toHaveBeenCalled();
   });
@@ -733,11 +733,7 @@ describe("CourtRequestsService.confirmRequest (C4 admin)", () => {
     );
     const service = makeService(repo, dispatcher, domainEvents);
 
-    const result = await service.confirmRequest(adminId, {
-      requestId,
-      courtIds: [courtIdA],
-      decidedBy: adminId
-    });
+    const result = await service.confirmRequest(adminId, { requestId, courtIds: [courtIdA] });
 
     expect(result.status).toBe("confirmed");
     expect(result.decidedBy).toBe(adminId);
@@ -768,8 +764,7 @@ describe("CourtRequestsService.confirmRequest (C4 admin)", () => {
 
     const result = await service.confirmRequest(adminId, {
       requestId,
-      courtIds: [courtIdA, courtIdB],
-      decidedBy: adminId
+      courtIds: [courtIdA, courtIdB]
     });
 
     expect(result.status).toBe("confirmed");
@@ -786,7 +781,7 @@ describe("CourtRequestsService.confirmRequest (C4 admin)", () => {
     });
     const service = makeService(makeModerationRepo({ tx }));
     await expect(
-      service.confirmRequest(adminId, { requestId, courtIds: [courtIdA], decidedBy: adminId })
+      service.confirmRequest(adminId, { requestId, courtIds: [courtIdA] })
     ).rejects.toBeInstanceOf(BadRequestException);
   });
 
@@ -805,11 +800,7 @@ describe("CourtRequestsService.confirmRequest (C4 admin)", () => {
     );
     const service = makeService(repo);
 
-    const result = await service.confirmRequest(adminId, {
-      requestId,
-      courtIds: [courtIdB],
-      decidedBy: adminId
-    });
+    const result = await service.confirmRequest(adminId, { requestId, courtIds: [courtIdB] });
     expect(result.status).toBe("confirmed");
     expect(decide).toHaveBeenCalledWith(expect.objectContaining({ courtIds: [courtIdB] }));
   });
@@ -821,7 +812,7 @@ describe("CourtRequestsService.confirmRequest (C4 admin)", () => {
     });
     const service = makeService(makeModerationRepo({ tx }));
     await expect(
-      service.confirmRequest(adminId, { requestId, courtIds: [courtIdA], decidedBy: adminId })
+      service.confirmRequest(adminId, { requestId, courtIds: [courtIdA] })
     ).rejects.toBeInstanceOf(ConflictException);
   });
 
@@ -832,7 +823,7 @@ describe("CourtRequestsService.confirmRequest (C4 admin)", () => {
     });
     const service = makeService(makeModerationRepo({ tx }));
     await expect(
-      service.confirmRequest(adminId, { requestId, courtIds: [courtIdA], decidedBy: adminId })
+      service.confirmRequest(adminId, { requestId, courtIds: [courtIdA] })
     ).rejects.toBeInstanceOf(ConflictException);
   });
 
@@ -840,7 +831,7 @@ describe("CourtRequestsService.confirmRequest (C4 admin)", () => {
     const { tx } = makeTx({ request: makeRow({ courtCount: 1 }), activeCourtIds: [courtIdB] });
     const service = makeService(makeModerationRepo({ tx }));
     await expect(
-      service.confirmRequest(adminId, { requestId, courtIds: [courtIdA], decidedBy: adminId })
+      service.confirmRequest(adminId, { requestId, courtIds: [courtIdA] })
     ).rejects.toBeInstanceOf(BadRequestException);
   });
 
@@ -848,7 +839,7 @@ describe("CourtRequestsService.confirmRequest (C4 admin)", () => {
     const { tx } = makeTx({ request: makeRow({ status: "confirmed", courtCount: 1 }) });
     const service = makeService(makeModerationRepo({ tx }));
     await expect(
-      service.confirmRequest(adminId, { requestId, courtIds: [courtIdA], decidedBy: adminId })
+      service.confirmRequest(adminId, { requestId, courtIds: [courtIdA] })
     ).rejects.toBeInstanceOf(ConflictException);
   });
 
@@ -856,7 +847,7 @@ describe("CourtRequestsService.confirmRequest (C4 admin)", () => {
     const { tx } = makeTx({ request: null });
     const service = makeService(makeModerationRepo({ tx }));
     await expect(
-      service.confirmRequest(adminId, { requestId, courtIds: [courtIdA], decidedBy: adminId })
+      service.confirmRequest(adminId, { requestId, courtIds: [courtIdA] })
     ).rejects.toBeInstanceOf(NotFoundException);
   });
 });
@@ -889,7 +880,7 @@ describe("6-per-hour limit still enforced (C3 read ↔ C4 confirm share the help
       makeModerationRepo({ tx, activeCourts: sixActiveCourts, confirmed: confirmedByCourt })
     );
     await expect(
-      service.confirmRequest(adminId, { requestId, courtIds: [courtIdA], decidedBy: adminId })
+      service.confirmRequest(adminId, { requestId, courtIds: [courtIdA] })
     ).rejects.toBeInstanceOf(ConflictException);
   });
 
@@ -912,11 +903,7 @@ describe("6-per-hour limit still enforced (C3 read ↔ C4 confirm share the help
       adminRow({ courtCount: 1, courtNumbers: [6] })
     );
     const service = makeService(repo);
-    const result = await service.confirmRequest(adminId, {
-      requestId,
-      courtIds: [courtIdB],
-      decidedBy: adminId
-    });
+    const result = await service.confirmRequest(adminId, { requestId, courtIds: [courtIdB] });
     expect(result.status).toBe("confirmed");
   });
 });
@@ -924,7 +911,7 @@ describe("6-per-hour limit still enforced (C3 read ↔ C4 confirm share the help
 describe("CourtRequestsService.rejectRequest (C4 admin)", () => {
   it("rejects a non-admin caller", async () => {
     const service = makeService(makeModerationRepo({}));
-    await expect(service.rejectRequest(123, { requestId, decidedBy: 123 })).rejects.toBeInstanceOf(
+    await expect(service.rejectRequest(123, { requestId })).rejects.toBeInstanceOf(
       ForbiddenException
     );
   });
@@ -935,10 +922,16 @@ describe("CourtRequestsService.rejectRequest (C4 admin)", () => {
     const domainEvents = makeDomainEvents();
     const service = makeService(makeModerationRepo({ tx }), dispatcher, domainEvents);
 
-    const result = await service.rejectRequest(adminId, { requestId, decidedBy: adminId });
+    const result = await service.rejectRequest(adminId, { requestId });
 
     expect(result.status).toBe("rejected");
-    expect(decide).toHaveBeenCalledWith(expect.objectContaining({ status: "rejected", courtIds: [] }));
+    expect(decide).toHaveBeenCalledWith(
+      expect.objectContaining({ status: "rejected", courtIds: [], decidedBy: adminId })
+    );
+    expect(tx.lockDate).toHaveBeenCalledWith(date);
+    expect(vi.mocked(tx.lockDate).mock.invocationCallOrder[0]).toBeLessThan(
+      decide.mock.invocationCallOrder[0]
+    );
     const dispatch = dispatcher.dispatch as ReturnType<typeof vi.fn>;
     expect(dispatch.mock.calls[0][0].text).toContain("другое время");
     const emit = domainEvents.emitCourtRequestRejected as ReturnType<typeof vi.fn>;
@@ -949,7 +942,7 @@ describe("CourtRequestsService.rejectRequest (C4 admin)", () => {
     const { tx } = makeTx({ request: makeRow({ status: "rejected" }) });
     const service = makeService(makeModerationRepo({ tx }));
     await expect(
-      service.rejectRequest(adminId, { requestId, decidedBy: adminId })
+      service.rejectRequest(adminId, { requestId })
     ).rejects.toBeInstanceOf(ConflictException);
   });
 });
@@ -968,7 +961,7 @@ describe("CourtRequestsService.notifyDecision locale (client's language)", () =>
     );
     const service = makeService(repo, dispatcher);
 
-    await service.confirmRequest(adminId, { requestId, courtIds: [courtIdA], decidedBy: adminId });
+    await service.confirmRequest(adminId, { requestId, courtIds: [courtIdA] });
 
     const text = (dispatcher.dispatch as ReturnType<typeof vi.fn>).mock.calls[0][0].text as string;
     // SR confirmed wording carries "ukupno:" (RU uses "итог:", EN "total:").
@@ -990,7 +983,7 @@ describe("CourtRequestsService.notifyDecision locale (client's language)", () =>
     );
     const service = makeService(repo, dispatcher);
 
-    await service.confirmRequest(adminId, { requestId, courtIds: [courtIdA], decidedBy: adminId });
+    await service.confirmRequest(adminId, { requestId, courtIds: [courtIdA] });
 
     const text = (dispatcher.dispatch as ReturnType<typeof vi.fn>).mock.calls[0][0].text as string;
     expect(text).toContain("итог:");
@@ -1006,7 +999,7 @@ describe("CourtRequestsService.notifyDecision locale (client's language)", () =>
     );
     const service = makeService(repo, dispatcher);
 
-    await service.rejectRequest(adminId, { requestId, decidedBy: adminId });
+    await service.rejectRequest(adminId, { requestId });
 
     const text = (dispatcher.dispatch as ReturnType<typeof vi.fn>).mock.calls[0][0].text as string;
     expect(text).toContain("izaberite, molimo, drugo vreme");
@@ -1032,7 +1025,7 @@ describe("CourtRequestsService.notifyDecision locale (client's language)", () =>
       templates as never
     );
 
-    await service.rejectRequest(adminId, { requestId, decidedBy: adminId });
+    await service.rejectRequest(adminId, { requestId });
 
     const text = (dispatcher.dispatch as ReturnType<typeof vi.fn>).mock.calls[0][0].text as string;
     expect(text).toBe("SR custom za 2026-06-10");
@@ -1081,6 +1074,28 @@ describe("CourtRequestsService.listMine (client's own requests)", () => {
     expect(listMineForClient).toHaveBeenCalledWith(clientId);
     expect(result).toHaveLength(1);
     expect(result[0]).toMatchObject({ id: requestId, courtCount: 1, courtNumbers: [3] });
+  });
+
+  it("hides court numbers for pending own requests while keeping the court count", async () => {
+    const { repo } = makeMineRepo({
+      mine: [mineRow({ status: "pending", courtCount: 2, courtNumbers: [1, 3] })]
+    });
+    const service = makeService(repo);
+
+    const result = await service.listMine(clientTg);
+
+    expect(result[0]).toMatchObject({ status: "pending", courtCount: 2, courtNumbers: [] });
+  });
+
+  it("still shows court numbers for confirmed own requests", async () => {
+    const { repo } = makeMineRepo({
+      mine: [mineRow({ status: "confirmed", courtCount: 2, courtNumbers: [1, 3] })]
+    });
+    const service = makeService(repo);
+
+    const result = await service.listMine(clientTg);
+
+    expect(result[0]).toMatchObject({ status: "confirmed", courtCount: 2, courtNumbers: [1, 3] });
   });
 
   it("rejects a caller with no client record (403) and never reads rows", async () => {

@@ -20,10 +20,13 @@ function makeRepo(overrides: Partial<CourtBlocksRepository> = {}): CourtBlocksRe
     findByDateRange: vi.fn().mockResolvedValue([]),
     findById: vi.fn().mockResolvedValue(null),
     confirmedSpansForCourtAndDate: vi.fn().mockResolvedValue([]),
+    blockSpansForCourtAndDate: vi.fn().mockResolvedValue([]),
     isActiveCourt: vi.fn().mockResolvedValue(true),
     countActiveCourts: vi.fn().mockResolvedValue(6),
     confirmedOccupancyForDate: vi.fn().mockResolvedValue([]),
     blocksOccupancyForDate: vi.fn().mockResolvedValue([]),
+    lockDate: vi.fn().mockResolvedValue(undefined),
+    transaction: vi.fn().mockImplementation(async (work) => work({})),
     insert: vi
       .fn()
       .mockImplementation(async (input) => ({ id: BLOCK_ID, groupTrainingId: null, ...input })),
@@ -141,7 +144,11 @@ describe("CourtBlocksService", () => {
       // The overlap guard is per-court: it asks the repo for confirmed spans on the
       // block's court_id and date, never a global confirmed-request scan.
       await service.createBlock(ADMIN, baseInput);
-      expect(repo.confirmedSpansForCourtAndDate).toHaveBeenCalledWith(COURT_ID, baseInput.date);
+      expect(repo.confirmedSpansForCourtAndDate).toHaveBeenCalledWith(
+        COURT_ID,
+        baseInput.date,
+        expect.anything()
+      );
     });
 
     it("allows a block abutting (not overlapping) a confirmed request", async () => {
@@ -213,10 +220,154 @@ describe("CourtBlocksService", () => {
     expect(block).toMatchObject({ id: BLOCK_ID, courtId: COURT_ID, startTime: "18:00" });
   });
 
+  it("takes the per-date occupancy lock before single-block overlap reads and insert", async () => {
+    await service.createBlock(ADMIN, baseInput);
+
+    expect(repo.transaction).toHaveBeenCalledOnce();
+    expect(repo.lockDate).toHaveBeenCalledWith(baseInput.date, expect.anything());
+    expect(vi.mocked(repo.lockDate).mock.invocationCallOrder[0]).toBeLessThan(
+      vi.mocked(repo.confirmedSpansForCourtAndDate).mock.invocationCallOrder[0]
+    );
+    expect(vi.mocked(repo.lockDate).mock.invocationCallOrder[0]).toBeLessThan(
+      vi.mocked(repo.insert).mock.invocationCallOrder[0]
+    );
+  });
+
+  describe("createRecurringBlocks", () => {
+    const recurringInput = {
+      courtId: COURT_ID,
+      from: "2026-06-01",
+      to: "2026-06-07",
+      daysOfWeek: [1, 3, 7],
+      startTime: "18:00",
+      endTime: "20:00",
+      reason: "Tournament"
+    };
+
+    it("creates blocks for selected ISO weekdays across the inclusive range", async () => {
+      const blocks = await service.createRecurringBlocks(ADMIN, recurringInput);
+
+      expect(blocks.map((block) => block.date)).toEqual([
+        "2026-06-01",
+        "2026-06-03",
+        "2026-06-07"
+      ]);
+      expect(repo.transaction).toHaveBeenCalledOnce();
+      expect(repo.insert).toHaveBeenCalledTimes(3);
+    });
+
+    it("locks each selected date once in sorted order before recurring overlap reads", async () => {
+      await service.createRecurringBlocks(ADMIN, {
+        ...recurringInput,
+        daysOfWeek: [7, 1, 1, 3]
+      });
+
+      expect(vi.mocked(repo.lockDate).mock.calls.map(([date]) => date)).toEqual([
+        "2026-06-01",
+        "2026-06-03",
+        "2026-06-07"
+      ]);
+      expect(vi.mocked(repo.lockDate).mock.invocationCallOrder.at(-1)).toBeLessThan(
+        vi.mocked(repo.confirmedSpansForCourtAndDate).mock.invocationCallOrder[0]
+      );
+    });
+
+    it("rejects a non-admin before any DB write", async () => {
+      await expect(service.createRecurringBlocks(NON_ADMIN, recurringInput)).rejects.toBeInstanceOf(
+        ForbiddenException
+      );
+
+      expect(repo.transaction).not.toHaveBeenCalled();
+      expect(repo.insert).not.toHaveBeenCalled();
+    });
+
+    it("rejects a range with no matching weekdays", async () => {
+      await expect(
+        service.createRecurringBlocks(ADMIN, {
+          ...recurringInput,
+          from: "2026-06-02",
+          to: "2026-06-03",
+          daysOfWeek: [5]
+        })
+      ).rejects.toBeInstanceOf(BadRequestException);
+
+      expect(repo.transaction).not.toHaveBeenCalled();
+    });
+
+    it("rejects ranges longer than the defensive recurring cap before DB work", async () => {
+      await expect(
+        service.createRecurringBlocks(ADMIN, {
+          ...recurringInput,
+          from: "2026-06-01",
+          to: "2026-08-02"
+        })
+      ).rejects.toThrow("limited to 62 days");
+
+      expect(repo.transaction).not.toHaveBeenCalled();
+      expect(repo.lockDate).not.toHaveBeenCalled();
+    });
+
+    it("rejects a conflicting confirmed booking without inserting partial rows", async () => {
+      repo = makeRepo({
+        confirmedSpansForCourtAndDate: vi
+          .fn()
+          .mockImplementation(async (_courtId: string, date: string) =>
+            date === "2026-06-03" ? [{ startTime: "18:30", endTime: "19:30" }] : []
+          )
+      });
+      service = new CourtBlocksService(env, repo);
+
+      await expect(service.createRecurringBlocks(ADMIN, recurringInput)).rejects.toThrow(
+        "2026-06-03 18:30-19:30"
+      );
+      expect(repo.insert).not.toHaveBeenCalled();
+    });
+
+    it("rejects a conflicting existing block without inserting partial rows", async () => {
+      repo = makeRepo({
+        blockSpansForCourtAndDate: vi
+          .fn()
+          .mockImplementation(async (_courtId: string, date: string) =>
+            date === "2026-06-07"
+              ? [{ id: "33333333-3333-4333-8333-333333333333", startTime: "19:00", endTime: "20:00" }]
+              : []
+          )
+      });
+      service = new CourtBlocksService(env, repo);
+
+      await expect(service.createRecurringBlocks(ADMIN, recurringInput)).rejects.toThrow(
+        "2026-06-07 19:00-20:00"
+      );
+      expect(repo.insert).not.toHaveBeenCalled();
+    });
+  });
+
   it("throws NotFound deleting a missing block", async () => {
     repo = makeRepo({ deleteById: vi.fn().mockResolvedValue(false) });
     service = new CourtBlocksService(env, repo);
     await expect(service.deleteBlock(ADMIN, "missing")).rejects.toBeInstanceOf(NotFoundException);
+  });
+
+  it("resolves the block date and locks it before deleting a manual block", async () => {
+    const block = {
+      id: BLOCK_ID,
+      courtId: COURT_ID,
+      date: "2026-06-10",
+      startTime: "18:00",
+      endTime: "20:00",
+      reason: "Tournament",
+      groupTrainingId: null
+    };
+    repo = makeRepo({ findById: vi.fn().mockResolvedValue(block) });
+    service = new CourtBlocksService(env, repo);
+
+    await service.deleteBlock(ADMIN, BLOCK_ID);
+
+    expect(repo.lockDate).toHaveBeenCalledWith(block.date, expect.anything());
+    expect(repo.deleteById).toHaveBeenCalledWith(BLOCK_ID, expect.anything());
+    expect(vi.mocked(repo.lockDate).mock.invocationCallOrder[0]).toBeLessThan(
+      vi.mocked(repo.deleteById).mock.invocationCallOrder[0]
+    );
   });
 
   describe("listBlocks (multi-day range)", () => {
@@ -301,7 +452,22 @@ describe("CourtBlocksService", () => {
       service = new CourtBlocksService(env, repo);
       const moved = await service.reassignCourt(ADMIN, BLOCK_ID, { courtId: TARGET_COURT });
       expect(moved.courtId).toBe(TARGET_COURT);
-      expect(repo.updateCourt).toHaveBeenCalledWith(BLOCK_ID, TARGET_COURT);
+      expect(repo.updateCourt).toHaveBeenCalledWith(BLOCK_ID, TARGET_COURT, expect.anything());
+    });
+
+    it("takes the per-date occupancy lock before reassign overlap reads and update", async () => {
+      repo = makeRepo({ findById: vi.fn().mockResolvedValue(existingBlock) });
+      service = new CourtBlocksService(env, repo);
+
+      await service.reassignCourt(ADMIN, BLOCK_ID, { courtId: TARGET_COURT });
+
+      expect(repo.lockDate).toHaveBeenCalledWith(existingBlock.date, expect.anything());
+      expect(vi.mocked(repo.lockDate).mock.invocationCallOrder[0]).toBeLessThan(
+        vi.mocked(repo.confirmedOccupancyForDate).mock.invocationCallOrder[0]
+      );
+      expect(vi.mocked(repo.lockDate).mock.invocationCallOrder[0]).toBeLessThan(
+        vi.mocked(repo.updateCourt).mock.invocationCallOrder[0]
+      );
     });
 
     it("409s when a confirmed request overlaps the block's slots on the target court", async () => {

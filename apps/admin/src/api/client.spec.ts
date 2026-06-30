@@ -443,6 +443,91 @@ describe("ApiClient court blocks range (Slice C)", () => {
       new ApiClient("http://api.test").listCourtBlocks({ from: "2026-06-10", to: "2026-06-12" })
     ).rejects.toThrow();
   });
+
+  it("POSTs recurring court blocks and validates the created rows", async () => {
+    const calls = mockFetchOnce([block, { ...block, id: "33333333-3333-3333-3333-333333333333" }]);
+    const result = await new ApiClient("http://api.test").createRecurringCourtBlocks({
+      courtId: COURT_ID,
+      from: "2026-06-10",
+      to: "2026-06-20",
+      daysOfWeek: [1, 3],
+      startTime: "10:00",
+      endTime: "12:00",
+      reason: "РўСѓСЂРЅРёСЂ"
+    });
+
+    expect(calls[0]?.url).toBe("http://api.test/court-blocks/recurring");
+    expect(calls[0]?.init?.method).toBe("POST");
+    expect(JSON.parse(calls[0]?.init?.body as string)).toEqual({
+      courtId: COURT_ID,
+      from: "2026-06-10",
+      to: "2026-06-20",
+      daysOfWeek: [1, 3],
+      startTime: "10:00",
+      endTime: "12:00",
+      reason: "РўСѓСЂРЅРёСЂ"
+    });
+    expect(result).toHaveLength(2);
+  });
+
+  it("rejects a malformed recurring create response (unsafe path)", async () => {
+    mockFetchOnce([{ ...block, groupTrainingId: undefined }]);
+    await expect(
+      new ApiClient("http://api.test").createRecurringCourtBlocks({
+        courtId: COURT_ID,
+        from: "2026-06-10",
+        to: "2026-06-20",
+        daysOfWeek: [1],
+        startTime: "10:00",
+        endTime: "12:00",
+        reason: "РўСѓСЂРЅРёСЂ"
+      })
+    ).rejects.toThrow();
+  });
+});
+
+describe("ApiClient trainers", () => {
+  afterEach(() => {
+    vi.unstubAllGlobals();
+  });
+
+  const trainer = {
+    id: "11111111-1111-1111-1111-111111111111",
+    name: "РђРЅРЅР°",
+    type: "main",
+    status: "active",
+    telegramId: null,
+    telegramUsername: null,
+    language: "sr",
+    individualVisible: true
+  };
+
+  it("validates trainer individual visibility on list", async () => {
+    const calls = mockFetchOnce([trainer]);
+    const result = await new ApiClient("http://api.test").listTrainers();
+
+    expect(calls[0]?.url).toBe("http://api.test/trainers");
+    expect(result[0].individualVisible).toBe(true);
+  });
+
+  it("rejects a trainer missing individualVisible (unsafe path)", async () => {
+    const { individualVisible: _omit, ...withoutVisibility } = trainer;
+    mockFetchOnce([withoutVisibility]);
+
+    await expect(new ApiClient("http://api.test").listTrainers()).rejects.toThrow();
+  });
+
+  it("sends individualVisible on trainer update and validates the returned trainer", async () => {
+    const calls = mockFetchOnce({ ...trainer, individualVisible: false });
+    const result = await new ApiClient("http://api.test").updateTrainer(trainer.id, {
+      individualVisible: false
+    });
+
+    expect(calls[0]?.url).toBe(`http://api.test/trainers/${trainer.id}`);
+    expect(calls[0]?.init?.method).toBe("PATCH");
+    expect(JSON.parse(calls[0]?.init?.body as string)).toEqual({ individualVisible: false });
+    expect(result.individualVisible).toBe(false);
+  });
 });
 
 describe("ApiClient trainings calendar (Slice B)", () => {
@@ -553,8 +638,7 @@ describe("ApiClient error handling & clients", () => {
     const api = new ApiClient("http://api.test");
     await expect(
       api.confirmRequest("11111111-1111-1111-1111-111111111111", {
-        courtIds: ["22222222-2222-2222-2222-222222222222"],
-        decidedBy: 99
+        courtIds: ["22222222-2222-2222-2222-222222222222"]
       })
     ).rejects.toBeInstanceOf(ConflictError);
   });
@@ -564,8 +648,7 @@ describe("ApiClient error handling & clients", () => {
     const api = new ApiClient("http://api.test");
     await expect(
       api.confirmRequest("11111111-1111-1111-1111-111111111111", {
-        courtIds: ["22222222-2222-2222-2222-222222222222"],
-        decidedBy: 99
+        courtIds: ["22222222-2222-2222-2222-222222222222"]
       })
     ).rejects.toThrow("No active court with that id.");
   });
@@ -599,8 +682,7 @@ describe("ApiClient error handling & clients", () => {
         courtIds: [
           "33333333-3333-3333-3333-333333333333",
           "44444444-4444-4444-4444-444444444444"
-        ],
-        decidedBy: 99
+        ]
       }
     );
     expect(result.courtNumbers).toEqual([2, 5]);
@@ -612,8 +694,7 @@ describe("ApiClient error handling & clients", () => {
       courtIds: [
         "33333333-3333-3333-3333-333333333333",
         "44444444-4444-4444-4444-444444444444"
-      ],
-      decidedBy: 99
+      ]
     });
   });
 

@@ -46,7 +46,8 @@ const MAIN_TRAINER: Trainer = {
   status: "active",
   telegramId: 777,
   telegramUsername: null,
-  language: "ru"
+  language: "ru",
+  individualVisible: true
 };
 
 const INACTIVE_TRAINER: Trainer = {
@@ -56,13 +57,15 @@ const INACTIVE_TRAINER: Trainer = {
   status: "inactive",
   telegramId: 888,
   telegramUsername: null,
-  language: "ru"
+  language: "ru",
+  individualVisible: true
 };
 
 interface FakeApi {
   getMe: ReturnType<typeof vi.fn>;
   getClientByTelegramId: ReturnType<typeof vi.fn>;
   listTrainers: ReturnType<typeof vi.fn>;
+  listIndividualTrainers: ReturnType<typeof vi.fn>;
   requestIndividualSession: ReturnType<typeof vi.fn>;
 }
 
@@ -73,6 +76,7 @@ function makeApi(overrides: Partial<FakeApi> = {}): FakeApi {
     getMe: vi.fn().mockReturnValue(ME),
     getClientByTelegramId: vi.fn().mockResolvedValue(ONBOARDED),
     listTrainers: vi.fn().mockResolvedValue([MAIN_TRAINER, INACTIVE_TRAINER]),
+    listIndividualTrainers: vi.fn().mockResolvedValue([MAIN_TRAINER, INACTIVE_TRAINER]),
     requestIndividualSession: vi
       .fn()
       .mockResolvedValue({ delivered: true } satisfies IndividualRequestResult),
@@ -123,6 +127,8 @@ describe("TrainerRequestScreen", () => {
 
     const card = await screen.findByRole("button", { name: /Марко/ });
     expect(card).toBeTruthy();
+    expect(api.listIndividualTrainers).toHaveBeenCalledTimes(1);
+    expect(api.listTrainers).not.toHaveBeenCalled();
     // Inactive trainers are filtered out (defensive); the contact id never appears.
     expect(screen.queryByText(/Старый Тренер/)).toBeNull();
     expect(document.body.textContent).not.toContain("777");
@@ -166,13 +172,13 @@ describe("TrainerRequestScreen", () => {
   });
 
   it("shows the empty state when there are no active trainers", async () => {
-    api = makeApi({ listTrainers: vi.fn().mockResolvedValue([INACTIVE_TRAINER]) });
+    api = makeApi({ listIndividualTrainers: vi.fn().mockResolvedValue([INACTIVE_TRAINER]) });
     renderScreen();
     await screen.findByText("Нет доступных тренеров");
   });
 
   it("shows an error state when the trainers request fails", async () => {
-    api = makeApi({ listTrainers: vi.fn().mockRejectedValue(new Error("boom")) });
+    api = makeApi({ listIndividualTrainers: vi.fn().mockRejectedValue(new Error("boom")) });
     renderScreen();
     // A failed/malformed trainers response surfaces as an error region, never silent.
     expect(await screen.findByRole("alert")).toBeTruthy();

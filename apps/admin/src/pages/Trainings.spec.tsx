@@ -101,7 +101,8 @@ const TRAINER: Trainer = {
   status: "active",
   telegramId: null,
   telegramUsername: null,
-  language: "sr"
+  language: "sr",
+  individualVisible: true
 };
 
 const COURTS: Court[] = [

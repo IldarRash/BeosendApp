@@ -17,4 +17,8 @@ describe("schema", () => {
       ])
     );
   });
+
+  it("keeps trainer individual visibility in the schema", () => {
+    expect(schema.trainers.individualVisible).toBeDefined();
+  });
 });

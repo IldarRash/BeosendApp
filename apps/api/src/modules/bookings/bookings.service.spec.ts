@@ -1255,6 +1255,7 @@ describe("BookingsService.markAttendance (T2.3)", () => {
     telegramId: TRAINER_TG,
     telegramUsername: null,
     language: "ru",
+    individualVisible: true,
     ...over
   });
 
@@ -1394,7 +1395,8 @@ describe("BookingsService.createManual (Feature 5 — admin/trainer manual booki
         status: "active",
         telegramId: TRAINER_ID_TG,
         telegramUsername: null,
-        language: "ru"
+        language: "ru",
+        individualVisible: true
       },
       {
         id: OTHER_TRAINER_DB_ID,
@@ -1403,7 +1405,8 @@ describe("BookingsService.createManual (Feature 5 — admin/trainer manual booki
         status: "active",
         telegramId: OTHER_TRAINER_ID_TG,
         telegramUsername: null,
-        language: "ru"
+        language: "ru",
+        individualVisible: true
       }
     ];
     confirmationCalls = [];
@@ -1601,7 +1604,8 @@ describe("BookingsService.createManual — bonus-credit redemption (Slice 3, adm
         status: "active",
         telegramId: TRAINER_ID_TG,
         telegramUsername: null,
-        language: "ru"
+        language: "ru",
+        individualVisible: true
       }
     ];
     service = new BookingsService(
@@ -2014,7 +2018,8 @@ const TRAINER_WITH_TG: Trainer = {
   status: "active",
   telegramId: TRAINER_ID_TG,
   telegramUsername: null,
-  language: "ru"
+  language: "ru",
+  individualVisible: true
 };
 
 describe("BookingsService.createSingle — pending vs auto-confirm (admin-confirmation)", () => {
@@ -2143,7 +2148,8 @@ describe("BookingsService.confirmBooking (trainer-confirmation)", () => {
         status: "active",
         telegramId: OTHER_TRAINER_ID_TG,
         telegramUsername: null,
-        language: "ru"
+        language: "ru",
+        individualVisible: true
       }
     ];
     notifications = makeNotificationsSpy();
@@ -2260,7 +2266,8 @@ describe("BookingsService.declineBooking (trainer-confirmation)", () => {
         status: "active",
         telegramId: OTHER_TRAINER_ID_TG,
         telegramUsername: null,
-        language: "ru"
+        language: "ru",
+        individualVisible: true
       }
     ];
     notifications = makeNotificationsSpy();
@@ -2410,7 +2417,8 @@ describe("BookingsService.confirm/declineSubscription (trainer-confirmation, mon
         status: "active",
         telegramId: OTHER_TRAINER_ID_TG,
         telegramUsername: null,
-        language: "ru"
+        language: "ru",
+        individualVisible: true
       }
     ];
     notifications = makeNotificationsSpy();

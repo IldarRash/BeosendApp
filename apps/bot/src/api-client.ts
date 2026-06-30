@@ -146,6 +146,14 @@ export class ApiClient {
   }
 
   /**
+   * Client-facing trainer roster for individual requests. The API applies the
+   * individual visibility scope; the bot renders the returned list as-is.
+   */
+  listIndividualTrainers(): Promise<Trainer[]> {
+    return this.request("/trainers?scope=individual", trainersSchema);
+  }
+
+  /**
    * Feature 8 — request an individual training with a trainer. Client-facing and
    * self-only: the caller's numeric telegram id is sent both as the
    * `x-telegram-id` header and the body, and the API DMs the chosen trainer with

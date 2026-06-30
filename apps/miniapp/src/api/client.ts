@@ -277,9 +277,19 @@ export class MiniappApiClient {
   }
 
   /**
+   * Trainers for the individual-training picker (GET /trainers?scope=individual).
+   * This intentionally does not change the default /trainers reference read used by
+   * group filters and browse screens.
+   */
+  listIndividualTrainers(): Promise<Trainer[]> {
+    return this.request("/trainers?scope=individual", trainersSchema);
+  }
+
+  /**
    * Request a one-on-one training with a trainer (POST /trainers/:id/individual-request).
-   * Notification-only: the server DMs the trainer and persists no booking. The body still
-   * carries the caller's OWN Telegram id (from the verified session via {@link getMe}) for
+   * Notification-only: the server notifies admin/manager staff with the requested
+   * trainer named and persists no booking. The body still carries the caller's
+   * OWN Telegram id (from the verified session via {@link getMe}) for
    * bot back-compat, but the server now authoritatively resolves the requester from the
    * verified Mini App session and REJECTS a mismatch (no impersonation) — the body id is
    * never trusted as identity. The response is the {@link IndividualRequestResult}, validated

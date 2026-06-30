@@ -5,7 +5,7 @@ import {
   type UseMutationResult,
   type UseQueryResult
 } from "@tanstack/react-query";
-import type { CourtBlock, CreateCourtBlock } from "@beosand/types";
+import type { CourtBlock, CreateCourtBlock, CreateRecurringCourtBlocks } from "@beosand/types";
 import { useApiClient } from "../api/ApiProvider";
 import type { DateRange } from "../ui/DateRangeFilter";
 import { COURT_LOAD_KEY } from "./useCourtLoad";
@@ -48,6 +48,20 @@ export function useCreateCourtBlock(): UseMutationResult<CourtBlock, Error, Crea
   const queryClient = useQueryClient();
   return useMutation({
     mutationFn: (input: CreateCourtBlock) => api.createCourtBlock(input),
+    onSuccess: () => invalidateBlocks(queryClient)
+  });
+}
+
+/** C5 — create repeated manual court blocks; refreshes blocks list and load grid. */
+export function useCreateRecurringCourtBlocks(): UseMutationResult<
+  CourtBlock[],
+  Error,
+  CreateRecurringCourtBlocks
+> {
+  const api = useApiClient();
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (input: CreateRecurringCourtBlocks) => api.createRecurringCourtBlocks(input),
     onSuccess: () => invalidateBlocks(queryClient)
   });
 }

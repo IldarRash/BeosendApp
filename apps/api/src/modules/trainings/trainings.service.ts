@@ -185,13 +185,23 @@ export class TrainingsService {
     const groupSubscriptionId = randomUUID();
 
     const created = await this.trainings.transaction(async (tx) => {
+      for (const date of sortedUnique(candidateDates)) {
+        await this.trainings.lockIndividualGenerationCandidate(
+          tx,
+          input.clientId,
+          input.trainerId,
+          date
+        );
+      }
+
       // Idempotency: drop dates that already hold a non-cancelled individual training
       // for this client + trainer, so a re-run creates zero duplicates.
       const existing = new Set(
         await this.trainings.existingIndividualDatesForClient(
           input.clientId,
           input.trainerId,
-          candidateDates
+          candidateDates,
+          tx
         )
       );
       const newDates = candidateDates.filter((date) => !existing.has(date));
@@ -372,7 +382,13 @@ export class TrainingsService {
       (date) => date >= today
     );
 
-    const existing = new Set(await this.trainings.existingDatesForGroup(group.id, candidateDates));
+    for (const date of sortedUnique(candidateDates)) {
+      await this.courtBlocks.lockDate(date, tx);
+    }
+
+    const existing = new Set(
+      await this.trainings.existingDatesForGroup(group.id, candidateDates, tx)
+    );
     const newDates = candidateDates.filter((date) => !existing.has(date));
     if (newDates.length === 0) {
       return { created: [], blocked: 0, skipped: 0 };
@@ -400,17 +416,20 @@ export class TrainingsService {
     let skipped = 0;
     // Per-date occupancy read once and mutated as we add this run's auto-blocks, so two
     // trainings on the same date in one run cannot both take the same court/slot.
-    const occupancyByDate = new Map<string, { confirmed: CourtOccupancyRow[]; blocks: CourtOccupancyRow[] }>();
+    const occupancyByDate = new Map<
+      string,
+      { heldRequests: CourtOccupancyRow[]; blocks: CourtOccupancyRow[] }
+    >();
 
     for (const training of created) {
       const slots = courtSlotsCovered(training.startTime, durationMinutes);
       let occupancy = occupancyByDate.get(training.date);
       if (!occupancy) {
-        const [confirmed, blocks] = await Promise.all([
-          this.courtBlocks.confirmedOccupancyForDate(training.date, tx),
+        const [heldRequests, blocks] = await Promise.all([
+          this.courtBlocks.heldOccupancyForDate(training.date, tx),
           this.courtBlocks.blocksOccupancyForDate(training.date, tx)
         ]);
-        occupancy = { confirmed, blocks };
+        occupancy = { heldRequests, blocks };
         occupancyByDate.set(training.date, occupancy);
       }
 
@@ -419,7 +438,7 @@ export class TrainingsService {
         activeCourts,
         activeCourtCount,
         effectivePreferredCourtId,
-        occupancy.confirmed,
+        occupancy.heldRequests,
         occupancy.blocks
       );
       if (!courtId) {
@@ -457,7 +476,7 @@ export class TrainingsService {
     activeCourts: readonly { id: string; number: number }[],
     activeCourtCount: number,
     preferredCourtId: string | undefined,
-    confirmed: readonly CourtOccupancyRow[],
+    heldRequests: readonly CourtOccupancyRow[],
     blocks: readonly CourtOccupancyRow[]
   ): string | null {
     // Hard 6-per-slot guard: if any covered slot WITHIN working hours already has no
@@ -469,13 +488,13 @@ export class TrainingsService {
       openHour: COURT_OPEN_HOUR,
       closeHour: COURT_CLOSE_HOUR,
       confirmed: [],
-      blocks: [...toSlotOccupants(confirmed), ...toSlotOccupants(blocks)]
+      blocks: [...toSlotOccupants(heldRequests), ...toSlotOccupants(blocks)]
     });
     if (slots.some((slot) => free.has(slot) && (free.get(slot) ?? 0) <= 0)) {
       return null;
     }
 
-    const occupants = toCellOccupants(confirmed, blocks);
+    const occupants = toCellOccupants(heldRequests, blocks);
     if (
       preferredCourtId &&
       activeCourts.some((court) => court.id === preferredCourtId) &&
@@ -767,11 +786,22 @@ export class TrainingsService {
   async deleteTraining(actorTelegramId: number, id: string): Promise<{ id: string }> {
     this.assertAdmin(actorTelegramId);
 
+    const ref = await this.trainings.findDateById(id);
+    if (!ref) {
+      throw new NotFoundException(`Training ${id} not found`);
+    }
+
+    let trainingDate = ref.date;
     const clientIds = await this.trainings.transaction(async (tx) => {
-      const locked = await this.trainings.findForUpdate(tx, id);
+      await this.courtBlocks.lockDate(ref.date, tx);
+      const locked = await this.trainings.findFullForUpdate(tx, id);
       if (!locked) {
         throw new NotFoundException(`Training ${id} not found`);
       }
+      if (locked.date !== ref.date) {
+        throw new ConflictException("Training changed while deletion was in progress");
+      }
+      trainingDate = locked.date;
       if (locked.status === "cancelled") {
         return [];
       }
@@ -784,6 +814,7 @@ export class TrainingsService {
     await this.notifyCancelledSafely(id, clientIds);
 
     await this.trainings.transaction(async (tx) => {
+      await this.courtBlocks.lockDate(trainingDate, tx);
       await this.trainings.deleteNotificationsForTraining(tx, id);
       await this.trainings.deleteWaitlistForTraining(tx, id);
       await this.trainings.deleteBookingsForTraining(tx, id);
@@ -829,11 +860,18 @@ export class TrainingsService {
     const candidates = await this.trainings.listFutureNonCancelledForGroup(groupId, today);
 
     const cancelled = await this.trainings.transaction(async (tx) => {
+      for (const date of sortedUnique(candidates.map((candidate) => candidate.date))) {
+        await this.courtBlocks.lockDate(date, tx);
+      }
+
       const results: { trainingId: string; clientIds: string[] }[] = [];
       for (const candidate of candidates) {
-        const locked = await this.trainings.findForUpdate(tx, candidate.id);
+        const locked = await this.trainings.findFullForUpdate(tx, candidate.id);
         if (!locked || locked.status === "cancelled") {
           continue;
+        }
+        if (locked.groupId !== groupId || locked.date !== candidate.date || locked.date < today) {
+          throw new ConflictException("Training changed while group cancellation was in progress");
         }
         const clientIds = await this.cancelOneInTx(tx, candidate.id);
         results.push({ trainingId: candidate.id, clientIds });
@@ -865,10 +903,19 @@ export class TrainingsService {
   ): Promise<Training> {
     this.assertAdmin(actorTelegramId);
 
+    const ref = await this.trainings.findDateById(trainingId);
+    if (!ref) {
+      throw new NotFoundException(`Training ${trainingId} not found`);
+    }
+
     const training = await this.trainings.transaction(async (tx) => {
+      await this.courtBlocks.lockDate(ref.date, tx);
       const locked = await this.trainings.findFullForUpdate(tx, trainingId);
       if (!locked) {
         throw new NotFoundException(`Training ${trainingId} not found`);
+      }
+      if (locked.date !== ref.date) {
+        throw new ConflictException("Training changed while court assignment was in progress");
       }
       if (locked.status === "cancelled" || locked.status === "completed") {
         throw new ConflictException(`Cannot assign a court to a ${locked.status} training`);
@@ -890,12 +937,10 @@ export class TrainingsService {
       const slots = courtSlotsCovered(locked.startTime, durationMinutes);
 
       const activeCourts = await this.courtBlocks.activeCourts(tx);
-      // NOTE: occupancy is read without locking those rows, so under READ COMMITTED a
-      // concurrent assign/confirm/generate to the same slot shares the known
-      // check-then-insert court-occupancy race (tracked separately for the advisory-lock
-      // fix). This path reuses the identical guard and does not widen that surface.
-      const [confirmed, blocks] = await Promise.all([
-        this.courtBlocks.confirmedOccupancyForDate(locked.date, tx),
+      // The per-date advisory lock above serializes assign/confirm/generate writes
+      // before this occupancy read and the following insert.
+      const [heldRequests, blocks] = await Promise.all([
+        this.courtBlocks.heldOccupancyForDate(locked.date, tx),
         this.courtBlocks.blocksOccupancyForDate(locked.date, tx)
       ]);
 
@@ -907,7 +952,7 @@ export class TrainingsService {
         activeCourts,
         activeCourts.length,
         input.courtId,
-        confirmed,
+        heldRequests,
         blocks
       );
       if (picked !== input.courtId) {
@@ -948,6 +993,7 @@ export class TrainingsService {
     this.assertAdmin(actorTelegramId);
 
     const result = await this.trainings.transaction(async (tx) => {
+      await this.courtBlocks.lockDate(input.date, tx);
       const orphans = await this.trainings.listOrphansForDateForUpdate(tx, input.date);
       if (orphans.length === 0) {
         return { assigned: 0, skipped: 0 };
@@ -957,8 +1003,8 @@ export class TrainingsService {
       const activeCourtCount = activeCourts.length;
       // Date occupancy read once and mutated as we add this run's auto-blocks, so two
       // orphans on the date cannot both take the same court/slot.
-      const [confirmed, blocks] = await Promise.all([
-        this.courtBlocks.confirmedOccupancyForDate(input.date, tx),
+      const [heldRequests, blocks] = await Promise.all([
+        this.courtBlocks.heldOccupancyForDate(input.date, tx),
         this.courtBlocks.blocksOccupancyForDate(input.date, tx)
       ]);
       const groupCache = new Map<string, Group>();
@@ -989,7 +1035,7 @@ export class TrainingsService {
           activeCourts,
           activeCourtCount,
           group.courtId ?? undefined,
-          confirmed,
+          heldRequests,
           blocks
         );
         if (!courtId) {
@@ -1261,12 +1307,12 @@ function addDays(isoDate: string, days: number): string {
   return cursor.toISOString().slice(0, 10);
 }
 
-/** Combine confirmed + block rows into the pure helper's per-court occupant shape. */
+/** Combine held request + block rows into the pure helper's per-court occupant shape. */
 function toCellOccupants(
-  confirmed: readonly CourtOccupancyRow[],
+  heldRequests: readonly CourtOccupancyRow[],
   blocks: readonly CourtOccupancyRow[]
 ): CourtCellOccupant[] {
-  return [...confirmed, ...blocks].map((row) => ({
+  return [...heldRequests, ...blocks].map((row) => ({
     courtId: row.courtId,
     startTime: row.startTime,
     durationMinutes: row.durationMinutes,
@@ -1277,4 +1323,8 @@ function toCellOccupants(
 /** Map occupancy rows to minute-span slot occupants for the per-slot limit tally. */
 function toSlotOccupants(rows: readonly CourtOccupancyRow[]): CourtSlotOccupant[] {
   return rows.map((row) => ({ startTime: row.startTime, durationMinutes: row.durationMinutes }));
+}
+
+function sortedUnique(dates: readonly string[]): string[] {
+  return [...new Set(dates)].sort();
 }

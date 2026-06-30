@@ -118,11 +118,15 @@ export class TrainingsRepository {
   constructor(private readonly database: DatabaseService) {}
 
   /** Dates (within `dates`) that already have a training for the group — drives idempotency. */
-  async existingDatesForGroup(groupId: string, dates: readonly string[]): Promise<string[]> {
+  async existingDatesForGroup(
+    groupId: string,
+    dates: readonly string[],
+    db: Database = this.database.db
+  ): Promise<string[]> {
     if (dates.length === 0) {
       return [];
     }
-    const rows = await this.database.db
+    const rows = await db
       .select({ date: tables.trainings.date })
       .from(tables.trainings)
       .where(
@@ -141,12 +145,13 @@ export class TrainingsRepository {
   async existingIndividualDatesForClient(
     clientId: string,
     trainerId: string,
-    dates: readonly string[]
+    dates: readonly string[],
+    db: Database = this.database.db
   ): Promise<string[]> {
     if (dates.length === 0) {
       return [];
     }
-    const rows = await this.database.db
+    const rows = await db
       .select({ date: tables.trainings.date })
       .from(tables.trainings)
       .where(
@@ -158,6 +163,24 @@ export class TrainingsRepository {
         )
       );
     return rows.map((row) => row.date);
+  }
+
+  /**
+   * Transaction-scoped serialization key for the individual-month idempotency
+   * candidate: one client + one trainer + one date. Caller locks dates in sorted
+   * order before reading existing rows and inserting missing ones.
+   */
+  async lockIndividualGenerationCandidate(
+    tx: Database,
+    clientId: string,
+    trainerId: string,
+    date: string
+  ): Promise<void> {
+    const namespaceKey = `individual-training:${clientId}`;
+    const candidateKey = `${trainerId}:${date}`;
+    await tx.execute(
+      sql`select pg_advisory_xact_lock(hashtext(${namespaceKey}), hashtext(${candidateKey}))`
+    );
   }
 
   /**
@@ -195,9 +218,9 @@ export class TrainingsRepository {
   async listFutureNonCancelledForGroup(
     groupId: string,
     fromDate: string
-  ): Promise<{ id: string }[]> {
+  ): Promise<{ id: string; date: string }[]> {
     return this.database.db
-      .select({ id: tables.trainings.id })
+      .select({ id: tables.trainings.id, date: tables.trainings.date })
       .from(tables.trainings)
       .where(
         and(
@@ -207,6 +230,15 @@ export class TrainingsRepository {
         )
       )
       .orderBy(asc(tables.trainings.date), asc(tables.trainings.startTime));
+  }
+
+  async findDateById(id: string): Promise<{ date: string } | undefined> {
+    const [row] = await this.database.db
+      .select({ date: tables.trainings.date })
+      .from(tables.trainings)
+      .where(eq(tables.trainings.id, id))
+      .limit(1);
+    return row;
   }
 
   /**

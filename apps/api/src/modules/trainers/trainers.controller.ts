@@ -7,7 +7,8 @@ import {
   Headers,
   Param,
   Patch,
-  Post
+  Post,
+  Query
 } from "@nestjs/common";
 import {
   createTrainerSchema,
@@ -17,8 +18,12 @@ import {
   updateTrainerSchema,
   uuid
 } from "@beosand/types";
-import type { ZodSchema } from "zod";
+import { z, type ZodSchema } from "zod";
 import { TrainersService } from "./trainers.service";
+
+const trainersListQuerySchema = z.object({
+  scope: z.enum(["individual"]).optional()
+}).strict();
 
 /** Thin: parse + Zod-validate, resolve actor, call one service method. */
 @Controller("trainers")
@@ -27,8 +32,9 @@ export class TrainersController {
 
   /** Reference-facing: active trainers for group creation + slot rendering. */
   @Get()
-  list(): Promise<Trainer[]> {
-    return this.trainers.listActive();
+  list(@Query() query: Record<string, unknown> = {}): Promise<Trainer[]> {
+    const parsed = validate(trainersListQuerySchema, query ?? {});
+    return this.trainers.listActive(parsed.scope);
   }
 
   @Post()
@@ -60,9 +66,9 @@ export class TrainersController {
    * x-client-telegram-id only, no x-telegram-id) and the bot both work. The body
    * `telegramId` must equal the resolved actor — the requester acts only as
    * themselves; a mismatched body id is rejected (no impersonation). Not
-   * admin-gated. The service DMs the trainer and returns a typed result (soft
-   * `trainer-unavailable` rather than a 500 when the trainer has no Telegram
-   * channel).
+   * admin-gated. The service notifies admin/manager staff with the requested
+   * trainer named and returns a typed result (soft `trainer-unavailable` rather
+   * than a 500 when no staff notification can be delivered).
    */
   @Post(":id/individual-request")
   requestIndividual(

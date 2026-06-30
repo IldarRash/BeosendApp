@@ -77,7 +77,7 @@ const MY_COURT: MyCourtRequestItem = {
   priceRsd: 2000,
   status: "pending",
   courtCount: 1,
-  courtNumbers: [3]
+  courtNumbers: []
 };
 
 // /trainings/available returns BOTH the already-booked training (must be deduped) and a

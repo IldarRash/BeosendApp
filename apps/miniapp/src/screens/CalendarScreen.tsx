@@ -513,10 +513,9 @@ function TrainingRow({ item }: { item: MyBookingItem }): JSX.Element {
 }
 
 /**
- * One court-request agenda row: kind tag, time, status chip, the server price, and —
- * since Edition 2.1 — the client's PICKED court numbers (the owner approved clients
- * seeing their picked courts). Shown only when the contract carries numbers; a legacy
- * bot request with none simply omits the line.
+ * One court-request agenda row: kind tag, time, status chip, the server price, and
+ * confirmed client-facing court numbers when the API includes them. Pending responses
+ * carry `courtNumbers: []`, so pending rows omit the court-number line.
  */
 function CourtRow({ item }: { item: MyCourtRequestItem }): JSX.Element {
   const t = useT();

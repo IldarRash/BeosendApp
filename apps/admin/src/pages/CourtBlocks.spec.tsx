@@ -19,9 +19,11 @@ vi.mock("../i18n/LanguageProvider", async () => import("../i18n/test-utils"));
 const useCourts = vi.fn();
 const useCourtBlocks = vi.fn();
 const createMutate = vi.fn();
+const createRecurringMutate = vi.fn();
 const deleteMutate = vi.fn();
 const reassignMutate = vi.fn();
 const useCreateCourtBlock = vi.fn();
+const useCreateRecurringCourtBlocks = vi.fn();
 const useDeleteCourtBlock = vi.fn();
 const useReassignCourtBlock = vi.fn();
 
@@ -31,6 +33,7 @@ vi.mock("../hooks/useCourts", () => ({
 vi.mock("../hooks/useCourtBlocks", () => ({
   useCourtBlocks: () => useCourtBlocks(),
   useCreateCourtBlock: () => useCreateCourtBlock(),
+  useCreateRecurringCourtBlocks: () => useCreateRecurringCourtBlocks(),
   useDeleteCourtBlock: () => useDeleteCourtBlock(),
   useReassignCourtBlock: () => useReassignCourtBlock()
 }));
@@ -78,11 +81,17 @@ const sampleBlocks: CourtBlock[] = [
 beforeEach(() => {
   notify.mockReset();
   createMutate.mockReset();
+  createRecurringMutate.mockReset();
   deleteMutate.mockReset();
   reassignMutate.mockReset();
   useCourts.mockReturnValue({ isError: false, data: sampleCourts });
   useCourtBlocks.mockReturnValue({ isPending: false, isError: false, data: sampleBlocks });
   useCreateCourtBlock.mockReturnValue({ mutate: createMutate, isPending: false, error: null });
+  useCreateRecurringCourtBlocks.mockReturnValue({
+    mutate: createRecurringMutate,
+    isPending: false,
+    error: null
+  });
   useDeleteCourtBlock.mockReturnValue({ mutate: deleteMutate, isPending: false, error: null });
   useReassignCourtBlock.mockReturnValue({ mutate: reassignMutate, isPending: false, error: null });
 });
@@ -179,6 +188,58 @@ describe("CourtBlocks page", () => {
       endTime: "11:00",
       reason: "Тренировка"
     });
+  });
+
+  it("creates recurring blocks with range, weekdays and shows the created count", () => {
+    createRecurringMutate.mockImplementation((_input, options) => {
+      options.onSuccess([sampleBlocks[0], { ...sampleBlocks[0], id: "b3333333-3333-3333-3333-333333333333" }]);
+    });
+    renderPage();
+    fireEvent.click(screen.getByRole("button", { name: "Добавить блокировку" }));
+    const dialog = screen.getByRole("dialog");
+    fireEvent.click(within(dialog).getByRole("button", { name: "Повтор" }));
+    fireEvent.change(within(dialog).getByLabelText("Корт"), {
+      target: { value: sampleCourts[1].id }
+    });
+    fireEvent.change(within(dialog).getByLabelText("С даты"), {
+      target: { value: "2026-06-10" }
+    });
+    fireEvent.change(within(dialog).getByLabelText("По дату"), {
+      target: { value: "2026-06-20" }
+    });
+    fireEvent.click(within(dialog).getByRole("button", { name: "Понедельник" }));
+    fireEvent.click(within(dialog).getByRole("button", { name: "Среда" }));
+    fireEvent.change(within(dialog).getByLabelText("Начало"), { target: { value: "09:00" } });
+    fireEvent.change(within(dialog).getByLabelText("Конец"), { target: { value: "11:00" } });
+    fireEvent.change(within(dialog).getByLabelText("Причина"), {
+      target: { value: "Турнир" }
+    });
+    fireEvent.click(within(dialog).getByRole("button", { name: "Сохранить" }));
+
+    expect(createRecurringMutate).toHaveBeenCalledTimes(1);
+    expect(createRecurringMutate.mock.calls[0][0]).toEqual({
+      courtId: sampleCourts[1].id,
+      from: "2026-06-10",
+      to: "2026-06-20",
+      daysOfWeek: [3],
+      startTime: "09:00",
+      endTime: "11:00",
+      reason: "Турнир"
+    });
+    expect(notify).toHaveBeenCalledWith("Создано блокировок: 2.", "success");
+  });
+
+  it("surfaces a recurring conflict error inside the dialog", () => {
+    useCreateRecurringCourtBlocks.mockReturnValue({
+      mutate: createRecurringMutate,
+      isPending: false,
+      error: new Error("Конфликт 2026-06-12 09:00")
+    });
+    renderPage();
+    fireEvent.click(screen.getByRole("button", { name: "Добавить блокировку" }));
+    const dialog = screen.getByRole("dialog");
+    fireEvent.click(within(dialog).getByRole("button", { name: "Повтор" }));
+    expect(within(dialog).getByRole("alert").textContent).toContain("Конфликт 2026-06-12 09:00");
   });
 
   it("deletes a block only after confirmation", () => {

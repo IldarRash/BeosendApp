@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { dateString, entityStatus, isSlotAligned, rsd, timeString, uuid } from "./common";
+import { dateString, dayOfWeek, entityStatus, isSlotAligned, rsd, timeString, uuid } from "./common";
 
 /** Editions 2: court rental requests. Clients request time only; admin assigns the court. */
 
@@ -50,12 +50,32 @@ export const courtBlockSchema = z.object({
   groupTrainingId: uuid.nullable()
 });
 /** Manual create (C5) never sets the link; the generator sets groupTrainingId, the create endpoint never does. */
-export const createCourtBlockSchema = courtBlockSchema.omit({ id: true, groupTrainingId: true });
+export const createCourtBlockSchema = courtBlockSchema
+  .omit({ id: true, groupTrainingId: true })
+  .strict();
 export type CourtBlock = z.infer<typeof courtBlockSchema>;
 export type CreateCourtBlock = z.infer<typeof createCourtBlockSchema>;
 
+/**
+ * Admin-only bulk create for repeated manual court blocks. The API expands this
+ * inclusive date range into one normal `court_blocks` row per matching weekday.
+ */
+export const createRecurringCourtBlocksSchema = createCourtBlockSchema
+  .omit({ date: true })
+  .extend({
+    from: dateString,
+    to: dateString,
+    daysOfWeek: z.array(dayOfWeek).min(1).max(7)
+  })
+  .strict()
+  .refine((input) => input.from <= input.to, {
+    message: "Range start (from) must be on or before its end (to).",
+    path: ["to"]
+  });
+export type CreateRecurringCourtBlocks = z.infer<typeof createRecurringCourtBlocksSchema>;
+
 /** PATCH /court-blocks/:id — admin moves a block to another court (re-checks limit + overlap). */
-export const reassignCourtBlockSchema = z.object({ courtId: uuid });
+export const reassignCourtBlockSchema = z.object({ courtId: uuid }).strict();
 export type ReassignCourtBlock = z.infer<typeof reassignCourtBlockSchema>;
 
 /**
@@ -71,8 +91,12 @@ export const courtBlocksListQuerySchema = z
     from: dateString.optional(),
     to: dateString.optional()
   })
+  .strict()
   .refine((q) => q.date !== undefined || (q.from !== undefined && q.to !== undefined), {
     message: "Provide either date=YYYY-MM-DD or both from=YYYY-MM-DD and to=YYYY-MM-DD."
+  })
+  .refine((q) => q.date === undefined || (q.from === undefined && q.to === undefined), {
+    message: "Provide either date=YYYY-MM-DD or from/to, not both."
   })
   .refine((q) => q.from === undefined || q.to === undefined || q.from <= q.to, {
     message: "Range start (from) must be on or before its end (to)."
@@ -206,16 +230,14 @@ export type FreeCourtNumbers = z.infer<typeof freeCourtNumbersSchema>;
  */
 export const confirmCourtRequestSchema = z.object({
   requestId: uuid,
-  courtIds: z.array(uuid).min(1).max(COURT_COUNT),
-  decidedBy: z.number().int()
-});
+  courtIds: z.array(uuid).min(1).max(COURT_COUNT)
+}).strict();
 export type ConfirmCourtRequest = z.infer<typeof confirmCourtRequestSchema>;
 
 /** C4 — admin rejects a pending request. Stamps decided_*; notifies the client. */
 export const rejectCourtRequestSchema = z.object({
-  requestId: uuid,
-  decidedBy: z.number().int()
-});
+  requestId: uuid
+}).strict();
 export type RejectCourtRequest = z.infer<typeof rejectCourtRequestSchema>;
 
 /** C4 — filter for the admin moderation queue read. Defaults to the pending queue. */

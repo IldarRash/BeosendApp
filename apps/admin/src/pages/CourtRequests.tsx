@@ -8,7 +8,6 @@ import { Modal } from "../ui/Modal";
 import { useToast } from "../ui/Toast";
 import { useT } from "../i18n/LanguageProvider";
 import { formatRsd } from "../lib/format";
-import { useMe } from "../hooks/useSession";
 import {
   useConfirmRequest,
   useCourtRequests,
@@ -72,8 +71,6 @@ function courtCell(request: CourtRequestAdminView, t: Translate): string {
 export function CourtRequests(): JSX.Element {
   const t = useT();
   const { notify } = useToast();
-  const me = useMe();
-  const decidedBy = me.data?.telegramId ?? null;
 
   const [status, setStatus] = useState<CourtRequestStatus>("pending");
   const [toConfirm, setToConfirm] = useState<CourtRequestAdminView | null>(null);
@@ -125,9 +122,9 @@ export function CourtRequests(): JSX.Element {
   }
 
   function submitConfirm(): void {
-    if (!toConfirm || !pickComplete || decidedBy === null) return;
+    if (!toConfirm || !pickComplete) return;
     confirm.mutate(
-      { id: toConfirm.id, input: { courtIds: pickedCourtIds, decidedBy } },
+      { id: toConfirm.id, input: { courtIds: pickedCourtIds } },
       {
         onSuccess: () => {
           notify(t("admin.courtRequests.confirmed", { client: toConfirm.clientName }), "success");
@@ -142,9 +139,8 @@ export function CourtRequests(): JSX.Element {
   }
 
   function rejectRequest(request: CourtRequestAdminView): void {
-    if (decidedBy === null) return;
     reject.mutate(
-      { id: request.id, input: { decidedBy } },
+      { id: request.id },
       {
         onSuccess: () =>
           notify(t("admin.courtRequests.rejected", { client: request.clientName }), "success"),
@@ -184,14 +180,13 @@ export function CourtRequests(): JSX.Element {
           <div className="cluster">
             <Button
               variant="primary"
-              disabled={decidedBy === null}
               onClick={() => openConfirm(r)}
             >
               {t("admin.action.confirm")}
             </Button>
             <Button
               variant="danger"
-              disabled={decidedBy === null || reject.isPending}
+              disabled={reject.isPending}
               onClick={() => rejectRequest(r)}
             >
               {t("admin.action.reject")}
@@ -273,7 +268,7 @@ export function CourtRequests(): JSX.Element {
             </Button>
             <Button
               variant="primary"
-              disabled={!pickComplete || decidedBy === null || confirm.isPending}
+              disabled={!pickComplete || confirm.isPending}
               onClick={submitConfirm}
             >
               {t("admin.action.confirm")}

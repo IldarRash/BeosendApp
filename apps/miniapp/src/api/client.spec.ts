@@ -293,7 +293,8 @@ const TRAINER: Trainer = {
   status: "active",
   telegramId: 99,
   telegramUsername: null,
-  language: "ru"
+  language: "ru",
+  individualVisible: true
 };
 
 describe("MiniappApiClient.listTrainers", () => {
@@ -317,6 +318,27 @@ describe("MiniappApiClient.listTrainers", () => {
     const client = new MiniappApiClient(BASE);
 
     await expect(client.listTrainers()).rejects.toThrow();
+  });
+});
+
+describe("MiniappApiClient.listIndividualTrainers", () => {
+  it("uses the individual scope query and validates the trainers list", async () => {
+    const fetchMock = vi.fn().mockResolvedValue(jsonResponse(200, [TRAINER]));
+    vi.stubGlobal("fetch", fetchMock);
+    const client = new MiniappApiClient(BASE);
+
+    const result = await client.listIndividualTrainers();
+
+    expect(result).toEqual([TRAINER]);
+    expect(fetchMock.mock.calls[0][0]).toBe(`${BASE}/trainers?scope=individual`);
+  });
+
+  it("rejects a malformed individual trainer row (unsafe path)", async () => {
+    const { individualVisible: _omit, ...withoutVisibility } = TRAINER;
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue(jsonResponse(200, [withoutVisibility])));
+    const client = new MiniappApiClient(BASE);
+
+    await expect(client.listIndividualTrainers()).rejects.toThrow();
   });
 });
 
@@ -921,14 +943,14 @@ const COURT_REQUEST: CourtRequest = {
   priceRsd: 6000,
   status: "pending",
   courtCount: 2,
-  courtNumbers: [1, 3],
+  courtNumbers: [],
   createdAt: "2026-06-05T10:00:00.000Z",
   decidedAt: null,
   decidedBy: null
 };
 
 describe("MiniappApiClient.createCourtRequest", () => {
-  it("POSTs the caller's OWN session telegramId + picked courts and validates a pending request", async () => {
+  it("POSTs the caller's OWN session telegramId + picked courts and validates a redacted pending request", async () => {
     const fetchMock = vi
       .fn()
       .mockResolvedValueOnce(jsonResponse(200, SESSION))
@@ -945,9 +967,9 @@ describe("MiniappApiClient.createCourtRequest", () => {
     });
 
     expect(result).toEqual(COURT_REQUEST);
-    // The created request is pending; it now holds the client's picked courts.
+    // Pending client-facing responses redact picked courts until admin confirmation.
     expect(result.status).toBe("pending");
-    expect(result.courtNumbers).toEqual([1, 3]);
+    expect(result.courtNumbers).toEqual([]);
     const [url, init] = fetchMock.mock.calls[1];
     expect(url).toBe(`${BASE}/court-requests`);
     expect((init as RequestInit).method).toBe("POST");
