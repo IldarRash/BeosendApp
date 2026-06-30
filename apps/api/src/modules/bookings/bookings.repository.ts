@@ -2,7 +2,7 @@ import { Injectable } from "@nestjs/common";
 import { type Database, tables } from "@beosand/db";
 import type { BookingSource, BookingStatus, TrainingStatus } from "@beosand/types";
 import { type Booking, bookingSource } from "@beosand/types";
-import { and, asc, desc, eq, gte, inArray, isNotNull, lt, lte, ne, sql } from "drizzle-orm";
+import { and, asc, desc, eq, gte, inArray, isNotNull, lt, lte, ne } from "drizzle-orm";
 import { DatabaseService } from "../../db/database.service";
 
 type BookingRow = typeof tables.bookings.$inferSelect;
@@ -11,11 +11,20 @@ type NewBookingRow = typeof tables.bookings.$inferInsert;
 /** A training row's capacity state, read FOR UPDATE so recompute is race-safe. */
 export interface TrainingLockRow {
   id: string;
+  groupId: string | null;
+  clientId: string | null;
   capacity: number;
   bookedCount: number;
   status: TrainingStatus;
   /** Trainer scoping for the manual-booking authz (assertTrainerOrAdmin). */
   trainerId: string;
+}
+
+/** A client-visible training locked for single-booking; may be full. */
+export interface ClientVisibleTrainingLockRow extends TrainingLockRow {
+  /** Set for group trainings; null is excluded by the client-visible query. */
+  groupId: string | null;
+  date: string;
 }
 
 /** A booking row locked FOR UPDATE, carrying just what the cancel write needs. */
@@ -108,6 +117,8 @@ export class BookingsRepository {
     const [row] = await tx
       .select({
         id: tables.trainings.id,
+        groupId: tables.trainings.groupId,
+        clientId: tables.trainings.clientId,
         capacity: tables.trainings.capacity,
         bookedCount: tables.trainings.bookedCount,
         status: tables.trainings.status,
@@ -121,18 +132,21 @@ export class BookingsRepository {
   }
 
   /**
-   * Public-client single-booking target: the training row selected FOR UPDATE, but
-   * only when it matches the same bookable catalogue predicate as listAvailable.
-   * Caller must hold a tx.
+   * Public-client single-booking target, selected FOR UPDATE and filtered by the
+   * same catalogue visibility predicate as listAvailable, except full group slots
+   * are included so the service can auto-waitlist them. Caller must hold a tx.
    */
-  async findClientBookableTrainingForUpdate(
+  async findClientVisibleTrainingForUpdate(
     tx: Database,
     trainingId: string,
     today: string
-  ): Promise<TrainingLockRow | undefined> {
+  ): Promise<ClientVisibleTrainingLockRow | undefined> {
     const [row] = await tx
       .select({
         id: tables.trainings.id,
+        groupId: tables.trainings.groupId,
+        clientId: tables.trainings.clientId,
+        date: tables.trainings.date,
         capacity: tables.trainings.capacity,
         bookedCount: tables.trainings.bookedCount,
         status: tables.trainings.status,
@@ -146,8 +160,6 @@ export class BookingsRepository {
         and(
           eq(tables.trainings.id, trainingId),
           gte(tables.trainings.date, today),
-          eq(tables.trainings.status, "open"),
-          sql`${tables.trainings.bookedCount} < ${tables.trainings.capacity}`,
           isNotNull(tables.trainings.groupId),
           eq(tables.groups.status, "active"),
           eq(tables.groups.hidden, false),
@@ -203,6 +215,8 @@ export class BookingsRepository {
     return tx
       .select({
         id: tables.trainings.id,
+        groupId: tables.trainings.groupId,
+        clientId: tables.trainings.clientId,
         date: tables.trainings.date,
         capacity: tables.trainings.capacity,
         bookedCount: tables.trainings.bookedCount,
@@ -491,6 +505,18 @@ export class BookingsRepository {
     await tx
       .update(tables.trainings)
       .set({ bookedCount, status })
+      .where(eq(tables.trainings.id, trainingId));
+  }
+
+  /** Persist a training capacity change inside the caller's transaction. */
+  async updateTrainingCapacity(
+    tx: Database,
+    trainingId: string,
+    capacity: number
+  ): Promise<void> {
+    await tx
+      .update(tables.trainings)
+      .set({ capacity })
       .where(eq(tables.trainings.id, trainingId));
   }
 

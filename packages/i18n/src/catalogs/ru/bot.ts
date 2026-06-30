@@ -48,6 +48,10 @@ export const botRu: Record<string, string> = {
   "bot.individual.trainerUnavailable":
     "Этот тренер пока недоступен в Telegram. Выберите другого или свяжитесь с менеджером.",
   "bot.individual.pickButton": "🧑‍🏫 {name}",
+  "bot.individual.pickSlot":
+    "Напишите желаемые дату и время одним сообщением: YYYY-MM-DD HH:MM-HH:MM\nНапример: 2026-07-15 18:00-19:00",
+  "bot.individual.invalidSlot":
+    "Не получилось прочитать дату и время. Отправьте в формате YYYY-MM-DD HH:MM-HH:MM, например 2026-07-15 18:00-19:00.",
 
   // --- Shared navigation (menu.ts) ---
   "bot.nav.back": "⬅️ Назад",

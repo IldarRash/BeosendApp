@@ -343,25 +343,38 @@ describe("MiniappApiClient.listIndividualTrainers", () => {
 });
 
 describe("MiniappApiClient.requestIndividualSession", () => {
+  const REQUEST_ID = "99999999-1111-1111-1111-111111111111";
+  const REQUEST_SLOT = {
+    trainerId: TRAINER.id,
+    date: "2026-06-10",
+    startTime: "18:00",
+    endTime: "19:00"
+  };
+
   it("POSTs the caller's OWN session telegramId and validates a delivered result", async () => {
     const fetchMock = vi
       .fn()
       .mockResolvedValueOnce(jsonResponse(200, SESSION))
-      .mockResolvedValueOnce(jsonResponse(200, { delivered: true }));
+      .mockResolvedValueOnce(jsonResponse(200, { id: REQUEST_ID, delivered: true }));
     vi.stubGlobal("fetch", fetchMock);
     const client = new MiniappApiClient(BASE);
     await client.authenticate("init-data-raw");
 
-    const result = await client.requestIndividualSession(TRAINER.id);
+    const result = await client.requestIndividualSession(REQUEST_SLOT);
 
-    expect(result).toEqual({ delivered: true });
+    expect(result).toEqual({ id: REQUEST_ID, delivered: true });
     const [url, init] = fetchMock.mock.calls[1];
     expect(url).toBe(`${BASE}/trainers/${TRAINER.id}/individual-request`);
     expect((init as RequestInit).method).toBe("POST");
     // The body carries the verified session's own telegramId (back-compat); the server
     // re-derives the requester from the session and rejects any mismatch — never a
     // client-asserted identity.
-    expect(JSON.parse((init as RequestInit).body as string)).toEqual({ telegramId: 42 });
+    expect(JSON.parse((init as RequestInit).body as string)).toEqual({
+      telegramId: 42,
+      date: "2026-06-10",
+      startTime: "18:00",
+      endTime: "19:00"
+    });
   });
 
   it("renders delivered:false (trainer-unavailable) as a valid 200 result, NOT an error", async () => {
@@ -369,14 +382,16 @@ describe("MiniappApiClient.requestIndividualSession", () => {
     const fetchMock = vi
       .fn()
       .mockResolvedValueOnce(jsonResponse(200, SESSION))
-      .mockResolvedValueOnce(jsonResponse(200, { delivered: false, reason: "trainer-unavailable" }));
+      .mockResolvedValueOnce(
+        jsonResponse(200, { id: REQUEST_ID, delivered: false, reason: "trainer-unavailable" })
+      );
     vi.stubGlobal("fetch", fetchMock);
     const client = new MiniappApiClient(BASE);
     await client.authenticate("init-data-raw");
 
-    const result = await client.requestIndividualSession(TRAINER.id);
+    const result = await client.requestIndividualSession(REQUEST_SLOT);
 
-    expect(result).toEqual({ delivered: false, reason: "trainer-unavailable" });
+    expect(result).toEqual({ id: REQUEST_ID, delivered: false, reason: "trainer-unavailable" });
   });
 
   it("rejects a malformed result via the contract (unsafe path)", async () => {
@@ -384,18 +399,34 @@ describe("MiniappApiClient.requestIndividualSession", () => {
     const fetchMock = vi
       .fn()
       .mockResolvedValueOnce(jsonResponse(200, SESSION))
-      .mockResolvedValueOnce(jsonResponse(200, { delivered: false, reason: "bogus" }));
+      .mockResolvedValueOnce(jsonResponse(200, { id: REQUEST_ID, delivered: false, reason: "bogus" }));
     vi.stubGlobal("fetch", fetchMock);
     const client = new MiniappApiClient(BASE);
     await client.authenticate("init-data-raw");
 
-    await expect(client.requestIndividualSession(TRAINER.id)).rejects.toThrow();
+    await expect(client.requestIndividualSession(REQUEST_SLOT)).rejects.toThrow();
+  });
+
+  it("rejects an invalid requested time range before sending", async () => {
+    const fetchMock = vi.fn().mockResolvedValueOnce(jsonResponse(200, SESSION));
+    vi.stubGlobal("fetch", fetchMock);
+    const client = new MiniappApiClient(BASE);
+    await client.authenticate("init-data-raw");
+
+    expect(() => {
+      void client.requestIndividualSession({
+        ...REQUEST_SLOT,
+        startTime: "19:00",
+        endTime: "18:00"
+      });
+    }).toThrow();
+    expect(fetchMock).toHaveBeenCalledTimes(1);
   });
 
   it("throws AuthError before a session exists (no verified identity to request)", async () => {
     const client = new MiniappApiClient(BASE);
 
-    await expect(client.requestIndividualSession(TRAINER.id)).rejects.toBeInstanceOf(AuthError);
+    await expect(client.requestIndividualSession(REQUEST_SLOT)).rejects.toBeInstanceOf(AuthError);
   });
 });
 
@@ -411,6 +442,17 @@ const BOOKING: Booking = {
   paymentStatus: "unpaid",
   paidAt: null,
   paidBy: null
+};
+
+const WAITLIST_ENTRY: WaitlistEntry = {
+  id: "66666666-6666-6666-6666-666666666666",
+  clientId: CLIENT.id,
+  trainingId: SLOT.trainingId,
+  position: 2,
+  groupSubscriptionId: null,
+  status: "waiting",
+  addedAt: "2026-06-05T10:00:00.000Z",
+  notifiedAt: null
 };
 
 describe("MiniappApiClient.createSingleBooking", () => {
@@ -447,6 +489,35 @@ describe("MiniappApiClient.createSingleBooking", () => {
     ).rejects.toThrow();
   });
 
+  it("validates the server-created waitlisted result for a full visible group slot", async () => {
+    const waitlisted = { status: "waitlisted", waitlistEntry: WAITLIST_ENTRY, position: 2 };
+    const fetchMock = vi.fn().mockResolvedValue(jsonResponse(200, waitlisted));
+    vi.stubGlobal("fetch", fetchMock);
+    const client = new MiniappApiClient(BASE);
+
+    const result = await client.createSingleBooking({
+      clientId: CLIENT.id,
+      trainingId: SLOT.trainingId
+    });
+
+    expect(result).toEqual(waitlisted);
+    expect(fetchMock.mock.calls[0][0]).toBe(`${BASE}/bookings/single`);
+  });
+
+  it("rejects a malformed waitlisted booking result via the contract (unsafe path)", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockResolvedValue(
+        jsonResponse(200, { status: "waitlisted", waitlistEntry: WAITLIST_ENTRY })
+      )
+    );
+    const client = new MiniappApiClient(BASE);
+
+    await expect(
+      client.createSingleBooking({ clientId: CLIENT.id, trainingId: SLOT.trainingId })
+    ).rejects.toThrow();
+  });
+
   it("surfaces a 409 (slot filled meanwhile) as ConflictError with the server message", async () => {
     vi.stubGlobal(
       "fetch",
@@ -465,17 +536,6 @@ describe("MiniappApiClient.createSingleBooking", () => {
     ).rejects.toBeInstanceOf(ConflictError);
   });
 });
-
-const WAITLIST_ENTRY: WaitlistEntry = {
-  id: "66666666-6666-6666-6666-666666666666",
-  clientId: CLIENT.id,
-  trainingId: SLOT.trainingId,
-  position: 2,
-  groupSubscriptionId: null,
-  status: "waiting",
-  addedAt: "2026-06-05T10:00:00.000Z",
-  notifiedAt: null
-};
 
 describe("MiniappApiClient.joinWaitlist", () => {
   it("POSTs the validated body and validates the created entry (with position)", async () => {

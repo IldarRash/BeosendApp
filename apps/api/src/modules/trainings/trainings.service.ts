@@ -20,6 +20,7 @@ import type {
   CourtCellOccupant,
   CourtSlotOccupant,
   DayOfWeek,
+  DeleteTrainingSeriesResult,
   GenerateAllMonthInput,
   GenerateAllResult,
   GenerateGroupResult,
@@ -37,7 +38,8 @@ import type {
   TrainerUpcomingQuery,
   TrainingCalendarItem,
   TrainingParticipants,
-  TrainingRoster
+  TrainingRoster,
+  UpdateIndividualPriceInput
 } from "@beosand/types";
 import {
   autoAssignResultSchema,
@@ -45,6 +47,7 @@ import {
   COURT_OPEN_HOUR,
   courtFreeForSlots,
   courtSlotsCovered,
+  deleteTrainingSeriesResultSchema,
   freeCourtsBySlot,
   freeSeats,
   generateAllResultSchema,
@@ -1104,9 +1107,130 @@ export class TrainingsService {
   }
 
   /**
+   * Admin: update the per-session RSD price of an individual training. A single edit
+   * updates one instance; the series edit updates this instance plus the same future
+   * non-terminal sibling set used by the individual series reschedule flow. The
+   * target must be an individual training (groupId null AND clientId set), and
+   * cancelled/completed rows are never mutated.
+   */
+  async updateIndividualPrice(
+    actorTelegramId: number,
+    id: string,
+    input: UpdateIndividualPriceInput,
+    options: { series: false }
+  ): Promise<Training>;
+  async updateIndividualPrice(
+    actorTelegramId: number,
+    id: string,
+    input: UpdateIndividualPriceInput,
+    options: { series: true }
+  ): Promise<Training[]>;
+  async updateIndividualPrice(
+    actorTelegramId: number,
+    id: string,
+    input: UpdateIndividualPriceInput,
+    options: { series: boolean }
+  ): Promise<Training | Training[]> {
+    this.assertAdmin(actorTelegramId);
+
+    const updated = await this.trainings.transaction(async (tx) => {
+      const target = await this.trainings.findFullForUpdate(tx, id);
+      if (!target) {
+        throw new NotFoundException(`Training ${id} not found`);
+      }
+      this.assertMutableIndividualTraining(target, "update price for");
+
+      if (!options.series) {
+        const row = await this.trainings.updatePrice(tx, id, input.priceSingleRsd);
+        return trainingSchema.parse(row);
+      }
+
+      this.assertFutureSeriesAnchor(target, "update price for");
+      const targetIds = await this.resolveFutureSeriesTargets(tx, target);
+      const rows: Training[] = [];
+      for (const seriesId of targetIds) {
+        const locked =
+          seriesId === target.id ? target : await this.trainings.findFullForUpdate(tx, seriesId);
+        if (!locked) {
+          throw new ConflictException("Training changed while price update was in progress");
+        }
+        this.assertSameIndividualSeriesTarget(locked, target, "price update");
+        if (locked.status === "cancelled" || locked.status === "completed") {
+          continue;
+        }
+        rows.push(await this.trainings.updatePrice(tx, seriesId, input.priceSingleRsd));
+      }
+      rows.sort((a, b) => a.date.localeCompare(b.date) || a.startTime.localeCompare(b.startTime));
+      return z.array(trainingSchema).parse(rows);
+    });
+
+    return updated;
+  }
+
+  /**
+   * Admin: soft-cancel this individual training's future series target set. This is
+   * intentionally a cancel, not a hard delete: bookings move to cancelled, the row is
+   * hidden from admin calendars by the existing cancelled filter, auto court blocks
+   * are freed, and affected clients are notified after commit.
+   */
+  async deleteIndividualSeries(
+    actorTelegramId: number,
+    id: string
+  ): Promise<DeleteTrainingSeriesResult> {
+    this.assertAdmin(actorTelegramId);
+
+    const ref = await this.trainings.findDateById(id);
+    if (!ref) {
+      throw new NotFoundException(`Training ${id} not found`);
+    }
+
+    const cancelled = await this.trainings.transaction(async (tx) => {
+      await this.courtBlocks.lockDate(ref.date, tx);
+      const target = await this.trainings.findFullForUpdate(tx, id);
+      if (!target) {
+        throw new NotFoundException(`Training ${id} not found`);
+      }
+      if (target.date !== ref.date) {
+        throw new ConflictException("Training changed while series deletion was in progress");
+      }
+      this.assertMutableIndividualTraining(target, "delete series for");
+      this.assertFutureSeriesAnchor(target, "delete series for");
+
+      const targetIds = await this.resolveFutureSeriesTargets(tx, target);
+      const targetDates = await this.trainings.listDatesByIds(tx, targetIds);
+      for (const date of sortedUnique(targetDates.map((row) => row.date))) {
+        if (date !== ref.date) {
+          await this.courtBlocks.lockDate(date, tx);
+        }
+      }
+
+      const results: { trainingId: string; clientIds: string[] }[] = [];
+      for (const seriesId of targetIds) {
+        const locked =
+          seriesId === target.id ? target : await this.trainings.findFullForUpdate(tx, seriesId);
+        if (!locked || locked.status === "cancelled" || locked.status === "completed") {
+          continue;
+        }
+        this.assertSameIndividualSeriesTarget(locked, target, "series deletion");
+        const clientIds = await this.cancelOneInTx(tx, seriesId);
+        results.push({ trainingId: seriesId, clientIds });
+      }
+      return results;
+    });
+
+    for (const { trainingId, clientIds } of cancelled) {
+      await this.notifyCancelledSafely(trainingId, clientIds);
+    }
+
+    return deleteTrainingSeriesResultSchema.parse({
+      ids: cancelled.map((row) => row.trainingId)
+    });
+  }
+
+  /**
    * Admin: reschedule the TIME of a training (manager console). A single edit moves
    * ONE instance; the series edit (`series: true`) moves this instance plus every
-   * FUTURE non-cancelled sibling of its individual 1-on-1 series. ONE transaction.
+   * FUTURE non-terminal sibling of its individual 1-on-1 series. ONE transaction.
    *
    * Invariants enforced here:
    * - Admin-only (gated before any read/write).
@@ -1118,7 +1242,7 @@ export class TrainingsService {
    *   rescheduled as a batch here.
    * - The series target set is the target's subscription batch (resolved from its
    *   owner booking's groupSubscriptionId) intersected with FUTURE (date >= today,
-   *   same `today` source the generate flow uses) non-cancelled individual trainings.
+   *   same `today` source the generate flow uses) non-terminal individual trainings.
    *   PAST instances are deliberately left untouched (history is never rewritten).
    * - Each target is updated via updateTimes, which writes ONLY start/end: the row
    *   keeps its id, status, bookedCount, and all bookings — no booking is recreated or
@@ -1188,10 +1312,10 @@ export class TrainingsService {
   }
 
   /**
-   * The FUTURE non-cancelled INDIVIDUAL trainings of the locked target's series,
+   * The FUTURE non-terminal INDIVIDUAL trainings of the locked target's series,
    * including the target itself. The series is resolved from the owner booking's
    * groupSubscriptionId; with no subscription link the series is just the target. The
-   * subscription's training ids are intersected with the future non-cancelled
+   * subscription's training ids are intersected with the future non-terminal
    * individual trainings of the same client + trainer (the same set the generator's
    * idempotency read covers), so PAST and cancelled siblings are excluded. Returns the
    * ids to reschedule; the caller writes each inside its tx.
@@ -1220,7 +1344,8 @@ export class TrainingsService {
     const future = await this.trainings.listFutureNonCancelledIndividual(
       target.clientId,
       target.trainerId,
-      today
+      today,
+      tx
     );
 
     const ids = future
@@ -1231,6 +1356,39 @@ export class TrainingsService {
       ids.push(target.id);
     }
     return ids;
+  }
+
+  private assertMutableIndividualTraining(training: Training, action: string): void {
+    if (training.groupId !== null || training.clientId === null) {
+      throw new BadRequestException(
+        "Operation applies only to individual (1-on-1) trainings"
+      );
+    }
+    if (training.status === "cancelled" || training.status === "completed") {
+      throw new ConflictException(`Cannot ${action} a ${training.status} training`);
+    }
+  }
+
+  private assertSameIndividualSeriesTarget(
+    candidate: Training,
+    target: Training,
+    operation: string
+  ): void {
+    if (
+      candidate.groupId !== null ||
+      candidate.clientId === null ||
+      candidate.clientId !== target.clientId ||
+      candidate.trainerId !== target.trainerId
+    ) {
+      throw new ConflictException(`Training changed while ${operation} was in progress`);
+    }
+  }
+
+  private assertFutureSeriesAnchor(training: Training, action: string): void {
+    const today = new Date().toISOString().slice(0, 10);
+    if (training.date < today) {
+      throw new ConflictException(`Cannot ${action} a past training series`);
+    }
   }
 
   /**

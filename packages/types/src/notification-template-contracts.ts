@@ -61,7 +61,7 @@ export const NOTIFICATION_TEMPLATE_PLACEHOLDERS: Record<NotificationTemplateKey,
     "{levelName}",
     "{trainerName}"
   ],
-  "individual-request-admin": ["{clientName}", "{trainerName}"],
+  "individual-request-admin": ["{clientName}", "{trainerName}", "{date}", "{startTime}", "{endTime}"],
   "court-request-created-admin": [
     "{clientName}",
     "{clientTelegramId}",

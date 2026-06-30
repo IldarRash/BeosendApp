@@ -124,24 +124,54 @@ export type Group = z.infer<typeof groupSchema>;
 export type CreateGroupInput = z.infer<typeof createGroupSchema>;
 export type UpdateGroupInput = z.infer<typeof updateGroupSchema>;
 
-// --- Individual training request (Feature 8): notification-only, no persisted booking ---
+// --- Individual training request (Feature 8): durable trainer/admin decision ---
 
-/** Body for POST /trainers/:id/individual-request: the requesting client's own Telegram id. */
+export const individualTrainingRequestStatus = z.enum(["pending", "confirmed", "declined"]);
+export type IndividualTrainingRequestStatus = z.infer<typeof individualTrainingRequestStatus>;
+
+export const individualTrainingRequestSchema = z.object({
+  id: uuid,
+  clientId: uuid,
+  trainerId: uuid,
+  date: dateString,
+  startTime: timeString,
+  endTime: timeString,
+  status: individualTrainingRequestStatus,
+  trainingId: uuid.nullable(),
+  createdAt: z.string().datetime(),
+  decidedAt: z.string().datetime().nullable(),
+  decidedBy: z.number().int().nullable()
+});
+export type IndividualTrainingRequest = z.infer<typeof individualTrainingRequestSchema>;
+
+/**
+ * Body for POST /trainers/:id/individual-request: the requesting client's own
+ * Telegram id plus the exact slot the client selected. Strict and end-after-start
+ * so no caller can smuggle price/trainer identity/capacity into the request.
+ */
 export const individualRequestSchema = z
   .object({
-    telegramId: z.number().int()
+    telegramId: z.number().int(),
+    date: dateString,
+    startTime: timeString,
+    endTime: timeString
   })
-  .strict();
+  .strict()
+  .refine((value) => value.endTime > value.startTime, {
+    message: "endTime must be after startTime",
+    path: ["endTime"]
+  });
 export type IndividualRequestInput = z.infer<typeof individualRequestSchema>;
 
 /**
- * Result of an individual-training request. `delivered` is whether at least one
- * notification recipient received it (trainer first, then admin fallback);
- * `reason` is present only on failure so the bot picks its message. The single
- * soft case is no reachable trainer/admin notification channel.
+ * Result of an individual-training request. `id` is the durable request id that
+ * trainer/admin Confirm/Decline buttons target. `delivered` is whether at least
+ * one notification recipient received it (trainer first, then admin fallback);
+ * `reason` is present only on failure so the bot picks its message.
  */
 export const individualRequestResultSchema = z
   .object({
+    id: uuid,
     delivered: z.boolean(),
     reason: z.enum(["trainer-unavailable"]).optional()
   })
@@ -240,7 +270,11 @@ export const generateIndividualMonthSchema = z
     month: z.number().int().min(1).max(12),
     priceSingleRsd: rsd
   })
-  .strict();
+  .strict()
+  .refine((value) => value.endTime > value.startTime, {
+    message: "endTime must be after startTime",
+    path: ["endTime"]
+  });
 export type GenerateIndividualMonthInput = z.infer<typeof generateIndividualMonthSchema>;
 
 /** Result of an individual-month generation: the batch id and the created trainings. */
@@ -293,6 +327,22 @@ export type GenerationStatusItem = z.infer<typeof generationStatusItemSchema>;
  */
 export const changeCapacitySchema = z.object({ capacity: z.number().int().positive() }).strict();
 export type ChangeCapacityInput = z.infer<typeof changeCapacitySchema>;
+
+/**
+ * Body for PATCH /trainings/:id/price and /price-series (admin manager console).
+ * Applies only to individual trainings; nullable clears an admin-set per-session
+ * price. Strict so callers cannot smuggle schedule/capacity/status changes.
+ */
+export const updateIndividualPriceSchema = z
+  .object({ priceSingleRsd: rsd.nullable() })
+  .strict();
+export type UpdateIndividualPriceInput = z.infer<typeof updateIndividualPriceSchema>;
+
+/** Result of DELETE /trainings/:id/series: the future individual training ids cancelled. */
+export const deleteTrainingSeriesResultSchema = z
+  .object({ ids: z.array(uuid) })
+  .strict();
+export type DeleteTrainingSeriesResult = z.infer<typeof deleteTrainingSeriesResultSchema>;
 
 /**
  * Body for POST /trainings/:id/assign-court (admin manager console). The training
@@ -388,6 +438,35 @@ export const bookingSchema = z.object({
   paidBy: z.number().int().nullable()
 });
 export type Booking = z.infer<typeof bookingSchema>;
+
+/** Body for POST /trainers/individual-requests/:id/(confirm|decline). */
+export const decideIndividualRequestSchema = z.object({}).strict();
+export type DecideIndividualRequestInput = z.infer<typeof decideIndividualRequestSchema>;
+
+/**
+ * Result of a trainer/admin individual-request decision. Confirm carries the new
+ * individual training plus its owner booking; decline carries only the decided
+ * request because no training/booking is created.
+ */
+export const individualRequestDecisionResultSchema = z.discriminatedUnion("status", [
+  z
+    .object({
+      status: z.literal("confirmed"),
+      request: individualTrainingRequestSchema,
+      training: trainingSchema,
+      booking: bookingSchema
+    })
+    .strict(),
+  z
+    .object({
+      status: z.literal("declined"),
+      request: individualTrainingRequestSchema
+    })
+    .strict()
+]);
+export type IndividualRequestDecisionResult = z.infer<
+  typeof individualRequestDecisionResultSchema
+>;
 
 export const createSingleBookingSchema = z
   .object({
@@ -731,6 +810,25 @@ export const waitlistEntrySchema = z.object({
   notifiedAt: z.string().datetime().nullable()
 });
 export type WaitlistEntry = z.infer<typeof waitlistEntrySchema>;
+
+/**
+ * Result of POST /bookings/single. A free group slot still returns the booking
+ * shape directly for backward compatibility; a full group slot returns a typed
+ * server-created waitlist result with the entry and its position. Full
+ * non-group trainings never use the waitlisted branch.
+ */
+export const singleBookingWaitlistedResultSchema = z
+  .object({
+    status: z.literal("waitlisted"),
+    waitlistEntry: waitlistEntrySchema,
+    position: z.number().int()
+  })
+  .strict();
+export const singleBookingResultSchema = z.union([
+  bookingSchema,
+  singleBookingWaitlistedResultSchema
+]);
+export type SingleBookingResult = z.infer<typeof singleBookingResultSchema>;
 
 /** Request to join a training's waitlist (T2.1). Mirrors createSingleBookingSchema. */
 export const createWaitlistEntrySchema = z

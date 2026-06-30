@@ -35,6 +35,16 @@ describe("notification template contracts", () => {
     }
   });
 
+  it("offers selected slot placeholders for individual request staff DMs", () => {
+    expect(NOTIFICATION_TEMPLATE_PLACEHOLDERS["individual-request-admin"]).toEqual([
+      "{clientName}",
+      "{trainerName}",
+      "{date}",
+      "{startTime}",
+      "{endTime}"
+    ]);
+  });
+
   it("classifies every key as client or staff, with the *-admin keys as staff", () => {
     for (const key of notificationTemplateKey.options) {
       const audience = NOTIFICATION_TEMPLATE_AUDIENCE[key];

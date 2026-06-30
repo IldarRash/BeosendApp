@@ -5,6 +5,7 @@ import type {
   SlotCard,
   Trainer,
   TrainerTodayItem,
+  Training,
   TrainingRoster
 } from "@beosand/types";
 import { ApiClient } from "./api-client";
@@ -156,7 +157,7 @@ describe("ApiClient.createSingleBooking", () => {
       { clientId: CLIENT_ID, trainingId: TRAINING_ID },
       999
     );
-    expect(result).toEqual({ ok: true, booking });
+    expect(result).toEqual(booking);
     const [url, init] = fetchMock.mock.calls[0] as [string, RequestInit];
     expect(url).toBe("http://api.test/bookings/single");
     expect(init.method).toBe("POST");
@@ -167,25 +168,28 @@ describe("ApiClient.createSingleBooking", () => {
     });
   });
 
-  // Unsafe path: a 409 (full/cancelled or duplicate) is mapped to a distinct
-  // conflict result so the handler can branch to the waitlist instead of erroring.
-  it("maps a 409 to a conflict result rather than throwing", async () => {
-    mockFetch({}, false, 409);
+  it("returns a server-created waitlist result from the shared single-booking contract", async () => {
+    const waitlisted = {
+      status: "waitlisted" as const,
+      waitlistEntry,
+      position: waitlistEntry.position
+    };
+    mockFetch(waitlisted, true, 201);
     const result = await new ApiClient("http://api.test").createSingleBooking(
       { clientId: CLIENT_ID, trainingId: TRAINING_ID },
       999
     );
-    expect(result).toEqual({ ok: false, reason: "conflict" });
+    expect(result).toEqual(waitlisted);
   });
 
-  it("throws on any other non-2xx (e.g. 403 foreign client)", async () => {
-    mockFetch({}, false, 403);
+  it("throws on any non-2xx (e.g. 403 foreign client or legacy 409 conflict)", async () => {
+    mockFetch({}, false, 409);
     await expect(
       new ApiClient("http://api.test").createSingleBooking(
         { clientId: CLIENT_ID, trainingId: TRAINING_ID },
         999
       )
-    ).rejects.toThrow(/403/);
+    ).rejects.toThrow(/409/);
   });
 
   it("rejects a 2xx body that violates the Booking contract", async () => {
@@ -482,27 +486,37 @@ const clientBody = {
 
 describe("ApiClient.requestIndividualSession", () => {
   const TRAINER_ID = "33333333-3333-3333-3333-333333333333";
+  const REQUEST_ID = "66666666-6666-6666-6666-666666666666";
+  const individualInput = {
+    telegramId: 999,
+    date: "2026-07-15",
+    startTime: "18:00",
+    endTime: "19:00"
+  };
 
   afterEach(() => {
     vi.unstubAllGlobals();
   });
 
   it("POSTs /trainers/:id/individual-request with the self telegram id in header and body", async () => {
-    const fetchMock = mockFetch({ delivered: true });
-    const result = await new ApiClient("http://api.test").requestIndividualSession(TRAINER_ID, 999);
-    expect(result).toEqual({ delivered: true });
+    const fetchMock = mockFetch({ id: REQUEST_ID, delivered: true });
+    const result = await new ApiClient("http://api.test").requestIndividualSession(
+      TRAINER_ID,
+      individualInput
+    );
+    expect(result).toEqual({ id: REQUEST_ID, delivered: true });
     const [url, init] = fetchMock.mock.calls[0] as [string, RequestInit];
     expect(url).toBe(`http://api.test/trainers/${TRAINER_ID}/individual-request`);
     expect(init.method).toBe("POST");
     expect((init.headers as Record<string, string>)["x-telegram-id"]).toBe("999");
-    expect(JSON.parse(init.body as string)).toEqual({ telegramId: 999 });
+    expect(JSON.parse(init.body as string)).toEqual(individualInput);
   });
 
   it("returns the soft trainer-unavailable result the API reports", async () => {
-    mockFetch({ delivered: false, reason: "trainer-unavailable" });
+    mockFetch({ id: REQUEST_ID, delivered: false, reason: "trainer-unavailable" });
     await expect(
-      new ApiClient("http://api.test").requestIndividualSession(TRAINER_ID, 999)
-    ).resolves.toEqual({ delivered: false, reason: "trainer-unavailable" });
+      new ApiClient("http://api.test").requestIndividualSession(TRAINER_ID, individualInput)
+    ).resolves.toEqual({ id: REQUEST_ID, delivered: false, reason: "trainer-unavailable" });
   });
 
   // Soft path: an unknown/inactive trainer or not-onboarded client is a 404,
@@ -510,21 +524,134 @@ describe("ApiClient.requestIndividualSession", () => {
   it("maps a 404 to a soft trainer-unavailable result rather than throwing", async () => {
     mockFetch({}, false, 404);
     await expect(
-      new ApiClient("http://api.test").requestIndividualSession(TRAINER_ID, 999)
+      new ApiClient("http://api.test").requestIndividualSession(TRAINER_ID, individualInput)
     ).resolves.toEqual({ delivered: false, reason: "trainer-unavailable" });
   });
 
   it("throws on any other non-2xx (e.g. 403 non-self)", async () => {
     mockFetch({}, false, 403);
     await expect(
-      new ApiClient("http://api.test").requestIndividualSession(TRAINER_ID, 999)
+      new ApiClient("http://api.test").requestIndividualSession(TRAINER_ID, individualInput)
     ).rejects.toThrow(/403/);
   });
 
   it("rejects a 2xx body that violates the result contract", async () => {
     mockFetch({ delivered: false, reason: "nope" });
     await expect(
-      new ApiClient("http://api.test").requestIndividualSession(TRAINER_ID, 999)
+      new ApiClient("http://api.test").requestIndividualSession(TRAINER_ID, individualInput)
+    ).rejects.toThrow();
+  });
+
+  it("rejects an invalid request shape before calling fetch", async () => {
+    const fetchMock = vi.fn();
+    vi.stubGlobal("fetch", fetchMock);
+    await expect(
+      new ApiClient("http://api.test").requestIndividualSession(TRAINER_ID, {
+        ...individualInput,
+        endTime: "17:00"
+      })
+    ).rejects.toThrow();
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+});
+
+describe("ApiClient individual request decisions", () => {
+  const TRAINER_ID = "33333333-3333-3333-3333-333333333333";
+  const REQUEST_ID = "66666666-6666-6666-6666-666666666666";
+  const requestBase = {
+    id: REQUEST_ID,
+    clientId: CLIENT_ID,
+    trainerId: TRAINER_ID,
+    date: "2026-07-15",
+    startTime: "18:00",
+    endTime: "19:00",
+    createdAt: "2026-06-03T10:00:00.000Z"
+  };
+  const individualTraining: Training = {
+    id: TRAINING_ID,
+    groupId: null,
+    date: "2026-07-15",
+    startTime: "18:00",
+    endTime: "19:00",
+    trainerId: TRAINER_ID,
+    clientId: CLIENT_ID,
+    capacity: 1,
+    bookedCount: 1,
+    priceSingleRsd: 2500,
+    status: "full"
+  };
+
+  afterEach(() => {
+    vi.unstubAllGlobals();
+  });
+
+  it("POSTs confirm for an individual request, validates the decision result, and maps to ok", async () => {
+    const fetchMock = mockFetch({
+      status: "confirmed",
+      request: {
+        ...requestBase,
+        status: "confirmed",
+        trainingId: TRAINING_ID,
+        decidedAt: "2026-06-03T10:05:00.000Z",
+        decidedBy: 777
+      },
+      training: individualTraining,
+      booking
+    });
+    await expect(
+      new ApiClient("http://api.test").confirmIndividualRequest(REQUEST_ID, 777)
+    ).resolves.toEqual({ ok: true });
+    const [url, init] = fetchMock.mock.calls[0] as [string, RequestInit];
+    expect(url).toBe(`http://api.test/trainers/individual-requests/${REQUEST_ID}/confirm`);
+    expect(init.method).toBe("POST");
+    expect((init.headers as Record<string, string>)["x-telegram-id"]).toBe("777");
+    expect(JSON.parse(init.body as string)).toEqual({});
+  });
+
+  it("POSTs decline for an individual request and validates the declined result", async () => {
+    const fetchMock = mockFetch({
+      status: "declined",
+      request: {
+        ...requestBase,
+        status: "declined",
+        trainingId: null,
+        decidedAt: "2026-06-03T10:05:00.000Z",
+        decidedBy: 777
+      }
+    });
+    await expect(
+      new ApiClient("http://api.test").declineIndividualRequest(REQUEST_ID, 777)
+    ).resolves.toEqual({ ok: true });
+    expect(fetchMock.mock.calls[0][0]).toBe(
+      `http://api.test/trainers/individual-requests/${REQUEST_ID}/decline`
+    );
+  });
+
+  it("maps already-decided and unauthorized individual decisions to soft outcomes", async () => {
+    mockFetch({}, false, 409);
+    await expect(
+      new ApiClient("http://api.test").confirmIndividualRequest(REQUEST_ID, 777)
+    ).resolves.toEqual({ ok: false, reason: "alreadyDecided" });
+
+    mockFetch({}, false, 403);
+    await expect(
+      new ApiClient("http://api.test").declineIndividualRequest(REQUEST_ID, 777)
+    ).resolves.toEqual({ ok: false, reason: "notAuthorized" });
+  });
+
+  it("rejects a 2xx individual decision body that violates the contract", async () => {
+    mockFetch({
+      status: "confirmed",
+      request: {
+        ...requestBase,
+        status: "confirmed",
+        trainingId: TRAINING_ID,
+        decidedAt: "2026-06-03T10:05:00.000Z",
+        decidedBy: 777
+      }
+    });
+    await expect(
+      new ApiClient("http://api.test").confirmIndividualRequest(REQUEST_ID, 777)
     ).rejects.toThrow();
   });
 });

@@ -17,6 +17,7 @@ import type {
   MarkAttendanceInput,
   MyBookingItem,
   MyBookingScope,
+  SingleBookingResult,
   TransferGroupInput,
   TransferGroupResult
 } from "@beosand/types";
@@ -29,6 +30,7 @@ import {
   monthBounds,
   myBookingItemSchema,
   recomputeTrainingStatus,
+  singleBookingResultSchema,
   transferGroupResultSchema
 } from "@beosand/types";
 import type { Database } from "@beosand/db";
@@ -93,12 +95,12 @@ export class BookingsService {
     @Inject(ENV) private readonly env: Env
   ) {}
 
-  async createSingle(actorTelegramId: number, input: CreateSingleInput): Promise<Booking> {
+  async createSingle(actorTelegramId: number, input: CreateSingleInput): Promise<SingleBookingResult> {
     await this.assertOwnsClient(actorTelegramId, input.clientId);
 
     const today = new Date().toISOString().slice(0, 10);
-    const booking = await this.bookings.transaction(async (tx) => {
-      const training = await this.bookings.findClientBookableTrainingForUpdate(
+    const result = await this.bookings.transaction(async (tx) => {
+      const training = await this.bookings.findClientVisibleTrainingForUpdate(
         tx,
         input.trainingId,
         today
@@ -110,13 +112,56 @@ export class BookingsService {
         }
         throw new ConflictException("Training is not bookable");
       }
-      return this.bookSeat(tx, {
+
+      const existing = await this.bookings.findActiveBookingForClient(
+        tx,
+        input.clientId,
+        training.id
+      );
+      if (existing) {
+        throw new ConflictException("Client already booked this training");
+      }
+
+      if (
+        isBookable({
+          capacity: training.capacity,
+          bookedCount: training.bookedCount,
+          status: training.status
+        })
+      ) {
+        return this.bookSeat(tx, {
+          clientId: input.clientId,
+          training,
+          type: "single",
+          source: "telegram"
+        });
+      }
+
+      if (training.status === "cancelled" || training.status === "completed") {
+        throw new ConflictException("Training is not bookable");
+      }
+      if (training.groupId === null) {
+        throw new ConflictException("Training is not bookable");
+      }
+
+      const entry = await this.waitlist.appendSingleEntry(tx, {
         clientId: input.clientId,
-        training,
-        type: "single",
-        source: "telegram"
+        trainingId: training.id
       });
+      if (!entry) {
+        throw new ConflictException("Client is already on the waitlist for this training");
+      }
+
+      return {
+        status: "waitlisted" as const,
+        waitlistEntry: entry,
+        position: entry.position
+      };
     });
+
+    if (result.status === "waitlisted") {
+      return singleBookingResultSchema.parse(result);
+    }
 
     // After the commit, fire-and-forget: a notification failure must never undo
     // the booking or surface as an error to the caller. All sends are idempotent and
@@ -126,10 +171,10 @@ export class BookingsService {
     );
     // Connector seam: emit the typed booking.created event (no listener yet).
     await this.emitBookingCreatedSafely([
-      { id: booking.id, clientId: booking.clientId, trainingId: booking.trainingId, type: "single" }
+      { id: result.id, clientId: result.clientId, trainingId: result.trainingId, type: "single" }
     ]);
 
-    return bookingSchema.parse(booking);
+    return singleBookingResultSchema.parse(result);
   }
 
   /**
@@ -177,6 +222,12 @@ export class BookingsService {
       // source = "walk_in" when the booked client has no telegram_id, else "admin".
       source = client.telegramId === null ? "walk_in" : "admin";
 
+      const trainingForSeat = await this.expandIndividualTrainingForManualSecondParticipant(
+        tx,
+        training,
+        input.clientId
+      );
+
       // Redeem one bonus credit (admin-only opt-in): inside this tx, require admin
       // (a trainer-of-the-training may book manually but may NOT redeem a client's
       // bonus credit — the contract reserves redemption for admins), then require a
@@ -200,7 +251,7 @@ export class BookingsService {
       // decision itself — there is no separate confirmation step to wait on.
       return this.bookSeat(tx, {
         clientId: input.clientId,
-        training,
+        training: trainingForSeat,
         type: "single",
         source,
         payment
@@ -222,6 +273,39 @@ export class BookingsService {
     ]);
 
     return bookingSchema.parse(booking);
+  }
+
+  private async expandIndividualTrainingForManualSecondParticipant(
+    tx: Database,
+    training: TrainingLockRow,
+    clientId: string
+  ): Promise<TrainingLockRow> {
+    const isIndividual = training.groupId === null && training.clientId !== null;
+    if (
+      !isIndividual ||
+      training.capacity !== 1 ||
+      training.bookedCount !== 1 ||
+      (training.status !== "open" && training.status !== "full")
+    ) {
+      return training;
+    }
+
+    const existing = await this.bookings.findActiveBookingForClient(tx, clientId, training.id);
+    if (existing) {
+      throw new ConflictException("Client already booked this training");
+    }
+
+    const capacity = 2;
+    await this.bookings.updateTrainingCapacity(tx, training.id, capacity);
+    return {
+      ...training,
+      capacity,
+      status: recomputeTrainingStatus({
+        capacity,
+        bookedCount: training.bookedCount,
+        status: training.status
+      })
+    };
   }
 
   /**

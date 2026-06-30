@@ -45,6 +45,11 @@ export const waitlistStatus = pgEnum("waitlist_status", [
   "expired",
   "cancelled"
 ]);
+export const individualTrainingRequestStatus = pgEnum("individual_training_request_status", [
+  "pending",
+  "confirmed",
+  "declined"
+]);
 export const broadcastType = pgEnum("broadcast_type", ["today", "tomorrow", "week", "freed-up"]);
 export const notificationType = pgEnum("notification_type", [
   "booking-confirmed",
@@ -253,6 +258,25 @@ export const trainings = pgTable("trainings", {
   // (whose price comes from the joined group's priceSingleRsd). Whole dinars.
   priceSingleRsd: integer("price_single_rsd"),
   status: trainingStatus("status").notNull().default("open")
+});
+
+export const individualTrainingRequests = pgTable("individual_training_requests", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  clientId: uuid("client_id")
+    .notNull()
+    .references(() => clients.id),
+  trainerId: uuid("trainer_id")
+    .notNull()
+    .references(() => trainers.id),
+  date: date("date").notNull(),
+  startTime: time("start_time").notNull(),
+  endTime: time("end_time").notNull(),
+  status: individualTrainingRequestStatus("status").notNull().default("pending"),
+  // Set only after confirm; null for pending/declined requests.
+  trainingId: uuid("training_id").references(() => trainings.id),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  decidedAt: timestamp("decided_at", { withTimezone: true }),
+  decidedBy: bigint("decided_by", { mode: "number" })
 });
 
 export const bookings = pgTable("bookings", {
@@ -498,6 +522,7 @@ export const schema = {
   clients,
   groups,
   trainings,
+  individualTrainingRequests,
   bookings,
   waitlist,
   broadcasts,

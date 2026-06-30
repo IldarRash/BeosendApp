@@ -1,6 +1,7 @@
 import { BadRequestException, ForbiddenException } from "@nestjs/common";
 import type { Env } from "@beosand/config";
-import type { Client, Trainer } from "@beosand/types";
+import type { Database } from "@beosand/db";
+import type { Client, IndividualTrainingRequest, Trainer } from "@beosand/types";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { TrainersController } from "./trainers.controller";
 import { TrainersService } from "./trainers.service";
@@ -24,11 +25,62 @@ const milena: Trainer = {
   individualVisible: true
 };
 
+const individualInput = {
+  telegramId: 777,
+  date: "2099-07-01",
+  startTime: "10:00",
+  endTime: "11:00"
+};
+
+const requestId = "99999999-9999-4999-8999-999999999999";
+
+function individualRequest(
+  overrides: Partial<IndividualTrainingRequest> = {}
+): IndividualTrainingRequest {
+  return {
+    id: requestId,
+    clientId: client.id,
+    trainerId: milena.id,
+    date: individualInput.date,
+    startTime: individualInput.startTime,
+    endTime: individualInput.endTime,
+    status: "pending",
+    trainingId: null,
+    createdAt: "2099-06-30T10:00:00.000Z",
+    decidedAt: null,
+    decidedBy: null,
+    ...overrides
+  };
+}
+
 function makeRepo(overrides: Partial<TrainersRepository> = {}): TrainersRepository {
   return {
+    transaction: vi.fn(async (work: (tx: Database) => Promise<unknown>) => work({} as Database)),
     listActive: vi.fn(async () => [milena]),
     listVisibleForIndividual: vi.fn(async () => [milena]),
     findById: vi.fn(async () => milena),
+    lockIndividualSlotDay: vi.fn(async () => undefined),
+    findOverlappingActiveIndividualRequestForUpdate: vi.fn(async () => undefined),
+    findOverlappingNonTerminalIndividualTrainingForUpdate: vi.fn(async () => undefined),
+    createIndividualRequest: vi.fn(
+      async (
+        _tx: Database,
+        input: {
+          clientId: string;
+          trainerId: string;
+          date: string;
+          startTime: string;
+          endTime: string;
+        }
+      ) =>
+        individualRequest({
+          clientId: input.clientId,
+          trainerId: input.trainerId,
+          date: input.date,
+          startTime: input.startTime,
+          endTime: input.endTime
+        })
+    ),
     create: vi.fn(
       async (input: {
         name: string;
@@ -210,31 +262,34 @@ describe("TrainersController", () => {
     const TRAINER_ID = "11111111-1111-1111-1111-111111111111";
 
     it("rejects a non-self request (body id ≠ header id) with ForbiddenException and no send", () => {
-      expect(() => controller.requestIndividual(String(777), TRAINER_ID, { telegramId: 888 })).toThrow(
-        ForbiddenException
-      );
+      expect(() =>
+        controller.requestIndividual(String(777), TRAINER_ID, {
+          ...individualInput,
+          telegramId: 888
+        })
+      ).toThrow(ForbiddenException);
       expect(notifications.notifyTrainerOfIndividualRequest).not.toHaveBeenCalled();
       expect(notifications.notifyAdminsOfIndividualRequest).not.toHaveBeenCalled();
     });
 
     it("rejects a missing/invalid header before any work", () => {
-      expect(() => controller.requestIndividual(undefined, TRAINER_ID, { telegramId: 777 })).toThrow(
-        BadRequestException
-      );
       expect(() =>
-        controller.requestIndividual("not-a-number", TRAINER_ID, { telegramId: 777 })
+        controller.requestIndividual(undefined, TRAINER_ID, individualInput)
+      ).toThrow(BadRequestException);
+      expect(() =>
+        controller.requestIndividual("not-a-number", TRAINER_ID, individualInput)
       ).toThrow(BadRequestException);
     });
 
     it("rejects a non-uuid trainer id with BadRequestException", () => {
-      expect(() => controller.requestIndividual(String(777), "not-a-uuid", { telegramId: 777 })).toThrow(
-        BadRequestException
-      );
+      expect(() =>
+        controller.requestIndividual(String(777), "not-a-uuid", individualInput)
+      ).toThrow(BadRequestException);
     });
 
     it("rejects a body with an extra field (strict) with BadRequestException", () => {
       expect(() =>
-        controller.requestIndividual(String(777), TRAINER_ID, { telegramId: 777, foo: 1 })
+        controller.requestIndividual(String(777), TRAINER_ID, { ...individualInput, foo: 1 })
       ).toThrow(BadRequestException);
     });
 
@@ -246,11 +301,12 @@ describe("TrainersController", () => {
         new TrainersService(repo, makeClients(), notifications, env)
       );
       await expect(
-        controller.requestIndividual(String(777), TRAINER_ID, { telegramId: 777 })
-      ).resolves.toEqual({ delivered: true });
+        controller.requestIndividual(String(777), TRAINER_ID, individualInput)
+      ).resolves.toEqual({ id: requestId, delivered: true });
       expect(notifications.notifyTrainerOfIndividualRequest).toHaveBeenCalledWith(
         reachable,
-        client
+        client,
+        expect.objectContaining({ id: requestId })
       );
       expect(notifications.notifyAdminsOfIndividualRequest).not.toHaveBeenCalled();
     });
@@ -263,11 +319,12 @@ describe("TrainersController", () => {
         new TrainersService(repo, makeClients(), notifications, env)
       );
       await expect(
-        controller.requestIndividual(undefined, TRAINER_ID, { telegramId: 777 }, String(777))
-      ).resolves.toEqual({ delivered: true });
+        controller.requestIndividual(undefined, TRAINER_ID, individualInput, String(777))
+      ).resolves.toEqual({ id: requestId, delivered: true });
       expect(notifications.notifyTrainerOfIndividualRequest).toHaveBeenCalledWith(
         reachable,
-        client
+        client,
+        expect.objectContaining({ id: requestId })
       );
       expect(notifications.notifyAdminsOfIndividualRequest).not.toHaveBeenCalled();
     });
@@ -281,11 +338,12 @@ describe("TrainersController", () => {
       );
       // body must match the client-header actor (777), not the raw header (888).
       await expect(
-        controller.requestIndividual(String(888), TRAINER_ID, { telegramId: 777 }, String(777))
-      ).resolves.toEqual({ delivered: true });
+        controller.requestIndividual(String(888), TRAINER_ID, individualInput, String(777))
+      ).resolves.toEqual({ id: requestId, delivered: true });
       expect(notifications.notifyTrainerOfIndividualRequest).toHaveBeenCalledWith(
         reachable,
-        client
+        client,
+        expect.objectContaining({ id: requestId })
       );
       expect(notifications.notifyAdminsOfIndividualRequest).not.toHaveBeenCalled();
     });
@@ -301,22 +359,29 @@ describe("TrainersController", () => {
       );
 
       await expect(
-        controller.requestIndividual(String(777), TRAINER_ID, { telegramId: 777 })
-      ).resolves.toEqual({ delivered: true });
+        controller.requestIndividual(String(777), TRAINER_ID, individualInput)
+      ).resolves.toEqual({ id: requestId, delivered: true });
       expect(notifications.notifyTrainerOfIndividualRequest).toHaveBeenCalledWith(
         reachable,
-        client
+        client,
+        expect.objectContaining({ id: requestId })
       );
       expect(notifications.notifyAdminsOfIndividualRequest).toHaveBeenCalledWith(
         [ADMIN_ID],
         reachable,
-        client
+        client,
+        expect.objectContaining({ id: requestId })
       );
     });
 
     it("rejects a foreign body id against the client-header actor with ForbiddenException and no send", () => {
       expect(() =>
-        controller.requestIndividual(undefined, TRAINER_ID, { telegramId: 888 }, String(777))
+        controller.requestIndividual(
+          undefined,
+          TRAINER_ID,
+          { ...individualInput, telegramId: 888 },
+          String(777)
+        )
       ).toThrow(ForbiddenException);
       expect(notifications.notifyTrainerOfIndividualRequest).not.toHaveBeenCalled();
       expect(notifications.notifyAdminsOfIndividualRequest).not.toHaveBeenCalled();
@@ -334,8 +399,8 @@ describe("TrainersController", () => {
       controller = new TrainersController(new TrainersService(repo, clients, notifications, env));
 
       await expect(
-        controller.requestIndividual(String(888), TRAINER_ID, { telegramId: 777 }, String(777))
-      ).resolves.toEqual({ delivered: true });
+        controller.requestIndividual(String(888), TRAINER_ID, individualInput, String(777))
+      ).resolves.toEqual({ id: requestId, delivered: true });
       // The actor (777, from x-client-telegram-id) is the id the requester is looked
       // up by — never the bot/raw header (888).
       expect(clients.findByTelegramId).toHaveBeenCalledWith(777);

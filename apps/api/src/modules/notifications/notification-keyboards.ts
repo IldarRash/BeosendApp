@@ -19,13 +19,14 @@ function label(locale: Locale, key: string): string {
 }
 
 /**
- * Trainer/admin confirm + decline row for a pending booking (`kind: "bk"`) or a
- * monthly-subscription batch (`kind: "sub"`). Callback data is unchanged:
+ * Trainer/admin confirm + decline row for a pending booking (`kind: "bk"`), a
+ * monthly-subscription batch (`kind: "sub"`), or one individual request
+ * (`kind: "ind"`). Callback data is unchanged:
  * `confirm:<kind>:<id>` / `decline:<kind>:<id>`.
  */
 export function confirmDeclineKeyboard(
   locale: Locale,
-  kind: "bk" | "sub",
+  kind: "bk" | "sub" | "ind",
   id: string
 ): InlineKeyboardMarkup {
   const catalog = getStaticCatalog(locale);

@@ -27,7 +27,11 @@ import {
   parseGroupMonth,
   parseGroupPick
 } from "./group-booking";
-import { handleIndividualPick, parseIndividualPick } from "./individual";
+import {
+  handleIndividualPick,
+  handleIndividualSlotText,
+  parseIndividualPick
+} from "./individual";
 import {
   handleCancelConfirm,
   handleCancelPrompt,
@@ -109,6 +113,7 @@ async function main(): Promise<void> {
   // Back/home path from any sub-flow returns to the main menu (admin-aware).
   bot.callbackQuery(MENU_ACTIONS.backToMenu, async (ctx) => {
     await ctx.answerCallbackQuery();
+    ctx.session.individualRequest = undefined;
     const catalog = await resolveCatalog(ctx.from.id);
     await ctx.reply(welcomeText(catalog), { reply_markup: menuFor(ctx.from.id, catalog) });
   });
@@ -143,6 +148,9 @@ async function main(): Promise<void> {
   // Onboarding's first prompts use the default-locale catalog (no client yet).
   bot.on("message:text", async (ctx) => {
     const catalog = await resolveCatalog(ctx.from?.id);
+    if (await handleIndividualSlotText(ctx, api, catalog, ctx.from?.id)) {
+      return;
+    }
     await handleNameText(ctx, api, catalog);
   });
 
@@ -151,6 +159,10 @@ async function main(): Promise<void> {
   // erroring, and the spinner is always answered.
   bot.on("callback_query:data", async (ctx) => {
     await ctx.answerCallbackQuery();
+    const individualTrainerId = parseIndividualPick(ctx.callbackQuery.data);
+    if (individualTrainerId === undefined) {
+      ctx.session.individualRequest = undefined;
+    }
     // Onboarding language step (only active mid-onboarding): pick language and
     // advance to the level step.
     if (await handleOnboardLanguageCallback(ctx, api, catalogFor)) {
@@ -224,9 +236,8 @@ async function main(): Promise<void> {
     // caller's telegram id is forwarded to the API (self-only, gated server-side),
     // which DMs the chosen trainer with a clickable link to the client. The bot
     // only forwards the trainerId + its own id and renders the typed result.
-    const individualTrainerId = parseIndividualPick(ctx.callbackQuery.data);
     if (individualTrainerId !== undefined) {
-      await handleIndividualPick(ctx, api, catalog, ctx.from.id, individualTrainerId);
+      await handleIndividualPick(ctx, catalog, ctx.from.id, individualTrainerId);
       return;
     }
     // My bookings cancel (T1.11): tapping a cancel button shows the "are you

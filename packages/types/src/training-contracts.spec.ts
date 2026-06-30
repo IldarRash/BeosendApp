@@ -11,6 +11,7 @@ import {
   createGroupBookingSchema,
   createGroupSchema,
   createSingleBookingSchema,
+  deleteTrainingSeriesResultSchema,
   declineBookingSchema,
   generateAllMonthSchema,
   generateAllResultSchema,
@@ -26,6 +27,8 @@ import {
   subscriptionSummarySchema,
   individualRequestResultSchema,
   individualRequestSchema,
+  individualRequestDecisionResultSchema,
+  individualTrainingRequestSchema,
   listTrainingsQuerySchema,
   createWaitlistEntrySchema,
   markAttendanceSchema,
@@ -36,6 +39,8 @@ import {
   trainerTodayQuerySchema,
   trainingRosterSchema,
   updateGroupSchema,
+  updateIndividualPriceSchema,
+  singleBookingResultSchema,
   waitlistEntrySchema
 } from "./training-contracts";
 
@@ -188,42 +193,160 @@ describe("updateGroupSchema", () => {
 });
 
 describe("individualRequestSchema (Feature 8)", () => {
-  it("accepts a numeric telegramId", () => {
-    expect(individualRequestSchema.safeParse({ telegramId: 777 }).success).toBe(true);
+  const validRequest = {
+    telegramId: 777,
+    date: "2099-07-01",
+    startTime: "10:00",
+    endTime: "11:00"
+  };
+
+  it("accepts a numeric telegramId and selected date/time slot", () => {
+    expect(individualRequestSchema.safeParse(validRequest).success).toBe(true);
   });
 
   it("accepts a telegram id beyond the 32-bit range", () => {
-    expect(individualRequestSchema.safeParse({ telegramId: 8_000_000_000 }).success).toBe(true);
+    expect(
+      individualRequestSchema.safeParse({ ...validRequest, telegramId: 8_000_000_000 }).success
+    ).toBe(true);
   });
 
-  it("rejects a non-integer or missing telegramId", () => {
-    expect(individualRequestSchema.safeParse({ telegramId: 1.5 }).success).toBe(false);
-    expect(individualRequestSchema.safeParse({}).success).toBe(false);
+  it("rejects a non-integer telegramId, missing date, or invalid time range", () => {
+    expect(individualRequestSchema.safeParse({ ...validRequest, telegramId: 1.5 }).success).toBe(
+      false
+    );
+    expect(
+      individualRequestSchema.safeParse({
+        telegramId: 777,
+        startTime: "10:00",
+        endTime: "11:00"
+      }).success
+    ).toBe(false);
+    expect(individualRequestSchema.safeParse({ ...validRequest, endTime: "10:00" }).success).toBe(
+      false
+    );
+    expect(individualRequestSchema.safeParse({ ...validRequest, startTime: "bad" }).success).toBe(
+      false
+    );
   });
 
   it("rejects extra fields (strict)", () => {
-    expect(individualRequestSchema.safeParse({ telegramId: 777, foo: 1 }).success).toBe(false);
+    expect(individualRequestSchema.safeParse({ ...validRequest, foo: 1 }).success).toBe(false);
+  });
+});
+
+describe("individualTrainingRequestSchema / individualRequestDecisionResultSchema", () => {
+  const request = {
+    id: "11111111-1111-1111-1111-111111111111",
+    clientId: "22222222-2222-2222-2222-222222222222",
+    trainerId: "33333333-3333-3333-3333-333333333333",
+    date: "2099-07-01",
+    startTime: "10:00",
+    endTime: "11:00",
+    status: "pending",
+    trainingId: null,
+    createdAt: "2099-06-30T10:00:00.000Z",
+    decidedAt: null,
+    decidedBy: null
+  };
+
+  const training = {
+    id: "44444444-4444-4444-4444-444444444444",
+    groupId: null,
+    date: "2099-07-01",
+    startTime: "10:00",
+    endTime: "11:00",
+    trainerId: request.trainerId,
+    clientId: request.clientId,
+    capacity: 1,
+    bookedCount: 1,
+    priceSingleRsd: null,
+    status: "full"
+  };
+
+  const booking = {
+    id: "55555555-5555-5555-5555-555555555555",
+    clientId: request.clientId,
+    trainingId: training.id,
+    type: "single",
+    groupSubscriptionId: null,
+    createdAt: "2099-06-30T10:01:00.000Z",
+    status: "booked",
+    source: "telegram",
+    paymentStatus: "unpaid",
+    paidAt: null,
+    paidBy: null
+  };
+
+  it("round-trips a pending durable request", () => {
+    expect(individualTrainingRequestSchema.safeParse(request).success).toBe(true);
+  });
+
+  it("accepts a confirmed decision with the created training and owner booking", () => {
+    expect(
+      individualRequestDecisionResultSchema.safeParse({
+        status: "confirmed",
+        request: {
+          ...request,
+          status: "confirmed",
+          trainingId: training.id,
+          decidedAt: "2099-06-30T10:02:00.000Z",
+          decidedBy: 555
+        },
+        training,
+        booking
+      }).success
+    ).toBe(true);
+  });
+
+  it("accepts a declined decision without training or booking", () => {
+    expect(
+      individualRequestDecisionResultSchema.safeParse({
+        status: "declined",
+        request: {
+          ...request,
+          status: "declined",
+          decidedAt: "2099-06-30T10:02:00.000Z",
+          decidedBy: 555
+        }
+      }).success
+    ).toBe(true);
   });
 });
 
 describe("individualRequestResultSchema (Feature 8)", () => {
   it("accepts a delivered result without a reason", () => {
-    expect(individualRequestResultSchema.safeParse({ delivered: true }).success).toBe(true);
+    expect(
+      individualRequestResultSchema.safeParse({
+        id: "11111111-1111-1111-1111-111111111111",
+        delivered: true
+      }).success
+    ).toBe(true);
   });
 
   it("accepts the soft trainer-unavailable failure", () => {
     expect(
-      individualRequestResultSchema.safeParse({ delivered: false, reason: "trainer-unavailable" })
-        .success
+      individualRequestResultSchema.safeParse({
+        id: "11111111-1111-1111-1111-111111111111",
+        delivered: false,
+        reason: "trainer-unavailable"
+      }).success
     ).toBe(true);
   });
 
   it("rejects an unknown reason or extra fields (strict)", () => {
     expect(
-      individualRequestResultSchema.safeParse({ delivered: false, reason: "nope" }).success
+      individualRequestResultSchema.safeParse({
+        id: "11111111-1111-1111-1111-111111111111",
+        delivered: false,
+        reason: "nope"
+      }).success
     ).toBe(false);
     expect(
-      individualRequestResultSchema.safeParse({ delivered: true, extra: 1 }).success
+      individualRequestResultSchema.safeParse({
+        id: "11111111-1111-1111-1111-111111111111",
+        delivered: true,
+        extra: 1
+      }).success
     ).toBe(false);
   });
 });
@@ -396,6 +519,15 @@ describe("generateIndividualMonthSchema", () => {
     );
   });
 
+  it("rejects end equal to or before start", () => {
+    expect(
+      generateIndividualMonthSchema.safeParse({ ...validBody, endTime: "07:30" }).success
+    ).toBe(false);
+    expect(
+      generateIndividualMonthSchema.safeParse({ ...validBody, endTime: "07:00" }).success
+    ).toBe(false);
+  });
+
   it("rejects a stray field (strict)", () => {
     expect(generateIndividualMonthSchema.safeParse({ ...validBody, extra: 1 }).success).toBe(false);
   });
@@ -422,6 +554,36 @@ describe("rescheduleTrainingSchema", () => {
       rescheduleTrainingSchema.safeParse({ startTime: "07:30", endTime: "09:00", date: "2026-07-01" })
         .success
     ).toBe(false);
+  });
+});
+
+describe("updateIndividualPriceSchema", () => {
+  it("accepts an integer RSD price or null", () => {
+    expect(updateIndividualPriceSchema.safeParse({ priceSingleRsd: 3000 }).success).toBe(true);
+    expect(updateIndividualPriceSchema.safeParse({ priceSingleRsd: null }).success).toBe(true);
+  });
+
+  it("rejects missing, negative, fractional, or extra values", () => {
+    expect(updateIndividualPriceSchema.safeParse({}).success).toBe(false);
+    expect(updateIndividualPriceSchema.safeParse({ priceSingleRsd: -1 }).success).toBe(false);
+    expect(updateIndividualPriceSchema.safeParse({ priceSingleRsd: 3000.5 }).success).toBe(false);
+    expect(
+      updateIndividualPriceSchema.safeParse({ priceSingleRsd: 3000, capacity: 1 }).success
+    ).toBe(false);
+  });
+});
+
+describe("deleteTrainingSeriesResultSchema", () => {
+  it("accepts the cancelled training ids and rejects stray fields", () => {
+    const result = {
+      ids: [
+        "11111111-1111-4111-8111-111111111111",
+        "22222222-2222-4222-8222-222222222222"
+      ]
+    };
+    expect(deleteTrainingSeriesResultSchema.safeParse(result).success).toBe(true);
+    expect(deleteTrainingSeriesResultSchema.safeParse({ ...result, count: 2 }).success).toBe(false);
+    expect(deleteTrainingSeriesResultSchema.safeParse({ ids: ["nope"] }).success).toBe(false);
   });
 });
 
@@ -521,6 +683,53 @@ describe("createSingleBookingSchema", () => {
 
   it("rejects unknown fields (strict)", () => {
     expect(createSingleBookingSchema.safeParse({ ...validBody, source: "web" }).success).toBe(
+      false
+    );
+  });
+});
+
+describe("singleBookingResultSchema", () => {
+  const booking = {
+    id: "11111111-1111-1111-1111-111111111111",
+    clientId: "22222222-2222-2222-2222-222222222222",
+    trainingId: "33333333-3333-3333-3333-333333333333",
+    type: "single",
+    groupSubscriptionId: null,
+    createdAt: "2099-06-08T18:00:00.000Z",
+    status: "booked",
+    source: "telegram",
+    paymentStatus: "unpaid",
+    paidAt: null,
+    paidBy: null
+  };
+
+  const waitlistEntry = {
+    id: "44444444-4444-4444-4444-444444444444",
+    clientId: booking.clientId,
+    trainingId: booking.trainingId,
+    position: 3,
+    groupSubscriptionId: null,
+    status: "waiting",
+    addedAt: "2099-06-08T17:00:00.000Z",
+    notifiedAt: null
+  };
+
+  it("accepts the existing booked response shape", () => {
+    expect(singleBookingResultSchema.safeParse(booking).success).toBe(true);
+  });
+
+  it("accepts a waitlisted response with position", () => {
+    expect(
+      singleBookingResultSchema.safeParse({
+        status: "waitlisted",
+        waitlistEntry,
+        position: 3
+      }).success
+    ).toBe(true);
+  });
+
+  it("rejects a waitlisted response without the entry", () => {
+    expect(singleBookingResultSchema.safeParse({ status: "waitlisted", position: 3 }).success).toBe(
       false
     );
   });

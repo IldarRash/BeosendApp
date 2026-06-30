@@ -43,8 +43,10 @@ import {
   trainingCalendarItemSchema,
   trainingRosterSchema,
   trainingSchema,
+  updateIndividualPriceSchema,
   waitlistAdminItemSchema,
   waitlistEntrySchema,
+  deleteTrainingSeriesResultSchema,
   swapWaitlistResultSchema,
   type AdminMe,
   type AdminSession,
@@ -123,6 +125,8 @@ import {
   type TrainingRoster,
   type TransferGroupInput,
   type TransferGroupResult,
+  type UpdateIndividualPriceInput,
+  type DeleteTrainingSeriesResult,
   type UpdateClientInput,
   type UpdateGroupInput,
   type UpdateLevelInput,
@@ -652,11 +656,49 @@ export class ApiClient {
     return this.request(`/trainings/${id}`, z.object({ id: uuid }), { method: "DELETE" });
   }
 
+  /**
+   * Delete the future individual series containing this training (DELETE
+   * /trainings/:id/series). The server owns the individual-only rule, future-date
+   * selection and notifications; the console only renders the returned ids count.
+   */
+  deleteTrainingSeries(id: string): Promise<DeleteTrainingSeriesResult> {
+    return this.request(`/trainings/${id}/series`, deleteTrainingSeriesResultSchema, {
+      method: "DELETE"
+    });
+  }
+
   /** Change a training's capacity (server rejects below booked, recomputes status). */
   changeCapacity(id: string, input: ChangeCapacityInput): Promise<Training> {
     return this.request(`/trainings/${id}/capacity`, trainingSchema, {
       method: "PATCH",
       body: JSON.stringify(input)
+    });
+  }
+
+  /**
+   * Set, change, or clear one individual training's per-session price (PATCH
+   * /trainings/:id/price). `priceSingleRsd: null` clears it; the API validates the
+   * row is individual and returns the updated training.
+   */
+  updateIndividualPrice(id: string, input: UpdateIndividualPriceInput): Promise<Training> {
+    return this.request(`/trainings/${id}/price`, trainingSchema, {
+      method: "PATCH",
+      body: JSON.stringify(updateIndividualPriceSchema.parse(input))
+    });
+  }
+
+  /**
+   * Set, change, or clear the future individual series price (PATCH
+   * /trainings/:id/price-series). The server resolves the batch and enforces the
+   * individual-only rule; the console validates and renders the returned rows.
+   */
+  updateIndividualPriceSeries(
+    id: string,
+    input: UpdateIndividualPriceInput
+  ): Promise<Training[]> {
+    return this.request(`/trainings/${id}/price-series`, trainingsSchema, {
+      method: "PATCH",
+      body: JSON.stringify(updateIndividualPriceSchema.parse(input))
     });
   }
 

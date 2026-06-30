@@ -148,6 +148,13 @@
       "when": 1782816615091,
       "tag": "0020_abandoned_leopardon",
       "breakpoints": true
+    },
+    {
+      "idx": 21,
+      "version": "7",
+      "when": 1782835141156,
+      "tag": "0021_plain_zaran",
+      "breakpoints": true
     }
   ]
 }

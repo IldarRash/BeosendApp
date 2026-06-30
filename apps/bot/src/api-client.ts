@@ -3,11 +3,14 @@ import {
   clientSchema,
   groupBookingResultSchema,
   groupSchema,
+  individualRequestDecisionResultSchema,
   individualRequestResultSchema,
+  individualRequestSchema,
   labelCatalogSchema,
   levelSchema,
   markAttendanceSchema,
   myBookingItemSchema,
+  singleBookingResultSchema,
   slotCardSchema,
   trainerSchema,
   trainerTodayItemSchema,
@@ -23,6 +26,7 @@ import {
   type GenerateMonthInput,
   type Group,
   type GroupBookingResult,
+  type IndividualRequestInput,
   type IndividualRequestResult,
   type LabelCatalog,
   type Level,
@@ -31,6 +35,7 @@ import {
   type MyBookingItem,
   type MyBookingScope,
   type OnboardClientInput,
+  type SingleBookingResult,
   type SlotCard,
   type Trainer,
   type TrainerTodayItem,
@@ -46,13 +51,14 @@ const TELEGRAM_ID_HEADER = "x-telegram-id";
 const healthSchema = z.object({ status: z.literal("ok"), service: z.string() });
 
 /**
- * Discriminated outcome of a single-booking attempt. `conflict` maps the API's
- * 409 (slot full/cancelled, or already booked) to the bot's waitlist/full
- * branch; any other non-2xx is a real error and throws.
+ * Result of requesting an individual session. A 2xx response is the shared
+ * durable request contract; a 404 is kept as the existing soft unavailable path
+ * because no durable request id exists when the API cannot resolve the trainer
+ * or client.
  */
-export type CreateSingleBookingResult =
-  | { ok: true; booking: Booking }
-  | { ok: false; reason: "conflict" };
+export type RequestIndividualSessionResult =
+  | IndividualRequestResult
+  | { delivered: false; reason: "trainer-unavailable" };
 
 /**
  * Outcome of joining a waitlist. `conflict` maps the API's 409 (the slot is
@@ -165,15 +171,16 @@ export class ApiClient {
    */
   async requestIndividualSession(
     trainerId: string,
-    telegramId: number
-  ): Promise<IndividualRequestResult> {
+    input: IndividualRequestInput
+  ): Promise<RequestIndividualSessionResult> {
+    const body = individualRequestSchema.parse(input);
     const res = await fetch(`${this.baseUrl}/trainers/${trainerId}/individual-request`, {
       method: "POST",
       headers: {
         "content-type": "application/json",
-        [TELEGRAM_ID_HEADER]: String(telegramId)
+        [TELEGRAM_ID_HEADER]: String(body.telegramId)
       },
-      body: JSON.stringify({ telegramId })
+      body: JSON.stringify(body)
     });
     if (res.status === 404) {
       // Unknown/inactive trainer or not-onboarded client: surfaced softly.
@@ -300,16 +307,15 @@ export class ApiClient {
 
   /**
    * Book a single training seat (T1.8). Ownership and capacity are enforced
-   * server-side; the bot only forwards the IDs and renders the outcome. A 409
-   * (slot full/cancelled, or already booked) is surfaced as a distinct result so
-   * the handler can branch to the waitlist/full message instead of a generic
-   * error. The actor's telegram_id is the identity the API re-resolves the
-   * client from; clientId/trainingId are never trusted on their own.
+   * server-side; the bot only forwards the IDs and renders the typed result.
+   * A full group slot may come back as a server-created waitlist result with the
+   * queue position. The actor's telegram_id is the identity the API re-resolves
+   * the client from; clientId/trainingId are never trusted on their own.
    */
   async createSingleBooking(
     input: CreateSingleBookingInput,
     actorTelegramId: number
-  ): Promise<CreateSingleBookingResult> {
+  ): Promise<SingleBookingResult> {
     const res = await fetch(`${this.baseUrl}/bookings/single`, {
       method: "POST",
       headers: {
@@ -318,14 +324,10 @@ export class ApiClient {
       },
       body: JSON.stringify(input)
     });
-    if (res.status === 409) {
-      // Slot is full/cancelled or already booked: the caller offers the waitlist.
-      return { ok: false, reason: "conflict" };
-    }
     if (!res.ok) {
       throw new Error(`API /bookings/single failed: ${res.status}`);
     }
-    return { ok: true, booking: bookingSchema.parse(await res.json()) };
+    return singleBookingResultSchema.parse(await res.json());
   }
 
   /**
@@ -467,7 +469,7 @@ export class ApiClient {
    * instead of erroring. The bot only forwards the id and renders the outcome.
    */
   confirmBooking(bookingId: string, actorTelegramId: number): Promise<TrainerDecisionResult> {
-    return this.trainerDecision(`/bookings/${bookingId}/confirm`, actorTelegramId);
+    return this.trainerDecision(`/bookings/${bookingId}/confirm`, actorTelegramId, bookingSchema);
   }
 
   /**
@@ -478,7 +480,7 @@ export class ApiClient {
    * the id and renders the outcome.
    */
   declineBooking(bookingId: string, actorTelegramId: number): Promise<TrainerDecisionResult> {
-    return this.trainerDecision(`/bookings/${bookingId}/decline`, actorTelegramId);
+    return this.trainerDecision(`/bookings/${bookingId}/decline`, actorTelegramId, bookingSchema);
   }
 
   /**
@@ -494,7 +496,8 @@ export class ApiClient {
   ): Promise<TrainerDecisionResult> {
     return this.trainerDecision(
       `/bookings/subscription/${groupSubscriptionId}/confirm`,
-      actorTelegramId
+      actorTelegramId,
+      groupBookingResultSchema
     );
   }
 
@@ -510,7 +513,40 @@ export class ApiClient {
   ): Promise<TrainerDecisionResult> {
     return this.trainerDecision(
       `/bookings/subscription/${groupSubscriptionId}/decline`,
-      actorTelegramId
+      actorTelegramId,
+      groupBookingResultSchema
+    );
+  }
+
+  /**
+   * Confirm one pending individual-session request. The API owns trainer/admin
+   * authorization and creates the individual training + owner booking on success;
+   * the bot validates the typed decision response, then renders only the outcome.
+   */
+  confirmIndividualRequest(
+    requestId: string,
+    actorTelegramId: number
+  ): Promise<TrainerDecisionResult> {
+    return this.trainerDecision(
+      `/trainers/individual-requests/${requestId}/confirm`,
+      actorTelegramId,
+      individualRequestDecisionResultSchema
+    );
+  }
+
+  /**
+   * Decline one pending individual-session request. No training/booking is
+   * created server-side; the bot validates the typed decision response and
+   * renders the outcome.
+   */
+  declineIndividualRequest(
+    requestId: string,
+    actorTelegramId: number
+  ): Promise<TrainerDecisionResult> {
+    return this.trainerDecision(
+      `/trainers/individual-requests/${requestId}/decline`,
+      actorTelegramId,
+      individualRequestDecisionResultSchema
     );
   }
 
@@ -520,9 +556,10 @@ export class ApiClient {
    * result, a 403 to the soft `notAuthorized` result and any other non-2xx thrown.
    * The API owns the decision; the bot only forwards the id.
    */
-  private async trainerDecision(
+  private async trainerDecision<T>(
     path: string,
-    actorTelegramId: number
+    actorTelegramId: number,
+    schema: z.ZodType<T>
   ): Promise<TrainerDecisionResult> {
     const res = await fetch(`${this.baseUrl}${path}`, {
       method: "POST",
@@ -543,6 +580,7 @@ export class ApiClient {
     if (!res.ok) {
       throw new Error(`API ${path} failed: ${res.status}`);
     }
+    schema.parse(await res.json());
     return { ok: true };
   }
 

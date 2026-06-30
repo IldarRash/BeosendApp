@@ -10,6 +10,13 @@ import { FallbackButton } from "../ui/FallbackButton";
 import { SecondaryButton } from "../ui/SecondaryButton";
 import { Glyph, MenuIcon } from "../ui/icons";
 import { EmptyState, ErrorState, LoadingState } from "../ui/StateView";
+import {
+  dayOfWeekFromDate,
+  formatDayMonth,
+  formatTimeRange,
+  todayLocalDate,
+  weekdayFullKey
+} from "../ui/format";
 
 /**
  * The individual-training-request journey (S8). One screen, three local sub-states:
@@ -142,6 +149,11 @@ function TrainerFlow({
   const t = useT();
   const nav = useNav();
   const request = useRequestIndividual();
+  const [slot, setSlot] = useState<IndividualSlot>(() => ({
+    date: todayLocalDate(),
+    startTime: "",
+    endTime: ""
+  }));
 
   // A delivered:false result is a 200 the screen shows calmly — it rides onSuccess
   // data, not the error channel. Only a true network/4xx/5xx becomes request.error.
@@ -163,9 +175,14 @@ function TrainerFlow({
       trainer={trainer}
       submitting={request.isPending}
       errorMessage={resolveErrorMessage(request.error, t)}
+      slot={slot}
+      onSlotChange={setSlot}
       onConfirm={() => {
+        if (!isCompleteSlot(slot)) {
+          return;
+        }
         hapticSelection();
-        request.mutate(trainer.id, {
+        request.mutate({ trainerId: trainer.id, ...slot }, {
           onSuccess: (result) => {
             if (result.delivered) {
               hapticSuccess();
@@ -182,25 +199,87 @@ function TrainerConfirm({
   trainer,
   submitting,
   errorMessage,
+  slot,
+  onSlotChange,
   onConfirm
 }: {
   trainer: Trainer;
   submitting: boolean;
   errorMessage?: string;
+  slot: IndividualSlot;
+  onSlotChange: (slot: IndividualSlot) => void;
   onConfirm: () => void;
 }): JSX.Element {
   const t = useT();
   const typeLabel = trainerTypeLabel(trainer.type, t);
+  const canSubmit = isCompleteSlot(slot) && !submitting;
+  const invalidRange = slot.startTime !== "" && slot.endTime !== "" && slot.endTime <= slot.startTime;
+  const dateLine = slot.date ? formatIndividualDate(slot.date, t) : t("miniapp.individual.pickDate");
+  const timeLine =
+    slot.startTime && slot.endTime
+      ? formatTimeRange(slot.startTime, slot.endTime)
+      : t("miniapp.individual.pickTime");
 
   useMainButton({
     text: t("miniapp.individual.request"),
     onClick: onConfirm,
+    isEnabled: canSubmit,
     isLoading: submitting
   });
 
   return (
     <div className="screen" aria-busy={submitting || undefined}>
       <div className="tg-sech">{t("miniapp.individual.confirmTitle")}</div>
+      <div className="card">
+        <label className="sumrow">
+          <span className="sumrow__k">{t("miniapp.booking.dateLabel")}</span>
+          <span className="sumrow__v">
+            <input
+              aria-label={t("miniapp.booking.dateLabel")}
+              className="tg-input"
+              type="date"
+              min={todayLocalDate()}
+              value={slot.date}
+              onChange={(event) => onSlotChange({ ...slot, date: event.currentTarget.value })}
+            />
+          </span>
+        </label>
+        <label className="sumrow">
+          <span className="sumrow__k">{t("miniapp.individual.startLabel")}</span>
+          <span className="sumrow__v">
+            <input
+              aria-label={t("miniapp.individual.startLabel")}
+              className="tg-input"
+              type="time"
+              value={slot.startTime}
+              onChange={(event) => onSlotChange({ ...slot, startTime: event.currentTarget.value })}
+            />
+          </span>
+        </label>
+        <label className="sumrow">
+          <span className="sumrow__k">{t("miniapp.individual.endLabel")}</span>
+          <span className="sumrow__v">
+            <input
+              aria-label={t("miniapp.individual.endLabel")}
+              className="tg-input"
+              type="time"
+              value={slot.endTime}
+              onChange={(event) => onSlotChange({ ...slot, endTime: event.currentTarget.value })}
+            />
+          </span>
+        </label>
+      </div>
+      {invalidRange && (
+        <div className="note" role="alert">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={1.8} strokeLinecap="round" strokeLinejoin="round" aria-hidden="true" focusable="false">
+            <circle cx="12" cy="12" r="8.5" />
+            <path d="M12 8v4M12 16h.01" />
+          </svg>
+          <span>{t("miniapp.individual.timeInvalid")}</span>
+        </div>
+      )}
+
+      <div className="tg-sech">{t("miniapp.individual.summaryTitle")}</div>
       <div className="card">
         <div className="sumrow">
           <span className="sumrow__k">{t("miniapp.booking.trainerLabel")}</span>
@@ -211,6 +290,14 @@ function TrainerConfirm({
           <span className="sumrow__v">
             <span className="trainer-type">{typeLabel}</span>
           </span>
+        </div>
+        <div className="sumrow">
+          <span className="sumrow__k">{t("miniapp.booking.dateLabel")}</span>
+          <span className="sumrow__v">{dateLine}</span>
+        </div>
+        <div className="sumrow">
+          <span className="sumrow__k">{t("miniapp.booking.timeLabel")}</span>
+          <span className="sumrow__v">{timeLine}</span>
         </div>
       </div>
       <div className="note">{t("miniapp.individual.confirmBody", { name: trainer.name })}</div>
@@ -224,6 +311,7 @@ function TrainerConfirm({
       <FallbackButton
         text={t("miniapp.individual.request")}
         onClick={onConfirm}
+        disabled={!canSubmit}
         loading={submitting}
       />
     </div>
@@ -313,6 +401,21 @@ function TrainerUnavailable({
 /** The neutral main/guest type label for a trainer; never the telegramId. */
 function trainerTypeLabel(type: Trainer["type"], t: TranslateFn): string {
   return t(type === "main" ? "miniapp.individual.typeMain" : "miniapp.individual.typeGuest");
+}
+
+interface IndividualSlot {
+  date: string;
+  startTime: string;
+  endTime: string;
+}
+
+function isCompleteSlot(slot: IndividualSlot): boolean {
+  return slot.date !== "" && slot.startTime !== "" && slot.endTime !== "" && slot.endTime > slot.startTime;
+}
+
+function formatIndividualDate(date: string, t: TranslateFn): string {
+  const dow = dayOfWeekFromDate(date);
+  return `${t(weekdayFullKey(dow))}, ${formatDayMonth(date)}`;
 }
 
 /** Trailing disclosure chevron for the `.lrow__chev` slot. */

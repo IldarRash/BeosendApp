@@ -22,6 +22,7 @@ import type {
   MyBookingScope,
   MyCourtRequestItem,
   OnboardClientInput,
+  SingleBookingResult,
   SlotCard,
   Trainer,
   TrainingParticipants,
@@ -30,7 +31,7 @@ import type {
 } from "@beosand/types";
 import type { Locale } from "@beosand/i18n";
 import { useApiClient } from "./ApiProvider";
-import { NotFoundError, type CourtRequestInput } from "./client";
+import { NotFoundError, type CourtRequestInput, type IndividualSessionRequestInput } from "./client";
 
 /**
  * The stable query key for the caller's own Client record, keyed by Telegram id.
@@ -175,10 +176,14 @@ export function useIndividualTrainers(): UseQueryResult<Trainer[]> {
  * {@link IndividualRequestResult}: `delivered:false` is a calm 200 ("trainer unavailable"),
  * surfaced as success data the screen renders softly — NOT a mutation error.
  */
-export function useRequestIndividual(): UseMutationResult<IndividualRequestResult, Error, string> {
+export function useRequestIndividual(): UseMutationResult<
+  IndividualRequestResult,
+  Error,
+  IndividualSessionRequestInput
+> {
   const apiClient = useApiClient();
-  return useMutation<IndividualRequestResult, Error, string>({
-    mutationFn: (trainerId) => apiClient.requestIndividualSession(trainerId)
+  return useMutation<IndividualRequestResult, Error, IndividualSessionRequestInput>({
+    mutationFn: (input) => apiClient.requestIndividualSession(input)
   });
 }
 
@@ -193,16 +198,23 @@ export function useRequestIndividual(): UseMutationResult<IndividualRequestResul
  * the UI. A 409 (slot filled meanwhile) surfaces as a {@link ConflictError} so the
  * screen shows the server message verbatim; the same invalidation refetches.
  */
-export function useCreateBooking(): UseMutationResult<Booking, Error, string> {
+export function useCreateBooking(): UseMutationResult<SingleBookingResult, Error, string> {
   const apiClient = useApiClient();
   const qc = useQueryClient();
   const clientId = useResolvedClientId();
-  return useMutation<Booking, Error, string>({
+  return useMutation<SingleBookingResult, Error, string>({
     mutationFn: (trainingId) => {
       if (clientId == null) {
         throw new Error("No resolved client to book for");
       }
       return apiClient.createSingleBooking({ clientId, trainingId });
+    },
+    onSuccess: (result) => {
+      if (result.status === "waitlisted") {
+        void qc.invalidateQueries({ queryKey: [MY_WAITLIST_KEY_PREFIX] });
+        return;
+      }
+      void qc.invalidateQueries({ queryKey: [MY_BOOKINGS_KEY_PREFIX] });
     },
     onSettled: () => {
       void qc.invalidateQueries({ queryKey: [AVAILABLE_SLOTS_KEY_PREFIX] });
@@ -236,6 +248,9 @@ export function useJoinWaitlist(): UseMutationResult<WaitlistEntry, Error, strin
 /** The shared query-key prefix for every my-bookings request (for invalidation). */
 const MY_BOOKINGS_KEY_PREFIX = "my-bookings";
 
+/** The shared query-key prefix for the caller's active waitlist entries. */
+const MY_WAITLIST_KEY_PREFIX = "my-waitlist";
+
 /**
  * A stable query key for one scope of the caller's bookings, keyed by clientId AND
  * scope so the two scopes (upcoming / past) cache independently and a cancel can
@@ -267,7 +282,7 @@ export function useMyBookings(scope: MyBookingScope): UseQueryResult<MyBookingIt
 
 /** The query key for the caller's own active waitlist entries, keyed by clientId. */
 export function myWaitlistQueryKey(clientId: string): readonly [string, string] {
-  return ["my-waitlist", clientId] as const;
+  return [MY_WAITLIST_KEY_PREFIX, clientId] as const;
 }
 
 /**

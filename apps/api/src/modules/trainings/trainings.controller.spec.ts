@@ -1,4 +1,9 @@
-import { BadRequestException, ForbiddenException, NotFoundException } from "@nestjs/common";
+import {
+  BadRequestException,
+  ConflictException,
+  ForbiddenException,
+  NotFoundException
+} from "@nestjs/common";
 import type { Env } from "@beosand/config";
 import type { Client, Group, Trainer, Training } from "@beosand/types";
 import { beforeEach, describe, expect, it, vi } from "vitest";
@@ -1027,5 +1032,172 @@ describe("Admin reschedule writes (PATCH /trainings/:id/time[-series])", () => {
         })
       ).toThrow(BadRequestException);
     });
+  });
+});
+
+describe("Admin individual price/delete writes", () => {
+  const TRAINING_ID = "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa";
+  const TRAINER_ID = "33333333-3333-3333-3333-333333333333";
+  const CLIENT_ID = "c1111111-1111-4111-8111-111111111111";
+  const SUBSCRIPTION_ID = "5b000000-0000-4000-8000-000000000001";
+
+  const individual = (over: Partial<Training> = {}): Training => ({
+    id: TRAINING_ID,
+    groupId: null,
+    date: "2099-07-06",
+    startTime: "18:00",
+    endTime: "19:00",
+    trainerId: TRAINER_ID,
+    clientId: CLIENT_ID,
+    capacity: 1,
+    bookedCount: 1,
+    priceSingleRsd: 3000,
+    status: "full",
+    ...over
+  });
+
+  function makeController(rows: Training[]): {
+    controller: TrainingsController;
+    updatedPriceIds: () => string[];
+    cancelledIds: () => string[];
+    notify: ReturnType<typeof vi.fn>;
+  } {
+    const updatedPriceIds: string[] = [];
+    const cancelledIds: string[] = [];
+    const repo = makeTrainingsRepo({
+      transaction: vi.fn(async (work: (tx: unknown) => Promise<unknown>) => work({})),
+      findDateById: vi.fn(async (id: string) => {
+        const row = rows.find((training) => training.id === id);
+        return row ? { date: row.date } : undefined;
+      }),
+      findFullForUpdate: vi.fn(async (_tx: unknown, id: string) =>
+        rows.find((training) => training.id === id)
+      ),
+      listFutureNonCancelledIndividual: vi.fn(
+        async (clientId: string, trainerId: string, fromDate: string) =>
+          rows
+            .filter(
+              (row) =>
+                row.clientId === clientId &&
+                row.trainerId === trainerId &&
+                row.date >= fromDate &&
+                (row.status === "open" || row.status === "full")
+            )
+            .sort((a, b) => a.date.localeCompare(b.date))
+            .map((row) => ({ id: row.id }))
+      ),
+      listDatesByIds: vi.fn(async (_tx: unknown, ids: readonly string[]) =>
+        rows
+          .filter((row) => ids.includes(row.id))
+          .map((row) => ({ id: row.id, date: row.date }))
+      ),
+      updatePrice: vi.fn(async (_tx: unknown, id: string, priceSingleRsd: number | null) => {
+        updatedPriceIds.push(id);
+        const row = rows.find((training) => training.id === id);
+        if (!row) throw new Error("missing row");
+        row.priceSingleRsd = priceSingleRsd;
+        return row;
+      }),
+      cancelBookedBookingsForTraining: vi.fn(async () => [CLIENT_ID]),
+      markCancelled: vi.fn(async (_tx: unknown, id: string) => {
+        cancelledIds.push(id);
+        const row = rows.find((training) => training.id === id);
+        if (!row) throw new Error("missing row");
+        row.status = "cancelled";
+        return row;
+      }),
+      findRefById: vi.fn(async (id: string) => {
+        const row = rows.find((training) => training.id === id);
+        return row
+          ? { date: row.date, startTime: row.startTime, endTime: row.endTime }
+          : undefined;
+      })
+    } as unknown as Partial<TrainingsRepository>);
+    const bookingsRepo = makeBookingsRepo({
+      findSubscriptionIdForTrainingOwner: vi.fn(async () => SUBSCRIPTION_ID),
+      findSubscriptionTrainingIds: vi.fn(async () => rows.map((row) => row.id))
+    } as unknown as Partial<BookingsRepository>);
+    const notify = vi.fn(async () => 0);
+    const controller = new TrainingsController(
+      new TrainingsService(
+        repo,
+        makeGroupsRepo(),
+        makeTrainersRepo(),
+        makeClientsRepo(),
+        { sendTrainingCancelled: notify } as unknown as NotificationsService,
+        makeCourtBlocksRepo(),
+        bookingsRepo,
+        makeDomainEvents(),
+        env
+      )
+    );
+    return { controller, updatedPriceIds: () => updatedPriceIds, cancelledIds: () => cancelledIds, notify };
+  }
+
+  it("PATCH /trainings/:id/price updates one individual training", async () => {
+    const { controller, updatedPriceIds } = makeController([individual()]);
+
+    const result = await controller.updatePrice(String(ADMIN_ID), TRAINING_ID, {
+      priceSingleRsd: 3500
+    });
+
+    expect(result.priceSingleRsd).toBe(3500);
+    expect(updatedPriceIds()).toEqual([TRAINING_ID]);
+  });
+
+  it("PATCH /trainings/:id/price-series rejects a non-admin before writing", async () => {
+    const { controller, updatedPriceIds } = makeController([individual()]);
+
+    await expect(
+      controller.updatePriceSeries(String(NON_ADMIN_ID), TRAINING_ID, { priceSingleRsd: 3500 })
+    ).rejects.toBeInstanceOf(ForbiddenException);
+    expect(updatedPriceIds()).toEqual([]);
+  });
+
+  it("PATCH /trainings/:id/price rejects invalid price bodies at the boundary", () => {
+    const { controller, updatedPriceIds } = makeController([individual()]);
+
+    expect(() =>
+      controller.updatePrice(String(ADMIN_ID), TRAINING_ID, { priceSingleRsd: 3500, capacity: 2 })
+    ).toThrow(BadRequestException);
+    expect(() =>
+      controller.updatePrice(String(ADMIN_ID), TRAINING_ID, { priceSingleRsd: -1 })
+    ).toThrow(BadRequestException);
+    expect(updatedPriceIds()).toEqual([]);
+  });
+
+  it("PATCH /trainings/:id/price rejects a group training with 400", async () => {
+    const { controller, updatedPriceIds } = makeController([
+      individual({ groupId: GROUP_ID, clientId: null, capacity: 12, status: "open" })
+    ]);
+
+    await expect(
+      controller.updatePrice(String(ADMIN_ID), TRAINING_ID, { priceSingleRsd: 3500 })
+    ).rejects.toBeInstanceOf(BadRequestException);
+    expect(updatedPriceIds()).toEqual([]);
+  });
+
+  it("DELETE /trainings/:id/series cancels future individual series targets and notifies", async () => {
+    const futureId = "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb";
+    const { controller, cancelledIds, notify } = makeController([
+      individual({ id: TRAINING_ID, date: "2099-07-06" }),
+      individual({ id: futureId, date: "2099-07-13" })
+    ]);
+
+    const result = await controller.deleteSeries(String(ADMIN_ID), TRAINING_ID);
+
+    expect(result.ids).toEqual([TRAINING_ID, futureId]);
+    expect(cancelledIds()).toEqual([TRAINING_ID, futureId]);
+    expect(notify).toHaveBeenCalledWith(TRAINING_ID, [CLIENT_ID]);
+    expect(notify).toHaveBeenCalledWith(futureId, [CLIENT_ID]);
+  });
+
+  it("DELETE /trainings/:id/series rejects a terminal target", async () => {
+    const { controller, cancelledIds } = makeController([individual({ status: "completed" })]);
+
+    await expect(controller.deleteSeries(String(ADMIN_ID), TRAINING_ID)).rejects.toBeInstanceOf(
+      ConflictException
+    );
+    expect(cancelledIds()).toEqual([]);
   });
 });

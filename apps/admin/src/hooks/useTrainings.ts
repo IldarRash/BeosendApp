@@ -14,7 +14,9 @@ import type {
   ListTrainingsQuery,
   GenerateMonthInput,
   RescheduleTrainingInput,
-  Training
+  Training,
+  DeleteTrainingSeriesResult,
+  UpdateIndividualPriceInput
 } from "@beosand/types";
 import { useApiClient } from "../api/ApiProvider";
 import { COURT_LOAD_KEY } from "./useCourtLoad";
@@ -96,6 +98,20 @@ export function useDeleteTraining(): UseMutationResult<{ id: string }, Error, st
   });
 }
 
+/** Delete a future individual training series; refreshes the lists on success. */
+export function useDeleteTrainingSeries(): UseMutationResult<
+  DeleteTrainingSeriesResult,
+  Error,
+  string
+> {
+  const api = useApiClient();
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (id: string) => api.deleteTrainingSeries(id),
+    onSuccess: () => invalidateTrainings(queryClient)
+  });
+}
+
 /** Change a training's capacity; refreshes the lists on success. */
 export function useChangeCapacity(): UseMutationResult<
   Training,
@@ -107,6 +123,32 @@ export function useChangeCapacity(): UseMutationResult<
   return useMutation({
     mutationFn: ({ id, input }: { id: string; input: ChangeCapacityInput }) =>
       api.changeCapacity(id, input),
+    onSuccess: () => invalidateTrainings(queryClient)
+  });
+}
+
+/**
+ * Change or clear an individual training price, either for one instance or the
+ * future series. The server owns the individual-only rule and price validation.
+ */
+export function useUpdateIndividualPrice(): UseMutationResult<
+  Training | Training[],
+  Error,
+  { id: string; input: UpdateIndividualPriceInput; series: boolean }
+> {
+  const api = useApiClient();
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: ({
+      id,
+      input,
+      series
+    }: {
+      id: string;
+      input: UpdateIndividualPriceInput;
+      series: boolean;
+    }): Promise<Training | Training[]> =>
+      series ? api.updateIndividualPriceSeries(id, input) : api.updateIndividualPrice(id, input),
     onSuccess: () => invalidateTrainings(queryClient)
   });
 }

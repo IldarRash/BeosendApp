@@ -363,10 +363,30 @@ class FakeTrainingsRepository {
           r.clientId === clientId &&
           r.trainerId === trainerId &&
           r.date >= fromDate &&
-          r.status !== "cancelled"
+          (r.status === "open" || r.status === "full")
       )
       .sort((a, b) => a.date.localeCompare(b.date) || a.startTime.localeCompare(b.startTime))
       .map((r) => ({ id: r.id }));
+  }
+
+  async listDatesByIds(
+    _tx: Database,
+    ids: readonly string[]
+  ): Promise<{ id: string; date: string }[]> {
+    return this.rows
+      .filter((r) => ids.includes(r.id))
+      .map((r) => ({ id: r.id, date: r.date }));
+  }
+
+  updatePriceIds: string[] = [];
+  async updatePrice(_tx: Database, id: string, priceSingleRsd: number | null): Promise<Training> {
+    this.updatePriceIds.push(id);
+    const row = this.rows.find((r) => r.id === id);
+    if (!row) {
+      throw new Error("row not found");
+    }
+    row.priceSingleRsd = priceSingleRsd;
+    return { ...row };
   }
 
   private requireLock(id: string): TrainingLockRow {
@@ -2394,6 +2414,240 @@ describe("TrainingsService", () => {
         )
       ).rejects.toBeInstanceOf(ConflictException);
       expect(trainingsRepo.updateTimesIds).toEqual([]);
+    });
+  });
+
+  describe("individual admin price and series delete rules", () => {
+    const CLIENT_ID = "c1111111-1111-4111-8111-111111111111";
+    const TRAINER_ID = baseGroup.trainerId;
+    const SUBSCRIPTION_ID = "5b000000-0000-4000-8000-000000000001";
+
+    const individual = (over: Partial<Training> = {}): Training => ({
+      id: "10000000-0000-4000-8000-000000000100",
+      groupId: null,
+      date: "2099-07-06",
+      startTime: "18:00",
+      endTime: "19:00",
+      trainerId: TRAINER_ID,
+      clientId: CLIENT_ID,
+      capacity: 1,
+      bookedCount: 1,
+      priceSingleRsd: 3000,
+      status: "full",
+      ...over
+    });
+
+    const ownerBooking = (trainingId: string, subscriptionId: string | null) => ({
+      clientId: CLIENT_ID,
+      trainingId,
+      type: "single",
+      groupSubscriptionId: subscriptionId,
+      status: "booked",
+      source: "admin"
+    });
+
+    const groupTraining = (over: Partial<Training> = {}): Training => ({
+      id: "a0000000-0000-4000-8000-000000000199",
+      groupId: GROUP_ID,
+      date: "2099-07-06",
+      startTime: "20:00",
+      endTime: "21:30",
+      trainerId: TRAINER_ID,
+      clientId: null,
+      capacity: 12,
+      bookedCount: 3,
+      priceSingleRsd: null,
+      status: "open",
+      ...over
+    });
+
+    it("updates the price of one individual instance only", async () => {
+      const targetId = "10000000-0000-4000-8000-000000000101";
+      const siblingId = "10000000-0000-4000-8000-000000000102";
+      trainingsRepo.rows = [
+        individual({ id: targetId, date: "2099-07-06" }),
+        individual({ id: siblingId, date: "2099-07-13" })
+      ];
+      bookingsRepo.inserted = [
+        ownerBooking(targetId, SUBSCRIPTION_ID),
+        ownerBooking(siblingId, SUBSCRIPTION_ID)
+      ];
+
+      const result = (await service.updateIndividualPrice(
+        ADMIN_ID,
+        targetId,
+        { priceSingleRsd: 3500 },
+        { series: false }
+      )) as Training;
+
+      expect(result.id).toBe(targetId);
+      expect(result.priceSingleRsd).toBe(3500);
+      expect(trainingsRepo.updatePriceIds).toEqual([targetId]);
+      expect(trainingsRepo.rows.find((row) => row.id === siblingId)?.priceSingleRsd).toBe(3000);
+    });
+
+    it("updates the whole future individual series target set and leaves past/terminal siblings untouched", async () => {
+      const today = new Date().toISOString().slice(0, 10);
+      const pastId = "10000000-0000-4000-8000-000000000103";
+      const targetId = "10000000-0000-4000-8000-000000000104";
+      const futureId = "10000000-0000-4000-8000-000000000105";
+      const completedId = "10000000-0000-4000-8000-000000000106";
+      const cancelledId = "10000000-0000-4000-8000-000000000107";
+      trainingsRepo.rows = [
+        individual({ id: pastId, date: "2000-01-01" }),
+        individual({ id: targetId, date: addDaysLocal(today, 1) }),
+        individual({ id: futureId, date: addDaysLocal(today, 8) }),
+        individual({ id: completedId, date: addDaysLocal(today, 15), status: "completed" }),
+        individual({ id: cancelledId, date: addDaysLocal(today, 22), status: "cancelled" })
+      ];
+      bookingsRepo.inserted = [
+        ownerBooking(pastId, SUBSCRIPTION_ID),
+        ownerBooking(targetId, SUBSCRIPTION_ID),
+        ownerBooking(futureId, SUBSCRIPTION_ID),
+        ownerBooking(completedId, SUBSCRIPTION_ID),
+        ownerBooking(cancelledId, SUBSCRIPTION_ID)
+      ];
+
+      const result = (await service.updateIndividualPrice(
+        ADMIN_ID,
+        targetId,
+        { priceSingleRsd: null },
+        { series: true }
+      )) as Training[];
+
+      expect(result.map((training) => training.id)).toEqual([targetId, futureId]);
+      expect(trainingsRepo.updatePriceIds).toEqual([targetId, futureId]);
+      expect(trainingsRepo.rows.find((row) => row.id === pastId)?.priceSingleRsd).toBe(3000);
+      expect(trainingsRepo.rows.find((row) => row.id === completedId)?.priceSingleRsd).toBe(3000);
+      expect(trainingsRepo.rows.find((row) => row.id === cancelledId)?.priceSingleRsd).toBe(3000);
+    });
+
+    it("falls back to only the target for a one-off individual price-series update", async () => {
+      const targetId = "10000000-0000-4000-8000-000000000108";
+      trainingsRepo.rows = [individual({ id: targetId })];
+      bookingsRepo.inserted = [ownerBooking(targetId, null)];
+
+      const result = (await service.updateIndividualPrice(
+        ADMIN_ID,
+        targetId,
+        { priceSingleRsd: 4200 },
+        { series: true }
+      )) as Training[];
+
+      expect(result.map((training) => training.id)).toEqual([targetId]);
+      expect(trainingsRepo.updatePriceIds).toEqual([targetId]);
+    });
+
+    it("soft-cancels all future individual series targets and notifies affected clients", async () => {
+      const today = new Date().toISOString().slice(0, 10);
+      const pastId = "10000000-0000-4000-8000-000000000109";
+      const targetId = "10000000-0000-4000-8000-00000000010a";
+      const futureId = "10000000-0000-4000-8000-00000000010b";
+      trainingsRepo.rows = [
+        individual({ id: pastId, date: "2000-01-01" }),
+        individual({ id: targetId, date: addDaysLocal(today, 1) }),
+        individual({ id: futureId, date: addDaysLocal(today, 8) })
+      ];
+      bookingsRepo.inserted = [
+        ownerBooking(pastId, SUBSCRIPTION_ID),
+        ownerBooking(targetId, SUBSCRIPTION_ID),
+        ownerBooking(futureId, SUBSCRIPTION_ID)
+      ];
+      trainingsRepo.cancelledClientIdsByTraining.set(targetId, ["client-a"]);
+      trainingsRepo.cancelledClientIdsByTraining.set(futureId, ["client-b", "client-c"]);
+
+      const result = await service.deleteIndividualSeries(ADMIN_ID, targetId);
+
+      expect(result.ids).toEqual([targetId, futureId]);
+      expect(trainingsRepo.markCancelledIds).toEqual([targetId, futureId]);
+      expect(trainingsRepo.cancelBookedIds).toEqual([targetId, futureId]);
+      expect(trainingsRepo.rows.find((row) => row.id === pastId)?.status).toBe("full");
+      expect(notifications.sendTrainingCancelled).toHaveBeenCalledWith(targetId, ["client-a"]);
+      expect(notifications.sendTrainingCancelled).toHaveBeenCalledWith(futureId, [
+        "client-b",
+        "client-c"
+      ]);
+    });
+
+    it("rejects non-admin price and series-delete writes before mutating rows", async () => {
+      const targetId = "10000000-0000-4000-8000-00000000010c";
+      trainingsRepo.rows = [individual({ id: targetId })];
+
+      await expect(
+        service.updateIndividualPrice(
+          NON_ADMIN_ID,
+          targetId,
+          { priceSingleRsd: 3500 },
+          { series: false }
+        )
+      ).rejects.toBeInstanceOf(ForbiddenException);
+      await expect(
+        service.deleteIndividualSeries(NON_ADMIN_ID, targetId)
+      ).rejects.toBeInstanceOf(ForbiddenException);
+
+      expect(trainingsRepo.updatePriceIds).toEqual([]);
+      expect(trainingsRepo.markCancelledIds).toEqual([]);
+    });
+
+    it("rejects group/non-individual targets with 400", async () => {
+      const targetId = "a0000000-0000-4000-8000-000000000199";
+      trainingsRepo.rows = [groupTraining({ id: targetId })];
+
+      await expect(
+        service.updateIndividualPrice(
+          ADMIN_ID,
+          targetId,
+          { priceSingleRsd: 3500 },
+          { series: false }
+        )
+      ).rejects.toBeInstanceOf(BadRequestException);
+      await expect(
+        service.deleteIndividualSeries(ADMIN_ID, targetId)
+      ).rejects.toBeInstanceOf(BadRequestException);
+      expect(trainingsRepo.updatePriceIds).toEqual([]);
+      expect(trainingsRepo.markCancelledIds).toEqual([]);
+    });
+
+    it("rejects terminal individual targets with 409", async () => {
+      const targetId = "10000000-0000-4000-8000-00000000010d";
+      trainingsRepo.rows = [individual({ id: targetId, status: "cancelled" })];
+
+      await expect(
+        service.updateIndividualPrice(
+          ADMIN_ID,
+          targetId,
+          { priceSingleRsd: 3500 },
+          { series: true }
+        )
+      ).rejects.toBeInstanceOf(ConflictException);
+      await expect(
+        service.deleteIndividualSeries(ADMIN_ID, targetId)
+      ).rejects.toBeInstanceOf(ConflictException);
+      expect(trainingsRepo.updatePriceIds).toEqual([]);
+      expect(trainingsRepo.markCancelledIds).toEqual([]);
+    });
+
+    it("rejects past targets for series price/delete so history is not rewritten", async () => {
+      const targetId = "10000000-0000-4000-8000-00000000010e";
+      trainingsRepo.rows = [individual({ id: targetId, date: "2000-01-01" })];
+      bookingsRepo.inserted = [ownerBooking(targetId, SUBSCRIPTION_ID)];
+
+      await expect(
+        service.updateIndividualPrice(
+          ADMIN_ID,
+          targetId,
+          { priceSingleRsd: 3500 },
+          { series: true }
+        )
+      ).rejects.toBeInstanceOf(ConflictException);
+      await expect(
+        service.deleteIndividualSeries(ADMIN_ID, targetId)
+      ).rejects.toBeInstanceOf(ConflictException);
+
+      expect(trainingsRepo.updatePriceIds).toEqual([]);
+      expect(trainingsRepo.markCancelledIds).toEqual([]);
+      expect(trainingsRepo.rows[0].priceSingleRsd).toBe(3000);
+      expect(trainingsRepo.rows[0].status).toBe("full");
     });
   });
 });
