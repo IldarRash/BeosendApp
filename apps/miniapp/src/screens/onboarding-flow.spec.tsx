@@ -45,14 +45,6 @@ const ONBOARDED: Client = {
   bonusTrainingCredits: 0
 };
 
-/** Accessible name of the mandatory consent checkbox (onboarding step 0). */
-const CONSENT_LABEL = "Я согласен на обработку моих персональных данных";
-
-/** Tick the step-0 consent checkbox so the wizard can advance to the name step. */
-function tickConsent(): void {
-  fireEvent.click(screen.getByLabelText(CONSENT_LABEL));
-}
-
 /** A minimal fake of MiniappApiClient covering the methods the S1 screens call. */
 interface FakeApi {
   getMe: ReturnType<typeof vi.fn>;
@@ -114,41 +106,28 @@ afterEach(() => {
 });
 
 describe("OnboardingWizard", () => {
-  it("blocks advancing past the consent step until the checkbox is ticked", async () => {
+  it("starts on the name step without a consent checkbox", () => {
     renderWithProviders(<OnboardingWizard onDone={vi.fn()} />);
 
-    // Step 1 of 4 — the mandatory consent step. The primary button is disabled
-    // until the client agrees to personal-data processing.
-    expect(screen.getByText("Шаг 1 из 4")).toBeTruthy();
+    // Step 1 of 3 is now the name step; consent is not a visible gate.
+    expect(screen.getByText("Шаг 1 из 3")).toBeTruthy();
+    expect(screen.getByPlaceholderText("Ваше имя")).toBeTruthy();
     const next = primaryButton("Продолжить");
-    expect(next.disabled).toBe(true);
-
-    // Clicking the disabled control does not advance.
-    next.click();
-    expect(screen.getByText("Шаг 1 из 4")).toBeTruthy();
-
-    // Ticking the consent checkbox enables it and advances to the name step.
-    tickConsent();
-    await waitFor(() => expect(primaryButton("Продолжить").disabled).toBe(false));
-    primaryButton("Продолжить").click();
-    await waitFor(() => expect(screen.getByText("Шаг 2 из 4")).toBeTruthy());
+    expect(next.disabled).toBe(false);
   });
 
   it("blocks advancing past the name step while the name is empty", async () => {
     api = makeApi({ getMe: vi.fn().mockReturnValue({ ...ME, name: "" }) });
     renderWithProviders(<OnboardingWizard onDone={vi.fn()} />);
 
-    // Consent first, then the name step (step 2 of 4) with an empty name disabled.
-    tickConsent();
-    primaryButton("Продолжить").click();
-    await waitFor(() => expect(screen.getByText("Шаг 2 из 4")).toBeTruthy());
-
+    // The name step is first and stays disabled until a non-empty name is typed.
+    expect(screen.getByText("Шаг 1 из 3")).toBeTruthy();
     const next = primaryButton("Продолжить");
     expect(next.disabled).toBe(true);
 
     // Clicking the disabled control does not advance.
     next.click();
-    expect(screen.getByText("Шаг 2 из 4")).toBeTruthy();
+    expect(screen.getByText("Шаг 1 из 3")).toBeTruthy();
 
     // Typing a name enables it and advances to the language step.
     const input = screen.getByPlaceholderText("Ваше имя") as HTMLInputElement;
@@ -156,25 +135,20 @@ describe("OnboardingWizard", () => {
 
     await waitFor(() => expect(primaryButton("Продолжить").disabled).toBe(false));
     primaryButton("Продолжить").click();
-    await waitFor(() => expect(screen.getByText("Шаг 3 из 4")).toBeTruthy());
+    await waitFor(() => expect(screen.getByText("Шаг 2 из 3")).toBeTruthy());
   });
 
   it("omits levelId when 'don't know' is chosen and sends the caller's own telegramId", async () => {
     const onDone = vi.fn();
     renderWithProviders(<OnboardingWizard onDone={onDone} />);
 
-    // Step 1 → 2: agree to consent (gates the whole flow).
-    tickConsent();
+    // Step 1 → 2 (name is pre-filled from the verified identity).
     primaryButton("Продолжить").click();
-    await waitFor(() => expect(screen.getByText("Шаг 2 из 4")).toBeTruthy());
+    await waitFor(() => expect(screen.getByText("Шаг 2 из 3")).toBeTruthy());
 
-    // Step 2 → 3 (name is pre-filled from the verified identity).
+    // Step 2 → 3 (keep the default language).
     primaryButton("Продолжить").click();
-    await waitFor(() => expect(screen.getByText("Шаг 3 из 4")).toBeTruthy());
-
-    // Step 3 → 4 (keep the default language).
-    primaryButton("Продолжить").click();
-    await waitFor(() => expect(screen.getByText("Шаг 4 из 4")).toBeTruthy());
+    await waitFor(() => expect(screen.getByText("Шаг 3 из 3")).toBeTruthy());
 
     // The level step defaults to the "Пока не знаю" opt-out; finish without picking one.
     await screen.findByText("Пока не знаю");
@@ -195,13 +169,10 @@ describe("OnboardingWizard", () => {
   it("sends the picked levelId when a real level is selected", async () => {
     renderWithProviders(<OnboardingWizard onDone={vi.fn()} />);
 
-    tickConsent();
     primaryButton("Продолжить").click();
-    await waitFor(() => expect(screen.getByText("Шаг 2 из 4")).toBeTruthy());
+    await waitFor(() => expect(screen.getByText("Шаг 2 из 3")).toBeTruthy());
     primaryButton("Продолжить").click();
-    await waitFor(() => expect(screen.getByText("Шаг 3 из 4")).toBeTruthy());
-    primaryButton("Продолжить").click();
-    await waitFor(() => expect(screen.getByText("Шаг 4 из 4")).toBeTruthy());
+    await waitFor(() => expect(screen.getByText("Шаг 3 из 3")).toBeTruthy());
 
     // Pick the real level row, then finish.
     (await screen.findByLabelText(LEVEL.name)).click();
@@ -254,9 +225,9 @@ describe("Router onboarding decision", () => {
     });
     renderWithProviders(<Router />);
 
-    // The wizard's first step is the mandatory consent step.
-    await waitFor(() => expect(screen.getByText("Шаг 1 из 4")).toBeTruthy());
-    expect(screen.getByLabelText(CONSENT_LABEL)).toBeTruthy();
+    // The wizard opens directly on the name step.
+    await waitFor(() => expect(screen.getByText("Шаг 1 из 3")).toBeTruthy());
+    expect(screen.getByPlaceholderText("Ваше имя")).toBeTruthy();
   });
 
   it("routes an onboarded caller (200) to the Home menu, not the wizard", async () => {
@@ -265,6 +236,6 @@ describe("Router onboarding decision", () => {
     // S2 landing is the Home hub (the section-list menu), not the wizard.
     await waitFor(() => expect(screen.getByText("Мой календарь")).toBeTruthy());
     expect(screen.getByText("Тренировки")).toBeTruthy();
-    expect(within(document.body).queryByText("Шаг 1 из 4")).toBeNull();
+    expect(within(document.body).queryByText("Шаг 1 из 3")).toBeNull();
   });
 });
