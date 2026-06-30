@@ -68,3 +68,136 @@ describe("BookingsRepository.listForClient WHERE filter", () => {
     expect(sql).toContain('"client_id" =');
   });
 });
+
+describe("BookingsRepository.findGroupTrainingsForMonthForUpdate WHERE filter", () => {
+  it("does not pre-filter monthly trainings to open/full before the service sees terminal rows", async () => {
+    let where: unknown;
+    let lockMode: unknown;
+    let orderArgs: unknown[] = [];
+    const builder = {
+      from: () => builder,
+      where: (predicate: unknown) => {
+        where = predicate;
+        return builder;
+      },
+      orderBy: (...args: unknown[]) => {
+        orderArgs = args;
+        return builder;
+      },
+      for: (mode: unknown) => {
+        lockMode = mode;
+        return [] as unknown[];
+      }
+    };
+    const tx = { select: () => builder } as unknown as Database;
+    const repo = new BookingsRepository({ db: tx } as unknown as DatabaseService);
+
+    await repo.findGroupTrainingsForMonthForUpdate(
+      tx,
+      "22222222-2222-4222-8222-222222222222",
+      "2026-06-01",
+      "2026-06-30"
+    );
+
+    expect(where).toBeDefined();
+    const rendered = new PgDialect().sqlToQuery(where as never);
+    const sql = rendered.sql.toLowerCase();
+    expect(sql).toContain('"group_id" =');
+    expect(sql).toContain('"date" >=');
+    expect(sql).toContain('"date" <=');
+    expect(sql).not.toContain('"status"');
+    expect(rendered.params).not.toContain("open");
+    expect(rendered.params).not.toContain("full");
+    expect(orderArgs).toHaveLength(1);
+    expect(lockMode).toBe("update");
+  });
+});
+
+describe("BookingsRepository.findClientBookableTrainingForUpdate WHERE filter", () => {
+  it("keeps the public single-booking predicate aligned with bookable catalogue rows", async () => {
+    let where: unknown;
+    const builder = {
+      from: () => builder,
+      innerJoin: () => builder,
+      where: (predicate: unknown) => {
+        where = predicate;
+        return builder;
+      },
+      limit: () => builder,
+      for: () => [] as unknown[]
+    };
+    const tx = { select: () => builder } as unknown as Database;
+    const repo = new BookingsRepository({ db: tx } as unknown as DatabaseService);
+
+    await repo.findClientBookableTrainingForUpdate(
+      tx,
+      "33333333-3333-4333-8333-333333333333",
+      "2026-06-25"
+    );
+
+    expect(where).toBeDefined();
+    const rendered = new PgDialect().sqlToQuery(where as never);
+    const sql = rendered.sql.toLowerCase();
+    expect(sql).toContain('"id" =');
+    expect(sql).toContain('"date" >=');
+    expect(sql).toContain('"status" =');
+    expect(sql).toContain('"trainings"."booked_count" < "trainings"."capacity"');
+    expect(sql).toContain('"group_id" is not null');
+    expect(sql).toContain('"hidden" =');
+    expect(rendered.params).toEqual(
+      expect.arrayContaining([
+        "33333333-3333-4333-8333-333333333333",
+        "2026-06-25",
+        "open",
+        false
+      ])
+    );
+    expect(rendered.params.filter((param) => param === "active")).toHaveLength(3);
+  });
+});
+
+describe("BookingsRepository.findClientBookableGroupForUpdate WHERE filter", () => {
+  it("requires the monthly group, trainer, and level to be client-bookable", async () => {
+    let where: unknown;
+    let joinCount = 0;
+    let lockMode: unknown;
+    const builder = {
+      from: () => builder,
+      innerJoin: () => {
+        joinCount += 1;
+        return builder;
+      },
+      where: (predicate: unknown) => {
+        where = predicate;
+        return builder;
+      },
+      limit: () => builder,
+      for: (mode: unknown) => {
+        lockMode = mode;
+        return [] as unknown[];
+      }
+    };
+    const tx = { select: () => builder } as unknown as Database;
+    const repo = new BookingsRepository({ db: tx } as unknown as DatabaseService);
+
+    await repo.findClientBookableGroupForUpdate(
+      tx,
+      "44444444-4444-4444-8444-444444444444"
+    );
+
+    expect(where).toBeDefined();
+    const rendered = new PgDialect().sqlToQuery(where as never);
+    const sql = rendered.sql.toLowerCase();
+    expect(sql).toContain('"groups"."id" =');
+    expect(sql).toContain('"groups"."status" =');
+    expect(sql).toContain('"groups"."hidden" =');
+    expect(sql).toContain('"trainers"."status" =');
+    expect(sql).toContain('"levels"."status" =');
+    expect(rendered.params).toEqual(
+      expect.arrayContaining(["44444444-4444-4444-8444-444444444444", false])
+    );
+    expect(rendered.params.filter((param) => param === "active")).toHaveLength(3);
+    expect(joinCount).toBe(2);
+    expect(lockMode).toBe("update");
+  });
+});

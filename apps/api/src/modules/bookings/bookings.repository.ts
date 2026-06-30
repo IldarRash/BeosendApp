@@ -2,7 +2,7 @@ import { Injectable } from "@nestjs/common";
 import { type Database, tables } from "@beosand/db";
 import type { BookingSource, BookingStatus, TrainingStatus } from "@beosand/types";
 import { type Booking, bookingSource } from "@beosand/types";
-import { and, asc, desc, eq, gte, inArray, lt, lte, ne } from "drizzle-orm";
+import { and, asc, desc, eq, gte, inArray, isNotNull, lt, lte, ne, sql } from "drizzle-orm";
 import { DatabaseService } from "../../db/database.service";
 
 type BookingRow = typeof tables.bookings.$inferSelect;
@@ -29,6 +29,11 @@ export interface BookingLockRow {
 /** A month training instance locked FOR UPDATE, carrying its date for skip reporting. */
 export interface GroupTrainingLockRow extends TrainingLockRow {
   date: string;
+}
+
+/** A client-bookable group row locked before monthly booking side effects. */
+export interface ClientBookableGroupRow {
+  id: string;
 }
 
 /**
@@ -116,10 +121,78 @@ export class BookingsRepository {
   }
 
   /**
-   * The group's trainings within [from, to] (a calendar month) with date >= today
-   * and status open|full, locked FOR UPDATE so the per-instance capacity/status
-   * recompute that follows the batch insert cannot oversell. Caller must hold a tx.
-   * Cancelled/completed instances are excluded (never offered as bookable).
+   * Public-client single-booking target: the training row selected FOR UPDATE, but
+   * only when it matches the same bookable catalogue predicate as listAvailable.
+   * Caller must hold a tx.
+   */
+  async findClientBookableTrainingForUpdate(
+    tx: Database,
+    trainingId: string,
+    today: string
+  ): Promise<TrainingLockRow | undefined> {
+    const [row] = await tx
+      .select({
+        id: tables.trainings.id,
+        capacity: tables.trainings.capacity,
+        bookedCount: tables.trainings.bookedCount,
+        status: tables.trainings.status,
+        trainerId: tables.trainings.trainerId
+      })
+      .from(tables.trainings)
+      .innerJoin(tables.groups, eq(tables.trainings.groupId, tables.groups.id))
+      .innerJoin(tables.trainers, eq(tables.trainings.trainerId, tables.trainers.id))
+      .innerJoin(tables.levels, eq(tables.groups.levelId, tables.levels.id))
+      .where(
+        and(
+          eq(tables.trainings.id, trainingId),
+          gte(tables.trainings.date, today),
+          eq(tables.trainings.status, "open"),
+          sql`${tables.trainings.bookedCount} < ${tables.trainings.capacity}`,
+          isNotNull(tables.trainings.groupId),
+          eq(tables.groups.status, "active"),
+          eq(tables.groups.hidden, false),
+          eq(tables.trainers.status, "active"),
+          eq(tables.levels.status, "active")
+        )
+      )
+      .limit(1)
+      .for("update", { of: tables.trainings });
+    return row;
+  }
+
+  /**
+   * Public-client monthly target: the group row selected FOR UPDATE only when
+   * the group, its trainer, and its level are all visible/active for clients.
+   * Caller must hold a tx.
+   */
+  async findClientBookableGroupForUpdate(
+    tx: Database,
+    groupId: string
+  ): Promise<ClientBookableGroupRow | undefined> {
+    const [row] = await tx
+      .select({ id: tables.groups.id })
+      .from(tables.groups)
+      .innerJoin(tables.trainers, eq(tables.groups.trainerId, tables.trainers.id))
+      .innerJoin(tables.levels, eq(tables.groups.levelId, tables.levels.id))
+      .where(
+        and(
+          eq(tables.groups.id, groupId),
+          eq(tables.groups.status, "active"),
+          eq(tables.groups.hidden, false),
+          eq(tables.trainers.status, "active"),
+          eq(tables.levels.status, "active")
+        )
+      )
+      .limit(1)
+      .for("update", { of: tables.groups });
+    return row;
+  }
+
+  /**
+   * The group's trainings within [from, to] (a calendar month) with date >= today,
+   * locked FOR UPDATE so the per-instance capacity/status recompute that follows
+   * the batch insert cannot oversell. Caller must hold a tx.
+   * Terminal rows are returned too; the service classifies those dates as skipped.
    */
   async findGroupTrainingsForMonthForUpdate(
     tx: Database,
@@ -141,8 +214,7 @@ export class BookingsRepository {
         and(
           eq(tables.trainings.groupId, groupId),
           gte(tables.trainings.date, from),
-          lte(tables.trainings.date, to),
-          inArray(tables.trainings.status, ["open", "full"])
+          lte(tables.trainings.date, to)
         )
       )
       .orderBy(asc(tables.trainings.date))

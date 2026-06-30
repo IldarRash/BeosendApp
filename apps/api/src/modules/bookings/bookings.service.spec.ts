@@ -12,6 +12,7 @@ import { beforeEach, describe, expect, it } from "vitest";
 import { BookingsService } from "./bookings.service";
 import type {
   BookingsRepository,
+  ClientBookableGroupRow,
   GroupTrainingLockRow,
   TrainingLockRow
 } from "./bookings.repository";
@@ -144,9 +145,27 @@ const walkInClient: Client = {
   bonusTrainingCredits: 0
 };
 
+type FakeTrainingAvailabilityMeta = {
+  date?: string;
+  groupId?: string | null;
+  groupStatus?: "active" | "inactive";
+  trainerStatus?: "active" | "inactive";
+  levelStatus?: "active" | "inactive";
+  hidden?: boolean;
+};
+
 /** A training fixture without trainerId; the fake fills a default trainerId on read. */
-type FakeTraining = Omit<TrainingLockRow, "trainerId"> & { trainerId?: string };
+type FakeTraining = Omit<TrainingLockRow, "trainerId"> & {
+  trainerId?: string;
+} & FakeTrainingAvailabilityMeta;
 type FakeMonthTraining = Omit<GroupTrainingLockRow, "trainerId"> & { trainerId?: string };
+type FakeBookableGroup = {
+  id: string;
+  status?: "active" | "inactive";
+  hidden?: boolean;
+  trainerStatus?: "active" | "inactive";
+  levelStatus?: "active" | "inactive";
+};
 
 /** In-memory stand-in for the bookings repository (only DB-access layer). */
 class FakeBookingsRepository {
@@ -190,25 +209,83 @@ class FakeBookingsRepository {
    * default fixture used by the rest of the suite.
    */
   trainingsById: Record<string, FakeTraining> = {};
+  clientBookableGroups: Record<string, FakeBookableGroup> = {
+    [GROUP_ID]: {
+      id: GROUP_ID,
+      status: "active",
+      hidden: false,
+      trainerStatus: "active",
+      levelStatus: "active"
+    }
+  };
+
+  private resolveTrainingFixture(trainingId: string): FakeTraining | undefined {
+    const extra = this.trainingsById[trainingId];
+    if (extra) {
+      return extra;
+    }
+    if (this.training && this.training.id === trainingId) {
+      return this.training;
+    }
+    // The transfer cancels source-group bookings whose training is among the
+    // configured source instances; resolve those too.
+    return this.sourceTrainings.find((t) => t.id === trainingId);
+  }
+
+  private toTrainingLockRow(training: FakeTraining): TrainingLockRow {
+    return { ...training, trainerId: training.trainerId ?? TRAINER_ID };
+  }
+
+  private isClientBookableTraining(training: FakeTraining, today: string): boolean {
+    const date = training.date ?? "2099-06-08";
+    const groupId = training.groupId === undefined ? GROUP_ID : training.groupId;
+    return (
+      date >= today &&
+      groupId !== null &&
+      (training.groupStatus ?? "active") === "active" &&
+      training.hidden !== true &&
+      (training.trainerStatus ?? "active") === "active" &&
+      (training.levelStatus ?? "active") === "active" &&
+      training.status === "open" &&
+      training.bookedCount < training.capacity
+    );
+  }
 
   async findTrainingForUpdate(
     _tx: Database,
     trainingId: string
   ): Promise<TrainingLockRow | undefined> {
-    const extra = this.trainingsById[trainingId];
-    if (extra) {
-      return { ...extra, trainerId: extra.trainerId ?? TRAINER_ID };
+    const training = this.resolveTrainingFixture(trainingId);
+    return training ? this.toTrainingLockRow(training) : undefined;
+  }
+
+  async findClientBookableTrainingForUpdate(
+    _tx: Database,
+    trainingId: string,
+    today = "2026-06-30"
+  ): Promise<TrainingLockRow | undefined> {
+    const training = this.resolveTrainingFixture(trainingId);
+    if (!training || !this.isClientBookableTraining(training, today)) {
+      return undefined;
     }
-    if (this.training && this.training.id === trainingId) {
-      return { ...this.training, trainerId: this.training.trainerId ?? TRAINER_ID };
+    return this.toTrainingLockRow(training);
+  }
+
+  async findClientBookableGroupForUpdate(
+    _tx: Database,
+    groupId: string
+  ): Promise<ClientBookableGroupRow | undefined> {
+    const group = this.clientBookableGroups[groupId];
+    if (
+      !group ||
+      (group.status ?? "active") !== "active" ||
+      group.hidden === true ||
+      (group.trainerStatus ?? "active") !== "active" ||
+      (group.levelStatus ?? "active") !== "active"
+    ) {
+      return undefined;
     }
-    // The transfer cancels source-group bookings whose training is among the
-    // configured source instances; resolve those too.
-    const source = this.sourceTrainings.find((t) => t.id === trainingId);
-    if (source) {
-      return { ...source, trainerId: source.trainerId ?? TRAINER_ID };
-    }
-    return undefined;
+    return { id: group.id };
   }
 
   /** Render fields for the connectors domain-event payloads (best-effort emit). */
@@ -547,9 +624,8 @@ describe("BookingsService.createSingle", () => {
   beforeEach(() => {
     bookingsRepo = new FakeBookingsRepository();
     clientsRepo = new FakeClientsRepository();
-    // Admin configured (`env`) so admin-on-behalf and oversell tests authorize; a
-    // client request therefore holds as 'pending' (a pending hold counts toward
-    // capacity exactly like a booked seat, so the seat-math assertions are unchanged).
+    // Admin configured (`env`) so admin-on-behalf and oversell tests authorize.
+    // Client requests now book immediately; the seat-math assertions stay unchanged.
     service = new BookingsService(
       bookingsRepo as unknown as BookingsRepository,
       clientsRepo as unknown as ClientsRepository,
@@ -563,6 +639,35 @@ describe("BookingsService.createSingle", () => {
   });
 
   const input = { clientId: CLIENT_ID, trainingId: TRAINING_ID };
+  const unavailableSingleTrainingCases: Array<{
+    name: string;
+    overrides: Partial<FakeTraining>;
+  }> = [
+    {
+      name: "past open/free grouped training",
+      overrides: { date: "2020-01-01", groupId: GROUP_ID }
+    },
+    {
+      name: "individual/non-group training",
+      overrides: { groupId: null }
+    },
+    {
+      name: "hidden group training",
+      overrides: { groupId: GROUP_ID, hidden: true }
+    },
+    {
+      name: "inactive group training",
+      overrides: { groupId: GROUP_ID, groupStatus: "inactive" }
+    },
+    {
+      name: "inactive trainer training",
+      overrides: { groupId: GROUP_ID, trainerStatus: "inactive" }
+    },
+    {
+      name: "inactive level training",
+      overrides: { groupId: GROUP_ID, levelStatus: "inactive" }
+    }
+  ];
 
   it("holds a seat, increments bookedCount exactly once and keeps the slot open below capacity", async () => {
     bookingsRepo.training = {
@@ -573,7 +678,7 @@ describe("BookingsService.createSingle", () => {
     };
     const booking = await service.createSingle(OWNER_ID, input);
 
-    expect(booking.status).toBe("pending");
+    expect(booking.status).toBe("booked");
     expect(booking.type).toBe("single");
     expect(booking.groupSubscriptionId).toBeNull();
     expect(bookingsRepo.bookings).toHaveLength(1);
@@ -617,6 +722,23 @@ describe("BookingsService.createSingle", () => {
     bookingsRepo.training = undefined;
     await expect(service.createSingle(OWNER_ID, input)).rejects.toBeInstanceOf(NotFoundException);
   });
+
+  it.each(unavailableSingleTrainingCases)(
+    "rejects a forged/stale UUID for $name with a 409 and no insert",
+    async ({ overrides }) => {
+      bookingsRepo.training = {
+        id: TRAINING_ID,
+        capacity: 6,
+        bookedCount: 0,
+        status: "open",
+        ...overrides
+      };
+
+      await expect(service.createSingle(OWNER_ID, input)).rejects.toBeInstanceOf(ConflictException);
+      expect(bookingsRepo.bookings).toHaveLength(0);
+      expect(bookingsRepo.training.bookedCount).toBe(0);
+    }
+  );
 
   it("rejects a caller booking for a client that is not their own (ForbiddenException)", async () => {
     bookingsRepo.training = { id: TRAINING_ID, capacity: 6, bookedCount: 0, status: "open" };
@@ -690,6 +812,7 @@ describe("BookingsService.createGroupBooking", () => {
   let clientsRepo: FakeClientsRepository;
   let groupsRepo: FakeGroupsRepository;
   let waitlist: FakeWaitlistService;
+  let notifications: ReturnType<typeof makeNotificationsSpy>;
   let service: BookingsService;
 
   beforeEach(() => {
@@ -699,11 +822,12 @@ describe("BookingsService.createGroupBooking", () => {
     // A fresh, inspectable waitlist double per test: a full month-date is queued
     // through it (not silently skipped) and the bonus-credit grant follows.
     waitlist = new FakeWaitlistService();
+    notifications = makeNotificationsSpy();
     service = new BookingsService(
       bookingsRepo as unknown as BookingsRepository,
       clientsRepo as unknown as ClientsRepository,
       groupsRepo as unknown as GroupsRepository,
-      fakeNotifications,
+      notifications.service,
       waitlist as unknown as WaitlistService,
       new FakeTrainersRepository() as unknown as TrainersRepository,
       fakeDomainEvents,
@@ -722,7 +846,27 @@ describe("BookingsService.createGroupBooking", () => {
     ...over
   });
 
-  it("creates one booking per bookable instance, all sharing a single groupSubscriptionId", async () => {
+  const unbookableGroupCases: Array<{
+    name: string;
+    group?: Partial<Group>;
+    bookable: Partial<FakeBookableGroup>;
+  }> = [
+    {
+      name: "hidden group",
+      group: { hidden: true },
+      bookable: { hidden: true }
+    },
+    {
+      name: "inactive trainer",
+      bookable: { trainerStatus: "inactive" }
+    },
+    {
+      name: "inactive level",
+      bookable: { levelStatus: "inactive" }
+    }
+  ];
+
+  it("creates booked rows per bookable instance, all sharing a single groupSubscriptionId", async () => {
     bookingsRepo.monthTrainings = [
       monthTraining("a1111111-1111-1111-1111-111111111111", "2099-06-01"),
       monthTraining("a2222222-2222-2222-2222-222222222222", "2099-06-03"),
@@ -737,6 +881,13 @@ describe("BookingsService.createGroupBooking", () => {
     expect(subIds.size).toBe(1);
     expect([...subIds][0]).toBe(result.groupSubscriptionId);
     expect(result.created.every((b) => b.type === "group")).toBe(true);
+    expect(result.created.every((b) => b.status === "booked")).toBe(true);
+    expect(notifications.calls.groupConfirmation).toEqual([
+      result.created.map((booking) => booking.trainingId)
+    ]);
+    expect(notifications.calls.pending).toEqual([]);
+    expect(notifications.calls.pendingToAdmins).toEqual([]);
+    expect(notifications.calls.groupPendingToAdmins).toEqual([]);
   });
 
   it("recomputes count/status per instance and flips an at-capacity slot to full", async () => {
@@ -875,6 +1026,43 @@ describe("BookingsService.createGroupBooking", () => {
       BadRequestException
     );
   });
+
+  it.each(unbookableGroupCases)(
+    "409s a $name before monthly booking, waitlist, or bonus side effects",
+    async ({ group, bookable }) => {
+      groupsRepo.group = { ...activeGroup, ...group };
+      bookingsRepo.clientBookableGroups[GROUP_ID] = {
+        ...bookingsRepo.clientBookableGroups[GROUP_ID],
+        ...bookable
+      };
+      clientsRepo.client = { ...ownerClient, bonusTrainingCredits: 2 };
+      clientsRepo.byId = [{ ...ownerClient, bonusTrainingCredits: 2 }, { ...walkInClient }];
+      bookingsRepo.monthTrainings = [
+        monthTraining("a1111111-1111-1111-1111-111111111111", "2099-06-01"),
+        monthTraining("a2222222-2222-2222-2222-222222222222", "2099-06-03", {
+          bookedCount: 6,
+          status: "full"
+        })
+      ];
+
+      await expect(service.createGroupBooking(OWNER_ID, input)).rejects.toBeInstanceOf(
+        ConflictException
+      );
+
+      expect(bookingsRepo.bookings).toHaveLength(0);
+      expect(waitlist.appended).toHaveLength(0);
+      expect(clientsRepo.client?.bonusTrainingCredits).toBe(2);
+      expect(clientsRepo.byId.find((client) => client.id === CLIENT_ID)?.bonusTrainingCredits).toBe(
+        2
+      );
+      expect(bookingsRepo.monthTrainings.map((training) => training.bookedCount)).toEqual([0, 6]);
+      expect(bookingsRepo.monthTrainings.map((training) => training.status)).toEqual([
+        "open",
+        "full"
+      ]);
+      expect(notifications.calls.groupConfirmation).toEqual([]);
+    }
+  );
 
   it("404s an unknown group", async () => {
     groupsRepo.group = undefined;
@@ -1959,12 +2147,11 @@ describe("BookingsService.transferGroup (Item C — admin group transfer)", () =
 
 // --- Admin-confirmation feature -----------------------------------------------
 //
-// A client request starts `pending` (seat held) whenever at least one admin is
-// configured, and an admin confirms (→ booked) or declines (→ cancelled, seat
-// freed). With NO admin configured nobody can act, so the request auto-confirms
-// (→ booked) instead of hanging forever. The pending hold counts toward capacity
-// exactly like a booked seat, so recompute / open⇔full / the duplicate guard are
-// unchanged by it.
+// New client-created training bookings are final immediately, even when admins
+// are configured: rows start `booked`, capacity is recomputed the same way, and
+// the client gets a confirmation without pending/admin approval notifications.
+// Legacy pending rows/endpoints still exist and are covered by the confirm/decline
+// suites below.
 
 /** A spying notifications double covering every admin-confirm send. */
 function makeNotificationsSpy() {
@@ -2022,7 +2209,7 @@ const TRAINER_WITH_TG: Trainer = {
   individualVisible: true
 };
 
-describe("BookingsService.createSingle — pending vs auto-confirm (admin-confirmation)", () => {
+describe("BookingsService.createSingle - client auto-confirm (admin configured)", () => {
   let bookingsRepo: FakeBookingsRepository;
   let trainersRepo: FakeTrainersRepository;
   let notifications: ReturnType<typeof makeNotificationsSpy>;
@@ -2054,22 +2241,19 @@ describe("BookingsService.createSingle — pending vs auto-confirm (admin-confir
 
   const input = { clientId: CLIENT_ID, trainingId: TRAINING_ID };
 
-  it("holds a pending seat and DMs the admins when an admin is configured", async () => {
+  it("books immediately and sends confirmation without pending/admin notifications when an admin is configured", async () => {
     const booking = await service.createSingle(OWNER_ID, input);
 
-    expect(booking.status).toBe("pending");
-    // A pending hold still counts toward capacity exactly like a booked seat.
+    expect(booking.status).toBe("booked");
     expect(bookingsRepo.training?.bookedCount).toBe(3);
     expect(bookingsRepo.training?.status).toBe("open");
-    // Client gets an acknowledgement; the admins get a confirm/decline DM. No confirmation yet.
-    expect(notifications.calls.pending).toEqual([CLIENT_ID]);
-    expect(notifications.calls.pendingToAdmins).toEqual([
-      { adminIds: [ADMIN_ID], bookingTrainingId: TRAINING_ID }
-    ]);
-    expect(notifications.calls.confirmation).toEqual([]);
+    expect(notifications.calls.confirmation).toEqual([CLIENT_ID]);
+    expect(notifications.calls.pending).toEqual([]);
+    expect(notifications.calls.pendingToAdmins).toEqual([]);
+    expect(notifications.calls.groupPendingToAdmins).toEqual([]);
   });
 
-  it("flips the slot to full on the capacity-th pending hold (recompute unchanged by pending)", async () => {
+  it("flips the slot to full on the capacity-th client booking", async () => {
     bookingsRepo.training = {
       id: TRAINING_ID,
       capacity: 6,
@@ -2078,9 +2262,12 @@ describe("BookingsService.createSingle — pending vs auto-confirm (admin-confir
       trainerId: TRAINER_ID
     };
     const booking = await service.createSingle(OWNER_ID, input);
-    expect(booking.status).toBe("pending");
+    expect(booking.status).toBe("booked");
     expect(bookingsRepo.training?.bookedCount).toBe(6);
     expect(bookingsRepo.training?.status).toBe("full");
+    expect(notifications.calls.confirmation).toEqual([CLIENT_ID]);
+    expect(notifications.calls.pending).toEqual([]);
+    expect(notifications.calls.pendingToAdmins).toEqual([]);
   });
 
   it("auto-confirms (→ booked) and sends the confirmation when NO admin is configured", async () => {
@@ -2105,7 +2292,7 @@ describe("BookingsService.createSingle — pending vs auto-confirm (admin-confir
     expect(notifications.calls.pendingToAdmins).toEqual([]);
   });
 
-  it("counts a pending hold in the duplicate guard (re-book rejected with 409)", async () => {
+  it("counts the booked seat in the duplicate guard (re-book rejected with 409)", async () => {
     await service.createSingle(OWNER_ID, input);
     await expect(service.createSingle(OWNER_ID, input)).rejects.toBeInstanceOf(ConflictException);
     expect(bookingsRepo.bookings).toHaveLength(1);
