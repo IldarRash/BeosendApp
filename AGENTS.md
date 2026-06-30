@@ -1,10 +1,13 @@
-# AGENTS.md — multi-agent workflow
+# AGENTS.md - Codex multi-agent workflow
 
-BeoSand ships a Claude operating layer under `.claude/`. For anything larger than a one-file change,
-run the heavier flow below instead of editing ad hoc. The same guidance applies whether a human or a
-subagent does the work.
+BeoSand ships a Codex operating layer under `.codex/`. For anything larger than a one-file change,
+run the heavier flow below instead of editing ad hoc. The same guidance applies whether the main
+agent or a delegated subagent does the work.
 
-## Roles (`.claude/agents/*`)
+Older operating-layer mirrors may still exist, but Codex should prefer `.codex/agents`,
+`.codex/skills`, and `.codex/rules` whenever multiple versions are present.
+
+## Roles (`.codex/agents/*.toml`)
 
 | Agent | Responsibility |
 | --- | --- |
@@ -15,7 +18,7 @@ subagent does the work.
 | `frontend-implementer` | `apps/admin` (React+Vite) screens calling the API. No domain logic in the frontend. |
 | `test-writer` | Vitest unit/integration tests for the changed behavior. |
 | `reviewer` | Correctness + invariant review of the diff. |
-| `security-reviewer` | Authz (telegram_id ownership/role), input validation, secrets, money/availability integrity. |
+| `security-reviewer` | Authz (`telegram_id` ownership/role), input validation, secrets, money/availability integrity. |
 | `app-runner` | Run API + bot (and DB) and confirm the feature actually works end to end. |
 
 ## Flow
@@ -38,25 +41,27 @@ flowchart LR
   DONE -- no --> P
 ```
 
-1. **Plan.** `planner` reads the spec slice + `docs/architecture/*`, clarifies open questions, and
-   writes/updates `docs/product/features/<slug>.md` (goal, contracts/tables touched, API endpoints,
-   bot flow, acceptance criteria, tests, dependencies).
-2. **Contracts first.** Add/adjust Zod contracts in `packages/types` and any schema in `packages/db`
-   (with a generated migration) before wiring services — they are the source of truth.
-3. **Implement.** Backend, bot, and (for web admin work) frontend in parallel against the agreed
-   contracts. Backend owns all domain decisions, recompute, and money/availability; the bot and the
-   `apps/admin` console only render and call the API. For frontend work, `ui-designer` shapes the
-   design system and `frontend-implementer` wires the screens.
-4. **Test.** Cover valid input, invalid input, the unsafe/forbidden case, and the invariant the
-   feature touches (capacity recompute, status flip, monthly batch, single-date cancel, 6-per-hour).
-5. **Review → security review.**
-6. **Run.** `app-runner` boots the stack and exercises the flow. A feature is **done only when it
-   works in the running bot/API or a concrete blocker is reported** — never "should work".
+1. **Plan.** `planner` reads the spec slice plus `docs/architecture/*`, clarifies open questions,
+   and writes or updates `docs/product/features/<slug>.md` with goal, contracts/tables touched, API
+   endpoints, bot flow, acceptance criteria, tests, and dependencies.
+2. **Contracts first.** Add or adjust Zod contracts in `packages/types` and any schema in
+   `packages/db` with a generated migration before wiring services. Contracts are the source of
+   truth.
+3. **Implement.** Backend, bot, and frontend work can run in parallel against agreed contracts.
+   Backend owns domain decisions, recompute, money, and availability. Bot and admin only render and
+   call the API.
+4. **Test.** Cover valid input, invalid input, unsafe or forbidden cases, and the invariant touched
+   by the feature, such as capacity recompute, status flip, monthly batch, single-date cancel, or
+   six-per-hour limits.
+5. **Review -> security review.** Run correctness, cleanliness, and invariant review first, then
+   security review for authorization, validation, secrets, and money/availability integrity.
+6. **Run.** `app-runner` boots the stack and exercises the flow. A feature is done only when it works
+   in the running bot/API/admin, or when a concrete blocker and next owner are documented.
 
 ## Definition of done
 
-- `pnpm typecheck && pnpm lint && pnpm test && pnpm build` green (turbo runs every workspace,
-  including `@beosand/admin`).
-- Behavior verified in the running app (or a precise blocker documented).
-- Superseded code removed; remaining legacy named in the summary.
+- `pnpm typecheck && pnpm lint && pnpm test && pnpm build` is green across all workspaces,
+  including `@beosand/admin`.
+- Behavior is verified in the running app, or a precise blocker is documented.
+- Superseded code is removed; any remaining legacy path is named in the summary.
 - The feature brief's acceptance criteria are all met.
