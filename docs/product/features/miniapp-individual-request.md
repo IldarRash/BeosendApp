@@ -7,8 +7,8 @@ Slug: `miniapp-individual-request` · Slice: S8 · Branch: `feature/miniapp` (pe
 
 Let a client request a one-on-one (individual) training with a chosen trainer from inside the
 Telegram Mini App, in **3 taps max** (Home → Individual → pick trainer → "Запросить тренировку").
-The request is **notification-only** — the API notifies admins/manager staff to contact this client,
-with the chosen trainer named, and persists no booking. The Mini App replaces the shared
+The request is **notification-only** — the API routes delivery through the trainer-first individual
+request path and persists no booking. The Mini App replaces the shared
 `PlaceholderScreen` currently rendered on the `individual` route with a real
 `TrainerRequestScreen`.
 
@@ -57,7 +57,9 @@ No schema change, **no new contract fields**. Reused contracts from `@beosand/ty
   `{ delivered: boolean, reason?: "trainer-unavailable" }` `.strict()` — **unchanged**. `delivered:
   false` drives the calm soft state, not an error.
 
-No persisted row: the request is an admin/manager notification only (notification-only by design).
+No persisted row: the request is notification-only by design. Delivery routing is trainer-first with
+admin/manager fallback only when the trainer has no numeric `telegramId` or trainer DM delivery
+fails.
 
 ## API
 
@@ -82,13 +84,15 @@ the clients/bookings/waitlist controllers:
   the body `telegramId` must match the **verified** actor, so a spoofed/foreign body id is rejected.
 - Call `this.trainers.requestIndividual(trainerId, actorTelegramId)` (signature unchanged).
 
-`apps/api/src/modules/trainers/trainers.service.ts` — `requestIndividual` is **unchanged**: it
-already takes the resolved `requesterTelegramId`, looks up the client (404 if not onboarded) and the
-active trainer (404 if missing/inactive), then calls `notifyAdminsOfIndividualRequest` so
-admins/manager staff receive a message naming the chosen trainer and linking the client. The doc
-comment's "header/body telegram-id equality is enforced in the controller" stays accurate. Do
-**not** move authz into the service; do **not** add `isAdmin`/scope checks (this is a client self
-endpoint, not admin).
+`apps/api/src/modules/trainers/trainers.service.ts` — `requestIndividual` continues to take the
+resolved `requesterTelegramId`, look up the client (404 if not onboarded) and active trainer (404 if
+missing/inactive), then return the unchanged `IndividualRequestResult`. This slice changes only the
+identity seam; delivery routing is defined in
+`docs/product/features/trainer-first-individual-request-routing.md` and must stay trainer-first with
+admin/manager fallback only when direct trainer delivery is unavailable. The doc comment's
+"header/body telegram-id equality is enforced in the controller" stays accurate. Do **not** move
+authz into the service; do **not** add `isAdmin`/scope checks (this is a client self endpoint, not
+admin).
 
 Why "reject mismatch" rather than "ignore body and use the actor": the body field is unchanged for
 bot back-compat, and the bot already sends a matching `telegramId`; rejecting a mismatch is the
@@ -188,8 +192,8 @@ Reuse existing `miniapp.home.individual` / `miniapp.home.individualHint` and `mi
 1. From Home, a client reaches the trainer list, picks a trainer, and sends a request in **≤3 taps**;
    the chosen flow uses the native MainButton "Запросить тренировку" and BackButton.
 2. A Mini App client session (no `x-telegram-id`, only the bridged `x-client-telegram-id`) can
-   successfully send an individual request; admins/manager staff receive the DM in the running bot
-   with the chosen trainer named.
+   successfully send an individual request; notification delivery follows the trainer-first routing
+   brief.
 3. When the API returns `delivered: false` (`trainer-unavailable`), the screen renders a **calm soft
    state** (not a red error), offering "выбрать другого тренера" / "на главную".
 4. The existing bot individual-request flow (raw `x-telegram-id` + matching body `telegramId`) still

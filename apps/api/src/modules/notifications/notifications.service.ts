@@ -51,10 +51,11 @@ const STAFF_FALLBACK_LOCALE: Locale = "sr";
  * never undone because Telegram was unreachable.
  *
  * Client-facing sends fan out through the connectors ChannelDispatcher (Slice 0:
- * TelegramChannel only, so behavior is identical). The admin-DM/keyboard sends
- * (pending booking/subscription, new court request, individual-session request)
- * stay on TelegramSender directly — they carry an inline keyboard and target the
- * admins, not a client the dispatcher fans out to.
+ * TelegramChannel only, so behavior is identical). The staff-DM/keyboard sends
+ * (pending booking/subscription, new court request, trainer-first individual
+ * session request with admin fallback) stay on TelegramSender directly — they
+ * carry inline operational affordances or target staff outside the client
+ * dispatcher fan-out.
  */
 @Injectable()
 export class NotificationsService {
@@ -444,13 +445,14 @@ export class NotificationsService {
   }
 
   /**
-   * Ad-hoc admin DM (Feature 8): a client wants an individual session with a
-   * trainer — DM every admin a "please contact the client" message naming the
-   * requested trainer and carrying a clickable link to the client (username link
-   * or an id-based mention for username-less clients) plus a deep-link button into
-   * the trainings page. Notification-only: no send-log row (there is no training to
-   * key it on). Returns whether at least one admin received it; per-recipient
-   * failures are logged (never the token) and swallowed.
+   * Admin fallback DM (Feature 8): a client wants an individual session with a
+   * trainer, but the trainer DM was not deliverable — DM every admin a "please
+   * contact the client" message naming the requested trainer and carrying a
+   * clickable link to the client (username link or an id-based mention for
+   * username-less clients) plus a deep-link button into the trainings page.
+   * Notification-only: no send-log row (there is no training to key it on).
+   * Returns whether at least one admin received it; per-recipient failures are
+   * logged (never the token) and swallowed.
    */
   async notifyAdminsOfIndividualRequest(
     adminIds: number[],
@@ -460,20 +462,11 @@ export class NotificationsService {
     if (adminIds.length === 0) {
       return false;
     }
-    // The client name is a clickable HTML mention/link; the trainer name is escaped.
-    const vars = {
-      clientName: clientMentionLink(client),
-      trainerName: escapeHtml(trainer.name)
-    };
     let delivered = false;
     for (const adminId of adminIds) {
       try {
         const locale = await this.resolveStaffLocale(adminId);
-        const override = await this.templates.findOverride("individual-request-admin", locale);
-        const text = renderNotificationTemplate(
-          resolveTemplateBody("individual-request-admin", locale, override),
-          vars
-        );
+        const text = await this.renderIndividualRequestText(trainer, client, locale);
         const replyMarkup = adminDeepLinkMarkup(
           this.env.ADMIN_URL,
           locale,
@@ -486,11 +479,35 @@ export class NotificationsService {
         this.logger.warn(
           `Individual-session request (client ${client.id}, trainer ${trainer.id}) to admin ` +
             `${adminId} failed: ` +
-            (error instanceof Error ? error.message : String(error))
+            this.safeErrorMessage(error)
         );
       }
     }
     return delivered;
+  }
+
+  /**
+   * Trainer-first DM for an individual-session request. The trainer must be
+   * targeted only by numeric telegram_id; username is not a DM address. It uses
+   * the shared staff text copy for now, but sends no admin deep-link markup
+   * because this message is for the trainer to contact the client directly.
+   */
+  async notifyTrainerOfIndividualRequest(trainer: Trainer, client: Client): Promise<boolean> {
+    if (trainer.telegramId === null) {
+      return false;
+    }
+    try {
+      const text = await this.renderIndividualRequestText(trainer, client, trainer.language);
+      await this.sender.sendMessage(trainer.telegramId, text);
+      return true;
+    } catch (error) {
+      this.logger.warn(
+        `Individual-session request (client ${client.id}, trainer ${trainer.id}, ` +
+          `trainer telegram ${trainer.telegramId}) to trainer failed: ` +
+          this.safeErrorMessage(error)
+      );
+      return false;
+    }
   }
 
   /**
@@ -597,5 +614,45 @@ export class NotificationsService {
       }
     }
     return results.some((result) => result.channelId === "telegram" && result.delivered);
+  }
+
+  private async renderIndividualRequestText(
+    trainer: Trainer,
+    client: Client,
+    locale: Locale
+  ): Promise<string> {
+    // Shared staff copy; admin-only affordances are reply markup, not template text.
+    const override = await this.templates.findOverride("individual-request-admin", locale);
+    return renderNotificationTemplate(
+      resolveTemplateBody("individual-request-admin", locale, override),
+      {
+        clientName: clientMentionLink(client),
+        trainerName: escapeHtml(trainer.name)
+      }
+    );
+  }
+
+  private safeErrorMessage(error: unknown): string {
+    const placeholder = "[telegram-token-redacted]";
+    const token =
+      typeof this.env.TELEGRAM_BOT_TOKEN === "string"
+        ? this.env.TELEGRAM_BOT_TOKEN.trim()
+        : "";
+    const bareToken = token.startsWith("bot") ? token.slice(3) : token;
+    let message = error instanceof Error ? error.message : String(error);
+    if (bareToken.length > 0) {
+      message = message.replace(
+        new RegExp(`(?:bot)?${this.escapeRegExp(bareToken)}`, "g"),
+        placeholder
+      );
+    }
+    return message.replace(
+      /\b(?:bot)?\d{6,}:[A-Za-z0-9_-]{20,}\b/g,
+      placeholder
+    );
+  }
+
+  private escapeRegExp(value: string): string {
+    return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
   }
 }

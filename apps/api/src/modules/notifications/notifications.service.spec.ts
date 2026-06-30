@@ -1,5 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import type { Client, Locale } from "@beosand/types";
+import type { Client, Locale, Trainer } from "@beosand/types";
+import { Logger } from "@nestjs/common";
 import type { NotificationRecipient } from "./notifications.repository";
 import { NotificationsService } from "./notifications.service";
 
@@ -43,6 +44,10 @@ interface TemplatesMock {
   findOverride: ReturnType<typeof vi.fn>;
 }
 
+type TrainerIndividualNotifier = NotificationsService & {
+  notifyTrainerOfIndividualRequest(trainer: Trainer, client: Client): Promise<boolean>;
+};
+
 function makeRepo(): RepoMock {
   return {
     hasBeenSent: vi.fn().mockResolvedValue(false),
@@ -54,7 +59,14 @@ function makeRepo(): RepoMock {
   };
 }
 
-const baseEnv = { ADMIN_TELEGRAM_IDS: [] as string[], ADMIN_URL: undefined as string | undefined };
+const TELEGRAM_BOT_TOKEN = "123456789:AAExampleTelegramBotToken_1234567890";
+const REDACTED_TELEGRAM_TOKEN = "[telegram-token-redacted]";
+
+const baseEnv = {
+  ADMIN_TELEGRAM_IDS: [] as string[],
+  ADMIN_URL: undefined as string | undefined,
+  TELEGRAM_BOT_TOKEN
+};
 
 describe("NotificationsService", () => {
   let repo: RepoMock;
@@ -347,7 +359,7 @@ describe("NotificationsService", () => {
     });
   });
 
-  describe("notifyAdminsOfIndividualRequest (Feature 8 — admin-routed)", () => {
+  describe("notifyAdminsOfIndividualRequest (Feature 8 — trainer-first/admin fallback)", () => {
     const trainer = {
       id: "trainer-1",
       name: "Jovana",
@@ -407,6 +419,179 @@ describe("NotificationsService", () => {
         service.notifyAdminsOfIndividualRequest([111, 222], trainer, client)
       ).resolves.toBe(true);
       expect(sender.sendMessage).toHaveBeenCalledTimes(2);
+    });
+
+    it("logs useful redacted detail when a fallback admin DM fails with a token-bearing error", async () => {
+      const rawTokenShape = `bot${TELEGRAM_BOT_TOKEN}`;
+      const warnSpy = vi.spyOn(Logger.prototype, "warn").mockImplementation(() => undefined);
+      sender.sendMessage.mockRejectedValueOnce(
+        new Error(
+          `Telegram POST https://api.telegram.org/${rawTokenShape}/sendMessage failed; ` +
+            `token=${TELEGRAM_BOT_TOKEN}; status=403 Forbidden`
+        )
+      );
+
+      let ok = true;
+      let warnText = "";
+      try {
+        ok = await service.notifyAdminsOfIndividualRequest([111], trainer, client);
+        warnText = warnSpy.mock.calls.map((call) => call.join(" ")).join("\n");
+      } finally {
+        warnSpy.mockRestore();
+      }
+
+      expect(ok).toBe(false);
+      expect(warnText).toContain("Individual-session request");
+      expect(warnText).toContain(`client ${client.id}`);
+      expect(warnText).toContain(`trainer ${trainer.id}`);
+      expect(warnText).toContain("to admin 111 failed");
+      expect(warnText).toContain("Telegram POST");
+      expect(warnText).toContain(
+        `https://api.telegram.org/${REDACTED_TELEGRAM_TOKEN}/sendMessage failed`
+      );
+      expect(warnText).toContain(`token=${REDACTED_TELEGRAM_TOKEN}`);
+      expect(warnText).toContain("status=403 Forbidden");
+      expect(warnText).not.toContain(rawTokenShape);
+      expect(warnText).not.toContain(TELEGRAM_BOT_TOKEN);
+      expect(warnText).not.toContain(`bot${REDACTED_TELEGRAM_TOKEN}`);
+    });
+  });
+
+  describe("notifyTrainerOfIndividualRequest", () => {
+    const trainer: Trainer = {
+      id: "trainer-1",
+      name: "Jovana",
+      type: "main",
+      status: "active",
+      telegramId: 555,
+      telegramUsername: null,
+      language: "ru",
+      individualVisible: true
+    };
+    const client: Client = {
+      id: "client-1",
+      name: "Ivan",
+      telegramId: 777,
+      telegramUsername: "ivan",
+      levelId: null,
+      source: "telegram",
+      phone: null,
+      email: null,
+      note: null,
+      language: "ru",
+      registeredAt: "2026-06-03T10:00:00.000Z",
+      consentGivenAt: null,
+      status: "active",
+      bonusTrainingCredits: 0
+    };
+
+    it("DMs the trainer telegram id, not the client or admin, with a clickable client link and no send-log row", async () => {
+      const ok = await (service as TrainerIndividualNotifier).notifyTrainerOfIndividualRequest(
+        trainer,
+        client
+      );
+
+      expect(ok).toBe(true);
+      expect(sender.sendMessage).toHaveBeenCalledTimes(1);
+      expect(sender.sendMessage.mock.calls[0][0]).toBe(trainer.telegramId);
+      expect(sender.sendMessage.mock.calls.map((c) => c[0])).not.toContain(client.telegramId);
+      expect(sender.sendMessage.mock.calls.map((c) => c[0])).not.toContain(111);
+      expect(sender.sendMessage.mock.calls[0][1]).toContain("https://t.me/ivan");
+      expect(repo.logSent).not.toHaveBeenCalled();
+    });
+
+    it("returns false and sends no DM when the trainer only has a username", async () => {
+      await expect(
+        (service as TrainerIndividualNotifier).notifyTrainerOfIndividualRequest(
+          { ...trainer, telegramId: null, telegramUsername: "jovana_beosand" },
+          client
+        )
+      ).resolves.toBe(false);
+
+      expect(sender.sendMessage).not.toHaveBeenCalled();
+      expect(repo.logSent).not.toHaveBeenCalled();
+    });
+
+    it("returns false, logs useful redacted detail, and writes no send-log row when the trainer DM fails", async () => {
+      const rawTokenShape = `bot${TELEGRAM_BOT_TOKEN}`;
+      const warnSpy = vi.spyOn(Logger.prototype, "warn").mockImplementation(() => undefined);
+      sender.sendMessage.mockRejectedValueOnce(
+        new Error(
+          `Telegram POST https://api.telegram.org/${rawTokenShape}/sendMessage failed; ` +
+            `token=${TELEGRAM_BOT_TOKEN}; status=403 Forbidden`
+        )
+      );
+
+      let ok = true;
+      let warnText = "";
+      try {
+        ok = await (service as TrainerIndividualNotifier).notifyTrainerOfIndividualRequest(
+          trainer,
+          client
+        );
+        warnText = warnSpy.mock.calls.map((call) => call.join(" ")).join("\n");
+      } finally {
+        warnSpy.mockRestore();
+      }
+
+      expect(ok).toBe(false);
+      expect(warnText).toContain("Individual-session request");
+      expect(warnText).toContain(`client ${client.id}`);
+      expect(warnText).toContain(`trainer ${trainer.id}`);
+      expect(warnText).toContain(`trainer telegram ${trainer.telegramId}`);
+      expect(warnText).toContain("to trainer failed");
+      expect(warnText).toContain("Telegram POST");
+      expect(warnText).toContain(
+        `https://api.telegram.org/${REDACTED_TELEGRAM_TOKEN}/sendMessage failed`
+      );
+      expect(warnText).toContain(`token=${REDACTED_TELEGRAM_TOKEN}`);
+      expect(warnText).toContain("status=403 Forbidden");
+      expect(warnText).not.toContain(rawTokenShape);
+      expect(warnText).not.toContain(TELEGRAM_BOT_TOKEN);
+      expect(warnText).not.toContain(`bot${REDACTED_TELEGRAM_TOKEN}`);
+
+      expect(sender.sendMessage.mock.calls[0][0]).toBe(trainer.telegramId);
+      expect(sender.sendMessage.mock.calls[0][1]).toContain("https://t.me/ivan");
+      expect(repo.logSent).not.toHaveBeenCalled();
+    });
+
+    it("redacts token-shaped Telegram Bot API URLs even when no bot token is configured", async () => {
+      const unknownTokenShape = "bot987654321:AAUnknownTelegramBotToken_1234567890";
+      const warnSpy = vi.spyOn(Logger.prototype, "warn").mockImplementation(() => undefined);
+      const serviceWithoutToken = new NotificationsService(
+        repo as never,
+        sender as never,
+        templates as never,
+        dispatcher as never,
+        makeManagers() as never,
+        makeTrainers() as never,
+        { ...baseEnv, TELEGRAM_BOT_TOKEN: undefined } as never
+      );
+      sender.sendMessage.mockRejectedValueOnce(
+        new Error(
+          `Telegram POST https://api.telegram.org/${unknownTokenShape}/sendMessage failed`
+        )
+      );
+
+      let ok = true;
+      let warnText = "";
+      try {
+        ok = await (serviceWithoutToken as TrainerIndividualNotifier).notifyTrainerOfIndividualRequest(
+          trainer,
+          client
+        );
+        warnText = warnSpy.mock.calls.map((call) => call.join(" ")).join("\n");
+      } finally {
+        warnSpy.mockRestore();
+      }
+
+      expect(ok).toBe(false);
+      expect(warnText).toContain("Individual-session request");
+      expect(warnText).toContain(
+        `https://api.telegram.org/${REDACTED_TELEGRAM_TOKEN}/sendMessage failed`
+      );
+      expect(warnText).not.toContain(unknownTokenShape);
+      expect(repo.logSent).not.toHaveBeenCalled();
     });
   });
 });
