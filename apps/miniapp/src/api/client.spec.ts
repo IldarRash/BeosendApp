@@ -1195,11 +1195,15 @@ const TRAINING_PARTICIPANTS: TrainingParticipants = {
   trainingId: SLOT.trainingId,
   participantCount: 2,
   participants: [
-    { firstName: "Аня", avatarInitial: "А" },
-    { firstName: "Марко", avatarInitial: "М" }
+    {
+      firstName: "Аня",
+      avatarInitial: "А",
+      telegramPhotoUrl: "https://t.me/i/userpic/320/anya.jpg"
+    },
+    { firstName: "Марко", avatarInitial: "М", telegramPhotoUrl: null }
   ],
   waitlistCount: 1,
-  waitlist: [{ firstName: "Лена", avatarInitial: "Л" }]
+  waitlist: [{ firstName: "Лена", avatarInitial: "Л", telegramPhotoUrl: null }]
 };
 
 describe("MiniappApiClient.getTrainingParticipants", () => {
@@ -1212,9 +1216,10 @@ describe("MiniappApiClient.getTrainingParticipants", () => {
 
     expect(result).toEqual(TRAINING_PARTICIPANTS);
     expect(fetchMock.mock.calls[0][0]).toBe(`${BASE}/trainings/${SLOT.trainingId}/participants`);
-    // A Mini App caller receives only first name + initial — never another client's id,
-    // for BOTH the booked list and the waitlist.
+    // A Mini App caller receives only first name + initial + photo URL, never another
+    // client's id/full name, for BOTH the booked list and the waitlist.
     for (const p of [...result.participants, ...result.waitlist]) {
+      expect(p).toHaveProperty("telegramPhotoUrl");
       expect(p).not.toHaveProperty("clientId");
       expect(p).not.toHaveProperty("fullName");
     }

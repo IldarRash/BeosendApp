@@ -68,8 +68,8 @@ export class GroupsService {
    * full names:
    * - Trusted raw admin callers get the full member row (clientId + fullName).
    * - Any other caller must be an onboarded client (resolved from telegram_id);
-   *   they get only firstName + avatarInitial. A non-admin non-client is rejected
-   *   with a 403.
+   *   they get only firstName + avatarInitial + telegramPhotoUrl. A non-admin
+   *   non-client is rejected with a 403.
    */
   async listMembers(
     actorTelegramId: number,

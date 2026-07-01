@@ -95,6 +95,7 @@ export interface RosterRow {
   bookingId: string;
   clientId: string;
   clientName: string;
+  telegramPhotoUrl: string | null;
   bookingStatus: BookingStatus;
   bookingType: BookingType;
   groupSubscriptionId: string | null;
@@ -646,6 +647,34 @@ export class TrainingsRepository {
   }
 
   /**
+   * Public participant-preview visibility for a single training. Mirrors
+   * listSchedule's public predicates without a date window: only visible group
+   * trainings (open/full, active non-hidden group, active trainer/level) can expose
+   * the pre-confirm participant preview to non-admin Mini App clients.
+   */
+  async isPublicPreviewVisible(trainingId: string): Promise<boolean> {
+    const [row] = await this.database.db
+      .select({ id: tables.trainings.id })
+      .from(tables.trainings)
+      .innerJoin(tables.groups, eq(tables.trainings.groupId, tables.groups.id))
+      .innerJoin(tables.trainers, eq(tables.trainings.trainerId, tables.trainers.id))
+      .innerJoin(tables.levels, eq(tables.groups.levelId, tables.levels.id))
+      .where(
+        and(
+          eq(tables.trainings.id, trainingId),
+          inArray(tables.trainings.status, ["open", "full"]),
+          isNotNull(tables.trainings.groupId),
+          eq(tables.groups.status, "active"),
+          eq(tables.groups.hidden, false),
+          eq(tables.trainers.status, "active"),
+          eq(tables.levels.status, "active")
+        )
+      )
+      .limit(1);
+    return row !== undefined;
+  }
+
+  /**
    * A trainer's trainings on one date (T2.3), joined to the (nullable) group's
    * level name (empty when the training has no group). Ordered by start time.
    * No business rules: the service has already resolved the trainer.
@@ -757,6 +786,7 @@ export class TrainingsRepository {
         bookingId: tables.bookings.id,
         clientId: tables.bookings.clientId,
         clientName: tables.clients.name,
+        telegramPhotoUrl: tables.clients.telegramPhotoUrl,
         bookingStatus: tables.bookings.status,
         bookingType: tables.bookings.type,
         groupSubscriptionId: tables.bookings.groupSubscriptionId
@@ -779,9 +809,15 @@ export class TrainingsRepository {
    * are excluded. Mirrors GroupsRepository.listMonthMembers' shape so the service can
    * apply the same role-based projection; no business rules. Ordered by name.
    */
-  async listParticipantNames(trainingId: string): Promise<{ clientId: string; name: string }[]> {
+  async listParticipantNames(
+    trainingId: string
+  ): Promise<{ clientId: string; name: string; telegramPhotoUrl: string | null }[]> {
     return this.database.db
-      .selectDistinct({ clientId: tables.clients.id, name: tables.clients.name })
+      .selectDistinct({
+        clientId: tables.clients.id,
+        name: tables.clients.name,
+        telegramPhotoUrl: tables.clients.telegramPhotoUrl
+      })
       .from(tables.bookings)
       .innerJoin(tables.clients, eq(tables.bookings.clientId, tables.clients.id))
       .where(
@@ -801,9 +837,15 @@ export class TrainingsRepository {
    * filter. Same `{ clientId, name }` shape as listParticipantNames so the service
    * applies the same role-based projection; no business rules.
    */
-  async listWaitlistNames(trainingId: string): Promise<{ clientId: string; name: string }[]> {
+  async listWaitlistNames(
+    trainingId: string
+  ): Promise<{ clientId: string; name: string; telegramPhotoUrl: string | null }[]> {
     return this.database.db
-      .select({ clientId: tables.clients.id, name: tables.clients.name })
+      .select({
+        clientId: tables.clients.id,
+        name: tables.clients.name,
+        telegramPhotoUrl: tables.clients.telegramPhotoUrl
+      })
       .from(tables.waitlist)
       .innerJoin(tables.clients, eq(tables.waitlist.clientId, tables.clients.id))
       .where(

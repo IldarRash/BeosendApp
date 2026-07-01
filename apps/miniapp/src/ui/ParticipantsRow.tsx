@@ -1,4 +1,9 @@
 import type { GroupMember } from "@beosand/types";
+import { useState } from "react";
+
+type RosterMember = GroupMember & {
+  telegramPhotoUrl?: string | null;
+};
 
 interface ParticipantsRowProps {
   /** The client-narrowed roster (first name + avatar initial per member). */
@@ -14,8 +19,9 @@ interface ParticipantsRowProps {
 /**
  * "Кто записан" — a shared presentational roster row reused by both the group-month
  * preview and the single-training confirm step. Renders the heading "{title} · {count}"
- * and a horizontal row of avatar chips (a coral-tint circle with each member's
- * `avatarInitial` + their `firstName`), or a calm empty state.
+ * and a horizontal row of avatar chips (Telegram photo when present, otherwise a
+ * coral-tint circle with each member's `avatarInitial` + their `firstName`), or
+ * a calm empty state.
  *
  * Interaction layer only: every value is the API's, client-narrowed — a Mini App caller
  * only ever receives a first name + initial, never another client's id or full name. No
@@ -36,14 +42,36 @@ export function ParticipantsRow({
         <ul className="roster__row">
           {members.map((member, index) => (
             <li className="roster__chip" key={`${member.firstName}-${index}`}>
-              <span className="roster__avatar" aria-hidden="true">
-                {member.avatarInitial}
-              </span>
+              <ParticipantAvatar member={member} />
               <span className="roster__name">{member.firstName}</span>
             </li>
           ))}
         </ul>
       )}
     </section>
+  );
+}
+
+function ParticipantAvatar({ member }: { member: RosterMember }): JSX.Element {
+  const [failedSrc, setFailedSrc] = useState<string | null>(null);
+  const photoSrc = member.telegramPhotoUrl ?? null;
+
+  if (photoSrc && photoSrc !== failedSrc) {
+    return (
+      <span className="roster__avatar" aria-hidden="true">
+        <img
+          className="roster__avatar-img"
+          src={photoSrc}
+          alt=""
+          onError={() => setFailedSrc(photoSrc)}
+        />
+      </span>
+    );
+  }
+
+  return (
+    <span className="roster__avatar" aria-hidden="true">
+      {member.avatarInitial}
+    </span>
   );
 }

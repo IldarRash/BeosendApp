@@ -178,6 +178,13 @@ class FakeTrainingsRepository {
       .sort((a, b) => a.date.localeCompare(b.date) || a.startTime.localeCompare(b.startTime));
   }
 
+  publicPreviewVisible = true;
+  publicPreviewChecks: string[] = [];
+  async isPublicPreviewVisible(trainingId: string): Promise<boolean> {
+    this.publicPreviewChecks.push(trainingId);
+    return this.publicPreviewVisible;
+  }
+
   calendar: TrainingCalendarRow[] = [];
   async listCalendar(
     from: string,
@@ -218,14 +225,18 @@ class FakeTrainingsRepository {
   }
 
   // Participant name rows for the client-facing "кто записан" view.
-  participantNames: { clientId: string; name: string }[] = [];
-  async listParticipantNames(_trainingId: string): Promise<{ clientId: string; name: string }[]> {
+  participantNames: { clientId: string; name: string; telegramPhotoUrl: string | null }[] = [];
+  async listParticipantNames(
+    _trainingId: string
+  ): Promise<{ clientId: string; name: string; telegramPhotoUrl: string | null }[]> {
     return this.participantNames;
   }
 
   // Active waitlist name rows (already filtered + position-ordered by the real query).
-  waitlistNames: { clientId: string; name: string }[] = [];
-  async listWaitlistNames(_trainingId: string): Promise<{ clientId: string; name: string }[]> {
+  waitlistNames: { clientId: string; name: string; telegramPhotoUrl: string | null }[] = [];
+  async listWaitlistNames(
+    _trainingId: string
+  ): Promise<{ clientId: string; name: string; telegramPhotoUrl: string | null }[]> {
     return this.waitlistNames;
   }
 
@@ -1101,6 +1112,7 @@ describe("TrainingsService", () => {
           bookingId: "bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb",
           clientId: "cccccccc-cccc-cccc-cccc-cccccccccccc",
           clientName: "Ana",
+          telegramPhotoUrl: "https://t.me/i/userpic/320/ana.jpg",
           bookingStatus: "booked",
           bookingType: "group",
           groupSubscriptionId: "dddddddd-dddd-dddd-dddd-dddddddddddd"
@@ -1109,6 +1121,7 @@ describe("TrainingsService", () => {
           bookingId: "eeeeeeee-eeee-eeee-eeee-eeeeeeeeeeee",
           clientId: "ffffffff-ffff-ffff-ffff-ffffffffffff",
           clientName: "Boris",
+          telegramPhotoUrl: null,
           bookingStatus: "booked",
           bookingType: "single",
           groupSubscriptionId: null
@@ -1128,8 +1141,10 @@ describe("TrainingsService", () => {
       const boris = roster.participants.find((p) => p.clientName === "Boris");
       expect(ana?.bookingType).toBe("group");
       expect(ana?.groupSubscriptionId).toBe("dddddddd-dddd-dddd-dddd-dddddddddddd");
+      expect(ana?.telegramPhotoUrl).toBe("https://t.me/i/userpic/320/ana.jpg");
       expect(boris?.bookingType).toBe("single");
       expect(boris?.groupSubscriptionId).toBeNull();
+      expect(boris?.telegramPhotoUrl).toBeNull();
     });
 
     it("lets an admin read any roster", async () => {
@@ -1197,16 +1212,24 @@ describe("TrainingsService", () => {
       // The repo query already excludes cancelled/waitlist; the fake returns only the
       // active roster, so the participant list mirrors that filtered set.
       trainingsRepo.participantNames = [
-        { clientId: CLIENT_A, name: "Ана Петровић" },
-        { clientId: CLIENT_B, name: "Marko Novak" }
+        {
+          clientId: CLIENT_A,
+          name: "Ана Петровић",
+          telegramPhotoUrl: "https://t.me/i/userpic/320/ana.jpg"
+        },
+        { clientId: CLIENT_B, name: "Marko Novak", telegramPhotoUrl: null }
       ];
       // The repo query already returns ONLY active entries (waiting/notified), in
       // queue-position order; the fake reflects that filtered, ordered set. CLIENT_C
       // is queued ahead of CLIENT_D; a promoted/cancelled entry would simply not be
       // here (the query excludes it), so it can never appear in the list.
       trainingsRepo.waitlistNames = [
-        { clientId: CLIENT_C, name: "Зоран Илић" },
-        { clientId: CLIENT_D, name: "Petra Kovač" }
+        {
+          clientId: CLIENT_C,
+          name: "Зоран Илић",
+          telegramPhotoUrl: "https://t.me/i/userpic/320/zoran.jpg"
+        },
+        { clientId: CLIENT_D, name: "Petra Kovač", telegramPhotoUrl: null }
       ];
     });
 
@@ -1219,6 +1242,7 @@ describe("TrainingsService", () => {
       expect(first.fullName).toBe("Ана Петровић");
       expect(first.firstName).toBe("Ана");
       expect(first.avatarInitial).toBe("А");
+      expect(first.telegramPhotoUrl).toBe("https://t.me/i/userpic/320/ana.jpg");
     });
 
     it("admin gets the full waitlist rows in queue order with clientId and fullName", async () => {
@@ -1228,9 +1252,10 @@ describe("TrainingsService", () => {
       expect(result.waitlist.map((m) => m.clientId)).toEqual([CLIENT_C, CLIENT_D]);
       expect(result.waitlist[0].fullName).toBe("Зоран Илић");
       expect(result.waitlist[0].firstName).toBe("Зоран");
+      expect(result.waitlist[0].telegramPhotoUrl).toBe("https://t.me/i/userpic/320/zoran.jpg");
     });
 
-    it("a client caller gets only firstName + avatarInitial — never clientId/fullName", async () => {
+    it("a client caller gets only firstName + avatarInitial + telegramPhotoUrl — never clientId/fullName", async () => {
       clientsRepo.client = clientRow(CLIENT_TG);
       const result = await service.listParticipants(CLIENT_TG, TRAINING_ID);
       expect(result.participantCount).toBe(2);
@@ -1239,37 +1264,44 @@ describe("TrainingsService", () => {
         expect(participant.fullName).toBeUndefined();
         expect(participant.firstName).toBeTruthy();
         expect(participant.avatarInitial).toBeTruthy();
+        expect(participant).toHaveProperty("telegramPhotoUrl");
       }
+      expect(result.participants[0].telegramPhotoUrl).toBe("https://t.me/i/userpic/320/ana.jpg");
+      expect(result.participants[1].telegramPhotoUrl).toBeNull();
     });
 
-    it("permits the caller's own booked client and checks access with that client id", async () => {
+    it("publicPreviewVisible=true does not require participant access", async () => {
       clientsRepo.client = clientRow(CLIENT_TG, CLIENT_A);
+      trainingsRepo.participantAccess = false;
       const result = await service.listParticipants(CLIENT_TG, TRAINING_ID);
 
       expect(result.participantCount).toBe(2);
-      expect(trainingsRepo.participantAccessChecks).toEqual([
-        { trainingId: TRAINING_ID, clientId: CLIENT_A }
-      ]);
+      expect(trainingsRepo.publicPreviewChecks).toEqual([TRAINING_ID]);
+      expect(trainingsRepo.participantAccessChecks).toEqual([]);
       expect(result.participants[0].clientId).toBeUndefined();
     });
 
-    it("permits the caller's own waitlisted client", async () => {
+    it("publicPreviewVisible=false permits the caller's active waitlisted access", async () => {
       clientsRepo.client = clientRow(CLIENT_TG, CLIENT_C);
+      trainingsRepo.publicPreviewVisible = false;
       const result = await service.listParticipants(CLIENT_TG, TRAINING_ID);
 
       expect(result.waitlistCount).toBe(2);
+      expect(trainingsRepo.publicPreviewChecks).toEqual([TRAINING_ID]);
       expect(trainingsRepo.participantAccessChecks).toEqual([
         { trainingId: TRAINING_ID, clientId: CLIENT_C }
       ]);
     });
 
-    it("forbids an onboarded client who is not booked or waitlisted on that training", async () => {
+    it("publicPreviewVisible=false forbids an onboarded client with no active participant access", async () => {
       const unrelatedClientId = "eeeeeeee-eeee-4eee-8eee-eeeeeeeeeeee";
       clientsRepo.client = clientRow(CLIENT_TG, unrelatedClientId);
+      trainingsRepo.publicPreviewVisible = false;
 
       await expect(service.listParticipants(CLIENT_TG, TRAINING_ID)).rejects.toBeInstanceOf(
         ForbiddenException
       );
+      expect(trainingsRepo.publicPreviewChecks).toEqual([TRAINING_ID]);
       expect(trainingsRepo.participantAccessChecks).toEqual([
         { trainingId: TRAINING_ID, clientId: unrelatedClientId }
       ]);
@@ -1285,6 +1317,7 @@ describe("TrainingsService", () => {
         expect(entry.clientId).toBeUndefined();
         expect(entry.fullName).toBeUndefined();
         expect(entry.avatarInitial).toBeTruthy();
+        expect(entry).toHaveProperty("telegramPhotoUrl");
       }
     });
 

@@ -196,6 +196,7 @@ const ROSTER: TrainingRoster = {
       bookingId: "aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa",
       clientId: "bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb",
       clientName: "Игорь",
+      telegramPhotoUrl: null,
       bookingStatus: "booked",
       bookingType: "single",
       groupSubscriptionId: null
@@ -204,6 +205,7 @@ const ROSTER: TrainingRoster = {
       bookingId: "cccccccc-cccc-cccc-cccc-cccccccccccc",
       clientId: "dddddddd-dddd-dddd-dddd-dddddddddddd",
       clientName: "Мария",
+      telegramPhotoUrl: null,
       bookingStatus: "booked",
       bookingType: "group",
       groupSubscriptionId: "eeeeeeee-eeee-eeee-eeee-eeeeeeeeeeee"

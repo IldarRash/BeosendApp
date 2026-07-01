@@ -60,6 +60,7 @@ function roster(over: Partial<TrainingRoster> = {}): TrainingRoster {
         bookingId: BOOKING_ID,
         clientId: CLIENT_ID,
         clientName: "Иван",
+        telegramPhotoUrl: null,
         bookingStatus: "booked",
         bookingType: "single",
         groupSubscriptionId: null
@@ -152,6 +153,7 @@ describe("renderRosterText", () => {
             bookingId: BOOKING_ID,
             clientId: CLIENT_ID,
             clientName: "Иван",
+            telegramPhotoUrl: null,
             bookingStatus: "attended",
             bookingType: "single",
             groupSubscriptionId: null
@@ -299,6 +301,7 @@ describe("handleMarkAttendance", () => {
             bookingId: BOOKING_ID,
             clientId: CLIENT_ID,
             clientName: "Иван",
+            telegramPhotoUrl: null,
             bookingStatus: "attended",
             bookingType: "single",
             groupSubscriptionId: null

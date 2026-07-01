@@ -1,5 +1,4 @@
 import type { BookingStatus, SlotCard as SlotCardData } from "@beosand/types";
-import { ForbiddenError } from "../api/client";
 import { useTrainingParticipants } from "../api/hooks";
 import { useT } from "../i18n/LanguageProvider";
 import { useMainButton } from "../tg/buttons";
@@ -138,9 +137,9 @@ export function ConfirmView({
   }
 
   return (
-    <div className="screen" aria-busy={submitting || undefined}>
+    <div className="screen screen--confirm" aria-busy={submitting || undefined}>
       {/* Section header */}
-      <div className="tg-sech" style={{ padding: "0 0 7px" }}>
+      <div className="tg-sech tg-sech--confirm">
         {t("miniapp.booking.confirmHeader")}
       </div>
 
@@ -184,16 +183,6 @@ export function ConfirmView({
       {/* The waitlist ("лист ожидания") for a full slot — only when someone is queued.
           An empty waitlist shows nothing (unlike the booked list, which keeps its empty
           state). Reuses the same ParticipantsRow; the API owns who is queued + the count. */}
-      {participants.error instanceof ForbiddenError && (
-        <div className="note" role="note">
-          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={1.8} strokeLinecap="round" strokeLinejoin="round" aria-hidden="true" focusable="false">
-            <circle cx="12" cy="12" r="8.5" />
-            <path d="M12 8v4M12 16h.01" />
-          </svg>
-          <span>{t("miniapp.training.roster.private")}</span>
-        </div>
-      )}
-
       {participants.data && participants.data.waitlistCount > 0 && (
         <ParticipantsRow
           members={participants.data.waitlist}

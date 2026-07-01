@@ -173,8 +173,8 @@ export class TrainingsController {
   /**
    * Client-facing "кто записан": a training's participants. Admin (x-telegram-id ∈
    * ADMIN_TELEGRAM_IDS) gets full members (clientId + fullName); a Mini App client
-   * (bridged to x-client-telegram-id) gets only firstName + avatarInitial. Raw
-   * x-telegram-id is accepted only on the admin path.
+   * (bridged to x-client-telegram-id) gets only firstName + avatarInitial +
+   * telegramPhotoUrl. Raw x-telegram-id is accepted only on the admin path.
    */
   @Get(":id/participants")
   participants(

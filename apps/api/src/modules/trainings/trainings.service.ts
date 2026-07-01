@@ -775,7 +775,9 @@ export class TrainingsService {
    * roster can never leak other clients' ids or full names:
    * - Admin (ADMIN_TELEGRAM_IDS) gets the full member row (clientId + fullName).
    * - Any other caller must be an onboarded client (resolved from telegram_id); they
-   *   get only firstName + avatarInitial. A non-admin non-client is rejected (403).
+   *   get only firstName + avatarInitial + telegramPhotoUrl. A non-admin non-client is
+   *   rejected (403). The Mini App can read either public-preview-visible trainings
+   *   or trainings where the caller has an active booked/waitlisted stake.
    * The training must exist (404). `participants` excludes cancelled/waitlist bookings;
    * `waitlist` carries only active (`waiting`/`notified`) entries — both filtered by
    * the repository queries.
@@ -792,16 +794,18 @@ export class TrainingsService {
 
     const admin = options.allowAdmin !== false && isAdmin(this.env, actorTelegramId);
     if (!admin) {
-      // A non-admin must be an onboarded client with a live stake in THIS training.
+      // A non-admin Mini App caller must be onboarded. The projection below still
+      // strips ids/full names, so pre-confirm roster visibility does not widen identity.
       const client = await this.clients.findByTelegramId(actorTelegramId);
       if (!client) {
         throw new ForbiddenException("Caller has no client record");
       }
-      const canRead = await this.trainings.hasActiveParticipantAccess(trainingId, client.id);
-      if (!canRead) {
-        throw new ForbiddenException(
-          "Participant list is visible only to booked or waitlisted clients"
-        );
+      const publicPreviewVisible = await this.trainings.isPublicPreviewVisible(trainingId);
+      const hasActiveAccess =
+        publicPreviewVisible ||
+        (await this.trainings.hasActiveParticipantAccess(trainingId, client.id));
+      if (!hasActiveAccess) {
+        throw new ForbiddenException("Participant preview is not visible for this training");
       }
     }
 

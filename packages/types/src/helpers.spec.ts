@@ -53,11 +53,19 @@ describe("firstNameOf / avatarInitialOf", () => {
 });
 
 describe("narrowMember", () => {
-  const row = { clientId: "11111111-1111-1111-1111-111111111111", name: "Ана Петровић" };
+  const row = {
+    clientId: "11111111-1111-1111-1111-111111111111",
+    name: "Ана Петровић",
+    telegramPhotoUrl: "https://t.me/i/userpic/320/ana.jpg"
+  };
 
-  it("gives a non-admin caller only firstName + avatarInitial (no id or full name)", () => {
+  it("gives a non-admin caller only firstName + avatarInitial + telegramPhotoUrl", () => {
     const member = narrowMember(row, false);
-    expect(member).toEqual({ firstName: "Ана", avatarInitial: "А" });
+    expect(member).toEqual({
+      firstName: "Ана",
+      avatarInitial: "А",
+      telegramPhotoUrl: "https://t.me/i/userpic/320/ana.jpg"
+    });
     expect(member.clientId).toBeUndefined();
     expect(member.fullName).toBeUndefined();
   });
@@ -67,7 +75,16 @@ describe("narrowMember", () => {
       clientId: "11111111-1111-1111-1111-111111111111",
       fullName: "Ана Петровић",
       firstName: "Ана",
-      avatarInitial: "А"
+      avatarInitial: "А",
+      telegramPhotoUrl: "https://t.me/i/userpic/320/ana.jpg"
+    });
+  });
+
+  it("preserves a null Telegram photo URL", () => {
+    expect(narrowMember({ ...row, telegramPhotoUrl: null }, false)).toEqual({
+      firstName: "Ана",
+      avatarInitial: "А",
+      telegramPhotoUrl: null
     });
   });
 });

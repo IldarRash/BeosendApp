@@ -80,15 +80,36 @@ afterEach(() => {
 });
 
 describe("ConfirmView participants + waitlist", () => {
+  it("shows the booked roster on the confirmation screen before booking", async () => {
+    participants = {
+      trainingId: SLOT.trainingId,
+      participantCount: 1,
+      participants: [
+        {
+          firstName: "Anya",
+          avatarInitial: "A",
+          telegramPhotoUrl: "https://t.me/i/userpic/320/anya.jpg"
+        }
+      ],
+      waitlistCount: 0,
+      waitlist: []
+    };
+    const view = renderConfirm();
+
+    await screen.findByText("Anya");
+    expect(view.container.querySelector(".roster__avatar-img")).not.toBeNull();
+    expect(view.container.querySelector(".roster .tg-sech")?.textContent).toContain("1");
+  });
+
   it("renders the waitlist row with its queued names when waitlist is non-empty", async () => {
     participants = {
       trainingId: SLOT.trainingId,
       participantCount: 1,
-      participants: [{ firstName: "Аня", avatarInitial: "А" }],
+      participants: [{ firstName: "Аня", avatarInitial: "А", telegramPhotoUrl: null }],
       waitlistCount: 2,
       waitlist: [
-        { firstName: "Лена", avatarInitial: "Л" },
-        { firstName: "Марко", avatarInitial: "М" }
+        { firstName: "Лена", avatarInitial: "Л", telegramPhotoUrl: null },
+        { firstName: "Марко", avatarInitial: "М", telegramPhotoUrl: null }
       ]
     };
     renderConfirm();

@@ -41,8 +41,9 @@ export class GroupsController {
   /**
    * Group monthly roster. Admin (x-telegram-id ∈ ADMIN_TELEGRAM_IDS) gets full
    * members (clientId + fullName); a Mini App client (bridged to
-   * x-client-telegram-id) gets only firstName + avatarInitial. The actor resolves
-   * from `x-client-telegram-id ?? x-telegram-id`; the role split lives in the service.
+   * x-client-telegram-id) gets only firstName + avatarInitial + telegramPhotoUrl.
+   * The actor resolves from `x-client-telegram-id ?? x-telegram-id`; the role split
+   * lives in the service.
    */
   @Get(":id/members")
   members(

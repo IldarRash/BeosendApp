@@ -424,6 +424,7 @@ describe("Trainer-scoped reads (T2.3)", () => {
     bookingId: "bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb",
     clientId: "cccccccc-cccc-cccc-cccc-cccccccccccc",
     clientName: "Ana",
+    telegramPhotoUrl: "https://t.me/i/userpic/320/ana.jpg",
     bookingStatus: "booked",
     bookingType: "group",
     groupSubscriptionId: "dddddddd-dddd-dddd-dddd-dddddddddddd"
@@ -525,7 +526,7 @@ describe("Trainer-scoped reads (T2.3)", () => {
     const participantsResponse = {
       trainingId: TRAINING_ID,
       participantCount: 1,
-      participants: [{ firstName: "Ana", avatarInitial: "A" }],
+      participants: [{ firstName: "Ana", avatarInitial: "A", telegramPhotoUrl: null }],
       waitlistCount: 0,
       waitlist: []
     };

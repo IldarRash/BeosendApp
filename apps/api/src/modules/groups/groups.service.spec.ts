@@ -378,8 +378,12 @@ describe("GroupsService.listMembers (group monthly roster)", () => {
     // Seed a group at GROUP_ID so listMembers does not 404.
     await repo.create(baseInput);
     repo.members = [
-      { clientId: CLIENT_A, name: "Ана Петровић" },
-      { clientId: CLIENT_B, name: "Marko Novak" }
+      {
+        clientId: CLIENT_A,
+        name: "Ана Петровић",
+        telegramPhotoUrl: "https://t.me/i/userpic/320/ana.jpg"
+      },
+      { clientId: CLIENT_B, name: "Marko Novak", telegramPhotoUrl: null }
     ];
   });
 
@@ -391,9 +395,10 @@ describe("GroupsService.listMembers (group monthly roster)", () => {
     expect(first.fullName).toBe("Ана Петровић");
     expect(first.firstName).toBe("Ана");
     expect(first.avatarInitial).toBe("А");
+    expect(first.telegramPhotoUrl).toBe("https://t.me/i/userpic/320/ana.jpg");
   });
 
-  it("a client caller gets only firstName + avatarInitial — never clientId/fullName", async () => {
+  it("a client caller gets only firstName + avatarInitial + telegramPhotoUrl — never clientId/fullName", async () => {
     clientsRepo.client = clientRow(CLIENT_TG);
     const result = await service.listMembers(CLIENT_TG, GROUP_ID, 2099, 6);
     expect(result.memberCount).toBe(2);
@@ -402,6 +407,7 @@ describe("GroupsService.listMembers (group monthly roster)", () => {
       expect(member.fullName).toBeUndefined();
       expect(member.firstName).toBeTruthy();
       expect(member.avatarInitial).toBeTruthy();
+      expect(member).toHaveProperty("telegramPhotoUrl");
     }
   });
 
@@ -421,6 +427,7 @@ describe("GroupsService.listMembers (group monthly roster)", () => {
       expect(member.fullName).toBeUndefined();
       expect(member.firstName).toBeTruthy();
       expect(member.avatarInitial).toBeTruthy();
+      expect(member).toHaveProperty("telegramPhotoUrl");
     }
   });
 

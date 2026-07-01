@@ -495,20 +495,26 @@ export function avatarInitialOf(name: string): string {
  * Project a `{ clientId, name }` roster row to the privacy-narrowed member shape used
  * by every client-facing roster (group members + single-training participants/waitlist):
  * an admin receives the full row (clientId + fullName), any other caller receives only
- * firstName + avatarInitial — never another client's id or full name. The single source
- * of this projection so the group roster and the training lists can never drift apart.
+ * firstName + avatarInitial + telegramPhotoUrl — never another client's id or full name.
+ * The single source of this projection so the group roster and the training lists can
+ * never drift apart.
  */
-export function narrowMember(row: { clientId: string; name: string }, admin: boolean): GroupMember {
+export function narrowMember(
+  row: { clientId: string; name: string; telegramPhotoUrl: string | null },
+  admin: boolean
+): GroupMember {
   return admin
     ? {
         clientId: row.clientId,
         fullName: row.name,
         firstName: firstNameOf(row.name),
-        avatarInitial: avatarInitialOf(row.name)
+        avatarInitial: avatarInitialOf(row.name),
+        telegramPhotoUrl: row.telegramPhotoUrl
       }
     : {
         firstName: firstNameOf(row.name),
-        avatarInitial: avatarInitialOf(row.name)
+        avatarInitial: avatarInitialOf(row.name),
+        telegramPhotoUrl: row.telegramPhotoUrl
       };
 }
 
