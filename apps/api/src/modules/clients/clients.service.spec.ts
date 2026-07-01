@@ -11,6 +11,7 @@ import type { DatabaseService } from "../../db/database.service";
 const TELEGRAM_ID = 4242;
 const ADMIN_ID = 9999;
 const LEVEL_ID = "11111111-1111-1111-1111-111111111111";
+const PHOTO_URL = "https://t.me/i/userpic/320/ana.jpg";
 
 const env = { ADMIN_TELEGRAM_IDS: [String(ADMIN_ID)] } as unknown as Env;
 
@@ -19,6 +20,7 @@ const existingClient: Client = {
   name: "Ana",
   telegramId: TELEGRAM_ID,
   telegramUsername: "ana",
+  telegramPhotoUrl: PHOTO_URL,
   levelId: LEVEL_ID,
   source: "telegram",
   phone: null,
@@ -36,6 +38,7 @@ const walkInClient: Client = {
   name: "Marko",
   telegramId: null,
   telegramUsername: null,
+  telegramPhotoUrl: null,
   levelId: null,
   source: "walk_in",
   phone: "+381601234567",
@@ -65,10 +68,11 @@ function makeClientsRepo(overrides: Partial<ClientsRepository> = {}): ClientsRep
   return {
     findByTelegramId: vi.fn(async () => undefined),
     findAll: vi.fn(async () => [existingClient]),
-    insertIgnoreConflict: vi.fn(async (values: { telegramId: number; name: string; levelId: string | null; telegramUsername: string | null }) => ({
+    insertIgnoreConflict: vi.fn(async (values: { telegramId: number; name: string; levelId: string | null; telegramUsername: string | null; telegramPhotoUrl?: string | null }) => ({
       ...existingClient,
       name: values.name,
       telegramUsername: values.telegramUsername,
+      telegramPhotoUrl: values.telegramPhotoUrl ?? null,
       levelId: values.levelId
     })),
     updateLanguage: vi.fn(async (telegramId: number, language: "ru" | "sr" | "en") => ({
@@ -94,6 +98,17 @@ function makeClientsRepo(overrides: Partial<ClientsRepository> = {}): ClientsRep
       id,
       bonusTrainingCredits: Math.max(0, existingClient.bonusTrainingCredits + delta)
     })),
+    syncTelegramDisplayIdentity: vi.fn(
+      async (
+        telegramId: number,
+        identity: { telegramUsername: string | null; telegramPhotoUrl: string | null }
+      ) => ({
+        ...existingClient,
+        telegramId,
+        telegramUsername: identity.telegramUsername,
+        telegramPhotoUrl: identity.telegramPhotoUrl
+      })
+    ),
     ...overrides
   } as unknown as ClientsRepository;
 }
@@ -133,6 +148,40 @@ describe("ClientsService", () => {
     await expect(service.getByTelegramId(TELEGRAM_ID, TELEGRAM_ID)).resolves.toEqual(existingClient);
   });
 
+  it("syncs verified Mini App display identity before returning a self read", async () => {
+    clientsRepo = makeClientsRepo({ findByTelegramId: vi.fn(async () => existingClient) });
+    service = new ClientsService(clientsRepo, levelsRepo, makeDatabase(), makeStaffLinking(), env);
+
+    const result = await service.getByTelegramId(TELEGRAM_ID, TELEGRAM_ID, {
+      telegramUsername: "ana_new",
+      telegramPhotoUrl: "https://t.me/i/userpic/320/ana-new.jpg"
+    });
+
+    expect(result.telegramUsername).toBe("ana_new");
+    expect(result.telegramPhotoUrl).toBe("https://t.me/i/userpic/320/ana-new.jpg");
+    expect(clientsRepo.syncTelegramDisplayIdentity).toHaveBeenCalledWith(
+      TELEGRAM_ID,
+      {
+        telegramUsername: "ana_new",
+        telegramPhotoUrl: "https://t.me/i/userpic/320/ana-new.jpg"
+      },
+      undefined
+    );
+  });
+
+  it("clears stale username/photo when verified Mini App identity omits them", async () => {
+    clientsRepo = makeClientsRepo({ findByTelegramId: vi.fn(async () => existingClient) });
+    service = new ClientsService(clientsRepo, levelsRepo, makeDatabase(), makeStaffLinking(), env);
+
+    const result = await service.getByTelegramId(TELEGRAM_ID, TELEGRAM_ID, {
+      telegramUsername: null,
+      telegramPhotoUrl: null
+    });
+
+    expect(result.telegramUsername).toBeNull();
+    expect(result.telegramPhotoUrl).toBeNull();
+  });
+
   it("forbids reading another client's record (no DB read)", async () => {
     clientsRepo = makeClientsRepo({ findByTelegramId: vi.fn(async () => existingClient) });
     service = new ClientsService(clientsRepo, levelsRepo, makeDatabase(), makeStaffLinking(), env);
@@ -146,6 +195,19 @@ describe("ClientsService", () => {
     clientsRepo = makeClientsRepo({ findByTelegramId: vi.fn(async () => existingClient) });
     service = new ClientsService(clientsRepo, levelsRepo, makeDatabase(), makeStaffLinking(), env);
     await expect(service.getByTelegramId(ADMIN_ID, TELEGRAM_ID)).resolves.toEqual(existingClient);
+  });
+
+  it("does not let a Mini App client-session identity use admin fallback for another client", async () => {
+    clientsRepo = makeClientsRepo({ findByTelegramId: vi.fn(async () => existingClient) });
+    service = new ClientsService(clientsRepo, levelsRepo, makeDatabase(), makeStaffLinking(), env);
+
+    await expect(
+      service.getByTelegramId(ADMIN_ID, TELEGRAM_ID, {
+        telegramUsername: "admin",
+        telegramPhotoUrl: PHOTO_URL
+      })
+    ).rejects.toBeInstanceOf(ForbiddenException);
+    expect(clientsRepo.findByTelegramId).not.toHaveBeenCalled();
   });
 
   it("inserts a new client on first onboard", async () => {
@@ -195,6 +257,108 @@ describe("ClientsService", () => {
   it("omits username to null when not provided (user without a username)", async () => {
     const result = await service.onboard(TELEGRAM_ID, { telegramId: TELEGRAM_ID, name: "Ana" });
     expect(result.telegramUsername).toBeNull();
+  });
+
+  it("inserts verified Mini App username/photo on first onboard", async () => {
+    const result = await service.onboard(
+      TELEGRAM_ID,
+      {
+        telegramId: TELEGRAM_ID,
+        name: "Ana",
+        levelId: LEVEL_ID
+      },
+      {
+        telegramUsername: "verified_ana",
+        telegramPhotoUrl: "https://t.me/i/userpic/320/verified.jpg"
+      }
+    );
+
+    expect(result.telegramUsername).toBe("verified_ana");
+    expect(result.telegramPhotoUrl).toBe("https://t.me/i/userpic/320/verified.jpg");
+    expect(clientsRepo.insertIgnoreConflict).toHaveBeenCalledWith(
+      expect.objectContaining({
+        telegramUsername: "verified_ana",
+        telegramPhotoUrl: "https://t.me/i/userpic/320/verified.jpg"
+      }),
+      expect.anything()
+    );
+  });
+
+  it("does not trust body username when verified Mini App identity omits it on first onboard", async () => {
+    const result = await service.onboard(
+      TELEGRAM_ID,
+      {
+        telegramId: TELEGRAM_ID,
+        name: "Ana",
+        telegramUsername: "forged_body_username"
+      },
+      {
+        telegramUsername: null,
+        telegramPhotoUrl: null
+      }
+    );
+
+    expect(result.telegramUsername).toBeNull();
+    expect(result.telegramPhotoUrl).toBeNull();
+    expect(clientsRepo.insertIgnoreConflict).toHaveBeenCalledWith(
+      expect.objectContaining({
+        telegramUsername: null,
+        telegramPhotoUrl: null
+      }),
+      expect.anything()
+    );
+  });
+
+  it("syncs existing onboard identity without changing name/level/consent/language/admin fields", async () => {
+    clientsRepo = makeClientsRepo({ findByTelegramId: vi.fn(async () => existingClient) });
+    service = new ClientsService(clientsRepo, levelsRepo, makeDatabase(), makeStaffLinking(), env);
+
+    const result = await service.onboard(
+      TELEGRAM_ID,
+      {
+        telegramId: TELEGRAM_ID,
+        name: "Different Name",
+        levelId: null
+      },
+      {
+        telegramUsername: null,
+        telegramPhotoUrl: null
+      }
+    );
+
+    expect(result).toMatchObject({
+      id: existingClient.id,
+      name: existingClient.name,
+      levelId: existingClient.levelId,
+      consentGivenAt: existingClient.consentGivenAt,
+      language: existingClient.language,
+      phone: existingClient.phone,
+      email: existingClient.email,
+      note: existingClient.note,
+      status: existingClient.status,
+      bonusTrainingCredits: existingClient.bonusTrainingCredits,
+      telegramUsername: null,
+      telegramPhotoUrl: null
+    });
+    expect(clientsRepo.syncTelegramDisplayIdentity).toHaveBeenCalledWith(
+      TELEGRAM_ID,
+      { telegramUsername: null, telegramPhotoUrl: null },
+      expect.anything()
+    );
+    expect(clientsRepo.insertIgnoreConflict).not.toHaveBeenCalled();
+  });
+
+  it("does not clear an existing photo on bot/admin onboard without verified Mini App identity", async () => {
+    clientsRepo = makeClientsRepo({ findByTelegramId: vi.fn(async () => existingClient) });
+    service = new ClientsService(clientsRepo, levelsRepo, makeDatabase(), makeStaffLinking(), env);
+
+    const result = await service.onboard(TELEGRAM_ID, {
+      telegramId: TELEGRAM_ID,
+      name: "Different Name"
+    });
+
+    expect(result.telegramPhotoUrl).toBe(PHOTO_URL);
+    expect(clientsRepo.syncTelegramDisplayIdentity).not.toHaveBeenCalled();
   });
 
   it("rejects an unknown levelId and inserts nothing", async () => {
@@ -262,8 +426,21 @@ describe("ClientsService", () => {
     expect(clientsRepo.updateLanguage).toHaveBeenCalledWith(TELEGRAM_ID, "sr");
   });
 
+  it("sets the caller's own language from a client session", async () => {
+    const result = await service.setLanguage(TELEGRAM_ID, TELEGRAM_ID, "sr", true);
+    expect(result.language).toBe("sr");
+    expect(clientsRepo.updateLanguage).toHaveBeenCalledWith(TELEGRAM_ID, "sr");
+  });
+
   it("forbids setting another client's language and writes nothing", async () => {
     await expect(service.setLanguage(TELEGRAM_ID, 1111, "en")).rejects.toBeInstanceOf(
+      ForbiddenException
+    );
+    expect(clientsRepo.updateLanguage).not.toHaveBeenCalled();
+  });
+
+  it("forbids an admin Telegram id from a client session changing another client's language", async () => {
+    await expect(service.setLanguage(ADMIN_ID, TELEGRAM_ID, "en", true)).rejects.toBeInstanceOf(
       ForbiddenException
     );
     expect(clientsRepo.updateLanguage).not.toHaveBeenCalled();

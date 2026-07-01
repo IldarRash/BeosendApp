@@ -50,6 +50,9 @@ type PriceScope = "single" | "series";
 
 type Translate = (key: string, params?: Record<string, string | number>) => string;
 
+const TRAINING_GROUP_FILTER_INDIVIDUAL = "__individual";
+const TRAINING_GROUP_FILTER_ONE_OFF = "__one_off";
+
 /** Catalog key for a training status the API returns (never recomputed here). */
 function statusLabel(status: TrainingStatus, t: Translate): string {
   return t(`admin.trainings.status${status.charAt(0).toUpperCase()}${status.slice(1)}`);
@@ -98,6 +101,15 @@ function trainingPriceLabel(row: Training, t: Translate): string {
   return row.priceSingleRsd === null
     ? t("admin.trainings.priceUnset")
     : formatRsd(row.priceSingleRsd);
+}
+
+function trainingTimeRangeLabel(row: Training): string {
+  return `${row.startTime}–${row.endTime}`;
+}
+
+function trainingGroupFilterValue(row: Training): string {
+  if (row.groupId) return row.groupId;
+  return row.clientId ? TRAINING_GROUP_FILTER_INDIVIDUAL : TRAINING_GROUP_FILTER_ONE_OFF;
 }
 
 /**
@@ -155,6 +167,29 @@ export function Trainings(): JSX.Element {
     return (id: string): string => map.get(id) ?? "—";
   }, [trainers.data]);
 
+  const tableGroupOptions = useMemo(
+    () => [
+      { value: TRAINING_GROUP_FILTER_INDIVIDUAL, label: t("admin.trainings.individual") },
+      { value: TRAINING_GROUP_FILTER_ONE_OFF, label: t("admin.trainings.oneOff") },
+      ...(groups.data ?? []).map((g) => ({ value: g.id, label: g.name }))
+    ],
+    [groups.data, t]
+  );
+
+  const tableTrainerOptions = useMemo(
+    () => (trainers.data ?? []).map((tr) => ({ value: tr.id, label: tr.name })),
+    [trainers.data]
+  );
+
+  const tableStatusOptions = useMemo(
+    () =>
+      (["open", "full", "cancelled", "completed"] as TrainingStatus[]).map((status) => ({
+        value: status,
+        label: statusLabel(status, t)
+      })),
+    [t]
+  );
+
   // ── Generate month ─────────────────────────────────────────────────────
   const [genOpen, setGenOpen] = useState(false);
   const generate = useGenerateMonth();
@@ -192,30 +227,56 @@ export function Trainings(): JSX.Element {
   const [rosterTarget, setRosterTarget] = useState<Training | null>(null);
 
   const columns: Column<Training>[] = [
-    { key: "date", header: t("admin.trainings.colDate"), render: (row) => row.date },
+    {
+      key: "date",
+      header: t("admin.trainings.colDate"),
+      render: (row) => row.date,
+      sortValue: (row) => row.date,
+      filter: { kind: "date", value: (row) => row.date }
+    },
     {
       key: "time",
       header: t("admin.trainings.colTime"),
-      render: (row) => `${row.startTime}–${row.endTime}`
+      render: (row) => trainingTimeRangeLabel(row),
+      sortValue: (row) => row.startTime,
+      filter: { kind: "text", value: (row) => trainingTimeRangeLabel(row) }
     },
-    { key: "group", header: t("admin.trainings.colGroup"), render: (row) => groupCell(row) },
-    { key: "trainer", header: t("admin.trainings.colTrainer"), render: (row) => trainerName(row.trainerId) },
+    {
+      key: "group",
+      header: t("admin.trainings.colGroup"),
+      render: (row) => groupCell(row),
+      sortValue: (row) => groupCell(row),
+      filter: { kind: "select", value: (row) => trainingGroupFilterValue(row), options: tableGroupOptions }
+    },
+    {
+      key: "trainer",
+      header: t("admin.trainings.colTrainer"),
+      render: (row) => trainerName(row.trainerId),
+      sortValue: (row) => trainerName(row.trainerId),
+      filter: { kind: "select", value: (row) => row.trainerId, options: tableTrainerOptions }
+    },
     {
       key: "price",
       header: t("admin.trainings.colPrice"),
       numeric: true,
-      render: (row) => trainingPriceLabel(row, t)
+      render: (row) => trainingPriceLabel(row, t),
+      sortValue: (row) => row.priceSingleRsd,
+      filter: { kind: "number", value: (row) => row.priceSingleRsd }
     },
     {
       key: "occupancy",
       header: t("admin.trainings.colOccupancy"),
       numeric: true,
-      render: (row) => `${row.bookedCount} / ${row.capacity}`
+      render: (row) => `${row.bookedCount} / ${row.capacity}`,
+      sortValue: (row) => row.bookedCount,
+      filter: { kind: "number", value: (row) => row.bookedCount }
     },
     {
       key: "status",
       header: t("admin.trainings.colStatus"),
-      render: (row) => statusLabel(row.status, t)
+      render: (row) => statusLabel(row.status, t),
+      sortValue: (row) => statusLabel(row.status, t),
+      filter: { kind: "select", value: (row) => row.status, options: tableStatusOptions }
     },
     {
       key: "actions",

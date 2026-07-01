@@ -123,7 +123,7 @@ function RouteView({ client }: { client: Client }): JSX.Element {
 
   return (
     <>
-      <AppHeader onProfile={() => push("profile")} />
+      <AppHeader client={client} onProfile={() => push("profile")} />
       {renderRoute()}
     </>
   );

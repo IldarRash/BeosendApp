@@ -191,12 +191,11 @@ function SubscriptionCard({
   const t = useT();
 
   // The group label: the waitlist rows carry a groupName; fall back to the booked
-  // rows' trainer · level when only bookings are present.
+  // rows' server-provided training context label when only bookings are present.
   const groupName =
     group.waitlisted.find((entry) => entry.groupName)?.groupName ??
-    (group.bookings[0]
-      ? `${group.bookings[0].trainerName} · ${group.bookings[0].levelName}`
-      : t("miniapp.myBookings.subscription.title"));
+    group.bookings[0]?.trainingContextLabel ??
+    t("miniapp.myBookings.subscription.title");
 
   const summary = t("miniapp.myBookings.subscription.summary", {
     booked: group.bookings.length,

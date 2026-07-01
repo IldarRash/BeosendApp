@@ -110,11 +110,11 @@ export function addDays(date: string, days: number): string {
   return todayLocalDate(new Date(year, month - 1, day + days));
 }
 
-/** How many days the court-request date rail offers (today + the next 13). */
-const COURT_DATE_WINDOW_DAYS = 14;
+/** How many days Mini App quick date rails offer (today + the next 13). */
+const QUICK_DATE_WINDOW_DAYS = 14;
 
 /**
- * The dates the court-request date picker offers: today + the next 13 days as
+ * The dates quick pickers offer: today + the next 13 days as
  * "YYYY-MM-DD" strings. This is NOT a domain decision — it produces a display
  * window the user can tap; the SERVER owns availability and re-validates the date.
  * Uses local calendar fields (the school is single-timezone, Europe/Belgrade),
@@ -123,7 +123,7 @@ const COURT_DATE_WINDOW_DAYS = 14;
 export function offeredDates(now: Date = new Date()): string[] {
   const base = new Date(now.getFullYear(), now.getMonth(), now.getDate());
   const dates: string[] = [];
-  for (let offset = 0; offset < COURT_DATE_WINDOW_DAYS; offset += 1) {
+  for (let offset = 0; offset < QUICK_DATE_WINDOW_DAYS; offset += 1) {
     const day = new Date(base.getFullYear(), base.getMonth(), base.getDate() + offset);
     dates.push(todayLocalDate(day));
   }

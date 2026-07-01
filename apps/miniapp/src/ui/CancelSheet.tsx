@@ -52,6 +52,10 @@ export function CancelSheet({
           <>
             <div className="card">
               <div className="sumrow">
+                <span className="sumrow__k">{t("miniapp.calendar.kindTraining")}</span>
+                <span className="sumrow__v">{item.trainingContextLabel}</span>
+              </div>
+              <div className="sumrow">
                 <span className="sumrow__k">{t("miniapp.booking.dateLabel")}</span>
                 <span className="sumrow__v">{dateLine}</span>
               </div>

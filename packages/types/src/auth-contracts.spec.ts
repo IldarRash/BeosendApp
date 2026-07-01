@@ -2,6 +2,8 @@ import { describe, expect, it } from "vitest";
 import {
   adminMeSchema,
   adminSessionSchema,
+  miniappMeSchema,
+  miniappSessionSchema,
   telegramLoginPayloadSchema
 } from "./auth-contracts";
 
@@ -67,5 +69,49 @@ describe("adminSessionSchema", () => {
         admin: { telegramId: 111, name: "Ada", extra: true }
       })
     ).toThrow();
+  });
+});
+
+describe("miniappMeSchema", () => {
+  it("accepts optional username, photoUrl, and language", () => {
+    const me = {
+      telegramId: 222,
+      name: "Bea Client",
+      username: "bea",
+      photoUrl: "https://t.me/i/userpic/320/bea.jpg",
+      language: "sr" as const
+    };
+    expect(miniappMeSchema.parse(me)).toEqual(me);
+  });
+
+  it("accepts missing username/photoUrl (Telegram may omit either)", () => {
+    const me = { telegramId: 222, name: "Bea Client" };
+    expect(miniappMeSchema.parse(me)).toEqual(me);
+  });
+
+  it("rejects unknown fields", () => {
+    expect(() =>
+      miniappMeSchema.parse({ telegramId: 222, name: "Bea", photo_url: "https://t.me/p.jpg" })
+    ).toThrow();
+  });
+
+  it("rejects a malformed photoUrl", () => {
+    expect(() =>
+      miniappMeSchema.parse({ telegramId: 222, name: "Bea", photoUrl: "not-a-url" })
+    ).toThrow();
+  });
+});
+
+describe("miniappSessionSchema", () => {
+  it("accepts a token plus Mini App identity with photoUrl", () => {
+    const session = {
+      token: "jwt.token.here",
+      user: {
+        telegramId: 222,
+        name: "Bea Client",
+        photoUrl: "https://t.me/i/userpic/320/bea.jpg"
+      }
+    };
+    expect(miniappSessionSchema.parse(session)).toEqual(session);
   });
 });

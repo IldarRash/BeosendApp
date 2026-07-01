@@ -12,6 +12,7 @@ const BOT_TOKEN = "123456:test-bot-token";
 const SESSION_SECRET = "session-secret-at-least-16-chars";
 const ADMIN_ID = 4242;
 const NON_ADMIN_ID = 9999;
+const PHOTO_URL = "https://t.me/i/userpic/320/bea.jpg";
 
 const env = {
   TELEGRAM_BOT_TOKEN: BOT_TOKEN,
@@ -46,10 +47,18 @@ function signInitData(fields: Record<string, string>): string {
   return params.toString();
 }
 
-function freshInitData(id: number): string {
+function freshInitData(id: number, userOverrides: Record<string, unknown> = {}): string {
   return signInitData({
     auth_date: String(Math.floor(Date.now() / 1000)),
-    user: JSON.stringify({ id, first_name: "Bea", last_name: "Cli", username: "bea", language_code: "sr" })
+    user: JSON.stringify({
+      id,
+      first_name: "Bea",
+      last_name: "Cli",
+      username: "bea",
+      photo_url: PHOTO_URL,
+      language_code: "sr",
+      ...userOverrides
+    })
   });
 }
 
@@ -162,10 +171,33 @@ describe("AuthService", () => {
       telegramId: NON_ADMIN_ID,
       name: "Bea Cli",
       username: "bea",
+      photoUrl: PHOTO_URL,
       language: "sr"
     });
     const claims = verifySessionToken(session.token, SESSION_SECRET);
     expect(claims?.scope).toBe("client");
+    expect(claims?.photoUrl).toBe(PHOTO_URL);
+  });
+
+  it("loginWithMiniapp accepts missing optional username/photo_url", async () => {
+    const session = await service.loginWithMiniapp(
+      freshInitData(NON_ADMIN_ID, { username: undefined, photo_url: undefined })
+    );
+
+    expect(session.user).toEqual({
+      telegramId: NON_ADMIN_ID,
+      name: "Bea Cli",
+      language: "sr"
+    });
+    const claims = verifySessionToken(session.token, SESSION_SECRET);
+    expect(claims?.username).toBeUndefined();
+    expect(claims?.photoUrl).toBeUndefined();
+  });
+
+  it("loginWithMiniapp rejects a malformed Telegram photo_url", async () => {
+    await expect(
+      service.loginWithMiniapp(freshInitData(NON_ADMIN_ID, { photo_url: "not-a-url" }))
+    ).rejects.toBeInstanceOf(UnauthorizedException);
   });
 
   it("loginWithMiniapp never mints admin scope even for an admin id", async () => {

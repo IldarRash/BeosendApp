@@ -66,11 +66,16 @@ interface CreateGroupInput {
   month: number;
 }
 
+interface ClientOwnershipOptions {
+  allowAdmin?: boolean;
+}
+
 /**
  * Owns single-booking domain logic (T1.8). Every invariant lives here:
  * - Ownership: the caller may only book for its own client (resolved from
- *   telegram_id); ADMIN_TELEGRAM_IDS may act on any, matching ClientsService.
- *   The clientId from the bot is never trusted — it must equal the resolved row.
+ *   telegram_id); trusted raw admin callers may act on any. The clientId from
+ *   the bot/Mini App is never trusted — it must equal the resolved row unless
+ *   the controller explicitly allows admin fallback.
  * - Atomic capacity recompute: inside one transaction the training is locked
  *   FOR UPDATE, the booking is inserted, bookedCount is incremented, and the
  *   status is recomputed (open ⇔ full) so concurrent bookings cannot oversell.
@@ -95,8 +100,12 @@ export class BookingsService {
     @Inject(ENV) private readonly env: Env
   ) {}
 
-  async createSingle(actorTelegramId: number, input: CreateSingleInput): Promise<SingleBookingResult> {
-    await this.assertOwnsClient(actorTelegramId, input.clientId);
+  async createSingle(
+    actorTelegramId: number,
+    input: CreateSingleInput,
+    options: ClientOwnershipOptions = {}
+  ): Promise<SingleBookingResult> {
+    await this.assertOwnsClient(actorTelegramId, input.clientId, options);
 
     const today = new Date().toISOString().slice(0, 10);
     const result = await this.bookings.transaction(async (tx) => {
@@ -381,7 +390,8 @@ export class BookingsService {
    *
    * Invariants enforced here:
    * - Ownership: the supplied clientId must resolve from the caller's
-   *   telegram_id (admins may act on any); the bot-supplied id is never trusted.
+   *   telegram_id (trusted raw admins may act on any); the client-supplied id is
+   *   never trusted.
    * - The month must be pre-generated (admin-only A1/T1.4). If the group has no
    *   trainings in the month, throw a typed 400 — never generate on demand.
    * - Each instance is locked FOR UPDATE; a full / non-bookable instance and a
@@ -392,9 +402,10 @@ export class BookingsService {
    */
   async createGroupBooking(
     actorTelegramId: number,
-    input: CreateGroupInput
+    input: CreateGroupInput,
+    options: ClientOwnershipOptions = {}
   ): Promise<GroupBookingResult> {
-    await this.assertOwnsClient(actorTelegramId, input.clientId);
+    await this.assertOwnsClient(actorTelegramId, input.clientId, options);
 
     const group = await this.groups.findById(input.groupId);
     if (!group) {
@@ -729,17 +740,18 @@ export class BookingsService {
   /**
    * A client's own bookings split into upcoming / past (T1.10), read-only.
    * Ownership is the primary invariant: the supplied clientId must resolve from
-   * the caller's telegram_id (admins may act on any) or it is rejected with a 403
-   * leaking nothing. `canCancel` is computed server-side — true only for a future
+   * the caller's telegram_id (trusted raw admins may act on any) or it is
+   * rejected with a 403 leaking nothing. `canCancel` is computed server-side — true only for a future
    * (`date >= today`), still-`booked` item whose training is non-terminal
    * (open|full) — and is never trusted from the bot. The cancel write is T1.11.
    */
   async listMine(
     actorTelegramId: number,
     clientId: string,
-    scope: MyBookingScope
+    scope: MyBookingScope,
+    options: ClientOwnershipOptions = {}
   ): Promise<MyBookingItem[]> {
-    await this.assertOwnsClient(actorTelegramId, clientId);
+    await this.assertOwnsClient(actorTelegramId, clientId, options);
 
     const today = new Date().toISOString().slice(0, 10);
     const rows = await this.bookings.listForClient(clientId, scope, today);
@@ -751,6 +763,9 @@ export class BookingsService {
         (row.bookingStatus === "booked" || row.bookingStatus === "pending") &&
         row.date >= today &&
         (row.trainingStatus === "open" || row.trainingStatus === "full");
+      const trainingContextLabel =
+        row.groupName ??
+        (row.trainingGroupId === null && row.trainingClientId !== null ? "Individual" : "");
       return myBookingItemSchema.parse({
         bookingId: row.bookingId,
         trainingId: row.trainingId,
@@ -759,6 +774,7 @@ export class BookingsService {
         dayOfWeek: isoWeekdayOf(row.date),
         startTime: row.startTime,
         endTime: row.endTime,
+        trainingContextLabel,
         trainerName: row.trainerName,
         levelName: row.levelName,
         bookingStatus: row.bookingStatus,
@@ -772,9 +788,9 @@ export class BookingsService {
    * Cancel exactly one booking (T1.11) — one training, or one date of a monthly
    * group without dropping the rest. Invariants enforced here:
    * - Ownership: the booking's clientId must resolve from the caller's
-   *   telegram_id; ADMIN_TELEGRAM_IDS may cancel any. A booking that isn't the
-   *   caller's (and the caller isn't admin) is rejected with a 403 that leaks
-   *   nothing and changes no seat count.
+   *   telegram_id; trusted raw admins may cancel any. A booking that isn't the
+   *   caller's (and the caller lacks admin fallback) is rejected with a 403 that
+   *   leaks nothing and changes no seat count.
    * - Only a still-`booked` booking is cancellable; an already
    *   cancelled/attended/no_show/waitlist booking is a typed 409.
    * - Atomic seat free: in one transaction the booking and its training are locked
@@ -787,14 +803,18 @@ export class BookingsService {
    *   precedes promotion because the seat is freed inside this tx, so promotion
    *   sees the now-free seat and never undoes the committed cancellation.
    */
-  async cancelBooking(actorTelegramId: number, bookingId: string): Promise<Booking> {
+  async cancelBooking(
+    actorTelegramId: number,
+    bookingId: string,
+    options: ClientOwnershipOptions = {}
+  ): Promise<Booking> {
     const cancelled = await this.bookings.transaction(async (tx) => {
       const booking = await this.bookings.findBookingForUpdate(tx, bookingId);
       if (!booking) {
         throw new NotFoundException(`Booking ${bookingId} not found`);
       }
 
-      await this.assertOwnsClient(actorTelegramId, booking.clientId);
+      await this.assertOwnsClient(actorTelegramId, booking.clientId, options);
 
       if (booking.status !== "booked" && booking.status !== "pending") {
         // Already cancelled/attended/no_show/waitlist — nothing to free; typed 409.
@@ -1270,12 +1290,16 @@ export class BookingsService {
   }
 
   /**
-   * The caller may only book for its own client record; admins may act on any.
+   * The caller may only book for its own client record; trusted raw admins may act on any.
    * Re-resolve the client from telegram_id and require it to equal the supplied
    * clientId so a client id from the bot can never target another client.
    */
-  private async assertOwnsClient(actorTelegramId: number, clientId: string): Promise<void> {
-    if (isAdmin(this.env, actorTelegramId)) {
+  private async assertOwnsClient(
+    actorTelegramId: number,
+    clientId: string,
+    options: ClientOwnershipOptions = {}
+  ): Promise<void> {
+    if ((options.allowAdmin ?? true) && isAdmin(this.env, actorTelegramId)) {
       return;
     }
     const client = await this.clients.findByTelegramId(actorTelegramId);

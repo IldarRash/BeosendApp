@@ -95,6 +95,12 @@ export interface MyBookingRow {
   endTime: string;
   trainerName: string;
   levelName: string;
+  /** Source training group id; null for individual trainings. */
+  trainingGroupId: string | null;
+  /** Joined group display name; null for individual trainings. */
+  groupName: string | null;
+  /** Owning client of an individual training; null for group trainings. */
+  trainingClientId: string | null;
   bookingStatus: BookingStatus;
   trainingStatus: TrainingStatus;
 }
@@ -308,6 +314,9 @@ export class BookingsRepository {
         endTime: tables.trainings.endTime,
         trainerName: tables.trainers.name,
         levelName: tables.levels.name,
+        trainingGroupId: tables.trainings.groupId,
+        groupName: tables.groups.name,
+        trainingClientId: tables.trainings.clientId,
         bookingStatus: tables.bookings.status,
         trainingStatus: tables.trainings.status
       })
@@ -330,7 +339,10 @@ export class BookingsRepository {
       ...row,
       startTime: row.startTime.slice(0, 5),
       endTime: row.endTime.slice(0, 5),
-      levelName: row.levelName ?? ""
+      levelName: row.levelName ?? "",
+      trainingGroupId: row.trainingGroupId ?? null,
+      groupName: row.groupName ?? null,
+      trainingClientId: row.trainingClientId ?? null
     }));
   }
 

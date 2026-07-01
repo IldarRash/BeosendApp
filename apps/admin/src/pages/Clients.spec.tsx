@@ -55,6 +55,7 @@ const anya: Client = {
   name: "Аня",
   telegramId: 4242,
   telegramUsername: "anya",
+  telegramPhotoUrl: null,
   levelId: sampleLevels[0].id,
   source: "telegram",
   phone: null,
@@ -65,6 +66,16 @@ const anya: Client = {
   status: "active",
   language: "ru",
   bonusTrainingCredits: 2
+};
+
+const boris: Client = {
+  ...anya,
+  id: "22222222-2222-4222-8222-222222222222",
+  name: "Борис",
+  telegramId: 5252,
+  telegramUsername: "boris",
+  levelId: null,
+  bonusTrainingCredits: 0
 };
 
 const listQuery = (data: Client[]) => ({ isPending: false, isError: false, error: null, data });
@@ -95,6 +106,14 @@ beforeEach(() => {
 });
 
 afterEach(cleanup);
+
+function lastClientsQuery(): Record<string, string> {
+  return (useClientsList.mock.calls.at(-1)?.[0] ?? {}) as Record<string, string>;
+}
+
+function clientTableRows(): HTMLElement[] {
+  return within(screen.getByRole("table")).getAllByRole("row").slice(2);
+}
 
 describe("Clients page", () => {
   it("renders all clients returned by the API, with @tag and resolved level", () => {
@@ -261,6 +280,44 @@ describe("Clients page", () => {
       reason: "Компенсация"
     });
     expect(notify).toHaveBeenCalledWith(expect.stringContaining("Аня"), "success");
+  });
+
+  it("keeps table sort/filter local and row actions bound to the correct client", () => {
+    updateMutate.mockImplementation((_args, opts) => opts?.onSuccess?.(anya));
+    bonusMutate.mockImplementation((_args, opts) =>
+      opts?.onSuccess?.({ ...anya, bonusTrainingCredits: 5 })
+    );
+    useClientsList.mockReturnValue(listQuery([boris, anya]));
+    renderPage();
+
+    const table = screen.getByRole("table");
+    fireEvent.click(within(table).getByRole("button", { name: /Имя/ }));
+    fireEvent.change(screen.getByLabelText("Фильтр: Username"), {
+      target: { value: "@anya" }
+    });
+
+    expect(lastClientsQuery()).toEqual({});
+    expect(clientTableRows()).toHaveLength(1);
+    expect(within(clientTableRows()[0]).getByText("Аня")).toBeTruthy();
+    expect(within(table).queryByText("Борис")).toBeNull();
+
+    fireEvent.click(screen.getByRole("button", { name: "Изменить клиента Аня" }));
+    let dialog = screen.getByRole("dialog", { name: "Изменить клиента" });
+    fireEvent.change(within(dialog).getByLabelText("Имя"), { target: { value: "Аня П." } });
+    fireEvent.click(within(dialog).getByRole("button", { name: "Сохранить" }));
+    expect(updateMutate.mock.calls[0][0]).toMatchObject({
+      id: anya.id,
+      input: { name: "Аня П." }
+    });
+
+    fireEvent.click(screen.getByRole("button", { name: "Изменить бонусы клиента Аня" }));
+    dialog = screen.getByRole("dialog", { name: "Бонусные тренировки" });
+    fireEvent.change(within(dialog).getByLabelText("Изменение"), { target: { value: "3" } });
+    fireEvent.click(within(dialog).getByRole("button", { name: "Сохранить" }));
+    expect(bonusMutate.mock.calls[0][0]).toMatchObject({
+      clientId: anya.id,
+      input: { delta: 3 }
+    });
   });
 
   it("disables save for a zero or empty bonus delta (no-op)", () => {

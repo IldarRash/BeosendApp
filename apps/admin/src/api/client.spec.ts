@@ -675,6 +675,7 @@ describe("ApiClient error handling & clients", () => {
     name: "Аня",
     telegramId: 4242,
     telegramUsername: "anya",
+    telegramPhotoUrl: null,
     levelId: null,
     source: "telegram",
     phone: null,
@@ -911,6 +912,7 @@ describe("ApiClient walk-in & manual booking (Feature 5)", () => {
     name: "Марко",
     telegramId: null,
     telegramUsername: null,
+    telegramPhotoUrl: null,
     levelId: null,
     source: "walk_in",
     phone: "+381601234567",
@@ -1227,6 +1229,7 @@ describe("ApiClient training delete & client edit", () => {
     name: "Аня",
     telegramId: 4242,
     telegramUsername: "anya",
+    telegramPhotoUrl: null,
     levelId: LEVEL_ID,
     source: "telegram",
     phone: "+381601112233",
@@ -1398,6 +1401,21 @@ describe("ApiClient waitlist admin tools", () => {
     paidAt: null,
     paidBy: null
   };
+
+  it("cancels a roster booking through the existing booking cancel path", async () => {
+    const calls = mockFetchOnce({ ...booking, status: "cancelled" });
+    const result = await new ApiClient("http://api.test").cancelBooking(BOOKING_ID);
+    expect(calls[0]?.url).toBe(`http://api.test/bookings/${BOOKING_ID}/cancel`);
+    expect(calls[0]?.init?.method).toBe("POST");
+    expect(calls[0]?.init?.body).toBeUndefined();
+    expect(result.status).toBe("cancelled");
+  });
+
+  it("rejects a malformed cancel-booking response (contract enforced)", async () => {
+    const { paymentStatus: _omit, ...withoutPaymentStatus } = booking;
+    mockFetchOnce({ ...withoutPaymentStatus, status: "cancelled" });
+    await expect(new ApiClient("http://api.test").cancelBooking(BOOKING_ID)).rejects.toThrow();
+  });
 
   it("reads a training's waitlist and validates the enriched rows", async () => {
     const calls = mockFetchOnce([adminItem]);

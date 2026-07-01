@@ -67,8 +67,8 @@ type CalendarItem =
 
 /**
  * One inline day-cell event label: its KIND (for the color accent), its start time, and
- * the SHORT localized kind word. CRITICAL: a court event carries ONLY its time + the kind
- * word — NEVER a court number (the contract has none and clients must not see one).
+ * the display label. Training/available events use the API's trainingContextLabel;
+ * court events use only the localized court kind, never a court number.
  */
 interface CellEvent {
   kind: CalendarKind;
@@ -76,7 +76,7 @@ interface CellEvent {
   label: string;
 }
 
-/** The i18n key for the SHORT in-cell kind word (reuses the legend's kind labels). */
+/** The i18n key for legend labels and the court-only in-cell label. */
 function kindLabelKey(kind: CalendarKind): string {
   switch (kind) {
     case "available":
@@ -105,8 +105,8 @@ function itemTime(item: CalendarItem): string {
  * Project a day's merged items to inline cell events ({@link CellEvent}) — the clean
  * seam between the screen's tagged-union {@link CalendarItem} and the pure, generic
  * {@link cellPreview}. Each event's `time` is the item's own start time and `label` is the
- * short localized kind word; a court event NEVER carries a court number. `t` resolves the
- * kind word in the active locale.
+ * API-provided trainingContextLabel for training/available items or the localized court
+ * kind for court items. A court event NEVER carries a court number.
  */
 function cellEvents(
   items: ReadonlyArray<CalendarItem>,
@@ -116,9 +116,11 @@ function cellEvents(
     kind: item.kind,
     time: itemTime(item),
     label:
-      item.kind === "available" && !item.slot.bookable && item.slot.trainingStatus === "full"
-        ? t("miniapp.calendar.kindWaitlist")
-        : t(kindLabelKey(item.kind))
+      item.kind === "available"
+        ? item.slot.trainingContextLabel
+        : item.kind === "training"
+          ? item.booking.trainingContextLabel
+          : t(kindLabelKey(item.kind))
   }));
 }
 
@@ -175,7 +177,7 @@ function courtStatusKey(status: CourtRequestStatus): string {
  * The unified month calendar: a Google-Calendar-style month grid merging EVERYTHING for
  * the user — bookable slots they can still sign up for (green), their OWN training
  * bookings (coral), and their court requests (teal). Each day cell shows up to two inline
- * `time + kind` event labels (a muted "+N ещё" line for the rest); it opens on today's
+ * `time + label` event labels (a muted "+N ещё" line for the rest); it opens on today's
  * agenda. Tapping a day reveals that day's full agenda below, each item tagged by KIND
  * and its status, and an available row enters the shared inline booking flow. Interaction
  * layer only — every value is the API's; the grid math is pure ({@link monthWeeks}/{@link
@@ -411,10 +413,11 @@ export function CalendarScreen(): JSX.Element {
 
 /**
  * The inline event labels inside one day cell (Google-Calendar style): up to two events
- * as `time + short kind word`, color-accented by kind, with a muted "+N ещё" line when
- * the day has more. Decorative (`aria-hidden`) — the cell button's own aria-label already
+ * as `time + label`, color-accented by kind, with a muted "+N ещё" line when the day
+ * has more. Decorative (`aria-hidden`) — the cell button's own aria-label already
  * announces the event count, and the day agenda below carries the full, spoken detail.
- * COURT INVARIANT: a court label shows ONLY time + kind word, never a court number.
+ * COURT INVARIANT: a court label shows ONLY time + localized court kind, never a court
+ * number.
  */
 function CellEvents({ items }: { items: ReadonlyArray<CalendarItem> }): JSX.Element {
   const t = useT();
@@ -489,7 +492,7 @@ function AvailableRow({
 }): JSX.Element {
   const t = useT();
   const timeRange = formatTimeRange(slot.startTime, slot.endTime);
-  const subtitle = `${slot.trainerName} · ${slot.levelName}`;
+  const subtitle = `${timeRange} · ${slot.trainerName} · ${slot.levelName}`;
   const priceLabel = t("miniapp.browse.price", { price: formatRsd(slot.priceSingleRsd) });
   const isFull = !slot.bookable && slot.trainingStatus === "full";
   const kindLabel = isFull
@@ -506,7 +509,7 @@ function AvailableRow({
       type="button"
       className="lrow"
       role="listitem"
-      aria-label={`${kindLabel}. ${timeRange}. ${subtitle}. ${seatsLabel}. ${priceLabel}. ${bookLabel}`}
+      aria-label={`${kindLabel}. ${slot.trainingContextLabel}. ${subtitle}. ${seatsLabel}. ${priceLabel}. ${bookLabel}`}
       onClick={() => onBook(slot)}
     >
       <div className="lrow__main">
@@ -514,7 +517,7 @@ function AvailableRow({
           <span className="cal-kind cal-kind--available">
             {kindLabel}
           </span>
-          <span className="lrow__title">{timeRange}</span>
+          <span className="lrow__title">{slot.trainingContextLabel}</span>
         </div>
         <div className="lrow__sub">{subtitle}</div>
         <div className="lrow__sub">{priceLabel}</div>
@@ -542,20 +545,20 @@ function TrainingRow({
   const variant = trainingVariant(item.bookingStatus);
   const statusLabel = t(trainingStatusKey(item.bookingStatus));
   const timeRange = formatTimeRange(item.startTime, item.endTime);
-  const subtitle = `${item.trainerName} · ${item.levelName}`;
+  const subtitle = `${timeRange} · ${item.trainerName} · ${item.levelName}`;
 
   return (
     <button
       type="button"
       className="lrow"
       role="listitem"
-      aria-label={`${t("miniapp.calendar.kindTraining")}. ${timeRange}. ${subtitle}. ${statusLabel}. ${t("miniapp.calendar.openTrainingAria")}`}
+      aria-label={`${t("miniapp.calendar.kindTraining")}. ${item.trainingContextLabel}. ${subtitle}. ${statusLabel}. ${t("miniapp.calendar.openTrainingAria")}`}
       onClick={() => onOpen(item)}
     >
       <div className="lrow__main">
         <div className="cal-row__top">
           <span className="cal-kind cal-kind--training">{t("miniapp.calendar.kindTraining")}</span>
-          <span className="lrow__title">{timeRange}</span>
+          <span className="lrow__title">{item.trainingContextLabel}</span>
         </div>
         <div className="lrow__sub">{subtitle}</div>
         <div style={{ marginTop: 6 }}>
@@ -626,6 +629,10 @@ function TrainingDetailView({
       </div>
 
       <div className="card">
+        <div className="sumrow">
+          <span className="sumrow__k">{t("miniapp.calendar.kindTraining")}</span>
+          <span className="sumrow__v">{item.trainingContextLabel}</span>
+        </div>
         <div className="sumrow">
           <span className="sumrow__k">{t("miniapp.booking.dateLabel")}</span>
           <span className="sumrow__v">{dateLine}</span>

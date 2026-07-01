@@ -5,6 +5,7 @@ import { ClientsController } from "./clients.controller";
 import type { ClientsService } from "./clients.service";
 
 const TELEGRAM_ID = 4242;
+const ADMIN_ID = 9999;
 const HEADER = String(TELEGRAM_ID);
 
 const client: Client = {
@@ -12,6 +13,7 @@ const client: Client = {
   name: "Ana",
   telegramId: TELEGRAM_ID,
   telegramUsername: "ana",
+  telegramPhotoUrl: "https://t.me/i/userpic/320/ana.jpg",
   levelId: "11111111-1111-1111-1111-111111111111",
   source: "telegram",
   phone: null,
@@ -29,6 +31,7 @@ const walkIn: Client = {
   name: "Marko",
   telegramId: null,
   telegramUsername: null,
+  telegramPhotoUrl: null,
   levelId: null,
   source: "walk_in",
   phone: "+381601234567",
@@ -95,16 +98,48 @@ describe("ClientsController", () => {
     // The bridge strips x-telegram-id for a client token, so only the client
     // header carries the Mini App caller's identity here.
     await expect(
-      controller.getByTelegram(undefined, String(TELEGRAM_ID), HEADER)
+      controller.getByTelegram(
+        undefined,
+        String(TELEGRAM_ID),
+        HEADER,
+        "ana_new",
+        "https://t.me/i/userpic/320/ana-new.jpg"
+      )
     ).resolves.toEqual(client);
-    expect(service.getByTelegramId).toHaveBeenCalledWith(TELEGRAM_ID, TELEGRAM_ID);
+    expect(service.getByTelegramId).toHaveBeenCalledWith(TELEGRAM_ID, TELEGRAM_ID, {
+      telegramUsername: "ana_new",
+      telegramPhotoUrl: "https://t.me/i/userpic/320/ana-new.jpg"
+    });
   });
 
   it("GET by-telegram prefers x-client-telegram-id over any x-telegram-id", async () => {
     await expect(controller.getByTelegram("9999", String(TELEGRAM_ID), HEADER)).resolves.toEqual(
       client
     );
+    expect(service.getByTelegramId).toHaveBeenCalledWith(TELEGRAM_ID, TELEGRAM_ID, {
+      telegramUsername: null,
+      telegramPhotoUrl: null
+    });
+  });
+
+  it("GET by-telegram ignores forged client display headers without a client bridge id", async () => {
+    await expect(
+      controller.getByTelegram(
+        HEADER,
+        String(TELEGRAM_ID),
+        undefined,
+        "forged",
+        "https://attacker.test/photo.jpg"
+      )
+    ).resolves.toEqual(client);
     expect(service.getByTelegramId).toHaveBeenCalledWith(TELEGRAM_ID, TELEGRAM_ID);
+  });
+
+  it("GET by-telegram rejects malformed bridged photoUrl before calling the service", async () => {
+    await expect(
+      controller.getByTelegram(undefined, String(TELEGRAM_ID), HEADER, "ana", "not-a-url")
+    ).rejects.toBeInstanceOf(BadRequestException);
+    expect(service.getByTelegramId).not.toHaveBeenCalled();
   });
 
   it("GET by-telegram surfaces a 404 from the service for a missing client", async () => {
@@ -153,6 +188,53 @@ describe("ClientsController", () => {
     });
   });
 
+  it("POST onboard passes verified Mini App display identity from bridge-controlled headers", async () => {
+    await expect(
+      controller.onboard(
+        undefined,
+        {
+          telegramId: TELEGRAM_ID,
+          name: "Ana",
+          levelId: client.levelId,
+          consentAccepted: true
+        },
+        HEADER,
+        "ana_new",
+        "https://t.me/i/userpic/320/ana-new.jpg"
+      )
+    ).resolves.toEqual(client);
+    expect(service.onboard).toHaveBeenCalledWith(
+      TELEGRAM_ID,
+      {
+        telegramId: TELEGRAM_ID,
+        name: "Ana",
+        levelId: client.levelId,
+        consentAccepted: true
+      },
+      {
+        telegramUsername: "ana_new",
+        telegramPhotoUrl: "https://t.me/i/userpic/320/ana-new.jpg"
+      }
+    );
+  });
+
+  it("POST onboard ignores forged client display headers without a client bridge id", async () => {
+    await expect(
+      controller.onboard(
+        HEADER,
+        { telegramId: TELEGRAM_ID, name: "Ana", consentAccepted: true },
+        undefined,
+        "forged",
+        "https://attacker.test/photo.jpg"
+      )
+    ).resolves.toEqual(client);
+    expect(service.onboard).toHaveBeenCalledWith(TELEGRAM_ID, {
+      telegramId: TELEGRAM_ID,
+      name: "Ana",
+      consentAccepted: true
+    });
+  });
+
   it("rejects an onboard with a missing x-telegram-id header before calling the service", async () => {
     await expect(
       controller.onboard(undefined, { telegramId: TELEGRAM_ID, name: "Ana", consentAccepted: true })
@@ -184,7 +266,19 @@ describe("ClientsController", () => {
   it("PATCH language passes actor, target, and locale to the service and returns the validated client", async () => {
     const result = await controller.setLanguage(HEADER, String(TELEGRAM_ID), { language: "sr" });
     expect(result.language).toBe("sr");
-    expect(service.setLanguage).toHaveBeenCalledWith(TELEGRAM_ID, TELEGRAM_ID, "sr");
+    expect(service.setLanguage).toHaveBeenCalledWith(TELEGRAM_ID, TELEGRAM_ID, "sr", false);
+  });
+
+  it("PATCH language marks Mini App client-session actors when x-client-telegram-id is present", async () => {
+    const result = await controller.setLanguage(
+      undefined,
+      String(TELEGRAM_ID),
+      { language: "sr" },
+      String(ADMIN_ID)
+    );
+
+    expect(result.language).toBe("sr");
+    expect(service.setLanguage).toHaveBeenCalledWith(ADMIN_ID, TELEGRAM_ID, "sr", true);
   });
 
   it("rejects an unknown locale in the language body with BadRequestException", async () => {

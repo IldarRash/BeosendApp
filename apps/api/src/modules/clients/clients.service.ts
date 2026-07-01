@@ -29,6 +29,11 @@ interface OnboardInput {
   levelId?: string | null;
 }
 
+export interface TelegramDisplayIdentity {
+  telegramUsername: string | null;
+  telegramPhotoUrl: string | null;
+}
+
 /**
  * Owns client domain logic. Identity is the numeric telegram_id, resolved from
  * the x-telegram-id header by the controller. A client only reads/writes its own
@@ -51,13 +56,19 @@ export class ClientsService {
   ) {}
 
   /** Bot branches new-user vs returning-user on this 404 vs 200. */
-  async getByTelegramId(actorTelegramId: number, targetTelegramId: number): Promise<Client> {
-    this.assertSelfOrAdmin(actorTelegramId, targetTelegramId);
+  async getByTelegramId(
+    actorTelegramId: number,
+    targetTelegramId: number,
+    displayIdentity?: TelegramDisplayIdentity
+  ): Promise<Client> {
+    this.assertSelfOrAdmin(actorTelegramId, targetTelegramId, displayIdentity !== undefined);
     const client = await this.clients.findByTelegramId(targetTelegramId);
     if (!client) {
       throw new NotFoundException(`Client with telegram_id ${targetTelegramId} not found`);
     }
-    return client;
+    return displayIdentity
+      ? this.syncTelegramDisplayIdentity(targetTelegramId, displayIdentity)
+      : client;
   }
 
   /**
@@ -78,8 +89,12 @@ export class ClientsService {
     });
   }
 
-  async onboard(actorTelegramId: number, input: OnboardInput): Promise<Client> {
-    this.assertSelfOrAdmin(actorTelegramId, input.telegramId);
+  async onboard(
+    actorTelegramId: number,
+    input: OnboardInput,
+    displayIdentity?: TelegramDisplayIdentity
+  ): Promise<Client> {
+    this.assertSelfOrAdmin(actorTelegramId, input.telegramId, displayIdentity !== undefined);
 
     if (input.levelId != null) {
       const level = await this.levels.findById(input.levelId);
@@ -91,13 +106,20 @@ export class ClientsService {
     const client = await this.database.db.transaction(async (tx) => {
       const existing = await this.clients.findByTelegramId(input.telegramId, tx);
       if (existing) {
-        return existing;
+        return displayIdentity
+          ? await this.syncTelegramDisplayIdentity(input.telegramId, displayIdentity, tx)
+          : existing;
       }
 
       const inserted = await this.clients.insertIgnoreConflict(
         {
           telegramId: input.telegramId,
-          telegramUsername: input.telegramUsername ?? null,
+          telegramUsername:
+            displayIdentity !== undefined
+              ? displayIdentity.telegramUsername
+              : input.telegramUsername ?? null,
+          telegramPhotoUrl:
+            displayIdentity !== undefined ? displayIdentity.telegramPhotoUrl : null,
           name: input.name,
           levelId: input.levelId ?? null,
           // The contract validated consentAccepted === true before reaching the
@@ -117,12 +139,17 @@ export class ClientsService {
       if (!raced) {
         throw new BadRequestException("Failed to onboard client");
       }
-      return raced;
+      return displayIdentity
+        ? await this.syncTelegramDisplayIdentity(input.telegramId, displayIdentity, tx)
+        : raced;
     });
 
     // First bot contact links any trainer/manager added by this @username to the
     // now-known numeric id (idempotent; never blocks onboarding on failure).
-    await this.staffLinking.linkPendingStaff(input.telegramId, input.telegramUsername);
+    await this.staffLinking.linkPendingStaff(
+      input.telegramId,
+      displayIdentity ? displayIdentity.telegramUsername : input.telegramUsername
+    );
     return client;
   }
 
@@ -133,9 +160,10 @@ export class ClientsService {
   async setLanguage(
     actorTelegramId: number,
     targetTelegramId: number,
-    language: Locale
+    language: Locale,
+    clientSession = false
   ): Promise<Client> {
-    this.assertSelfOrAdmin(actorTelegramId, targetTelegramId);
+    this.assertSelfOrAdmin(actorTelegramId, targetTelegramId, clientSession);
     const updated = await this.clients.updateLanguage(targetTelegramId, language);
     if (!updated) {
       throw new NotFoundException(`Client with telegram_id ${targetTelegramId} not found`);
@@ -226,9 +254,16 @@ export class ClientsService {
   }
 
   /** A client may only act on its own record; admins may act on any. */
-  private assertSelfOrAdmin(actorTelegramId: number, targetTelegramId: number): void {
+  private assertSelfOrAdmin(
+    actorTelegramId: number,
+    targetTelegramId: number,
+    clientSession = false
+  ): void {
     if (actorTelegramId === targetTelegramId) {
       return;
+    }
+    if (clientSession) {
+      throw new ForbiddenException("Cannot act on another client's record");
     }
     if (!isAdmin(this.env, actorTelegramId)) {
       throw new ForbiddenException("Cannot act on another client's record");
@@ -240,6 +275,18 @@ export class ClientsService {
     if (!isAdmin(this.env, actorTelegramId)) {
       throw new ForbiddenException("Admin only");
     }
+  }
+
+  private async syncTelegramDisplayIdentity(
+    telegramId: number,
+    identity: TelegramDisplayIdentity,
+    tx?: Parameters<ClientsRepository["syncTelegramDisplayIdentity"]>[2]
+  ): Promise<Client> {
+    const updated = await this.clients.syncTelegramDisplayIdentity(telegramId, identity, tx);
+    if (!updated) {
+      throw new NotFoundException(`Client with telegram_id ${telegramId} not found`);
+    }
+    return updated;
   }
 }
 

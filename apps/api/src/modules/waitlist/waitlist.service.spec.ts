@@ -31,6 +31,7 @@ const ownerClient: Client = {
   name: "Owner",
   telegramId: OWNER_ID,
   telegramUsername: null,
+  telegramPhotoUrl: null,
   levelId: null,
   source: "telegram",
   phone: null,
@@ -559,6 +560,49 @@ describe("WaitlistService.join", () => {
     await expect(
       service.join(OWNER_ID, { clientId: OTHER_CLIENT_ID, trainingId: TRAINING_ID })
     ).rejects.toBeInstanceOf(ForbiddenException);
+  });
+
+  it("lets a raw admin join on behalf of another client", async () => {
+    const { service, repo } = makeAdminService();
+    repo.training = { ...fullTraining };
+
+    const entry = await service.join(ADMIN_ID, {
+      clientId: OTHER_CLIENT_ID,
+      trainingId: TRAINING_ID
+    });
+
+    expect(entry.clientId).toBe(OTHER_CLIENT_ID);
+    expect(repo.entries).toHaveLength(1);
+  });
+
+  it("rejects a client-scoped admin joining on behalf of another client", async () => {
+    const { service, repo, clients } = makeAdminService();
+    clients.client = { ...ownerClient, telegramId: ADMIN_ID };
+    repo.training = { ...fullTraining };
+
+    await expect(
+      service.join(
+        ADMIN_ID,
+        { clientId: OTHER_CLIENT_ID, trainingId: TRAINING_ID },
+        { allowAdmin: false }
+      )
+    ).rejects.toBeInstanceOf(ForbiddenException);
+    expect(repo.entries).toHaveLength(0);
+  });
+
+  it("lets a client-scoped admin join for their own client record", async () => {
+    const { service, repo, clients } = makeAdminService();
+    clients.client = { ...ownerClient, telegramId: ADMIN_ID };
+    repo.training = { ...fullTraining };
+
+    const entry = await service.join(
+      ADMIN_ID,
+      { clientId: CLIENT_ID, trainingId: TRAINING_ID },
+      { allowAdmin: false }
+    );
+
+    expect(entry.clientId).toBe(CLIENT_ID);
+    expect(repo.entries).toHaveLength(1);
   });
 
   it("rejects a caller with no client record", async () => {

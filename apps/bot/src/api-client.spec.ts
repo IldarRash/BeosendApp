@@ -279,6 +279,7 @@ describe("ApiClient.listMyBookings", () => {
     dayOfWeek: 3,
     startTime: "18:00",
     endTime: "19:30",
+    trainingContextLabel: "Group",
     trainerName: "Марко",
     levelName: "Начинающий",
     groupSubscriptionId: null,
@@ -303,6 +304,14 @@ describe("ApiClient.listMyBookings", () => {
   // that violates the contract is rejected, never rendered.
   it("rejects a response whose item violates the MyBookingItem contract", async () => {
     mockFetch([{ ...mineItem, canCancel: "yes" }]);
+    await expect(
+      new ApiClient("http://api.test").listMyBookings(CLIENT_ID, "upcoming", 999)
+    ).rejects.toThrow();
+  });
+
+  it("rejects a response missing the required training context label", async () => {
+    const { trainingContextLabel: _omitted, ...withoutLabel } = mineItem;
+    mockFetch([withoutLabel]);
     await expect(
       new ApiClient("http://api.test").listMyBookings(CLIENT_ID, "upcoming", 999)
     ).rejects.toThrow();
@@ -503,6 +512,7 @@ const clientBody = {
   name: "Аня",
   telegramId: 999,
   telegramUsername: "anya",
+  telegramPhotoUrl: null,
   levelId: null,
   registeredAt: "2026-01-01T00:00:00.000Z",
   consentGivenAt: null,

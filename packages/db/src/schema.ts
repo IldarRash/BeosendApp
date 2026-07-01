@@ -172,6 +172,7 @@ export const clients = pgTable(
     // multiple NULL walk-ins coexist.
     telegramId: bigint("telegram_id", { mode: "number" }),
     telegramUsername: text("telegram_username"),
+    telegramPhotoUrl: text("telegram_photo_url"),
     levelId: uuid("level_id").references(() => levels.id),
     // "telegram" for bot-onboarded, "walk_in" for manually created by an admin.
     // Free text constrained by the Zod clientSource enum (mirrors bookings.source;

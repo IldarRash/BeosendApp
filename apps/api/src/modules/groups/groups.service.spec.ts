@@ -344,6 +344,7 @@ describe("GroupsService.listMembers (group monthly roster)", () => {
     name: "Onboarded",
     telegramId,
     telegramUsername: null,
+    telegramPhotoUrl: null,
     levelId: null,
     source: "telegram",
     phone: null,
@@ -395,6 +396,25 @@ describe("GroupsService.listMembers (group monthly roster)", () => {
   it("a client caller gets only firstName + avatarInitial — never clientId/fullName", async () => {
     clientsRepo.client = clientRow(CLIENT_TG);
     const result = await service.listMembers(CLIENT_TG, GROUP_ID, 2099, 6);
+    expect(result.memberCount).toBe(2);
+    for (const member of result.members) {
+      expect(member.clientId).toBeUndefined();
+      expect(member.fullName).toBeUndefined();
+      expect(member.firstName).toBeTruthy();
+      expect(member.avatarInitial).toBeTruthy();
+    }
+  });
+
+  it("client-scoped admin gets only client-visible members, never admin roster fields", async () => {
+    const client = clientRow(ADMIN_ID);
+    clientsRepo.client = client;
+    repo.subscribedClientIds.add(client.id);
+
+    const result = await service.listMembers(ADMIN_ID, GROUP_ID, 2099, 6, {
+      allowAdmin: false
+    });
+
+    expect(result.callerSubscribed).toBe(true);
     expect(result.memberCount).toBe(2);
     for (const member of result.members) {
       expect(member.clientId).toBeUndefined();

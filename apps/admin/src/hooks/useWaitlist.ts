@@ -41,9 +41,15 @@ export function useTrainingWaitlist(
  * promote/swap/remove, so the page and any open roster re-read the server's
  * decided state (the console computes none of the seat math itself).
  */
+export function invalidateWaitlist(
+  queryClient: ReturnType<typeof useQueryClient>
+): Promise<void> {
+  return queryClient.invalidateQueries({ queryKey: WAITLIST_KEY }).then(() => undefined);
+}
+
 function invalidateAfterChange(queryClient: ReturnType<typeof useQueryClient>): Promise<void> {
   return Promise.all([
-    queryClient.invalidateQueries({ queryKey: WAITLIST_KEY }),
+    invalidateWaitlist(queryClient),
     queryClient.invalidateQueries({ queryKey: ["trainings"] }),
     queryClient.invalidateQueries({ queryKey: ["roster"] })
   ]).then(() => undefined);

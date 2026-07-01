@@ -39,9 +39,9 @@ export class BookingsController {
     @Body() body: unknown,
     @Headers("x-client-telegram-id") clientTelegramIdHeader?: string
   ): Promise<SingleBookingResult> {
-    const actorTelegramId = parseTelegramId(clientTelegramIdHeader ?? telegramIdHeader);
+    const actor = resolveClientActor(telegramIdHeader, clientTelegramIdHeader);
     const input = validate(createSingleBookingSchema, body ?? {});
-    return this.bookings.createSingle(actorTelegramId, input);
+    return this.bookings.createSingle(actor.telegramId, input, { allowAdmin: actor.allowAdmin });
   }
 
   /**
@@ -74,9 +74,11 @@ export class BookingsController {
     @Body() body: unknown,
     @Headers("x-client-telegram-id") clientTelegramIdHeader?: string
   ): Promise<GroupBookingResult> {
-    const actorTelegramId = parseTelegramId(clientTelegramIdHeader ?? telegramIdHeader);
+    const actor = resolveClientActor(telegramIdHeader, clientTelegramIdHeader);
     const input = validate(createGroupBookingSchema, body ?? {});
-    return this.bookings.createGroupBooking(actorTelegramId, input);
+    return this.bookings.createGroupBooking(actor.telegramId, input, {
+      allowAdmin: actor.allowAdmin
+    });
   }
 
   /**
@@ -101,9 +103,11 @@ export class BookingsController {
     @Query() query: unknown,
     @Headers("x-client-telegram-id") clientTelegramIdHeader?: string
   ): Promise<MyBookingItem[]> {
-    const actorTelegramId = parseTelegramId(clientTelegramIdHeader ?? telegramIdHeader);
+    const actor = resolveClientActor(telegramIdHeader, clientTelegramIdHeader);
     const { clientId, scope } = validate(myBookingsQuerySchema, query ?? {});
-    return this.bookings.listMine(actorTelegramId, clientId, scope);
+    return this.bookings.listMine(actor.telegramId, clientId, scope, {
+      allowAdmin: actor.allowAdmin
+    });
   }
 
   /** Client: cancel one of their own bookings (T1.11). Ownership in the service. */
@@ -113,9 +117,11 @@ export class BookingsController {
     @Param("id") id: string,
     @Headers("x-client-telegram-id") clientTelegramIdHeader?: string
   ): Promise<Booking> {
-    const actorTelegramId = parseTelegramId(clientTelegramIdHeader ?? telegramIdHeader);
+    const actor = resolveClientActor(telegramIdHeader, clientTelegramIdHeader);
     const bookingId = validate(uuid, id);
-    return this.bookings.cancelBooking(actorTelegramId, bookingId);
+    return this.bookings.cancelBooking(actor.telegramId, bookingId, {
+      allowAdmin: actor.allowAdmin
+    });
   }
 
   /**
@@ -204,6 +210,22 @@ function parseTelegramId(header: string | undefined): number {
     throw new BadRequestException("Missing or invalid x-telegram-id header");
   }
   return value;
+}
+
+/**
+ * Client/self endpoints accept either the trusted raw Telegram id or the Mini App
+ * client-session bridge. A client-session actor never receives admin fallback,
+ * even when the numeric id is also configured as an admin.
+ */
+function resolveClientActor(
+  telegramIdHeader: string | undefined,
+  clientTelegramIdHeader: string | undefined
+): { telegramId: number; allowAdmin: boolean } {
+  const clientScoped = clientTelegramIdHeader !== undefined;
+  return {
+    telegramId: parseTelegramId(clientScoped ? clientTelegramIdHeader : telegramIdHeader),
+    allowAdmin: !clientScoped
+  };
 }
 
 /** Zod-validate at the boundary; surface failures as 400 instead of 500. */
