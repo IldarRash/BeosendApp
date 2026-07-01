@@ -519,6 +519,60 @@ describe("Trainer-scoped reads (T2.3)", () => {
     });
   });
 
+  describe("GET /trainings/:id/participants", () => {
+    const CLIENT_TG = 222;
+    const participantsResponse = {
+      trainingId: TRAINING_ID,
+      participantCount: 1,
+      participants: [{ firstName: "Ana", avatarInitial: "A" }],
+      waitlistCount: 0,
+      waitlist: []
+    };
+
+    function makeParticipantsController(
+      listParticipants = vi.fn(async () => participantsResponse)
+    ) {
+      const service = { listParticipants } as unknown as TrainingsService;
+      return { controller: new TrainingsController(service, env), listParticipants };
+    }
+
+    it("uses the verified client bridge header as a client-scoped actor", async () => {
+      const { controller, listParticipants } = makeParticipantsController();
+
+      await expect(
+        controller.participants(String(ADMIN_ID), TRAINING_ID, String(CLIENT_TG))
+      ).resolves.toEqual(participantsResponse);
+
+      expect(listParticipants).toHaveBeenCalledWith(CLIENT_TG, TRAINING_ID, {
+        allowAdmin: false
+      });
+    });
+
+    it("keeps raw admin x-telegram-id access admin-scoped", async () => {
+      const { controller, listParticipants } = makeParticipantsController();
+
+      await expect(controller.participants(String(ADMIN_ID), TRAINING_ID)).resolves.toEqual(
+        participantsResponse
+      );
+
+      expect(listParticipants).toHaveBeenCalledWith(ADMIN_ID, TRAINING_ID, {
+        allowAdmin: true
+      });
+    });
+
+    it("does not treat a raw non-admin x-telegram-id as client-scoped", async () => {
+      const listParticipants = vi.fn(async () => {
+        throw new ForbiddenException("Admin access required");
+      });
+      const { controller } = makeParticipantsController(listParticipants);
+
+      expect(() => controller.participants(String(NON_ADMIN_ID), TRAINING_ID)).toThrow(
+        ForbiddenException
+      );
+      expect(listParticipants).not.toHaveBeenCalled();
+    });
+  });
+
   describe("GET /trainers/me/today", () => {
     it("returns the trainer's today trainings when the query id matches the actor", async () => {
       const controller = new TrainerTodayController(makeService([trainer()]));

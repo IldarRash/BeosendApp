@@ -10,6 +10,7 @@ import {
 import { isAdmin, type Env } from "@beosand/config";
 import {
   COURT_CLOSE_HOUR,
+  COURT_MIN_DURATION_HOURS,
   COURT_OPEN_HOUR,
   courtAvailabilitySchema,
   courtDurationHours,
@@ -101,9 +102,10 @@ export class CourtRequestsService {
 
     const slots: CourtAvailability["slots"] = [];
     const closeMinutes = COURT_CLOSE_HOUR * 60;
-    for (let m = COURT_OPEN_HOUR * 60; m < closeMinutes; m += 30) {
+    const minDurationMinutes = durationMinutesOf(COURT_MIN_DURATION_HOURS);
+    for (let m = COURT_OPEN_HOUR * 60; m + minDurationMinutes <= closeMinutes; m += 30) {
       const startTime = timeOfMinutes(m);
-      const freeCourts = free.get(startTime) ?? 0;
+      const freeCourts = freeForDuration(free, startTime, COURT_MIN_DURATION_HOURS);
       if (freeCourts > 0) {
         slots.push({ startTime, freeCourts });
       }

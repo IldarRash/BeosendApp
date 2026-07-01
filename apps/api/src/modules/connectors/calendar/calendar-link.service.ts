@@ -7,7 +7,11 @@ import {
 } from "@nestjs/common";
 import type { Env } from "@beosand/config";
 import { isAdmin } from "@beosand/config";
-import { type CalendarFeedLink, type CalendarSubject, calendarFeedLinkSchema } from "@beosand/types";
+import {
+  type CalendarFeedLink,
+  type CalendarSubject,
+  calendarFeedLinkSchema
+} from "@beosand/types";
 import { ENV } from "../../../config/config.module";
 import { ClientsRepository } from "../../clients/clients.repository";
 import { TrainersRepository } from "../../trainers/trainers.repository";

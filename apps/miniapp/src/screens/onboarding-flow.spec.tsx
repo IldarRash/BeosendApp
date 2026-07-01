@@ -3,7 +3,12 @@ import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-li
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { AppRoot } from "@telegram-apps/telegram-ui";
 import type { ReactNode } from "react";
-import type { Client, Level, MiniappMe, OnboardClientInput } from "@beosand/types";
+import type {
+  Client,
+  Level,
+  MiniappMe,
+  OnboardClientInput
+} from "@beosand/types";
 import { LanguageProvider } from "../i18n/LanguageProvider";
 import { OnboardingWizard } from "./OnboardingWizard";
 import { ProfileScreen } from "./ProfileScreen";
@@ -102,6 +107,7 @@ beforeEach(() => {
 
 afterEach(() => {
   cleanup();
+  vi.restoreAllMocks();
   vi.clearAllMocks();
 });
 
@@ -215,6 +221,7 @@ describe("ProfileScreen language switch", () => {
     await waitFor(() => expect(screen.getByText("Настройки")).toBeTruthy());
     expect(screen.getByText("boom")).toBeTruthy();
   });
+
 });
 
 describe("Router onboarding decision", () => {

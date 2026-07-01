@@ -20,12 +20,17 @@ vi.mock("../i18n/LanguageProvider", async () => import("../i18n/test-utils"));
 const useManagers = vi.fn();
 const createMutate = vi.fn();
 const updateMutate = vi.fn();
+const updateContactMutate = vi.fn();
 const useCreateManager = vi.fn();
 const useUpdateManager = vi.fn();
+const useManagerContact = vi.fn();
+const useUpdateManagerContact = vi.fn();
 vi.mock("../hooks/useManagers", () => ({
   useManagers: () => useManagers(),
   useCreateManager: () => useCreateManager(),
-  useUpdateManager: () => useUpdateManager()
+  useUpdateManager: () => useUpdateManager(),
+  useManagerContact: () => useManagerContact(),
+  useUpdateManagerContact: () => useUpdateManagerContact()
 }));
 
 import { Managers } from "./Managers";
@@ -61,9 +66,20 @@ beforeEach(() => {
   notify.mockReset();
   createMutate.mockReset();
   updateMutate.mockReset();
+  updateContactMutate.mockReset();
   useManagers.mockReturnValue({ isLoading: false, isError: false, data: sampleManagers });
   useCreateManager.mockReturnValue({ mutate: createMutate, isPending: false, error: null });
   useUpdateManager.mockReturnValue({ mutate: updateMutate, isPending: false, error: null });
+  useManagerContact.mockReturnValue({
+    isLoading: false,
+    isError: false,
+    data: { contact: "@beosand", url: "https://t.me/beosand" }
+  });
+  useUpdateManagerContact.mockReturnValue({
+    mutate: updateContactMutate,
+    isPending: false,
+    error: null
+  });
 });
 
 afterEach(cleanup);
@@ -156,17 +172,40 @@ describe("Managers page", () => {
       "Provide a Telegram id or @username"
     );
   });
+
+  it("renders and updates the contact-manager setting", () => {
+    renderPage();
+
+    expect(screen.getByDisplayValue("@beosand")).toBeTruthy();
+    expect(screen.getByText("Прямая ссылка")).toBeTruthy();
+
+    fireEvent.change(screen.getByLabelText("Контакт"), { target: { value: "@newmanager" } });
+    fireEvent.click(screen.getByRole("button", { name: "Сохранить" }));
+
+    expect(updateContactMutate).toHaveBeenCalledTimes(1);
+    expect(updateContactMutate.mock.calls[0][0]).toEqual({ contact: "@newmanager" });
+  });
+
+  it("rejects an empty contact before submitting", () => {
+    renderPage();
+
+    fireEvent.change(screen.getByLabelText("Контакт"), { target: { value: " " } });
+    fireEvent.click(screen.getByRole("button", { name: "Сохранить" }));
+
+    expect(updateContactMutate).not.toHaveBeenCalled();
+    expect(screen.getByRole("alert").textContent).toContain("Введите от 1 до 120 символов");
+  });
 });
 
 // --- ApiClient unsafe path (contract enforced) ---------------------------
 
-function mockFetchOnce(body: unknown, ok = true, status = 200): void {
-  vi.stubGlobal(
-    "fetch",
-    vi.fn(async () =>
+function mockFetchOnce(body: unknown, ok = true, status = 200) {
+  const fetchMock = vi.fn(
+    async (_input: RequestInfo | URL, _init?: RequestInit): Promise<Response> =>
       Promise.resolve({ ok, status, json: async () => Promise.resolve(body) } as Response)
-    )
   );
+  vi.stubGlobal("fetch", fetchMock);
+  return fetchMock;
 }
 
 describe("ApiClient.listManagers", () => {
@@ -201,5 +240,35 @@ describe("ApiClient.listManagers", () => {
       }
     ]);
     await expect(new ApiClient("http://api.test").listManagers()).rejects.toThrow();
+  });
+});
+
+describe("ApiClient manager contact settings", () => {
+  afterEach(() => {
+    vi.unstubAllGlobals();
+  });
+
+  it("parses a valid /settings/manager-contact response", async () => {
+    mockFetchOnce({ contact: "@beosand", url: "https://t.me/beosand" });
+    const result = await new ApiClient("http://api.test").getManagerContact();
+    expect(result.contact).toBe("@beosand");
+  });
+
+  it("rejects a malformed manager-contact response (contract enforced)", async () => {
+    mockFetchOnce({ contact: "", url: "not-a-url" });
+    await expect(new ApiClient("http://api.test").getManagerContact()).rejects.toThrow();
+  });
+
+  it("PATCHes the shared update contract body and validates the response", async () => {
+    const calls = mockFetchOnce({ contact: "@manager", url: "https://t.me/manager" });
+    const result = await new ApiClient("http://api.test").updateManagerContact({
+      contact: "@manager"
+    });
+    const [, init] = calls.mock.calls[0]!;
+    expect(result.url).toBe("https://t.me/manager");
+    expect(calls.mock.calls[0][0]).toBe("http://api.test/settings/manager-contact");
+    expect(JSON.parse(init?.body as string)).toEqual({
+      contact: "@manager"
+    });
   });
 });

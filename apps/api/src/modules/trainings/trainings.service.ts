@@ -39,6 +39,8 @@ import type {
   TrainingCalendarItem,
   TrainingParticipants,
   TrainingRoster,
+  TrainingScheduleQuery,
+  TrainingScheduleSlot,
   UpdateIndividualPriceInput
 } from "@beosand/types";
 import {
@@ -66,6 +68,7 @@ import {
   trainingCalendarItemSchema,
   trainingParticipantsSchema,
   trainingRosterSchema,
+  trainingScheduleSlotSchema,
   trainingSchema
 } from "@beosand/types";
 import { z } from "zod";
@@ -73,10 +76,7 @@ import { ENV } from "../../config/config.module";
 import { BookingsRepository } from "../bookings/bookings.repository";
 import { DomainEventsService } from "../connectors/domain-events.service";
 import { ClientsRepository } from "../clients/clients.repository";
-import {
-  CourtBlocksRepository,
-  type CourtOccupancyRow
-} from "../courts/court-blocks.repository";
+import { CourtBlocksRepository, type CourtOccupancyRow } from "../courts/court-blocks.repository";
 import { GroupsRepository } from "../groups/groups.repository";
 import { NotificationsService } from "../notifications/notifications.service";
 import { TrainersRepository } from "../trainers/trainers.repository";
@@ -542,10 +542,7 @@ export class TrainingsService {
   }
 
   /** Admin training detail (calendar item by id). 404 if missing. Admin-only. */
-  async getCalendarItem(
-    actorTelegramId: number,
-    id: string
-  ): Promise<TrainingCalendarItem> {
+  async getCalendarItem(actorTelegramId: number, id: string): Promise<TrainingCalendarItem> {
     this.assertAdmin(actorTelegramId);
     const row = await this.trainings.findCalendarItemById(id);
     if (!row) {
@@ -566,12 +563,7 @@ export class TrainingsService {
    * slot. Output is validated against the contract before returning.
    */
   async listAvailable(query: AvailableSlotsQuery): Promise<SlotCard[]> {
-    const today = new Date().toISOString().slice(0, 10);
-    const from = query.from && query.from > today ? query.from : today;
-    const to = query.to ?? addDays(today, 14);
-    if (to < from) {
-      throw new BadRequestException("`to` must be on or after `from`");
-    }
+    const { from, to } = this.resolvePublicSlotWindow(query);
 
     const rows = await this.trainings.listAvailable(from, to, query.levelId, query.trainerId);
 
@@ -612,6 +604,61 @@ export class TrainingsService {
       }));
 
     return z.array(slotCardSchema).parse(cards);
+  }
+
+  /**
+   * Public visible group schedule. Uses the same date/filter contract and window as
+   * listAvailable, but includes full group sessions so clients can see them and join
+   * the waitlist. The repo filters visibility/inactive/individual rows; the service
+   * computes free seats and bookability from the authoritative counters.
+   */
+  async listSchedule(query: TrainingScheduleQuery): Promise<TrainingScheduleSlot[]> {
+    const { from, to } = this.resolvePublicSlotWindow(query);
+    const rows = await this.trainings.listSchedule(from, to, query.levelId, query.trainerId);
+
+    const slots = rows
+      .filter((row) =>
+        matchesSlotFilters(
+          {
+            dayOfWeek: isoWeekdayOf(row.date),
+            startTime: row.startTime,
+            trainerId: row.trainerId,
+            levelId: row.levelId
+          },
+          {
+            weekday: query.weekday,
+            timeOfDay: query.timeOfDay,
+            trainerId: query.trainerId,
+            levelId: query.levelId
+          }
+        )
+      )
+      .map<TrainingScheduleSlot>((row) => {
+        const seats = freeSeats({
+          capacity: row.capacity,
+          bookedCount: row.bookedCount,
+          status: row.status
+        });
+        return {
+          trainingId: row.trainingId,
+          date: row.date,
+          dayOfWeek: isoWeekdayOf(row.date),
+          startTime: row.startTime,
+          endTime: row.endTime,
+          trainerName: row.trainerName,
+          levelName: row.levelName,
+          freeSeats: seats,
+          priceSingleRsd: row.priceSingleRsd,
+          trainingStatus: row.status,
+          bookable: isBookable({
+            capacity: row.capacity,
+            bookedCount: row.bookedCount,
+            status: row.status
+          })
+        };
+      });
+
+    return z.array(trainingScheduleSlotSchema).parse(slots);
   }
 
   /**
@@ -734,19 +781,26 @@ export class TrainingsService {
    */
   async listParticipants(
     actorTelegramId: number,
-    trainingId: string
+    trainingId: string,
+    options: { allowAdmin?: boolean } = {}
   ): Promise<TrainingParticipants> {
     const header = await this.trainings.findHeaderById(trainingId);
     if (!header) {
       throw new NotFoundException(`Training ${trainingId} not found`);
     }
 
-    const admin = isAdmin(this.env, actorTelegramId);
+    const admin = options.allowAdmin !== false && isAdmin(this.env, actorTelegramId);
     if (!admin) {
-      // A non-admin must be an onboarded client to read a participant list at all.
+      // A non-admin must be an onboarded client with a live stake in THIS training.
       const client = await this.clients.findByTelegramId(actorTelegramId);
       if (!client) {
         throw new ForbiddenException("Caller has no client record");
+      }
+      const canRead = await this.trainings.hasActiveParticipantAccess(trainingId, client.id);
+      if (!canRead) {
+        throw new ForbiddenException(
+          "Participant list is visible only to booked or waitlisted clients"
+        );
       }
     }
 
@@ -1287,9 +1341,7 @@ export class TrainingsService {
       // leave the block at the old time and desync the court grid, so group
       // rescheduling is out of scope here.
       if (target.groupId !== null || target.clientId === null) {
-        throw new BadRequestException(
-          "Reschedule applies only to individual (1-on-1) trainings"
-        );
+        throw new BadRequestException("Reschedule applies only to individual (1-on-1) trainings");
       }
 
       if (!options.series) {
@@ -1348,9 +1400,7 @@ export class TrainingsService {
       tx
     );
 
-    const ids = future
-      .filter((row) => subscriptionTrainingIds.has(row.id))
-      .map((row) => row.id);
+    const ids = future.filter((row) => subscriptionTrainingIds.has(row.id)).map((row) => row.id);
     // The target is always included even if its date is "today" and edge filters drift.
     if (!ids.includes(target.id)) {
       ids.push(target.id);
@@ -1360,9 +1410,7 @@ export class TrainingsService {
 
   private assertMutableIndividualTraining(training: Training, action: string): void {
     if (training.groupId !== null || training.clientId === null) {
-      throw new BadRequestException(
-        "Operation applies only to individual (1-on-1) trainings"
-      );
+      throw new BadRequestException("Operation applies only to individual (1-on-1) trainings");
     }
     if (training.status === "cancelled" || training.status === "completed") {
       throw new ConflictException(`Cannot ${action} a ${training.status} training`);
@@ -1397,10 +1445,7 @@ export class TrainingsService {
    * idempotent and swallows per-send errors, but we still guard the lookup so a
    * DB/Telegram hiccup cannot 500 a cancellation that already stands.
    */
-  private async notifyCancelledSafely(
-    trainingId: string,
-    clientIds: string[]
-  ): Promise<void> {
+  private async notifyCancelledSafely(trainingId: string, clientIds: string[]): Promise<void> {
     try {
       await this.notifications.sendTrainingCancelled(trainingId, clientIds);
     } catch (error) {
@@ -1438,10 +1483,7 @@ export class TrainingsService {
    * caller's resolved trainer id must equal the training's trainerId. Enforced
    * here, never in the bot.
    */
-  private async assertTrainerOrAdmin(
-    actorTelegramId: number,
-    trainerId: string
-  ): Promise<void> {
+  private async assertTrainerOrAdmin(actorTelegramId: number, trainerId: string): Promise<void> {
     if (isAdmin(this.env, actorTelegramId)) {
       return;
     }
@@ -1455,6 +1497,19 @@ export class TrainingsService {
     if (!isAdmin(this.env, actorTelegramId)) {
       throw new ForbiddenException("Admin privileges required");
     }
+  }
+
+  private resolvePublicSlotWindow(query: Pick<AvailableSlotsQuery, "from" | "to">): {
+    from: string;
+    to: string;
+  } {
+    const today = new Date().toISOString().slice(0, 10);
+    const from = query.from && query.from > today ? query.from : today;
+    const to = query.to ?? addDays(today, 14);
+    if (to < from) {
+      throw new BadRequestException("`to` must be on or after `from`");
+    }
+    return { from, to };
   }
 }
 

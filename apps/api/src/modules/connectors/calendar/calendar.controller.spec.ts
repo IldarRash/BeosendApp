@@ -27,7 +27,10 @@ function fakeResponse() {
   return { res, headers, state };
 }
 
-function build(feedOver: Partial<CalendarFeedService> = {}, linkOver: Partial<CalendarLinkService> = {}) {
+function build(
+  feedOver: Partial<CalendarFeedService> = {},
+  linkOver: Partial<CalendarLinkService> = {}
+) {
   const feed = {
     renderFeed: vi.fn(async () => "BEGIN:VCALENDAR\nEND:VCALENDAR"),
     ...feedOver
@@ -70,9 +73,9 @@ describe("CalendarController", () => {
     const { controller } = build();
     const { res } = fakeResponse();
 
-    await expect(controller.ics("trainer", VALID_ID, undefined, res as never)).rejects.toBeInstanceOf(
-      BadRequestException
-    );
+    await expect(
+      controller.ics("trainer", VALID_ID, undefined, res as never)
+    ).rejects.toBeInstanceOf(BadRequestException);
   });
 
   it("400s on an unknown subject", async () => {

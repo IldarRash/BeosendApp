@@ -23,7 +23,7 @@ export interface TrainingLockRow {
   trainerId: string;
 }
 
-/** A bookable-slot row joined across group/trainer/level — no business rules applied. */
+/** A visible group-slot row joined across group/trainer/level — no business rules applied. */
 export interface AvailableSlotRow {
   trainingId: string;
   date: string;
@@ -446,11 +446,7 @@ export class TrainingsRepository {
   }
 
   /** Persist an individual training's per-session price inside the caller's tx. */
-  async updatePrice(
-    tx: Database,
-    id: string,
-    priceSingleRsd: number | null
-  ): Promise<Training> {
+  async updatePrice(tx: Database, id: string, priceSingleRsd: number | null): Promise<Training> {
     const [row] = await tx
       .update(tables.trainings)
       .set({ priceSingleRsd })
@@ -544,6 +540,63 @@ export class TrainingsRepository {
       lte(tables.trainings.date, to),
       eq(tables.trainings.status, "open"),
       sql`${tables.trainings.bookedCount} < ${tables.trainings.capacity}`,
+      isNotNull(tables.trainings.groupId),
+      eq(tables.groups.status, "active"),
+      eq(tables.groups.hidden, false),
+      eq(tables.trainers.status, "active"),
+      eq(tables.levels.status, "active")
+    ];
+    if (levelId) {
+      filters.push(eq(tables.groups.levelId, levelId));
+    }
+    if (trainerId) {
+      filters.push(eq(tables.trainings.trainerId, trainerId));
+    }
+
+    const rows = await this.database.db
+      .select({
+        trainingId: tables.trainings.id,
+        date: tables.trainings.date,
+        startTime: tables.trainings.startTime,
+        endTime: tables.trainings.endTime,
+        trainerId: tables.trainings.trainerId,
+        trainerName: tables.trainers.name,
+        levelId: tables.groups.levelId,
+        levelName: tables.levels.name,
+        capacity: tables.trainings.capacity,
+        bookedCount: tables.trainings.bookedCount,
+        status: tables.trainings.status,
+        priceSingleRsd: tables.groups.priceSingleRsd
+      })
+      .from(tables.trainings)
+      .innerJoin(tables.groups, eq(tables.trainings.groupId, tables.groups.id))
+      .innerJoin(tables.trainers, eq(tables.trainings.trainerId, tables.trainers.id))
+      .innerJoin(tables.levels, eq(tables.groups.levelId, tables.levels.id))
+      .where(and(...filters))
+      .orderBy(asc(tables.trainings.date), asc(tables.trainings.startTime));
+
+    return rows.map((row) => ({
+      ...row,
+      startTime: row.startTime.slice(0, 5),
+      endTime: row.endTime.slice(0, 5)
+    }));
+  }
+
+  /**
+   * Public visible group schedule: open/full rows in [from, to] that belong to an
+   * active, non-hidden group with active trainer/level. No bookability filter here;
+   * the service computes `bookable` and free seats.
+   */
+  async listSchedule(
+    from: string,
+    to: string,
+    levelId?: string,
+    trainerId?: string
+  ): Promise<AvailableSlotRow[]> {
+    const filters = [
+      gte(tables.trainings.date, from),
+      lte(tables.trainings.date, to),
+      inArray(tables.trainings.status, ["open", "full"]),
       isNotNull(tables.trainings.groupId),
       eq(tables.groups.status, "active"),
       eq(tables.groups.hidden, false),
@@ -757,6 +810,41 @@ export class TrainingsRepository {
   }
 
   /**
+   * Whether a client has a live participant-list entitlement for one training:
+   * a seat-holding/attendance booking, or an active waitlist entry. The service
+   * owns the auth decision; this method only answers the Drizzle existence check.
+   */
+  async hasActiveParticipantAccess(trainingId: string, clientId: string): Promise<boolean> {
+    const [booking] = await this.database.db
+      .select({ id: tables.bookings.id })
+      .from(tables.bookings)
+      .where(
+        and(
+          eq(tables.bookings.trainingId, trainingId),
+          eq(tables.bookings.clientId, clientId),
+          inArray(tables.bookings.status, ["pending", "booked", "attended", "no_show"])
+        )
+      )
+      .limit(1);
+    if (booking) {
+      return true;
+    }
+
+    const [entry] = await this.database.db
+      .select({ id: tables.waitlist.id })
+      .from(tables.waitlist)
+      .where(
+        and(
+          eq(tables.waitlist.trainingId, trainingId),
+          eq(tables.waitlist.clientId, clientId),
+          inArray(tables.waitlist.status, ["waiting", "notified"])
+        )
+      )
+      .limit(1);
+    return entry !== undefined;
+  }
+
+  /**
    * A trainer's upcoming, non-cancelled trainings on/after `fromDate`, shaped for the
    * calendar feed (connectors). Joined to the (nullable) group/level display names
    * and the (nullable) auto-block court number. Ordered by date then start time; no
@@ -792,10 +880,7 @@ export class TrainingsRepository {
    * for the calendar feed (connectors). Same display joins as the trainer feed.
    * Ordered by date then start time; no business rules.
    */
-  async listUpcomingForClientFeed(
-    clientId: string,
-    fromDate: string
-  ): Promise<CalendarFeedItem[]> {
+  async listUpcomingForClientFeed(clientId: string, fromDate: string): Promise<CalendarFeedItem[]> {
     const rows = await this.database.db
       .select(feedSelection)
       .from(tables.bookings)

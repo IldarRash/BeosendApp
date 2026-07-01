@@ -25,6 +25,8 @@ import type {
   SingleBookingResult,
   SlotCard,
   Trainer,
+  TrainingScheduleQuery,
+  TrainingScheduleSlot,
   TrainingParticipants,
   WaitlistAdminItem,
   WaitlistEntry
@@ -125,6 +127,9 @@ export function availableSlotsQueryKey(
 /** The shared query-key prefix for every available-slots request (for invalidation). */
 const AVAILABLE_SLOTS_KEY_PREFIX = "available-slots";
 
+/** The shared query-key prefix for every visible training schedule request. */
+const TRAINING_SCHEDULE_KEY_PREFIX = "training-schedule";
+
 /** Trainers for the filter picker (GET /trainers). */
 export function trainersQueryKey(): readonly [string] {
   return ["trainers"] as const;
@@ -146,6 +151,32 @@ export function useAvailableSlots(query: AvailableSlotsQuery): UseQueryResult<Sl
   return useQuery<SlotCard[]>({
     queryKey: availableSlotsQueryKey(query),
     queryFn: () => client.listAvailableSlots(query)
+  });
+}
+
+/** A stable query key for the visible group schedule, keyed by the normalised filters. */
+export function trainingScheduleQueryKey(
+  query: TrainingScheduleQuery
+): readonly [string, string] {
+  const normalised = Object.entries(query)
+    .filter(([, value]) => value !== undefined)
+    .sort(([a], [b]) => a.localeCompare(b))
+    .map(([key, value]) => `${key}=${String(value)}`)
+    .join("&");
+  return [TRAINING_SCHEDULE_KEY_PREFIX, normalised] as const;
+}
+
+/**
+ * Visible group schedule (GET /trainings/schedule), including full rows. The API
+ * decides `trainingStatus` and `bookable`; the Mini App only renders and books.
+ */
+export function useTrainingSchedule(
+  query: TrainingScheduleQuery
+): UseQueryResult<TrainingScheduleSlot[]> {
+  const client = useApiClient();
+  return useQuery<TrainingScheduleSlot[]>({
+    queryKey: trainingScheduleQueryKey(query),
+    queryFn: () => client.listTrainingSchedule(query)
   });
 }
 
@@ -218,6 +249,7 @@ export function useCreateBooking(): UseMutationResult<SingleBookingResult, Error
     },
     onSettled: () => {
       void qc.invalidateQueries({ queryKey: [AVAILABLE_SLOTS_KEY_PREFIX] });
+      void qc.invalidateQueries({ queryKey: [TRAINING_SCHEDULE_KEY_PREFIX] });
     }
   });
 }
@@ -345,6 +377,7 @@ export function useCancelBooking(): UseMutationResult<Booking, Error, string> {
     onSettled: () => {
       void qc.invalidateQueries({ queryKey: [MY_BOOKINGS_KEY_PREFIX] });
       void qc.invalidateQueries({ queryKey: [AVAILABLE_SLOTS_KEY_PREFIX] });
+      void qc.invalidateQueries({ queryKey: [TRAINING_SCHEDULE_KEY_PREFIX] });
     }
   });
 }
@@ -460,6 +493,7 @@ export function useCreateGroupBooking(): UseMutationResult<
     onSettled: () => {
       void qc.invalidateQueries({ queryKey: [MY_BOOKINGS_KEY_PREFIX] });
       void qc.invalidateQueries({ queryKey: [AVAILABLE_SLOTS_KEY_PREFIX] });
+      void qc.invalidateQueries({ queryKey: [TRAINING_SCHEDULE_KEY_PREFIX] });
     }
   });
 }

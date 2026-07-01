@@ -22,12 +22,7 @@ import {
 
 export const entityStatus = pgEnum("entity_status", ["active", "inactive"]);
 export const trainerType = pgEnum("trainer_type", ["main", "guest"]);
-export const trainingStatus = pgEnum("training_status", [
-  "open",
-  "full",
-  "cancelled",
-  "completed"
-]);
+export const trainingStatus = pgEnum("training_status", ["open", "full", "cancelled", "completed"]);
 export const bookingType = pgEnum("booking_type", ["single", "group"]);
 export const bookingStatus = pgEnum("booking_status", [
   "booked",
@@ -515,6 +510,15 @@ export const notificationTemplates = pgTable(
   })
 );
 
+// --- App settings ---
+
+export const appSettings = pgTable("app_settings", {
+  key: text("key").primaryKey(),
+  value: text("value").notNull(),
+  updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+  updatedBy: bigint("updated_by", { mode: "number" })
+});
+
 export const schema = {
   levels,
   trainers,
@@ -534,5 +538,6 @@ export const schema = {
   webhookEndpoints,
   webhookDeliveries,
   uiLabels,
-  notificationTemplates
+  notificationTemplates,
+  appSettings
 };

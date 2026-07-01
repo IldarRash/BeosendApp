@@ -13,6 +13,7 @@ import type {
   MyBookingItem,
   SlotCard,
   Trainer,
+  TrainingScheduleSlot,
   TrainingParticipants,
   WaitlistEntry
 } from "@beosand/types";
@@ -283,6 +284,48 @@ describe("MiniappApiClient.listAvailableSlots", () => {
     const client = new MiniappApiClient(BASE);
 
     await expect(client.listAvailableSlots({})).rejects.toThrow();
+  });
+});
+
+const SCHEDULE_SLOT_OPEN: TrainingScheduleSlot = {
+  ...SLOT,
+  trainingStatus: "open",
+  bookable: true
+};
+
+const SCHEDULE_SLOT_FULL: TrainingScheduleSlot = {
+  ...SLOT,
+  trainingId: "99999999-9999-9999-9999-999999999999",
+  freeSeats: 0,
+  trainingStatus: "full",
+  bookable: false
+};
+
+describe("MiniappApiClient.listTrainingSchedule", () => {
+  it("uses /trainings/schedule and validates visible full rows", async () => {
+    const fetchMock = vi.fn().mockResolvedValue(jsonResponse(200, [SCHEDULE_SLOT_OPEN, SCHEDULE_SLOT_FULL]));
+    vi.stubGlobal("fetch", fetchMock);
+    const client = new MiniappApiClient(BASE);
+
+    const result = await client.listTrainingSchedule({ from: "2026-06-10", to: "2026-06-10" });
+
+    expect(result).toEqual([SCHEDULE_SLOT_OPEN, SCHEDULE_SLOT_FULL]);
+    const url = new URL(fetchMock.mock.calls[0][0] as string);
+    expect(url.pathname).toBe("/trainings/schedule");
+    expect(url.searchParams.get("from")).toBe("2026-06-10");
+    expect(url.searchParams.get("to")).toBe("2026-06-10");
+    expect(result[1].bookable).toBe(false);
+    expect(result[1].trainingStatus).toBe("full");
+  });
+
+  it("rejects a malformed schedule row via the contract (unsafe path)", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockResolvedValue(jsonResponse(200, [{ ...SCHEDULE_SLOT_FULL, bookable: "no" }]))
+    );
+    const client = new MiniappApiClient(BASE);
+
+    await expect(client.listTrainingSchedule({})).rejects.toThrow();
   });
 });
 

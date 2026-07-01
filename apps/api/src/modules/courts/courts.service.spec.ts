@@ -1,7 +1,7 @@
 import { ForbiddenException } from "@nestjs/common";
 import { describe, expect, it, vi } from "vitest";
 import type { Env } from "@beosand/config";
-import { freeCourtsBySlot, timeOfMinutes } from "@beosand/types";
+import { COURT_OPEN_HOUR, freeCourtsBySlot, timeOfMinutes } from "@beosand/types";
 import { CourtsRepository } from "./courts.repository";
 import { CourtsService } from "./courts.service";
 
@@ -108,7 +108,7 @@ describe("CourtsService.getLoadGrid", () => {
     const grid = await service.getLoadGrid(111, "2026-06-10");
 
     expect(grid.date).toBe("2026-06-10");
-    expect(grid.openHour).toBe(8);
+    expect(grid.openHour).toBe(COURT_OPEN_HOUR);
     expect(grid.closeHour).toBe(21);
     expect(grid.rows).toHaveLength(2);
 
@@ -124,7 +124,7 @@ describe("CourtsService.getLoadGrid", () => {
     expect(stateAt(rowB, "09:00")).toBe("block");
     expect(stateAt(rowB, "11:30")).toBe("block");
     expect(stateAt(rowB, "12:00")).toBe("free");
-    expect(rowA?.cells[0].startTime).toBe("08:00");
+    expect(rowA?.cells[0].startTime).toBe(timeOfMinutes(COURT_OPEN_HOUR * 60));
   });
 
   it("only confirmed occupancy reserves a cell — a date with no confirmed/blocks is all free", () => {
@@ -227,17 +227,15 @@ describe("CourtsService.getLoadGrid", () => {
     expect(hold?.requestId).toBe(heldRequestId);
     expect(rowA?.cells.find((c) => c.startTime === "10:30")?.state).toBe("hold");
     // A court with no hold/confirmed/block stays free.
-    expect(grid.rows.find((r) => r.courtId === courtB)?.cells.every((c) => c.state === "free")).toBe(
-      true
-    );
+    expect(
+      grid.rows.find((r) => r.courtId === courtB)?.cells.every((c) => c.state === "free")
+    ).toBe(true);
   });
 
   it("surfaces unassigned (orphan) trainings from the repo in the grid", async () => {
     const trainingId = "44444444-4444-4444-8444-444444444444";
     const repo = {
-      findActive: vi
-        .fn()
-        .mockResolvedValue([{ id: courtA, number: 1, status: "active" }]),
+      findActive: vi.fn().mockResolvedValue([{ id: courtA, number: 1, status: "active" }]),
       confirmedCourtOccupancyForDate: vi.fn().mockResolvedValue([]),
       heldCourtOccupancyForDate: vi.fn().mockResolvedValue([]),
       blocksByCourtForDate: vi.fn().mockResolvedValue([]),

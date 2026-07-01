@@ -18,6 +18,7 @@ import { LevelsModule } from "./modules/levels/levels.module";
 import { ManagersModule } from "./modules/managers/managers.module";
 import { NotificationsModule } from "./modules/notifications/notifications.module";
 import { NotificationTemplatesModule } from "./modules/notification-templates/notification-templates.module";
+import { SettingsModule } from "./modules/settings/settings.module";
 import { SubscriptionsModule } from "./modules/subscriptions/subscriptions.module";
 import { TrainersModule } from "./modules/trainers/trainers.module";
 import { TrainingsModule } from "./modules/trainings/trainings.module";
@@ -52,6 +53,7 @@ import { WaitlistModule } from "./modules/waitlist/waitlist.module";
     CourtsModule,
     CourtRequestsModule,
     SubscriptionsModule,
+    SettingsModule,
     I18nModule
   ]
 })

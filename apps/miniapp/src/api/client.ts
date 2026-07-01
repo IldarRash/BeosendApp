@@ -23,6 +23,7 @@ import {
   singleBookingResultSchema,
   slotCardSchema,
   trainerSchema,
+  trainingScheduleSlotSchema,
   trainingParticipantsSchema,
   waitlistAdminItemSchema,
   waitlistEntrySchema,
@@ -51,6 +52,8 @@ import {
   type SingleBookingResult,
   type SlotCard,
   type Trainer,
+  type TrainingScheduleQuery,
+  type TrainingScheduleSlot,
   type TrainingParticipants,
   type WaitlistAdminItem,
   type WaitlistEntry
@@ -59,6 +62,7 @@ import type { Locale } from "@beosand/i18n";
 
 const levelsSchema = z.array(levelSchema);
 const slotCardsSchema = z.array(slotCardSchema);
+const trainingScheduleSlotsSchema = z.array(trainingScheduleSlotSchema);
 const trainersSchema = z.array(trainerSchema);
 const myBookingItemsSchema = z.array(myBookingItemSchema);
 const myCourtRequestItemsSchema = z.array(myCourtRequestItemSchema);
@@ -86,6 +90,14 @@ export class NotFoundError extends Error {
   constructor(message = "Not found") {
     super(message);
     this.name = "NotFoundError";
+  }
+}
+
+/** Thrown when the API refuses a read/write for the verified caller (403). */
+export class ForbiddenError extends Error {
+  constructor(message = "Forbidden") {
+    super(message);
+    this.name = "ForbiddenError";
   }
 }
 
@@ -205,6 +217,9 @@ export class MiniappApiClient {
     if (res.status === 404) {
       throw new NotFoundError(`API ${path} not found`);
     }
+    if (res.status === 403) {
+      throw new ForbiddenError(`API ${path} is not visible to this session`);
+    }
     if (!res.ok) {
       throw await errorFromResponse(res, path);
     }
@@ -267,6 +282,19 @@ export class MiniappApiClient {
    */
   listAvailableSlots(query: AvailableSlotsQuery): Promise<SlotCard[]> {
     return this.request(`/trainings/available${toQueryString(query)}`, slotCardsSchema);
+  }
+
+  /**
+   * Visible group schedule for the browse/calendar surface (GET /trainings/schedule).
+   * Unlike /available, the server may include full rows with `bookable=false`; the
+   * Mini App still calls the same booking endpoint and lets the API return the
+   * waitlisted result for a full group session.
+   */
+  listTrainingSchedule(query: TrainingScheduleQuery): Promise<TrainingScheduleSlot[]> {
+    return this.request(
+      `/trainings/schedule${toQueryString(query)}`,
+      trainingScheduleSlotsSchema
+    );
   }
 
   /**
@@ -531,6 +559,7 @@ export class MiniappApiClient {
   listMyCourtRequests(): Promise<MyCourtRequestItem[]> {
     return this.request("/court-requests/mine", myCourtRequestItemsSchema);
   }
+
 }
 
 /**
@@ -562,7 +591,7 @@ export interface IndividualSessionRequestInput {
  * are stringified; the server re-validates and coerces every value. Returns an
  * empty string when no filter is set.
  */
-function toQueryString(query: AvailableSlotsQuery): string {
+function toQueryString(query: AvailableSlotsQuery | TrainingScheduleQuery): string {
   const params = new URLSearchParams();
   for (const [key, value] of Object.entries(query)) {
     if (value !== undefined) {

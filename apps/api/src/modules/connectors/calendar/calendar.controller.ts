@@ -99,10 +99,11 @@ function parseSubject(value: string): CalendarSubject {
   return validate(calendarSubject, value);
 }
 
-/** Resolve the caller's numeric Telegram id (admin-session bridge / bot raw header). */
+/** Resolve the admin caller's numeric Telegram id from the admin header. */
 function parseTelegramId(header: string | undefined): number {
-  const value = Number(header);
-  if (!header || !Number.isInteger(value)) {
+  const trimmed = header?.trim();
+  const value = Number(trimmed);
+  if (!trimmed || !Number.isInteger(value)) {
     throw new BadRequestException("Missing or invalid x-telegram-id header");
   }
   return value;

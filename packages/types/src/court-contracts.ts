@@ -1,12 +1,20 @@
 import { z } from "zod";
-import { dateString, dayOfWeek, entityStatus, isSlotAligned, rsd, timeString, uuid } from "./common";
+import {
+  dateString,
+  dayOfWeek,
+  entityStatus,
+  isSlotAligned,
+  rsd,
+  timeString,
+  uuid
+} from "./common";
 
 /** Editions 2: court rental requests. Clients request time only; admin assigns the court. */
 
 export const COURT_COUNT = 6;
 export const COURT_RATE_RSD_PER_HOUR = 2000;
-/** Working hours of the courts (08:00–21:00); a start is valid only if start + duration ≤ 21:00. */
-export const COURT_OPEN_HOUR = 8;
+/** Working hours of the courts (07:00–21:00); a start is valid only if start + duration ≤ 21:00. */
+export const COURT_OPEN_HOUR = 7;
 export const COURT_CLOSE_HOUR = 21;
 /** Court rental durations: 1…6 hours on the 0.5-hour grid (a half-hour × 2000 stays whole RSD). */
 export const COURT_MIN_DURATION_HOURS = 1;
@@ -228,16 +236,20 @@ export type FreeCourtNumbers = z.infer<typeof freeCourtNumbersSchema>;
  * must equal the request's `courtCount`; the admin may keep the client's picked courts
  * or swap them for others (each must be active and free for every covered slot).
  */
-export const confirmCourtRequestSchema = z.object({
-  requestId: uuid,
-  courtIds: z.array(uuid).min(1).max(COURT_COUNT)
-}).strict();
+export const confirmCourtRequestSchema = z
+  .object({
+    requestId: uuid,
+    courtIds: z.array(uuid).min(1).max(COURT_COUNT)
+  })
+  .strict();
 export type ConfirmCourtRequest = z.infer<typeof confirmCourtRequestSchema>;
 
 /** C4 — admin rejects a pending request. Stamps decided_*; notifies the client. */
-export const rejectCourtRequestSchema = z.object({
-  requestId: uuid
-}).strict();
+export const rejectCourtRequestSchema = z
+  .object({
+    requestId: uuid
+  })
+  .strict();
 export type RejectCourtRequest = z.infer<typeof rejectCourtRequestSchema>;
 
 /** C4 — filter for the admin moderation queue read. Defaults to the pending queue. */
@@ -332,7 +344,7 @@ export const unassignedTrainingSchema = z.object({
 });
 export type UnassignedTraining = z.infer<typeof unassignedTrainingSchema>;
 
-/** The full grid for a date across the 08:00–21:00 working window. */
+/** The full grid for a date across the configured court working window. */
 export const courtLoadGridSchema = z.object({
   date: dateString,
   openHour: z.number().int(),

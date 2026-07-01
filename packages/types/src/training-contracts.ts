@@ -49,12 +49,15 @@ export const trainerSchema = z.object({
 });
 // Identity is optional: a trainer can exist as reference data (shown in slots)
 // with neither id nor username, and gain bot access once either is linked.
-export const createTrainerSchema = trainerSchema.pick({ name: true, type: true }).extend({
-  telegramId: z.number().int().nullable().optional(),
-  telegramUsername: telegramUsername.nullable().optional(),
-  language: localeSchema.optional(),
-  individualVisible: z.boolean().optional()
-}).strict();
+export const createTrainerSchema = trainerSchema
+  .pick({ name: true, type: true })
+  .extend({
+    telegramId: z.number().int().nullable().optional(),
+    telegramUsername: telegramUsername.nullable().optional(),
+    language: localeSchema.optional(),
+    individualVisible: z.boolean().optional()
+  })
+  .strict();
 export const updateTrainerSchema = z
   .object({
     name: z.string().min(1),
@@ -333,15 +336,11 @@ export type ChangeCapacityInput = z.infer<typeof changeCapacitySchema>;
  * Applies only to individual trainings; nullable clears an admin-set per-session
  * price. Strict so callers cannot smuggle schedule/capacity/status changes.
  */
-export const updateIndividualPriceSchema = z
-  .object({ priceSingleRsd: rsd.nullable() })
-  .strict();
+export const updateIndividualPriceSchema = z.object({ priceSingleRsd: rsd.nullable() }).strict();
 export type UpdateIndividualPriceInput = z.infer<typeof updateIndividualPriceSchema>;
 
 /** Result of DELETE /trainings/:id/series: the future individual training ids cancelled. */
-export const deleteTrainingSeriesResultSchema = z
-  .object({ ids: z.array(uuid) })
-  .strict();
+export const deleteTrainingSeriesResultSchema = z.object({ ids: z.array(uuid) }).strict();
 export type DeleteTrainingSeriesResult = z.infer<typeof deleteTrainingSeriesResultSchema>;
 
 /**
@@ -409,6 +408,25 @@ export const availableSlotsQuerySchema = z.object({
 });
 export type AvailableSlotsQuery = z.infer<typeof availableSlotsQuerySchema>;
 
+/**
+ * Public group schedule query (GET /trainings/schedule). It intentionally reuses
+ * the available-slot filters so the visible schedule and bookable catalogue cannot
+ * drift. The schedule endpoint may include full rows; available stays bookable-only.
+ */
+export const trainingScheduleQuerySchema = availableSlotsQuerySchema;
+export type TrainingScheduleQuery = z.infer<typeof trainingScheduleQuerySchema>;
+
+/**
+ * Public visible group schedule row. Extends the slot-card fields with the live
+ * training status and a server-computed `bookable` flag. Full sessions are valid:
+ * `trainingStatus="full"`, `freeSeats=0`, `bookable=false`.
+ */
+export const trainingScheduleSlotSchema = slotCardSchema.extend({
+  trainingStatus,
+  bookable: z.boolean()
+});
+export type TrainingScheduleSlot = z.infer<typeof trainingScheduleSlotSchema>;
+
 // --- Bookings (3.6) ---
 export const bookingType = z.enum(["single", "group"]);
 export type BookingType = z.infer<typeof bookingType>;
@@ -464,9 +482,7 @@ export const individualRequestDecisionResultSchema = z.discriminatedUnion("statu
     })
     .strict()
 ]);
-export type IndividualRequestDecisionResult = z.infer<
-  typeof individualRequestDecisionResultSchema
->;
+export type IndividualRequestDecisionResult = z.infer<typeof individualRequestDecisionResultSchema>;
 
 export const createSingleBookingSchema = z
   .object({

@@ -198,6 +198,18 @@ export const adminEn: Record<string, string> = {
   "admin.managers.usernameHint": "Optional, without the @.",
   "admin.managers.created": "Administrator created",
   "admin.managers.updated": "Administrator updated",
+  "admin.managerContact.title": "Manager contact",
+  "admin.managerContact.lead": "This is the contact shown when a client taps Contact manager.",
+  "admin.managerContact.loading": "Loading manager contact…",
+  "admin.managerContact.loadError": "Could not load manager contact: {message}",
+  "admin.managerContact.contactLabel": "Contact",
+  "admin.managerContact.contactHint": "Telegram @username, phone, or short free text. Telegram handles become a direct link.",
+  "admin.managerContact.validationError": "Enter 1–120 characters.",
+  "admin.managerContact.saved": "Manager contact saved",
+  "admin.managerContact.savedInline": "Saved. Bot and Mini App will use this contact.",
+  "admin.managerContact.open": "Open contact",
+  "admin.managerContact.linkReady": "Direct link",
+  "admin.managerContact.plainText": "Plain text",
 
   // ── Groups page ───────────────────────────────────────────────────────────
   "admin.groups.title": "Groups",

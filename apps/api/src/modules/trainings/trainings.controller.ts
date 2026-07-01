@@ -3,13 +3,16 @@ import {
   Body,
   Controller,
   Delete,
+  ForbiddenException,
   Get,
   Headers,
+  Inject,
   Param,
   Patch,
   Post,
   Query
 } from "@nestjs/common";
+import { isAdmin, type Env } from "@beosand/config";
 import {
   assignCourtSchema,
   autoAssignCourtsSchema,
@@ -21,6 +24,7 @@ import {
   generationStatusQuerySchema,
   listTrainingsQuerySchema,
   rescheduleTrainingSchema,
+  trainingScheduleQuerySchema,
   trainerTodayQuerySchema,
   trainerUpcomingQuerySchema,
   updateIndividualPriceSchema,
@@ -35,15 +39,22 @@ import {
   type TrainerTodayItem,
   type TrainingCalendarItem,
   type TrainingParticipants,
-  type TrainingRoster
+  type TrainingRoster,
+  type TrainingScheduleSlot
 } from "@beosand/types";
 import type { ZodSchema } from "zod";
+import { ENV } from "../../config/config.module";
 import { TrainingsService } from "./trainings.service";
 
 /** Thin: parse + Zod-validate, resolve actor, call one service method. */
 @Controller("trainings")
 export class TrainingsController {
-  constructor(private readonly trainings: TrainingsService) {}
+  constructor(
+    private readonly trainings: TrainingsService,
+    @Inject(ENV) private readonly env: Pick<Env, "ADMIN_TELEGRAM_IDS"> = {
+      ADMIN_TELEGRAM_IDS: []
+    }
+  ) {}
 
   /** Admin: generate one training per group weekday across a month (15.1). */
   @Post("generate")
@@ -104,6 +115,13 @@ export class TrainingsController {
     return this.trainings.listAvailable(parsed);
   }
 
+  /** Public visible group schedule. Includes full rows; `available` stays bookable-only. */
+  @Get("schedule")
+  schedule(@Query() query: unknown): Promise<TrainingScheduleSlot[]> {
+    const parsed = validate(trainingScheduleQuerySchema, query ?? {});
+    return this.trainings.listSchedule(parsed);
+  }
+
   /** Admin: trainings in a date range, optionally for one group. */
   @Get()
   list(
@@ -155,9 +173,8 @@ export class TrainingsController {
   /**
    * Client-facing "кто записан": a training's participants. Admin (x-telegram-id ∈
    * ADMIN_TELEGRAM_IDS) gets full members (clientId + fullName); a Mini App client
-   * (bridged to x-client-telegram-id) gets only firstName + avatarInitial. The actor
-   * resolves from `x-client-telegram-id ?? x-telegram-id`; the role split lives in the
-   * service.
+   * (bridged to x-client-telegram-id) gets only firstName + avatarInitial. Raw
+   * x-telegram-id is accepted only on the admin path.
    */
   @Get(":id/participants")
   participants(
@@ -165,9 +182,21 @@ export class TrainingsController {
     @Param("id") id: string,
     @Headers("x-client-telegram-id") clientTelegramIdHeader?: string
   ): Promise<TrainingParticipants> {
-    const actorTelegramId = parseTelegramId(clientTelegramIdHeader ?? telegramIdHeader);
     const trainingId = validate(uuid, id);
-    return this.trainings.listParticipants(actorTelegramId, trainingId);
+    if (clientTelegramIdHeader !== undefined) {
+      const actorTelegramId = parseTelegramId(clientTelegramIdHeader, "x-client-telegram-id");
+      return this.trainings.listParticipants(actorTelegramId, trainingId, {
+        allowAdmin: false
+      });
+    }
+
+    const actorTelegramId = parseTelegramId(telegramIdHeader);
+    if (!isAdmin(this.env, actorTelegramId)) {
+      throw new ForbiddenException("Admin privileges required");
+    }
+    return this.trainings.listParticipants(actorTelegramId, trainingId, {
+      allowAdmin: true
+    });
   }
 
   /** Admin: hard-delete a training (purges its rows) and notify its booked clients. Gated in the service. */
@@ -325,11 +354,15 @@ export class TrainerTodayController {
   }
 }
 
-/** Resolve the caller's numeric Telegram id from the x-telegram-id header. */
-function parseTelegramId(header: string | undefined): number {
-  const value = Number(header);
-  if (!header || !Number.isInteger(value)) {
-    throw new BadRequestException("Missing or invalid x-telegram-id header");
+/** Resolve the caller's numeric Telegram id from a trusted bridge or raw bot/admin header. */
+function parseTelegramId(
+  header: string | undefined,
+  headerName: "x-telegram-id" | "x-client-telegram-id" = "x-telegram-id"
+): number {
+  const trimmed = header?.trim();
+  const value = Number(trimmed);
+  if (!trimmed || !Number.isInteger(value)) {
+    throw new BadRequestException(`Missing or invalid ${headerName} header`);
   }
   return value;
 }

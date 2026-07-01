@@ -302,6 +302,7 @@ export const miniappRu: Record<string, string> = {
   // Single-training participants block ("who signed up") on the confirm step.
   "miniapp.training.roster.title": "Кто записан",
   "miniapp.training.roster.empty": "Пока никто не записан",
+  "miniapp.training.roster.private": "Участники видны после записи или добавления в лист ожидания.",
   // The training's waitlist ("queued for a full slot"), shown only when non-empty.
   "miniapp.training.waitlist.title": "Лист ожидания",
 
@@ -319,6 +320,20 @@ export const miniappRu: Record<string, string> = {
   "miniapp.calendar.kindTraining": "Тренировка",
   "miniapp.calendar.kindCourt": "Корт",
   "miniapp.calendar.kindAvailable": "Доступно",
+  "miniapp.calendar.kindWaitlist": "Лист ожидания",
+  "miniapp.calendar.fullWaitlist": "Мест нет · лист ожидания",
+  "miniapp.calendar.joinWaitlistAria": "Встать в лист ожидания",
+  "miniapp.calendar.openTrainingAria": "Открыть участников",
+  "miniapp.calendar.trainingDetailTitle": "Детали тренировки",
+  "miniapp.calendar.googleAdd": "Добавить в Google Calendar",
+  "miniapp.calendar.googleAddAria": "Добавить эту тренировку в Google Calendar",
+  "miniapp.calendar.googleTitle": "BeoSand: тренировка {level}",
+  "miniapp.calendar.googleDetailTrainer": "Тренер: {trainer}",
+  "miniapp.calendar.googleDetailLevel": "Уровень: {level}",
+  "miniapp.calendar.googleDetailStatus": "Статус: {status}",
+  "miniapp.calendar.googleLocation": "BeoSand, Белград",
+  "miniapp.calendar.backToAgenda": "Назад к календарю",
+  "miniapp.calendar.statusLabel": "Статус",
   "miniapp.calendar.legendAria": "Обозначения календаря",
   "miniapp.calendar.errorBody": "Не удалось загрузить календарь. Попробуйте ещё раз.",
   // Court-request status chips (a client never sees a court number).

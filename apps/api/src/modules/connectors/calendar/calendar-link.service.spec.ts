@@ -18,10 +18,15 @@ function makeEnv(over: Partial<Env> = {}): Env {
   } as unknown as Env;
 }
 
-function build(env: Env, version: number | undefined) {
+function build(
+  env: Env,
+  version: number | undefined
+) {
   const feed = new CalendarFeedService(env, {} as never, {} as never, {} as never);
   vi.spyOn(feed, "currentVersion").mockResolvedValue(version);
-  const clients = { bumpCalendarFeedVersion: vi.fn(async () => 2) };
+  const clients = {
+    bumpCalendarFeedVersion: vi.fn(async () => 2)
+  };
   const trainers = { bumpCalendarFeedVersion: vi.fn(async () => 2) };
   const service = new CalendarLinkService(env, feed, clients as never, trainers as never);
   return { service, clients, trainers };
