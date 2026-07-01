@@ -55,6 +55,7 @@ const anya: Client = {
   name: "Аня",
   telegramId: 4242,
   telegramUsername: "anya",
+  telegramPhotoUrl: null,
   levelId: sampleLevels[0].id,
   source: "telegram",
   phone: null,
