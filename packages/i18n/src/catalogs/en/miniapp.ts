@@ -47,6 +47,15 @@ export const miniappEn: Record<string, string> = {
   "miniapp.profile.language": "Interface language",
   "miniapp.profile.bonusCredits": "Bonus trainings",
   "miniapp.profile.bonusCreditsValue": "Bonus trainings: {count}",
+  "miniapp.profile.calendarTitle": "Calendar export",
+  "miniapp.profile.calendarExport": "Google Calendar feed",
+  "miniapp.profile.calendarHint": "Get your signed training feed link. No Google sign-in needed.",
+  "miniapp.profile.calendarLoading": "Preparing feed link…",
+  "miniapp.profile.calendarReady": "Feed link ready",
+  "miniapp.profile.calendarOpen": "Open feed",
+  "miniapp.profile.calendarCopy": "Copy link",
+  "miniapp.profile.calendarCopied": "Calendar feed link copied",
+  "miniapp.profile.calendarCopyFailed": "Could not copy the calendar feed link",
 
   // --- Common states ---
   "miniapp.common.loading": "Loading…",
@@ -254,6 +263,7 @@ export const miniappEn: Record<string, string> = {
   "miniapp.schedule.alreadyBooked": "You're booked",
   "miniapp.training.roster.title": "Who's signed up",
   "miniapp.training.roster.empty": "No one signed up yet",
+  "miniapp.training.roster.private": "Participants are visible after you book or join the waitlist.",
   "miniapp.training.waitlist.title": "Waitlist",
 
   // --- My calendar (court + training) ---
@@ -270,6 +280,13 @@ export const miniappEn: Record<string, string> = {
   "miniapp.calendar.kindTraining": "Training",
   "miniapp.calendar.kindCourt": "Court",
   "miniapp.calendar.kindAvailable": "Available",
+  "miniapp.calendar.kindWaitlist": "Waitlist",
+  "miniapp.calendar.fullWaitlist": "Full · waitlist",
+  "miniapp.calendar.joinWaitlistAria": "Join waitlist",
+  "miniapp.calendar.openTrainingAria": "Open participants",
+  "miniapp.calendar.trainingDetailTitle": "Training details",
+  "miniapp.calendar.backToAgenda": "Back to calendar",
+  "miniapp.calendar.statusLabel": "Status",
   "miniapp.calendar.legendAria": "Calendar legend",
   "miniapp.calendar.errorBody": "Couldn't load the calendar. Please try again.",
   "miniapp.calendar.courtStatus.pending": "Awaiting confirmation",

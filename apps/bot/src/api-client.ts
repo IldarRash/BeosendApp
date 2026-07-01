@@ -8,6 +8,7 @@ import {
   individualRequestSchema,
   labelCatalogSchema,
   levelSchema,
+  managerContactSchema,
   markAttendanceSchema,
   myBookingItemSchema,
   singleBookingResultSchema,
@@ -32,6 +33,7 @@ import {
   type Level,
   type Locale,
   type MarkAttendanceInput,
+  type ManagerContact,
   type MyBookingItem,
   type MyBookingScope,
   type OnboardClientInput,
@@ -131,6 +133,14 @@ export class ApiClient {
 
   health(): Promise<z.infer<typeof healthSchema>> {
     return this.request("/health", healthSchema);
+  }
+
+  /**
+   * Public manager contact setting shown by the bot. The API owns the editable
+   * setting, env fallback, and URL derivation; the bot validates then renders.
+   */
+  getManagerContact(): Promise<ManagerContact> {
+    return this.request("/settings/manager-contact", managerContactSchema);
   }
 
   /**

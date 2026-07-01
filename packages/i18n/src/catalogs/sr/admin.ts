@@ -198,6 +198,18 @@ export const adminSr: Record<string, string> = {
   "admin.managers.usernameHint": "Opciono, bez znaka @.",
   "admin.managers.created": "Administrator je kreiran",
   "admin.managers.updated": "Administrator je ažuriran",
+  "admin.managerContact.title": "Kontakt menadžera",
+  "admin.managerContact.lead": "Ovaj kontakt se prikazuje kada klijent izabere Kontaktiraj menadžera.",
+  "admin.managerContact.loading": "Učitavanje kontakta menadžera…",
+  "admin.managerContact.loadError": "Nije moguće učitati kontakt menadžera: {message}",
+  "admin.managerContact.contactLabel": "Kontakt",
+  "admin.managerContact.contactHint": "Telegram @username, telefon ili kratak slobodan tekst. Telegram tag postaje direktan link.",
+  "admin.managerContact.validationError": "Unesite 1–120 znakova.",
+  "admin.managerContact.saved": "Kontakt menadžera je sačuvan",
+  "admin.managerContact.savedInline": "Sačuvano. Bot i Mini App će koristiti ovaj kontakt.",
+  "admin.managerContact.open": "Otvori kontakt",
+  "admin.managerContact.linkReady": "Direktan link",
+  "admin.managerContact.plainText": "Običan tekst",
 
   // ── Groups page ───────────────────────────────────────────────────────────
   "admin.groups.title": "Grupe",

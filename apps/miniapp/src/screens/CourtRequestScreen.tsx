@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 import {
+  COURT_COUNT,
   COURT_DURATION_CHOICES,
   type CourtAvailability,
   type CourtDurationHours,
@@ -332,7 +333,7 @@ function CourtStep({
   };
 
   // Render every court 1…6 so the picker is a stable grid; free ones are selectable.
-  const allCourts = Array.from({ length: 6 }, (_, i) => i + 1);
+  const allCourts = Array.from({ length: COURT_COUNT }, (_, i) => i + 1);
 
   return (
     <div className="screen">

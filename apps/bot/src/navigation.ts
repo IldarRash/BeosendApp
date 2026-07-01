@@ -7,6 +7,7 @@ import { showFilteredSlots } from "./slot-filters";
 import type { SlotFilterState } from "./slot-filters";
 import { renderTodaySlotsText, slotsKeyboard } from "./slots";
 import type { ApiClient } from "./api-client";
+import { managerContactTelegramUrl, type ManagerContact } from "@beosand/types";
 import { t, type Catalog } from "./i18n";
 
 /**
@@ -30,11 +31,12 @@ export interface MenuReplyCtx {
 }
 
 export interface MenuHandlerDeps {
-  /** Manager contact handle/text, read from the env contract at startup. */
+  /** Env fallback used only if the API manager-contact setting cannot be read. */
   managerContact: string;
   /** Typed API client; the only way handlers reach domain data. */
   api: Pick<
     ApiClient,
+    | "getManagerContact"
     | "listAvailableSlots"
     | "listGroups"
     | "getClientByTelegramId"
@@ -61,6 +63,18 @@ export type MenuHandler = (ctx: MenuReplyCtx, deps: MenuHandlerDeps) => Promise<
 /** Re-render the main menu (used by nav:home and the unknown-callback fallback). */
 export async function showMainMenu(ctx: MenuReplyCtx, catalog: Catalog): Promise<void> {
   await ctx.reply(welcomeText(catalog), { reply_markup: mainMenuKeyboard(catalog) });
+}
+
+/** Fetch the editable manager contact, falling back to the startup env value if the API is down. */
+export async function resolveManagerContact(deps: MenuHandlerDeps): Promise<ManagerContact> {
+  try {
+    return await deps.api.getManagerContact();
+  } catch {
+    return {
+      contact: deps.managerContact,
+      url: managerContactTelegramUrl(deps.managerContact)
+    };
+  }
 }
 
 /**
@@ -109,12 +123,12 @@ export const menuHandlers: Partial<Record<MenuAction, MenuHandler>> = {
   [MENU_ACTIONS.myBookings]: async (ctx, deps) => {
     await handleMyBookings(ctx, deps.api, deps.catalog, ctx.from?.id);
   },
-  // Связаться с менеджером (D2): keep the contact line, but offer a direct
-  // deep-link to the manager's Telegram chat when the configured contact is a
-  // valid @username. A free-text/phone contact falls back to the line + footer.
+  // Связаться с менеджером (D2): fetch the editable contact from the API and
+  // deep-link only when the API/fallback supplies a safe Telegram URL.
   [MENU_ACTIONS.contactManager]: async (ctx, deps) => {
-    await ctx.reply(t(deps.catalog, "bot.menu.contactManagerLine", { contact: deps.managerContact }), {
-      reply_markup: contactManagerKeyboard(deps.catalog, deps.managerContact)
+    const managerContact = await resolveManagerContact(deps);
+    await ctx.reply(t(deps.catalog, "bot.menu.contactManagerLine", { contact: managerContact.contact }), {
+      reply_markup: contactManagerKeyboard(deps.catalog, managerContact.url)
     });
   }
 };

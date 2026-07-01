@@ -4,6 +4,7 @@ import { getStaticCatalog } from "@beosand/i18n";
 import {
   menuHandlers,
   resolveCallback,
+  resolveManagerContact,
   todayDateString,
   type MenuHandlerDeps,
   type MenuReplyCtx
@@ -39,7 +40,11 @@ function makeDeps(): MenuHandlerDeps {
       listMyBookings: vi.fn().mockResolvedValue([]),
       listIndividualTrainers: vi.fn().mockResolvedValue([]),
       listTrainers: vi.fn().mockResolvedValue([]),
-      listLevels: vi.fn().mockResolvedValue([])
+      listLevels: vi.fn().mockResolvedValue([]),
+      getManagerContact: vi.fn().mockResolvedValue({
+        contact: "@api_manager",
+        url: "https://t.me/api_manager"
+      })
     },
     catalog: ru
   };
@@ -207,11 +212,15 @@ describe("menu dispatch table", () => {
     expect(callbacksOf(reply)).toContain("ind:pick:33333333-3333-3333-3333-333333333333");
   });
 
-  it("renders the manager contact with a t.me deep-link button for a valid @username (menu:contact)", async () => {
+  it("renders the API manager contact with its t.me deep-link button (menu:contact)", async () => {
     const { ctx, reply } = fakeCtx();
     const localDeps = makeDeps();
-    localDeps.managerContact = "@milena";
+    (localDeps.api.getManagerContact as ReturnType<typeof vi.fn>).mockResolvedValue({
+      contact: "@milena",
+      url: "https://t.me/milena"
+    });
     await menuHandlers[MENU_ACTIONS.contactManager]!(ctx, localDeps);
+    expect(localDeps.api.getManagerContact).toHaveBeenCalledOnce();
     expect(reply).toHaveBeenCalledOnce();
     expect(reply.mock.calls[0][0]).toContain("@milena");
     // A single URL button opening her DM, then the back/home footer.
@@ -219,15 +228,58 @@ describe("menu dispatch table", () => {
     expect(callbacksOf(reply).slice(-2)).toEqual([NAV_ACTIONS.back, NAV_ACTIONS.home]);
   });
 
-  it("falls back to text + back/home (no URL button) for a non-username contact (menu:contact)", async () => {
+  it("renders an API free-text contact with no URL button (menu:contact)", async () => {
     const { ctx, reply } = fakeCtx();
     const localDeps = makeDeps();
-    localDeps.managerContact = "+381 60 123 4567";
+    (localDeps.api.getManagerContact as ReturnType<typeof vi.fn>).mockResolvedValue({
+      contact: "+381 60 123 4567",
+      url: null
+    });
     await menuHandlers[MENU_ACTIONS.contactManager]!(ctx, localDeps);
     expect(reply).toHaveBeenCalledOnce();
     expect(reply.mock.calls[0][0]).toContain("+381 60 123 4567");
     expect(urlsOf(reply)).toEqual([]);
     expect(callbacksOf(reply)).toEqual([NAV_ACTIONS.back, NAV_ACTIONS.home]);
+  });
+
+  it("falls back to env contact when the manager-contact API call fails", async () => {
+    const { ctx, reply } = fakeCtx();
+    const localDeps = makeDeps();
+    localDeps.managerContact = "@fallback_manager";
+    (localDeps.api.getManagerContact as ReturnType<typeof vi.fn>).mockRejectedValue(
+      new Error("API down")
+    );
+    await menuHandlers[MENU_ACTIONS.contactManager]!(ctx, localDeps);
+    expect(reply).toHaveBeenCalledOnce();
+    expect(reply.mock.calls[0][0]).toContain("@fallback_manager");
+    expect(urlsOf(reply)).toEqual(["https://t.me/fallback_manager"]);
+    expect(callbacksOf(reply).slice(-2)).toEqual([NAV_ACTIONS.back, NAV_ACTIONS.home]);
+  });
+});
+
+describe("resolveManagerContact", () => {
+  it("uses the API-provided manager contact when available", async () => {
+    const localDeps = makeDeps();
+    (localDeps.api.getManagerContact as ReturnType<typeof vi.fn>).mockResolvedValue({
+      contact: "@current_manager",
+      url: "https://t.me/current_manager"
+    });
+    await expect(resolveManagerContact(localDeps)).resolves.toEqual({
+      contact: "@current_manager",
+      url: "https://t.me/current_manager"
+    });
+  });
+
+  it("falls back to plain text with no URL for non-username env contacts", async () => {
+    const localDeps = makeDeps();
+    localDeps.managerContact = "Call reception";
+    (localDeps.api.getManagerContact as ReturnType<typeof vi.fn>).mockRejectedValue(
+      new Error("API down")
+    );
+    await expect(resolveManagerContact(localDeps)).resolves.toEqual({
+      contact: "Call reception",
+      url: null
+    });
   });
 });
 

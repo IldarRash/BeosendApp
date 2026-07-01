@@ -1,5 +1,11 @@
-import { useState } from "react";
-import type { CreateManagerInput, Locale, Manager, UpdateManagerInput } from "@beosand/types";
+import { useEffect, useState } from "react";
+import {
+  updateManagerContactSchema,
+  type CreateManagerInput,
+  type Locale,
+  type Manager,
+  type UpdateManagerInput
+} from "@beosand/types";
 import { LOCALES, localeLabel } from "@beosand/i18n";
 import { AppShell } from "../ui/AppShell";
 import { Button } from "../ui/Button";
@@ -8,7 +14,13 @@ import { Modal } from "../ui/Modal";
 import { TextField, SelectField, NumberField } from "../ui/Field";
 import { useToast } from "../ui/Toast";
 import { useT } from "../i18n/LanguageProvider";
-import { useManagers, useCreateManager, useUpdateManager } from "../hooks/useManagers";
+import {
+  useManagers,
+  useCreateManager,
+  useManagerContact,
+  useUpdateManager,
+  useUpdateManagerContact
+} from "../hooks/useManagers";
 
 type EditorState =
   | { mode: "create" }
@@ -78,6 +90,8 @@ export function Managers(): JSX.Element {
         <Button onClick={() => setEditor({ mode: "create" })}>{t("admin.managers.new")}</Button>
       </header>
 
+      <ManagerContactPanel />
+
       {managers.isLoading ? (
         <p className="state state--loading">{t("admin.managers.loading")}</p>
       ) : managers.isError ? (
@@ -96,6 +110,103 @@ export function Managers(): JSX.Element {
 
       {editor ? <ManagerEditor state={editor} onClose={() => setEditor(null)} /> : null}
     </AppShell>
+  );
+}
+
+/** Manager contact setting used by the bot/Mini App "contact manager" action. */
+function ManagerContactPanel(): JSX.Element {
+  const t = useT();
+  const toast = useToast();
+  const contact = useManagerContact();
+  const update = useUpdateManagerContact();
+  const [draft, setDraft] = useState("");
+  const [validationError, setValidationError] = useState<string | null>(null);
+  const [saved, setSaved] = useState(false);
+
+  useEffect(() => {
+    if (contact.data) {
+      setDraft(contact.data.contact);
+    }
+  }, [contact.data]);
+
+  function handleSubmit(event: React.FormEvent): void {
+    event.preventDefault();
+    setSaved(false);
+    const parsed = updateManagerContactSchema.safeParse({ contact: draft });
+    if (!parsed.success) {
+      setValidationError(t("admin.managerContact.validationError"));
+      return;
+    }
+    setValidationError(null);
+    update.mutate(parsed.data, {
+      onSuccess: (savedContact) => {
+        setDraft(savedContact.contact);
+        setSaved(true);
+        toast.notify(t("admin.managerContact.saved"), "success");
+      }
+    });
+  }
+
+  const error = validationError ?? (update.error instanceof Error ? update.error.message : null);
+
+  return (
+    <section className="stack" aria-labelledby="manager-contact-title">
+      <div className="section-head">
+        <div>
+          <h2 id="manager-contact-title">{t("admin.managerContact.title")}</h2>
+          <p className="field__hint">{t("admin.managerContact.lead")}</p>
+        </div>
+        {contact.data?.url ? (
+          <a className="btn btn--ghost" href={contact.data.url} target="_blank" rel="noreferrer">
+            {t("admin.managerContact.open")}
+          </a>
+        ) : null}
+      </div>
+
+      {contact.isLoading ? (
+        <p className="state state--loading">{t("admin.managerContact.loading")}</p>
+      ) : contact.isError ? (
+        <p className="state state--error" role="alert">
+          {t("admin.managerContact.loadError", { message: contact.error.message })}
+        </p>
+      ) : (
+        <form className="form" onSubmit={handleSubmit} aria-label={t("admin.managerContact.title")}>
+          <TextField
+            label={t("admin.managerContact.contactLabel")}
+            value={draft}
+            onChange={(event) => {
+              setDraft(event.target.value);
+              setValidationError(null);
+              setSaved(false);
+            }}
+            autoComplete="off"
+            required
+            maxLength={120}
+            hint={t("admin.managerContact.contactHint")}
+          />
+          <div className="cluster">
+            <Button type="submit" disabled={update.isPending}>
+              {update.isPending ? t("admin.action.saving") : t("admin.action.save")}
+            </Button>
+            {contact.data?.url ? (
+              <span className="tag tag--info">{t("admin.managerContact.linkReady")}</span>
+            ) : (
+              <span className="tag tag--muted">{t("admin.managerContact.plainText")}</span>
+            )}
+          </div>
+          {saved ? (
+            <p className="state" role="status">
+              {t("admin.managerContact.savedInline")}
+            </p>
+          ) : null}
+          {error ? (
+            <p className="state state--error" role="alert">
+              {error}
+            </p>
+          ) : null}
+        </form>
+      )}
+    </section>
   );
 }
 

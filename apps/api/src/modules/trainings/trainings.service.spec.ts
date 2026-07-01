@@ -156,6 +156,27 @@ class FakeTrainingsRepository {
       .sort((a, b) => a.date.localeCompare(b.date) || a.startTime.localeCompare(b.startTime));
   }
 
+  // Mirrors the real SQL: visible grouped schedule rows in [from, to], including
+  // full rows so the Mini App can offer the waitlist path.
+  schedule: AvailableSlotRow[] = [];
+  async listSchedule(
+    from: string,
+    to: string,
+    levelId?: string,
+    trainerId?: string
+  ): Promise<AvailableSlotRow[]> {
+    return this.schedule
+      .filter(
+        (r) =>
+          r.date >= from &&
+          r.date <= to &&
+          (r.status === "open" || r.status === "full") &&
+          (!levelId || r.levelId === levelId) &&
+          (!trainerId || r.trainerId === trainerId)
+      )
+      .sort((a, b) => a.date.localeCompare(b.date) || a.startTime.localeCompare(b.startTime));
+  }
+
   calendar: TrainingCalendarRow[] = [];
   async listCalendar(
     from: string,
@@ -197,18 +218,25 @@ class FakeTrainingsRepository {
 
   // Participant name rows for the client-facing "кто записан" view.
   participantNames: { clientId: string; name: string }[] = [];
-  async listParticipantNames(
-    _trainingId: string
-  ): Promise<{ clientId: string; name: string }[]> {
+  async listParticipantNames(_trainingId: string): Promise<{ clientId: string; name: string }[]> {
     return this.participantNames;
   }
 
   // Active waitlist name rows (already filtered + position-ordered by the real query).
   waitlistNames: { clientId: string; name: string }[] = [];
-  async listWaitlistNames(
-    _trainingId: string
-  ): Promise<{ clientId: string; name: string }[]> {
+  async listWaitlistNames(_trainingId: string): Promise<{ clientId: string; name: string }[]> {
     return this.waitlistNames;
+  }
+
+  participantAccess = true;
+  participantAccessChecks: Array<{ trainingId: string; clientId: string }> = [];
+  async hasActiveParticipantAccess(trainingId: string, clientId: string): Promise<boolean> {
+    this.participantAccessChecks.push({ trainingId, clientId });
+    return (
+      this.participantAccess &&
+      (this.participantNames.some((row) => row.clientId === clientId) ||
+        this.waitlistNames.some((row) => row.clientId === clientId))
+    );
   }
 
   // --- Admin manager writes (cancel / change capacity) ---
@@ -224,7 +252,13 @@ class FakeTrainingsRepository {
     }
     const row = this.rows.find((r) => r.id === id);
     return row
-      ? { id: row.id, capacity: row.capacity, bookedCount: row.bookedCount, status: row.status, trainerId: row.trainerId }
+      ? {
+          id: row.id,
+          capacity: row.capacity,
+          bookedCount: row.bookedCount,
+          status: row.status,
+          trainerId: row.trainerId
+        }
       : undefined;
   }
 
@@ -373,9 +407,7 @@ class FakeTrainingsRepository {
     _tx: Database,
     ids: readonly string[]
   ): Promise<{ id: string; date: string }[]> {
-    return this.rows
-      .filter((r) => ids.includes(r.id))
-      .map((r) => ({ id: r.id, date: r.date }));
+    return this.rows.filter((r) => ids.includes(r.id)).map((r) => ({ id: r.id, date: r.date }));
   }
 
   updatePriceIds: string[] = [];
@@ -615,10 +647,7 @@ class FakeBookingsRepository {
   }
 
   // Distinct training ids whose bookings share one groupSubscriptionId.
-  async findSubscriptionTrainingIds(
-    _tx: Database,
-    groupSubscriptionId: string
-  ): Promise<string[]> {
+  async findSubscriptionTrainingIds(_tx: Database, groupSubscriptionId: string): Promise<string[]> {
     return [
       ...new Set(
         this.inserted
@@ -788,9 +817,9 @@ describe("TrainingsService", () => {
 
     it("getCalendarItem is admin-only", async () => {
       trainingsRepo.calendar = [calItem()];
-      await expect(
-        service.getCalendarItem(NON_ADMIN_ID, calItem().id)
-      ).rejects.toBeInstanceOf(ForbiddenException);
+      await expect(service.getCalendarItem(NON_ADMIN_ID, calItem().id)).rejects.toBeInstanceOf(
+        ForbiddenException
+      );
     });
 
     it("getCalendarItem 404s a missing id", async () => {
@@ -854,6 +883,23 @@ describe("TrainingsService", () => {
       expect(after[0].freeSeats).toBe(1);
     });
 
+    it("keeps full rows out of available but returns them in schedule as non-bookable", async () => {
+      const full = slot({ status: "full", bookedCount: 6, capacity: 6 });
+      trainingsRepo.available = [full];
+      trainingsRepo.schedule = [full];
+
+      expect(await service.listAvailable({})).toEqual([]);
+
+      const schedule = await service.listSchedule({});
+      expect(schedule).toHaveLength(1);
+      expect(schedule[0]).toMatchObject({
+        trainingId: full.trainingId,
+        freeSeats: 0,
+        trainingStatus: "full",
+        bookable: false
+      });
+    });
+
     it("excludes cancelled and completed trainings even if the repo were to leak them", async () => {
       trainingsRepo.available = [
         slot({ status: "cancelled", bookedCount: 0 }),
@@ -869,9 +915,21 @@ describe("TrainingsService", () => {
 
     it("orders results by date then start time", async () => {
       trainingsRepo.available = [
-        slot({ trainingId: "bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb", date: "2026-06-07", startTime: "18:00" }),
-        slot({ trainingId: "cccccccc-cccc-cccc-cccc-cccccccccccc", date: "2026-06-05", startTime: "20:00" }),
-        slot({ trainingId: "dddddddd-dddd-dddd-dddd-dddddddddddd", date: "2026-06-05", startTime: "08:00" })
+        slot({
+          trainingId: "bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb",
+          date: "2026-06-07",
+          startTime: "18:00"
+        }),
+        slot({
+          trainingId: "cccccccc-cccc-cccc-cccc-cccccccccccc",
+          date: "2026-06-05",
+          startTime: "20:00"
+        }),
+        slot({
+          trainingId: "dddddddd-dddd-dddd-dddd-dddddddddddd",
+          date: "2026-06-05",
+          startTime: "08:00"
+        })
       ];
       const cards = await service.listAvailable({});
       expect(cards.map((c) => c.startTime)).toEqual(["08:00", "20:00", "18:00"]);
@@ -1105,8 +1163,8 @@ describe("TrainingsService", () => {
     const CLIENT_C = "cccccccc-cccc-4ccc-8ccc-cccccccccccc";
     const CLIENT_D = "dddddddd-dddd-4ddd-8ddd-dddddddddddd";
 
-    const clientRow = (telegramId: number): Client => ({
-      id: "cccccccc-cccc-4ccc-8ccc-cccccccccccc",
+    const clientRow = (telegramId: number, id = CLIENT_C): Client => ({
+      id,
       name: "Onboarded",
       telegramId,
       telegramUsername: null,
@@ -1179,6 +1237,39 @@ describe("TrainingsService", () => {
         expect(participant.firstName).toBeTruthy();
         expect(participant.avatarInitial).toBeTruthy();
       }
+    });
+
+    it("permits the caller's own booked client and checks access with that client id", async () => {
+      clientsRepo.client = clientRow(CLIENT_TG, CLIENT_A);
+      const result = await service.listParticipants(CLIENT_TG, TRAINING_ID);
+
+      expect(result.participantCount).toBe(2);
+      expect(trainingsRepo.participantAccessChecks).toEqual([
+        { trainingId: TRAINING_ID, clientId: CLIENT_A }
+      ]);
+      expect(result.participants[0].clientId).toBeUndefined();
+    });
+
+    it("permits the caller's own waitlisted client", async () => {
+      clientsRepo.client = clientRow(CLIENT_TG, CLIENT_C);
+      const result = await service.listParticipants(CLIENT_TG, TRAINING_ID);
+
+      expect(result.waitlistCount).toBe(2);
+      expect(trainingsRepo.participantAccessChecks).toEqual([
+        { trainingId: TRAINING_ID, clientId: CLIENT_C }
+      ]);
+    });
+
+    it("forbids an onboarded client who is not booked or waitlisted on that training", async () => {
+      const unrelatedClientId = "eeeeeeee-eeee-4eee-8eee-eeeeeeeeeeee";
+      clientsRepo.client = clientRow(CLIENT_TG, unrelatedClientId);
+
+      await expect(service.listParticipants(CLIENT_TG, TRAINING_ID)).rejects.toBeInstanceOf(
+        ForbiddenException
+      );
+      expect(trainingsRepo.participantAccessChecks).toEqual([
+        { trainingId: TRAINING_ID, clientId: unrelatedClientId }
+      ]);
     });
 
     it("narrows the waitlist for a client caller (firstName + avatarInitial only), in queue order", async () => {
@@ -1811,9 +1902,9 @@ describe("TrainingsService", () => {
       const result = await service.generateIndividualMonth(ADMIN_ID, input());
       const dates = result.created.map((training) => training.date).sort();
 
-      expect(
-        courtBlocksRepo.calls.filter((call) => call.startsWith("individual-lock:"))
-      ).toEqual(dates.map((date) => `individual-lock:${CLIENT_ID}:${TRAINER_ID}:${date}`));
+      expect(courtBlocksRepo.calls.filter((call) => call.startsWith("individual-lock:"))).toEqual(
+        dates.map((date) => `individual-lock:${CLIENT_ID}:${TRAINER_ID}:${date}`)
+      );
       const existingRead = courtBlocksRepo.calls.findIndex((call) =>
         call.startsWith("existing-individual:")
       );
@@ -1875,9 +1966,9 @@ describe("TrainingsService", () => {
     });
 
     it("is admin-only: a non-admin is rejected with 403 before any write", async () => {
-      await expect(
-        service.generateIndividualMonth(NON_ADMIN_ID, input())
-      ).rejects.toBeInstanceOf(ForbiddenException);
+      await expect(service.generateIndividualMonth(NON_ADMIN_ID, input())).rejects.toBeInstanceOf(
+        ForbiddenException
+      );
       expect(trainingsRepo.rows).toHaveLength(0);
       expect(bookingsRepo.inserted).toHaveLength(0);
     });
@@ -2115,9 +2206,9 @@ describe("TrainingsService", () => {
 
     it("is admin-only", async () => {
       trainingsRepo.rows = [orphan("a0000000-0000-4000-8000-000000000001", "08:00", "09:30")];
-      await expect(
-        service.autoAssignOrphans(NON_ADMIN_ID, { date: DATE })
-      ).rejects.toBeInstanceOf(ForbiddenException);
+      await expect(service.autoAssignOrphans(NON_ADMIN_ID, { date: DATE })).rejects.toBeInstanceOf(
+        ForbiddenException
+      );
       expect(courtBlocksRepo.inserted).toHaveLength(0);
     });
   });
@@ -2581,9 +2672,9 @@ describe("TrainingsService", () => {
           { series: false }
         )
       ).rejects.toBeInstanceOf(ForbiddenException);
-      await expect(
-        service.deleteIndividualSeries(NON_ADMIN_ID, targetId)
-      ).rejects.toBeInstanceOf(ForbiddenException);
+      await expect(service.deleteIndividualSeries(NON_ADMIN_ID, targetId)).rejects.toBeInstanceOf(
+        ForbiddenException
+      );
 
       expect(trainingsRepo.updatePriceIds).toEqual([]);
       expect(trainingsRepo.markCancelledIds).toEqual([]);
@@ -2601,9 +2692,9 @@ describe("TrainingsService", () => {
           { series: false }
         )
       ).rejects.toBeInstanceOf(BadRequestException);
-      await expect(
-        service.deleteIndividualSeries(ADMIN_ID, targetId)
-      ).rejects.toBeInstanceOf(BadRequestException);
+      await expect(service.deleteIndividualSeries(ADMIN_ID, targetId)).rejects.toBeInstanceOf(
+        BadRequestException
+      );
       expect(trainingsRepo.updatePriceIds).toEqual([]);
       expect(trainingsRepo.markCancelledIds).toEqual([]);
     });
@@ -2620,9 +2711,9 @@ describe("TrainingsService", () => {
           { series: true }
         )
       ).rejects.toBeInstanceOf(ConflictException);
-      await expect(
-        service.deleteIndividualSeries(ADMIN_ID, targetId)
-      ).rejects.toBeInstanceOf(ConflictException);
+      await expect(service.deleteIndividualSeries(ADMIN_ID, targetId)).rejects.toBeInstanceOf(
+        ConflictException
+      );
       expect(trainingsRepo.updatePriceIds).toEqual([]);
       expect(trainingsRepo.markCancelledIds).toEqual([]);
     });
@@ -2640,9 +2731,9 @@ describe("TrainingsService", () => {
           { series: true }
         )
       ).rejects.toBeInstanceOf(ConflictException);
-      await expect(
-        service.deleteIndividualSeries(ADMIN_ID, targetId)
-      ).rejects.toBeInstanceOf(ConflictException);
+      await expect(service.deleteIndividualSeries(ADMIN_ID, targetId)).rejects.toBeInstanceOf(
+        ConflictException
+      );
 
       expect(trainingsRepo.updatePriceIds).toEqual([]);
       expect(trainingsRepo.markCancelledIds).toEqual([]);

@@ -204,6 +204,18 @@ export const adminRu: Record<string, string> = {
   "admin.managers.usernameHint": "Необязательно, без символа @.",
   "admin.managers.created": "Администратор создан",
   "admin.managers.updated": "Администратор обновлён",
+  "admin.managerContact.title": "Контакт менеджера",
+  "admin.managerContact.lead": "Этот контакт показывается клиентам в действии «Связаться с менеджером».",
+  "admin.managerContact.loading": "Загрузка контакта менеджера…",
+  "admin.managerContact.loadError": "Не удалось загрузить контакт менеджера: {message}",
+  "admin.managerContact.contactLabel": "Контакт",
+  "admin.managerContact.contactHint": "Telegram @username, телефон или короткий свободный текст. Telegram-тег станет прямой ссылкой.",
+  "admin.managerContact.validationError": "Введите от 1 до 120 символов.",
+  "admin.managerContact.saved": "Контакт менеджера сохранён",
+  "admin.managerContact.savedInline": "Сохранено. Бот и Mini App будут использовать этот контакт.",
+  "admin.managerContact.open": "Открыть контакт",
+  "admin.managerContact.linkReady": "Прямая ссылка",
+  "admin.managerContact.plainText": "Обычный текст",
 
   // ── Groups page ───────────────────────────────────────────────────────────
   "admin.groups.title": "Группы",

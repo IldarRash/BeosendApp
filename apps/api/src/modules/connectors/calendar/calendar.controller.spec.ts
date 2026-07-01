@@ -27,12 +27,16 @@ function fakeResponse() {
   return { res, headers, state };
 }
 
-function build(feedOver: Partial<CalendarFeedService> = {}, linkOver: Partial<CalendarLinkService> = {}) {
+function build(
+  feedOver: Partial<CalendarFeedService> = {},
+  linkOver: Partial<CalendarLinkService> = {}
+) {
   const feed = {
     renderFeed: vi.fn(async () => "BEGIN:VCALENDAR\nEND:VCALENDAR"),
     ...feedOver
   } as unknown as CalendarFeedService;
   const links = {
+    buildOwnClientLink: vi.fn(),
     buildLink: vi.fn(),
     rotate: vi.fn(),
     ...linkOver
@@ -70,9 +74,9 @@ describe("CalendarController", () => {
     const { controller } = build();
     const { res } = fakeResponse();
 
-    await expect(controller.ics("trainer", VALID_ID, undefined, res as never)).rejects.toBeInstanceOf(
-      BadRequestException
-    );
+    await expect(
+      controller.ics("trainer", VALID_ID, undefined, res as never)
+    ).rejects.toBeInstanceOf(BadRequestException);
   });
 
   it("400s on an unknown subject", async () => {
@@ -91,6 +95,35 @@ describe("CalendarController", () => {
     await expect(controller.ics("trainer", "not-a-uuid", "t", res as never)).rejects.toBeInstanceOf(
       BadRequestException
     );
+  });
+
+  it("400s /me without the verified client telegram bridge header", () => {
+    const buildOwnClientLink = vi.fn(async () => ({
+      subject: "client" as const,
+      url: "https://book.beosand.test/connectors/calendar/client/id.ics?token=t"
+    }));
+    const { controller } = build({}, { buildOwnClientLink });
+
+    expect(() => controller.me(undefined)).toThrow(BadRequestException);
+    expect(buildOwnClientLink).not.toHaveBeenCalled();
+  });
+
+  it("uses the verified client telegram bridge header for /me", async () => {
+    const buildOwnClientLink = vi.fn(async () => ({
+      subject: "client" as const,
+      url: "https://book.beosand.test/connectors/calendar/client/id.ics?token=t"
+    }));
+    const { controller } = build({}, { buildOwnClientLink });
+
+    await controller.me("42");
+    expect(buildOwnClientLink).toHaveBeenCalledWith(42);
+  });
+
+  it("400s /me without a numeric caller header", () => {
+    const { controller } = build();
+
+    expect(() => controller.me(undefined)).toThrow(BadRequestException);
+    expect(() => controller.me("not-a-number")).toThrow(BadRequestException);
   });
 
   it("delegates link to the admin-gated service with the actor id", () => {

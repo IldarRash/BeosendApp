@@ -53,6 +53,15 @@ export const miniappRu: Record<string, string> = {
   // Bonus-training balance badge (shown only when the balance is > 0).
   "miniapp.profile.bonusCredits": "Бонусные тренировки",
   "miniapp.profile.bonusCreditsValue": "Бонусных тренировок: {count}",
+  "miniapp.profile.calendarTitle": "Экспорт календаря",
+  "miniapp.profile.calendarExport": "Лента Google Calendar",
+  "miniapp.profile.calendarHint": "Получите подписанную ссылку на свои тренировки. Вход в Google не нужен.",
+  "miniapp.profile.calendarLoading": "Готовим ссылку на ленту…",
+  "miniapp.profile.calendarReady": "Ссылка на ленту готова",
+  "miniapp.profile.calendarOpen": "Открыть ленту",
+  "miniapp.profile.calendarCopy": "Скопировать ссылку",
+  "miniapp.profile.calendarCopied": "Ссылка календаря скопирована",
+  "miniapp.profile.calendarCopyFailed": "Не удалось скопировать ссылку календаря",
 
   // --- Common states ---
   "miniapp.common.loading": "Загрузка…",
@@ -302,6 +311,7 @@ export const miniappRu: Record<string, string> = {
   // Single-training participants block ("who signed up") on the confirm step.
   "miniapp.training.roster.title": "Кто записан",
   "miniapp.training.roster.empty": "Пока никто не записан",
+  "miniapp.training.roster.private": "Участники видны после записи или добавления в лист ожидания.",
   // The training's waitlist ("queued for a full slot"), shown only when non-empty.
   "miniapp.training.waitlist.title": "Лист ожидания",
 
@@ -319,6 +329,13 @@ export const miniappRu: Record<string, string> = {
   "miniapp.calendar.kindTraining": "Тренировка",
   "miniapp.calendar.kindCourt": "Корт",
   "miniapp.calendar.kindAvailable": "Доступно",
+  "miniapp.calendar.kindWaitlist": "Лист ожидания",
+  "miniapp.calendar.fullWaitlist": "Мест нет · лист ожидания",
+  "miniapp.calendar.joinWaitlistAria": "Встать в лист ожидания",
+  "miniapp.calendar.openTrainingAria": "Открыть участников",
+  "miniapp.calendar.trainingDetailTitle": "Детали тренировки",
+  "miniapp.calendar.backToAgenda": "Назад к календарю",
+  "miniapp.calendar.statusLabel": "Статус",
   "miniapp.calendar.legendAria": "Обозначения календаря",
   "miniapp.calendar.errorBody": "Не удалось загрузить календарь. Попробуйте ещё раз.",
   // Court-request status chips (a client never sees a court number).

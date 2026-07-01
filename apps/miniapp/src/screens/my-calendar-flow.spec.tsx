@@ -9,20 +9,22 @@ import type {
   MiniappMe,
   MyBookingItem,
   MyCourtRequestItem,
-  SlotCard
+  TrainingScheduleSlot,
+  WaitlistEntry
 } from "@beosand/types";
 import { LanguageProvider } from "../i18n/LanguageProvider";
 import { CalendarScreen } from "./CalendarScreen";
 
 /**
  * Personal-calendar tests: the month grid + day agenda now merge THREE feeds — the
- * user's bookings (coral), court rentals (teal), and bookable slots they can still sign
- * up for (green). Interaction layer only; every value is the API's. We mock the API
- * boundary so the real react-query hooks + UI run without a network.
+ * user's bookings (coral), court rentals (teal), and visible schedule slots they can
+ * still act on (green/waitlist). Interaction layer only; every value is the API's. We
+ * mock the API boundary so the real react-query hooks + UI run without a network.
  *
- * The two invariants under test are the dedupe (a slot for a training the user already
- * booked is NOT also shown as available) and that a day with all three categories shows
- * all three, plus that the available row enters the shared booking flow.
+ * The invariants under test are the dedupe (a slot for a training the user already
+ * booked is NOT also shown as available), that joined trainings keep participant
+ * visibility, and that full schedule rows stay visible and can return a waitlisted
+ * booking result.
  *
  * The clock is pinned to 2026-06-09 so the default month is June 2026.
  */
@@ -52,6 +54,7 @@ const ONBOARDED: Client = {
 const BOOKED_TRAINING_ID = "33333333-3333-3333-3333-333333333333";
 // A genuinely available slot on the same day the user is NOT booked into.
 const FREE_TRAINING_ID = "44444444-4444-4444-4444-444444444444";
+const FULL_TRAINING_ID = "99999999-9999-9999-9999-999999999999";
 
 const MY_BOOKING: MyBookingItem = {
   bookingId: "55555555-5555-5555-5555-555555555555",
@@ -82,7 +85,7 @@ const MY_COURT: MyCourtRequestItem = {
 
 // /trainings/available returns BOTH the already-booked training (must be deduped) and a
 // genuinely free slot (must show as available, green).
-const SLOT_ALREADY_BOOKED: SlotCard = {
+const SLOT_ALREADY_BOOKED: TrainingScheduleSlot = {
   trainingId: BOOKED_TRAINING_ID,
   date: "2026-06-10",
   dayOfWeek: 3,
@@ -91,16 +94,32 @@ const SLOT_ALREADY_BOOKED: SlotCard = {
   trainerName: "Иван",
   levelName: "Начинающий",
   freeSeats: 3,
-  priceSingleRsd: 1500
+  priceSingleRsd: 1500,
+  trainingStatus: "open",
+  bookable: true
 };
 
-const SLOT_FREE: SlotCard = {
+const SLOT_FREE: TrainingScheduleSlot = {
   ...SLOT_ALREADY_BOOKED,
   trainingId: FREE_TRAINING_ID,
   startTime: "20:00",
   endTime: "21:30",
   freeSeats: 4,
-  priceSingleRsd: 1500
+  priceSingleRsd: 1500,
+  trainingStatus: "open",
+  bookable: true
+};
+
+const SLOT_FULL: TrainingScheduleSlot = {
+  ...SLOT_ALREADY_BOOKED,
+  trainingId: FULL_TRAINING_ID,
+  date: "2026-06-11",
+  dayOfWeek: 4,
+  startTime: "19:00",
+  endTime: "20:30",
+  freeSeats: 0,
+  trainingStatus: "full",
+  bookable: false
 };
 
 const BOOKING: Booking = {
@@ -117,12 +136,23 @@ const BOOKING: Booking = {
   paidBy: null
 };
 
+const WAITLIST_ENTRY: WaitlistEntry = {
+  id: "88888888-8888-8888-8888-888888888888",
+  clientId: ONBOARDED.id,
+  trainingId: FULL_TRAINING_ID,
+  position: 3,
+  groupSubscriptionId: null,
+  status: "waiting",
+  addedAt: "2026-06-05T10:00:00.000Z",
+  notifiedAt: null
+};
+
 interface FakeApi {
   getMe: ReturnType<typeof vi.fn>;
   getClientByTelegramId: ReturnType<typeof vi.fn>;
   listMyBookings: ReturnType<typeof vi.fn>;
   listMyCourtRequests: ReturnType<typeof vi.fn>;
-  listAvailableSlots: ReturnType<typeof vi.fn>;
+  listTrainingSchedule: ReturnType<typeof vi.fn>;
   createSingleBooking: ReturnType<typeof vi.fn>;
   getTrainingParticipants: ReturnType<typeof vi.fn>;
 }
@@ -137,7 +167,7 @@ function makeApi(overrides: Partial<FakeApi> = {}): FakeApi {
       Promise.resolve(scope === "upcoming" ? [MY_BOOKING] : [])
     ),
     listMyCourtRequests: vi.fn().mockResolvedValue([MY_COURT]),
-    listAvailableSlots: vi.fn().mockResolvedValue([SLOT_ALREADY_BOOKED, SLOT_FREE]),
+    listTrainingSchedule: vi.fn().mockResolvedValue([SLOT_ALREADY_BOOKED, SLOT_FREE]),
     createSingleBooking: vi.fn().mockResolvedValue(BOOKING),
     // The confirm step reads the slot's participants — default to an empty roster.
     getTrainingParticipants: vi
@@ -254,5 +284,59 @@ describe("CalendarScreen merged feeds", () => {
       trainingId: FREE_TRAINING_ID
     });
     await screen.findByText("Вы записаны!");
+  });
+
+  it("opens a joined training detail with participant visibility", async () => {
+    api = makeApi({
+      getTrainingParticipants: vi.fn().mockResolvedValue({
+        trainingId: BOOKED_TRAINING_ID,
+        participantCount: 2,
+        participants: [
+          { firstName: "Anya", avatarInitial: "A" },
+          { firstName: "Marko", avatarInitial: "M" }
+        ],
+        waitlistCount: 1,
+        waitlist: [{ firstName: "Lena", avatarInitial: "L" }]
+      })
+    });
+
+    renderWithProviders(<CalendarScreen />);
+
+    fireEvent.click(await screen.findByRole("gridcell", { name: /^10 число/ }));
+    fireEvent.click(await screen.findByRole("listitem", { name: /18:00/ }));
+
+    await screen.findByText("Anya");
+    expect(screen.getByText("Marko")).toBeTruthy();
+    expect(screen.getByText("Lena")).toBeTruthy();
+    expect(api.getTrainingParticipants).toHaveBeenCalledWith(BOOKED_TRAINING_ID);
+  });
+
+  it("keeps a full schedule row visible and lets the booking result render as waitlisted", async () => {
+    api = makeApi({
+      getMe: vi.fn().mockReturnValue({ ...ME, language: "en" }),
+      listTrainingSchedule: vi.fn().mockResolvedValue([SLOT_FULL]),
+      createSingleBooking: vi.fn().mockResolvedValue({
+        status: "waitlisted",
+        waitlistEntry: WAITLIST_ENTRY,
+        position: 3
+      })
+    });
+
+    renderWithProviders(<CalendarScreen />);
+
+    fireEvent.click(await screen.findByRole("gridcell", { name: /^Day 11,/ }));
+    const fullRow = await screen.findByRole("listitem", { name: /Waitlist.*19:00/ });
+    expect(fullRow.textContent).toContain("Full");
+    fireEvent.click(fullRow);
+
+    await screen.findByText("Confirm booking");
+    fireEvent.click(screen.getByRole("button", { name: "Book" }));
+
+    await waitFor(() => expect(api.createSingleBooking).toHaveBeenCalledTimes(1));
+    expect(api.createSingleBooking).toHaveBeenCalledWith({
+      clientId: ONBOARDED.id,
+      trainingId: FULL_TRAINING_ID
+    });
+    await screen.findByText("You're on the waitlist · position 3");
   });
 });

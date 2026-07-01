@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { isSlotAligned, minutesOfDay, timeOfMinutes } from "./common";
+import { COURT_CLOSE_HOUR, COURT_OPEN_HOUR } from "./court-contracts";
 import {
   averageFillRate,
   avatarInitialOf,
@@ -396,7 +397,7 @@ describe("courtLoadGrid", () => {
     { id: courtA, number: 1 },
     { id: courtB, number: 2 }
   ];
-  const window = { openHour: 8, closeHour: 21 };
+  const window = { openHour: COURT_OPEN_HOUR, closeHour: COURT_CLOSE_HOUR };
 
   const cellAt = (
     rows: ReturnType<typeof courtLoadGrid>,
@@ -410,9 +411,9 @@ describe("courtLoadGrid", () => {
   it("marks every cell free with no occupancy across the full working window", () => {
     const rows = courtLoadGrid({ courts, ...window, confirmed: [], blocks: [] });
     expect(rows).toHaveLength(2);
-    // 08:00..20:30 = 26 half-hour slots
-    expect(rows[0].cells).toHaveLength((21 - 8) * 2);
-    expect(rows[0].cells[0].startTime).toBe("08:00");
+    // 07:00..20:30 = 28 half-hour slots
+    expect(rows[0].cells).toHaveLength((COURT_CLOSE_HOUR - COURT_OPEN_HOUR) * 2);
+    expect(rows[0].cells[0].startTime).toBe("07:00");
     expect(rows[0].cells.at(-1)?.startTime).toBe("20:30");
     expect(rows.every((r) => r.cells.every((c) => c.state === "free"))).toBe(true);
   });

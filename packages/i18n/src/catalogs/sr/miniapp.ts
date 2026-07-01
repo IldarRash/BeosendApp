@@ -47,6 +47,15 @@ export const miniappSr: Record<string, string> = {
   "miniapp.profile.language": "Jezik interfejsa",
   "miniapp.profile.bonusCredits": "Bonus treninzi",
   "miniapp.profile.bonusCreditsValue": "Bonus treninga: {count}",
+  "miniapp.profile.calendarTitle": "Izvoz kalendara",
+  "miniapp.profile.calendarExport": "Google Calendar feed",
+  "miniapp.profile.calendarHint": "Preuzmite potpisani link za svoje treninge. Google prijava nije potrebna.",
+  "miniapp.profile.calendarLoading": "Priprema linka za feed…",
+  "miniapp.profile.calendarReady": "Link za feed je spreman",
+  "miniapp.profile.calendarOpen": "Otvori feed",
+  "miniapp.profile.calendarCopy": "Kopiraj link",
+  "miniapp.profile.calendarCopied": "Link kalendara je kopiran",
+  "miniapp.profile.calendarCopyFailed": "Nije moguće kopirati link kalendara",
 
   // --- Common states ---
   "miniapp.common.loading": "Učitavanje…",
@@ -254,6 +263,7 @@ export const miniappSr: Record<string, string> = {
   "miniapp.schedule.alreadyBooked": "Prijavljeni ste",
   "miniapp.training.roster.title": "Ko je prijavljen",
   "miniapp.training.roster.empty": "Još niko nije prijavljen",
+  "miniapp.training.roster.private": "Učesnici su vidljivi kada se prijavite ili uđete u listu čekanja.",
   "miniapp.training.waitlist.title": "Lista čekanja",
 
   // --- My calendar (court + training) ---
@@ -270,6 +280,13 @@ export const miniappSr: Record<string, string> = {
   "miniapp.calendar.kindTraining": "Trening",
   "miniapp.calendar.kindCourt": "Teren",
   "miniapp.calendar.kindAvailable": "Dostupno",
+  "miniapp.calendar.kindWaitlist": "Lista čekanja",
+  "miniapp.calendar.fullWaitlist": "Popunjeno · lista čekanja",
+  "miniapp.calendar.joinWaitlistAria": "Uđi u listu čekanja",
+  "miniapp.calendar.openTrainingAria": "Otvori učesnike",
+  "miniapp.calendar.trainingDetailTitle": "Detalji treninga",
+  "miniapp.calendar.backToAgenda": "Nazad na kalendar",
+  "miniapp.calendar.statusLabel": "Status",
   "miniapp.calendar.legendAria": "Legenda kalendara",
   "miniapp.calendar.errorBody": "Učitavanje kalendara nije uspelo. Pokušajte ponovo.",
   "miniapp.calendar.courtStatus.pending": "Čeka potvrdu",

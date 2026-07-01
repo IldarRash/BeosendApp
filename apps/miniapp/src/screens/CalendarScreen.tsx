@@ -1,15 +1,22 @@
 import { useMemo, useState } from "react";
 import type {
-  AvailableSlotsQuery,
   BookingStatus,
   CourtRequestStatus,
   MyBookingItem,
   MyCourtRequestItem,
-  SlotCard
+  SlotCard,
+  TrainingScheduleQuery,
+  TrainingScheduleSlot
 } from "@beosand/types";
-import { useAvailableSlots, useMyBookings, useMyCourtRequests } from "../api/hooks";
+import {
+  useMyBookings,
+  useMyCourtRequests,
+  useTrainingParticipants,
+  useTrainingSchedule
+} from "../api/hooks";
+import { ForbiddenError } from "../api/client";
 import { useT } from "../i18n/LanguageProvider";
-import { hapticSelection } from "../tg/buttons";
+import { hapticSelection, useMainButton } from "../tg/buttons";
 import {
   activeBookedTrainingIds,
   type CalendarKind,
@@ -22,7 +29,16 @@ import {
   monthWeeks,
   shiftMonth
 } from "../ui/calendar";
-import { formatRsd, formatTimeRange, monthKey, todayLocalDate } from "../ui/format";
+import {
+  formatDayMonth,
+  formatRsd,
+  formatTimeRange,
+  monthKey,
+  todayLocalDate,
+  weekdayFullKey
+} from "../ui/format";
+import { FallbackButton } from "../ui/FallbackButton";
+import { ParticipantsRow } from "../ui/ParticipantsRow";
 import { ErrorState, LoadingState } from "../ui/StateView";
 import { useSlotBookingFlow } from "./useSlotBookingFlow";
 
@@ -46,7 +62,7 @@ const WEEKDAY_KEYS = [
 type CalendarItem =
   | { kind: "training"; date: string; id: string; booking: MyBookingItem }
   | { kind: "court"; date: string; id: string; court: MyCourtRequestItem }
-  | { kind: "available"; date: string; id: string; slot: SlotCard };
+  | { kind: "available"; date: string; id: string; slot: TrainingScheduleSlot };
 
 /**
  * One inline day-cell event label: its KIND (for the color accent), its start time, and
@@ -98,7 +114,10 @@ function cellEvents(
   return items.map((item) => ({
     kind: item.kind,
     time: itemTime(item),
-    label: t(kindLabelKey(item.kind))
+    label:
+      item.kind === "available" && !item.slot.bookable && item.slot.trainingStatus === "full"
+        ? t("miniapp.calendar.kindWaitlist")
+        : t(kindLabelKey(item.kind))
   }));
 }
 
@@ -175,6 +194,7 @@ export function CalendarScreen(): JSX.Element {
   // Open on today's agenda (Google-style) rather than a blank grid: a step or a re-tap
   // can still clear the selection back to null.
   const [selectedDate, setSelectedDate] = useState<string | null>(today);
+  const [selectedTraining, setSelectedTraining] = useState<MyBookingItem | null>(null);
 
   const upcoming = useMyBookings("upcoming");
   const past = useMyBookings("past");
@@ -182,12 +202,12 @@ export function CalendarScreen(): JSX.Element {
 
   // Available bookable slots for the whole visible month (its first → last day). The
   // server owns availability over this window; the Mini App only produces the range.
-  const slotsQuery = useMemo<AvailableSlotsQuery>(() => {
+  const slotsQuery = useMemo<TrainingScheduleQuery>(() => {
     const from = isoDate(cursor.year, cursor.month, 1);
     const to = isoDate(cursor.year, cursor.month, daysInMonth(cursor.year, cursor.month));
-    return { from, to } satisfies AvailableSlotsQuery;
+    return { from, to } satisfies TrainingScheduleQuery;
   }, [cursor]);
-  const available = useAvailableSlots(slotsQuery);
+  const schedule = useTrainingSchedule(slotsQuery);
 
   // The set of trainingIds the caller is actively booked into (upcoming + past). It both
   // dedupes booked slots out of the available feed AND guards the booking flow: if the
@@ -202,7 +222,7 @@ export function CalendarScreen(): JSX.Element {
   const flow = useSlotBookingFlow(bookedTrainingIds);
 
   const isLoading =
-    upcoming.isLoading || past.isLoading || courts.isLoading || available.isLoading;
+    upcoming.isLoading || past.isLoading || courts.isLoading || schedule.isLoading;
   const errorMessage =
     upcoming.error instanceof Error
       ? upcoming.error.message
@@ -210,9 +230,9 @@ export function CalendarScreen(): JSX.Element {
         ? past.error.message
         : courts.error instanceof Error
           ? courts.error.message
-          : available.error instanceof Error
-            ? available.error.message
-            : upcoming.isError || past.isError || courts.isError || available.isError
+          : schedule.error instanceof Error
+            ? schedule.error.message
+            : upcoming.isError || past.isError || courts.isError || schedule.isError
               ? t("miniapp.calendar.errorBody")
               : undefined;
 
@@ -221,9 +241,9 @@ export function CalendarScreen(): JSX.Element {
   // booked training never shows as BOTH "available" (green) and "my booking" (coral).
   const byDate = useMemo(() => {
     const bookings = [...(upcoming.data ?? []), ...(past.data ?? [])];
-    const availableSlots = dedupeAvailableSlots(available.data ?? [], bookedTrainingIds);
+    const scheduleSlots = dedupeAvailableSlots(schedule.data ?? [], bookedTrainingIds);
     const items: CalendarItem[] = [
-      ...availableSlots.map(
+      ...scheduleSlots.map(
         (s): CalendarItem => ({ kind: "available", date: s.date, id: s.trainingId, slot: s })
       ),
       ...bookings.map(
@@ -240,13 +260,14 @@ export function CalendarScreen(): JSX.Element {
       a.date === b.date ? itemTime(a).localeCompare(itemTime(b)) : a.date.localeCompare(b.date)
     );
     return indexByDate(ordered);
-  }, [upcoming.data, past.data, courts.data, available.data, bookedTrainingIds]);
+  }, [upcoming.data, past.data, courts.data, schedule.data, bookedTrainingIds]);
 
   const weeks = useMemo(() => monthWeeks(cursor.year, cursor.month), [cursor]);
   const monthLabel = `${t(monthKey(cursor.month))} ${cursor.year}`;
 
   const step = (delta: number): void => {
     hapticSelection();
+    setSelectedTraining(null);
     setSelectedDate(null);
     setCursor((prev) => shiftMonth(prev.year, prev.month, delta));
   };
@@ -259,6 +280,15 @@ export function CalendarScreen(): JSX.Element {
   // The chosen-slot confirm / waitlist sub-flow takes over the whole screen when active.
   if (flow.activeSubView) {
     return flow.activeSubView;
+  }
+
+  if (selectedTraining) {
+    return (
+      <TrainingDetailView
+        item={selectedTraining}
+        onBack={() => setSelectedTraining(null)}
+      />
+    );
   }
 
   if (isLoading) {
@@ -364,7 +394,15 @@ export function CalendarScreen(): JSX.Element {
       </div>
 
       {selectedDate && (
-        <DayAgenda items={agenda} emptyVisible onBook={flow.openConfirm} />
+        <DayAgenda
+          items={agenda}
+          emptyVisible
+          onBook={flow.openConfirm}
+          onOpenTraining={(item) => {
+            hapticSelection();
+            setSelectedTraining(item);
+          }}
+        />
       )}
     </div>
   );
@@ -399,12 +437,15 @@ function CellEvents({ items }: { items: ReadonlyArray<CalendarItem> }): JSX.Elem
 function DayAgenda({
   items,
   emptyVisible,
-  onBook
+  onBook,
+  onOpenTraining
 }: {
   items: ReadonlyArray<CalendarItem>;
   emptyVisible: boolean;
   /** Open the confirm step for an available slot (the AvailableRow "book" tap). */
   onBook: (slot: SlotCard) => void;
+  /** Open the participant-visible detail for a training the caller already joined. */
+  onOpenTraining: (item: MyBookingItem) => void;
 }): JSX.Element | null {
   const t = useT();
 
@@ -423,7 +464,7 @@ function DayAgenda({
           case "available":
             return <AvailableRow key={item.id} slot={item.slot} onBook={onBook} />;
           case "training":
-            return <TrainingRow key={item.id} item={item.booking} />;
+            return <TrainingRow key={item.id} item={item.booking} onOpen={onOpenTraining} />;
           case "court":
             return <CourtRow key={item.id} item={item.court} />;
         }
@@ -442,35 +483,42 @@ function AvailableRow({
   slot,
   onBook
 }: {
-  slot: SlotCard;
+  slot: TrainingScheduleSlot;
   onBook: (slot: SlotCard) => void;
 }): JSX.Element {
   const t = useT();
   const timeRange = formatTimeRange(slot.startTime, slot.endTime);
   const subtitle = `${slot.trainerName} · ${slot.levelName}`;
   const priceLabel = t("miniapp.browse.price", { price: formatRsd(slot.priceSingleRsd) });
-  const seatsLabel = t("miniapp.browse.seats", { count: slot.freeSeats });
-  const bookLabel = t("miniapp.browse.bookAria");
+  const isFull = !slot.bookable && slot.trainingStatus === "full";
+  const kindLabel = isFull
+    ? t("miniapp.calendar.kindWaitlist")
+    : t("miniapp.calendar.kindAvailable");
+  const seatsLabel = isFull
+    ? t("miniapp.calendar.fullWaitlist")
+    : t("miniapp.browse.seats", { count: slot.freeSeats });
+  const bookLabel = isFull ? t("miniapp.calendar.joinWaitlistAria") : t("miniapp.browse.bookAria");
+  const chipClass = isFull ? "schip schip--warn" : "schip schip--avail";
 
   return (
     <button
       type="button"
       className="lrow"
       role="listitem"
-      aria-label={`${t("miniapp.calendar.kindAvailable")}. ${timeRange}. ${subtitle}. ${seatsLabel}. ${priceLabel}. ${bookLabel}`}
+      aria-label={`${kindLabel}. ${timeRange}. ${subtitle}. ${seatsLabel}. ${priceLabel}. ${bookLabel}`}
       onClick={() => onBook(slot)}
     >
       <div className="lrow__main">
         <div className="cal-row__top">
           <span className="cal-kind cal-kind--available">
-            {t("miniapp.calendar.kindAvailable")}
+            {kindLabel}
           </span>
           <span className="lrow__title">{timeRange}</span>
         </div>
         <div className="lrow__sub">{subtitle}</div>
         <div className="lrow__sub">{priceLabel}</div>
         <div style={{ marginTop: 6 }}>
-          <span className="schip schip--avail">
+          <span className={chipClass}>
             <span className="dot" aria-hidden="true" />
             {seatsLabel}
           </span>
@@ -482,7 +530,13 @@ function AvailableRow({
 }
 
 /** One training-booking agenda row: kind tag, time, trainer · level, status chip. */
-function TrainingRow({ item }: { item: MyBookingItem }): JSX.Element {
+function TrainingRow({
+  item,
+  onOpen
+}: {
+  item: MyBookingItem;
+  onOpen: (item: MyBookingItem) => void;
+}): JSX.Element {
   const t = useT();
   const variant = trainingVariant(item.bookingStatus);
   const statusLabel = t(trainingStatusKey(item.bookingStatus));
@@ -490,10 +544,12 @@ function TrainingRow({ item }: { item: MyBookingItem }): JSX.Element {
   const subtitle = `${item.trainerName} · ${item.levelName}`;
 
   return (
-    <div
+    <button
+      type="button"
       className="lrow"
       role="listitem"
-      aria-label={`${t("miniapp.calendar.kindTraining")}. ${timeRange}. ${subtitle}. ${statusLabel}`}
+      aria-label={`${t("miniapp.calendar.kindTraining")}. ${timeRange}. ${subtitle}. ${statusLabel}. ${t("miniapp.calendar.openTrainingAria")}`}
+      onClick={() => onOpen(item)}
     >
       <div className="lrow__main">
         <div className="cal-row__top">
@@ -508,6 +564,97 @@ function TrainingRow({ item }: { item: MyBookingItem }): JSX.Element {
           </span>
         </div>
       </div>
+      <span className="chevron" aria-hidden="true">&gt;</span>
+    </button>
+  );
+}
+
+/** Read-only detail for a training the caller already joined, including visible participants. */
+function TrainingDetailView({
+  item,
+  onBack
+}: {
+  item: MyBookingItem;
+  onBack: () => void;
+}): JSX.Element {
+  const t = useT();
+  const participants = useTrainingParticipants(item.trainingId);
+  const variant = trainingVariant(item.bookingStatus);
+  const statusLabel = t(trainingStatusKey(item.bookingStatus));
+  const timeRange = formatTimeRange(item.startTime, item.endTime);
+  const dateLine = `${t(weekdayFullKey(item.dayOfWeek))}, ${formatDayMonth(item.date)}`;
+
+  useMainButton({
+    text: t("miniapp.calendar.backToAgenda"),
+    onClick: onBack
+  });
+
+  return (
+    <div className="screen">
+      <div className="tg-sech" style={{ padding: "0 0 7px" }}>
+        {t("miniapp.calendar.trainingDetailTitle")}
+      </div>
+
+      <div className="card">
+        <div className="sumrow">
+          <span className="sumrow__k">{t("miniapp.booking.dateLabel")}</span>
+          <span className="sumrow__v">{dateLine}</span>
+        </div>
+        <div className="sumrow">
+          <span className="sumrow__k">{t("miniapp.booking.timeLabel")}</span>
+          <span className="sumrow__v">{timeRange}</span>
+        </div>
+        <div className="sumrow">
+          <span className="sumrow__k">{t("miniapp.booking.trainerLabel")}</span>
+          <span className="sumrow__v">{item.trainerName}</span>
+        </div>
+        <div className="sumrow">
+          <span className="sumrow__k">{t("miniapp.booking.levelLabel")}</span>
+          <span className="sumrow__v">{item.levelName}</span>
+        </div>
+        <div className="sumrow">
+          <span className="sumrow__k">{t("miniapp.calendar.statusLabel")}</span>
+          <span className="sumrow__v">
+            <span className={`schip schip--${variant}`}>
+              <span className="dot" aria-hidden="true" />
+              {statusLabel}
+            </span>
+          </span>
+        </div>
+      </div>
+
+      {participants.isLoading ? (
+        <div className="note" role="status">
+          {t("miniapp.common.loading")}
+        </div>
+      ) : participants.data ? (
+        <>
+          <ParticipantsRow
+            members={participants.data.participants}
+            count={participants.data.participantCount}
+            title={t("miniapp.training.roster.title")}
+            emptyLabel={t("miniapp.training.roster.empty")}
+          />
+          {participants.data.waitlistCount > 0 ? (
+            <ParticipantsRow
+              members={participants.data.waitlist}
+              count={participants.data.waitlistCount}
+              title={t("miniapp.training.waitlist.title")}
+              emptyLabel={t("miniapp.training.roster.empty")}
+            />
+          ) : null}
+        </>
+      ) : participants.error instanceof ForbiddenError ? (
+        <div className="note" role="note">
+          {t("miniapp.training.roster.private")}
+        </div>
+      ) : participants.error ? (
+        <div className="note" role="alert">
+          {participants.error.message}
+        </div>
+      ) : null}
+
+      <FallbackButton text={t("miniapp.calendar.backToAgenda")} onClick={onBack} />
     </div>
   );
 }

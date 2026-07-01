@@ -10,4 +10,5 @@ export * from "./notification-template-contracts";
 export * from "./connector-contracts";
 export * from "./webhook-contracts";
 export * from "./calendar-contracts";
+export * from "./settings-contracts";
 export * from "./helpers";

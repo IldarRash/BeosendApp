@@ -7,7 +7,11 @@ import {
 } from "@nestjs/common";
 import type { Env } from "@beosand/config";
 import { isAdmin } from "@beosand/config";
-import { type CalendarFeedLink, type CalendarSubject, calendarFeedLinkSchema } from "@beosand/types";
+import {
+  type CalendarFeedLink,
+  type CalendarSubject,
+  calendarFeedLinkSchema
+} from "@beosand/types";
 import { ENV } from "../../../config/config.module";
 import { ClientsRepository } from "../../clients/clients.repository";
 import { TrainersRepository } from "../../trainers/trainers.repository";
@@ -39,6 +43,15 @@ export class CalendarLinkService {
   ): Promise<CalendarFeedLink> {
     this.assertAdmin(actorTelegramId);
     return this.linkFor(subject, id);
+  }
+
+  /** Self-only client link: resolves the caller by telegram_id and never accepts a client id. */
+  async buildOwnClientLink(actorTelegramId: number): Promise<CalendarFeedLink> {
+    const client = await this.clients.findByTelegramId(actorTelegramId);
+    if (!client) {
+      throw new ForbiddenException("Caller has no client record");
+    }
+    return this.linkFor("client", client.id);
   }
 
   /** Admin-only: bump the subject's feed version (revoke old URLs), return the new link. */

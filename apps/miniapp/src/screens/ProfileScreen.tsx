@@ -2,7 +2,7 @@ import { useCallback, useMemo, useState } from "react";
 import { Modal, Snackbar } from "@telegram-apps/telegram-ui";
 import { LOCALES, asLocale, localeLabel, type Locale } from "@beosand/i18n";
 import type { Client } from "@beosand/types";
-import { useLevels, useSetLanguage } from "../api/hooks";
+import { useCalendarFeedLink, useLevels, useSetLanguage } from "../api/hooks";
 import { useLanguage, useT } from "../i18n/LanguageProvider";
 import { hapticSelection } from "../tg/buttons";
 import { useTg } from "../tg/TgSdkProvider";
@@ -40,6 +40,7 @@ export function ProfileScreen({ client }: ProfileScreenProps): JSX.Element {
   const { locale, setLocale } = useLanguage();
   const levels = useLevels();
   const setServerLanguage = useSetLanguage();
+  const calendarFeed = useCalendarFeedLink();
 
   const [pickerOpen, setPickerOpen] = useState(false);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
@@ -76,6 +77,36 @@ export function ProfileScreen({ client }: ProfileScreenProps): JSX.Element {
     },
     [locale, setLocale, setServerLanguage, t]
   );
+
+  const feedUrl = calendarFeed.data?.url ?? null;
+
+  const loadCalendarFeed = useCallback(() => {
+    hapticSelection();
+    calendarFeed.mutate(undefined, {
+      onError: (err) => {
+        setErrorMessage(err instanceof Error ? err.message : t("miniapp.common.error"));
+      }
+    });
+  }, [calendarFeed, t]);
+
+  const openCalendarFeed = useCallback(() => {
+    if (feedUrl === null) {
+      return;
+    }
+    window.open(feedUrl, "_blank", "noopener,noreferrer");
+  }, [feedUrl]);
+
+  const copyCalendarFeed = useCallback(async () => {
+    if (feedUrl === null) {
+      return;
+    }
+    try {
+      await navigator.clipboard.writeText(feedUrl);
+      setErrorMessage(t("miniapp.profile.calendarCopied"));
+    } catch {
+      setErrorMessage(t("miniapp.profile.calendarCopyFailed"));
+    }
+  }, [feedUrl, t]);
 
   return (
     <div className="screen screen--no-mainbutton">
@@ -116,6 +147,47 @@ export function ProfileScreen({ client }: ProfileScreenProps): JSX.Element {
       </section>
 
       {/* Settings — the one editable control: interface language */}
+      <section aria-label={t("miniapp.profile.calendarTitle")}>
+        <div className="tg-sech">{t("miniapp.profile.calendarTitle")}</div>
+        <div className="card">
+          <button
+            type="button"
+            className="lrow"
+            onClick={loadCalendarFeed}
+            disabled={calendarFeed.isPending}
+          >
+            <div className="lrow__main">
+              <div className="lrow__title">{t("miniapp.profile.calendarExport")}</div>
+              <div className="lrow__sub">
+                {calendarFeed.isPending
+                  ? t("miniapp.profile.calendarLoading")
+                  : t("miniapp.profile.calendarHint")}
+              </div>
+            </div>
+            <Chevron />
+          </button>
+
+          {feedUrl !== null ? (
+            <div className="lrow" style={{ cursor: "default" }}>
+              <div className="lrow__main">
+                <div className="lrow__title">{t("miniapp.profile.calendarReady")}</div>
+                <div className="lrow__sub">
+                  <code>{feedUrl}</code>
+                </div>
+                <div className="stack" style={{ marginTop: 10 }}>
+                  <button type="button" className="tg-sbtn" onClick={openCalendarFeed}>
+                    {t("miniapp.profile.calendarOpen")}
+                  </button>
+                  <button type="button" className="tg-sbtn" onClick={() => void copyCalendarFeed()}>
+                    {t("miniapp.profile.calendarCopy")}
+                  </button>
+                </div>
+              </div>
+            </div>
+          ) : null}
+        </div>
+      </section>
+
       <section aria-label={t("miniapp.profile.settings")}>
         <div className="tg-sech">{t("miniapp.profile.settings")}</div>
         <div className="card">

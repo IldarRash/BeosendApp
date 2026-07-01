@@ -1,6 +1,7 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type {
   Booking,
+  ManagerContact,
   MyBookingItem,
   SlotCard,
   Trainer,
@@ -80,6 +81,36 @@ describe("ApiClient trainer rosters", () => {
     const result = await new ApiClient("http://api.test").listIndividualTrainers();
     expect(result).toEqual([trainer]);
     expect(fetchMock.mock.calls[0][0]).toBe("http://api.test/trainers?scope=individual");
+  });
+});
+
+describe("ApiClient.getManagerContact", () => {
+  afterEach(() => {
+    vi.unstubAllGlobals();
+  });
+
+  it("GETs /settings/manager-contact and returns the validated contact", async () => {
+    const body: ManagerContact = { contact: "@milena", url: "https://t.me/milena" };
+    const fetchMock = mockFetch(body);
+    const result = await new ApiClient("http://api.test").getManagerContact();
+    expect(result).toEqual(body);
+    expect(fetchMock.mock.calls[0][0]).toBe("http://api.test/settings/manager-contact");
+  });
+
+  it("accepts a free-text contact with no URL", async () => {
+    const body: ManagerContact = { contact: "+381 60 123 4567", url: null };
+    mockFetch(body);
+    await expect(new ApiClient("http://api.test").getManagerContact()).resolves.toEqual(body);
+  });
+
+  it("rejects a response that violates the manager contact contract", async () => {
+    mockFetch({ contact: "@milena", url: "not-a-url" });
+    await expect(new ApiClient("http://api.test").getManagerContact()).rejects.toThrow();
+  });
+
+  it("throws on a non-2xx response so the handler can fall back", async () => {
+    mockFetch({}, false, 500);
+    await expect(new ApiClient("http://api.test").getManagerContact()).rejects.toThrow(/500/);
   });
 });
 

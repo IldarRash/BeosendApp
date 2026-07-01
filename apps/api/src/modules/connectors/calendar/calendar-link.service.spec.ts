@@ -8,6 +8,7 @@ import { verifyFeedToken } from "./calendar-token";
 const SECRET = "feed-secret-0123456789abcdef";
 const ADMIN = 999;
 const NON_ADMIN = 12;
+const CLIENT_ID = "22222222-2222-2222-2222-222222222222";
 
 function makeEnv(over: Partial<Env> = {}): Env {
   return {
@@ -18,10 +19,17 @@ function makeEnv(over: Partial<Env> = {}): Env {
   } as unknown as Env;
 }
 
-function build(env: Env, version: number | undefined) {
+function build(
+  env: Env,
+  version: number | undefined,
+  client: { id: string } | null = { id: CLIENT_ID }
+) {
   const feed = new CalendarFeedService(env, {} as never, {} as never, {} as never);
   vi.spyOn(feed, "currentVersion").mockResolvedValue(version);
-  const clients = { bumpCalendarFeedVersion: vi.fn(async () => 2) };
+  const clients = {
+    bumpCalendarFeedVersion: vi.fn(async () => 2),
+    findByTelegramId: vi.fn(async () => client ?? undefined)
+  };
   const trainers = { bumpCalendarFeedVersion: vi.fn(async () => 2) };
   const service = new CalendarLinkService(env, feed, clients as never, trainers as never);
   return { service, clients, trainers };
@@ -65,6 +73,31 @@ describe("CalendarLinkService", () => {
     await expect(service.buildLink(ADMIN, "client", "missing")).rejects.toBeInstanceOf(
       NotFoundException
     );
+  });
+
+  it("builds the caller's own signed client feed link from their telegram id", async () => {
+    const { service, clients } = build(makeEnv(), 7);
+
+    const link = await service.buildOwnClientLink(4242);
+
+    expect(clients.findByTelegramId).toHaveBeenCalledWith(4242);
+    expect(link.subject).toBe("client");
+    expect(link.url).toContain(
+      `https://book.beosand.test/connectors/calendar/client/${CLIENT_ID}.ics?token=`
+    );
+    const token = new URL(link.url).searchParams.get("token") ?? "";
+    expect(verifyFeedToken(token, SECRET)).toEqual({
+      sub: "client",
+      id: CLIENT_ID,
+      v: 7
+    });
+  });
+
+  it("forbids /me for a caller without a client record", async () => {
+    const { service, clients } = build(makeEnv(), 1, null);
+
+    await expect(service.buildOwnClientLink(4242)).rejects.toBeInstanceOf(ForbiddenException);
+    expect(clients.findByTelegramId).toHaveBeenCalledWith(4242);
   });
 
   it("rotate bumps the version and returns a link at the new version (admin only)", async () => {

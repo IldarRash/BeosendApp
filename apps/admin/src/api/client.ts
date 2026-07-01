@@ -10,6 +10,7 @@ import {
   webhookEndpointSchema,
   labelCatalogSchema,
   labelEntrySchema,
+  managerContactSchema,
   managerSchema,
   analyticsSummarySchema,
   bookingSchema,
@@ -44,6 +45,7 @@ import {
   trainingRosterSchema,
   trainingSchema,
   updateIndividualPriceSchema,
+  updateManagerContactSchema,
   waitlistAdminItemSchema,
   waitlistEntrySchema,
   deleteTrainingSeriesResultSchema,
@@ -104,10 +106,12 @@ import {
   type CreateManagerInput,
   type ListClientsQuery,
   type ListSubscriptionsQuery,
+  type ManagerContact,
   type Manager,
   type ListTrainingsQuery,
   type Locale,
   type UpdateLabelInput,
+  type UpdateManagerContactInput,
   type MarkAttendanceInput,
   type NoShowStats,
   type NotificationTemplate,
@@ -524,6 +528,26 @@ export class ApiClient {
     return this.request(`/managers/${id}`, managerSchema, {
       method: "PATCH",
       body: JSON.stringify(input)
+    });
+  }
+
+  /**
+   * The client-facing "contact manager" value (GET /settings/manager-contact).
+   * Public read on the API; the console validates the setting before rendering it.
+   */
+  getManagerContact(): Promise<ManagerContact> {
+    return this.request("/settings/manager-contact", managerContactSchema);
+  }
+
+  /**
+   * Admin-only manager contact update (PATCH /settings/manager-contact). The body
+   * is parsed with the shared contract before it is sent, and the response is parsed
+   * again before the screen renders the saved value/link.
+   */
+  updateManagerContact(input: UpdateManagerContactInput): Promise<ManagerContact> {
+    return this.request("/settings/manager-contact", managerContactSchema, {
+      method: "PATCH",
+      body: JSON.stringify(updateManagerContactSchema.parse(input))
     });
   }
 
