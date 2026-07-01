@@ -216,7 +216,7 @@ beforeEach(() => {
 
 afterEach(() => {
   cleanup();
-  vi.clearAllMocks();
+  vi.restoreAllMocks();
   vi.useRealTimers();
 });
 
@@ -309,6 +309,37 @@ describe("CalendarScreen merged feeds", () => {
     expect(screen.getByText("Marko")).toBeTruthy();
     expect(screen.getByText("Lena")).toBeTruthy();
     expect(api.getTrainingParticipants).toHaveBeenCalledWith(BOOKED_TRAINING_ID);
+  });
+
+  it("opens Google Calendar with a no-token template URL for one joined training", async () => {
+    const openCalendar = vi.spyOn(window, "open").mockImplementation(() => null);
+    renderWithProviders(<CalendarScreen />);
+
+    fireEvent.click(await screen.findByRole("gridcell", { name: /^10 число/ }));
+    fireEvent.click(await screen.findByRole("listitem", { name: /18:00/ }));
+    fireEvent.click(
+      await screen.findByRole("button", {
+        name: "Добавить эту тренировку в Google Calendar"
+      })
+    );
+
+    expect(openCalendar).toHaveBeenCalledTimes(1);
+    const [href, target, features] = openCalendar.mock.calls[0];
+    const url = new URL(String(href));
+    expect(target).toBe("_blank");
+    expect(features).toBe("noopener,noreferrer");
+    expect(url.origin + url.pathname).toBe(
+      "https://calendar.google.com/calendar/r/eventedit"
+    );
+    expect(url.searchParams.get("action")).toBe("TEMPLATE");
+    expect(url.searchParams.get("text")).toBe("BeoSand: тренировка Начинающий");
+    expect(url.searchParams.get("dates")).toBe("20260610T160000Z/20260610T173000Z");
+    expect(url.searchParams.get("details")).toBe(
+      "Тренер: Иван\nУровень: Начинающий\nСтатус: Запись"
+    );
+    expect(url.searchParams.get("location")).toBe("BeoSand, Белград");
+    expect(url.searchParams.get("ctz")).toBe("Europe/Belgrade");
+    openCalendar.mockRestore();
   });
 
   it("keeps a full schedule row visible and lets the booking result render as waitlisted", async () => {

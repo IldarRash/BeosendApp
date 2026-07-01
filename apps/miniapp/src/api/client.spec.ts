@@ -1,7 +1,6 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type {
   Booking,
-  CalendarFeedLink,
   Client,
   CourtAvailability,
   CourtRequest,
@@ -1166,33 +1165,5 @@ describe("MiniappApiClient.getTrainingParticipants", () => {
     const client = new MiniappApiClient(BASE);
 
     await expect(client.getTrainingParticipants(SLOT.trainingId)).rejects.toThrow();
-  });
-});
-
-const MY_CALENDAR_FEED: CalendarFeedLink = {
-  subject: "client",
-  url: "https://api.test/connectors/calendar/feed/client-token.ics"
-};
-
-describe("MiniappApiClient.getMyCalendarFeedLink", () => {
-  it("GETs the current caller's signed calendar feed and validates it", async () => {
-    const fetchMock = vi.fn().mockResolvedValue(jsonResponse(200, MY_CALENDAR_FEED));
-    vi.stubGlobal("fetch", fetchMock);
-    const client = new MiniappApiClient(BASE);
-
-    const result = await client.getMyCalendarFeedLink();
-
-    expect(result).toEqual(MY_CALENDAR_FEED);
-    expect(fetchMock.mock.calls[0][0]).toBe(`${BASE}/connectors/calendar/me`);
-  });
-
-  it("rejects a malformed self calendar feed response (unsafe path)", async () => {
-    vi.stubGlobal(
-      "fetch",
-      vi.fn().mockResolvedValue(jsonResponse(200, { subject: "client", url: "not-a-url" }))
-    );
-    const client = new MiniappApiClient(BASE);
-
-    await expect(client.getMyCalendarFeedLink()).rejects.toThrow();
   });
 });

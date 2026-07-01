@@ -36,7 +36,6 @@ const feedToken = z.string().min(1);
  *
  * - The `.ics` feed is PUBLIC; its sole auth is the signed token (validated in the
  *   service, 401 on a bad/rotated token). Served as `text/calendar; charset=utf-8`.
- * - `me` is self-only for a client session; it cannot request another client's id.
  * - `link` and `rotate` are admin-only; the admin gate lives in CalendarLinkService.
  */
 @Controller("connectors/calendar")
@@ -45,15 +44,6 @@ export class CalendarController {
     private readonly feed: CalendarFeedService,
     private readonly links: CalendarLinkService
   ) {}
-
-  /** Self-only Mini App endpoint: signed calendar link for the caller's own client row. */
-  @Get("me")
-  me(
-    @Headers("x-client-telegram-id") clientTelegramIdHeader?: string
-  ): Promise<CalendarFeedLink> {
-    const actorTelegramId = parseTelegramId(clientTelegramIdHeader, "x-client-telegram-id");
-    return this.links.buildOwnClientLink(actorTelegramId);
-  }
 
   /**
    * Public signed iCal feed. Express treats the literal `.ics` suffix as part of the
@@ -109,15 +99,12 @@ function parseSubject(value: string): CalendarSubject {
   return validate(calendarSubject, value);
 }
 
-/** Resolve the caller's numeric Telegram id from a trusted bridge or raw bot/admin header. */
-function parseTelegramId(
-  header: string | undefined,
-  headerName: "x-telegram-id" | "x-client-telegram-id" = "x-telegram-id"
-): number {
+/** Resolve the admin caller's numeric Telegram id from the admin header. */
+function parseTelegramId(header: string | undefined): number {
   const trimmed = header?.trim();
   const value = Number(trimmed);
   if (!trimmed || !Number.isInteger(value)) {
-    throw new BadRequestException(`Missing or invalid ${headerName} header`);
+    throw new BadRequestException("Missing or invalid x-telegram-id header");
   }
   return value;
 }

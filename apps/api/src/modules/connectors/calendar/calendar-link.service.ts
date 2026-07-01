@@ -45,15 +45,6 @@ export class CalendarLinkService {
     return this.linkFor(subject, id);
   }
 
-  /** Self-only client link: resolves the caller by telegram_id and never accepts a client id. */
-  async buildOwnClientLink(actorTelegramId: number): Promise<CalendarFeedLink> {
-    const client = await this.clients.findByTelegramId(actorTelegramId);
-    if (!client) {
-      throw new ForbiddenException("Caller has no client record");
-    }
-    return this.linkFor("client", client.id);
-  }
-
   /** Admin-only: bump the subject's feed version (revoke old URLs), return the new link. */
   async rotate(
     actorTelegramId: number,

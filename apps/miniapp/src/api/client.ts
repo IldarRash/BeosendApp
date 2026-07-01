@@ -1,7 +1,6 @@
 import { z } from "zod";
 import {
   bookingSchema,
-  calendarFeedLinkSchema,
   clientSchema,
   courtAvailabilitySchema,
   courtRequestPreviewSchema,
@@ -30,7 +29,6 @@ import {
   waitlistEntrySchema,
   type AvailableSlotsQuery,
   type Booking,
-  type CalendarFeedLink,
   type Client,
   type CourtAvailability,
   type CourtDurationHours,
@@ -562,14 +560,6 @@ export class MiniappApiClient {
     return this.request("/court-requests/mine", myCourtRequestItemsSchema);
   }
 
-  /**
-   * The caller's own signed calendar feed (GET /connectors/calendar/me). No OAuth
-   * flow and no arbitrary client id: the API resolves the current Telegram user and
-   * returns the feed URL for that client only.
-   */
-  getMyCalendarFeedLink(): Promise<CalendarFeedLink> {
-    return this.request("/connectors/calendar/me", calendarFeedLinkSchema);
-  }
 }
 
 /**

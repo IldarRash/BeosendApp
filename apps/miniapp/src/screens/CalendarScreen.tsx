@@ -37,6 +37,7 @@ import {
   todayLocalDate,
   weekdayFullKey
 } from "../ui/format";
+import { buildGoogleCalendarTrainingUrl } from "../ui/google-calendar-link";
 import { FallbackButton } from "../ui/FallbackButton";
 import { ParticipantsRow } from "../ui/ParticipantsRow";
 import { ErrorState, LoadingState } from "../ui/StateView";
@@ -583,6 +584,35 @@ function TrainingDetailView({
   const statusLabel = t(trainingStatusKey(item.bookingStatus));
   const timeRange = formatTimeRange(item.startTime, item.endTime);
   const dateLine = `${t(weekdayFullKey(item.dayOfWeek))}, ${formatDayMonth(item.date)}`;
+  const googleCalendarUrl = useMemo(
+    () =>
+      buildGoogleCalendarTrainingUrl({
+        title: t("miniapp.calendar.googleTitle", { level: item.levelName }),
+        date: item.date,
+        startTime: item.startTime,
+        endTime: item.endTime,
+        details: [
+          t("miniapp.calendar.googleDetailTrainer", { trainer: item.trainerName }),
+          t("miniapp.calendar.googleDetailLevel", { level: item.levelName }),
+          t("miniapp.calendar.googleDetailStatus", { status: statusLabel })
+        ].join("\n"),
+        location: t("miniapp.calendar.googleLocation")
+      }),
+    [
+      item.date,
+      item.endTime,
+      item.levelName,
+      item.startTime,
+      item.trainerName,
+      statusLabel,
+      t
+    ]
+  );
+
+  const openGoogleCalendar = (): void => {
+    hapticSelection();
+    window.open(googleCalendarUrl, "_blank", "noopener,noreferrer");
+  };
 
   useMainButton({
     text: t("miniapp.calendar.backToAgenda"),
@@ -620,6 +650,16 @@ function TrainingDetailView({
               {statusLabel}
             </span>
           </span>
+        </div>
+        <div className="sumrow">
+          <button
+            type="button"
+            className="tg-sbtn"
+            onClick={openGoogleCalendar}
+            aria-label={t("miniapp.calendar.googleAddAria")}
+          >
+            {t("miniapp.calendar.googleAdd")}
+          </button>
         </div>
       </div>
 

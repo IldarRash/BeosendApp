@@ -8,7 +8,6 @@ import {
 import type {
   AvailableSlotsQuery,
   Booking,
-  CalendarFeedLink,
   Client,
   CourtAvailability,
   CourtRequest,
@@ -519,14 +518,6 @@ export function useSetLanguage(): UseMutationResult<Client, Error, Locale> {
         qc.setQueryData(clientQueryKey(record.telegramId), record);
       }
     }
-  });
-}
-
-/** Fetch the caller's own signed calendar feed link on demand. */
-export function useCalendarFeedLink(): UseMutationResult<CalendarFeedLink, Error, void> {
-  const apiClient = useApiClient();
-  return useMutation<CalendarFeedLink, Error, void>({
-    mutationFn: () => apiClient.getMyCalendarFeedLink()
   });
 }
 

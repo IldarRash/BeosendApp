@@ -4,7 +4,6 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { AppRoot } from "@telegram-apps/telegram-ui";
 import type { ReactNode } from "react";
 import type {
-  CalendarFeedLink,
   Client,
   Level,
   MiniappMe,
@@ -51,11 +50,6 @@ const ONBOARDED: Client = {
   bonusTrainingCredits: 0
 };
 
-const MY_CALENDAR_FEED: CalendarFeedLink = {
-  subject: "client",
-  url: "https://api.test/connectors/calendar/feed/client-token.ics"
-};
-
 /** A minimal fake of MiniappApiClient covering the methods the S1 screens call. */
 interface FakeApi {
   getMe: ReturnType<typeof vi.fn>;
@@ -63,7 +57,6 @@ interface FakeApi {
   getClientByTelegramId: ReturnType<typeof vi.fn>;
   onboardClient: ReturnType<typeof vi.fn>;
   setLanguage: ReturnType<typeof vi.fn>;
-  getMyCalendarFeedLink: ReturnType<typeof vi.fn>;
 }
 
 let api: FakeApi;
@@ -75,7 +68,6 @@ function makeApi(overrides: Partial<FakeApi> = {}): FakeApi {
     getClientByTelegramId: vi.fn().mockResolvedValue(ONBOARDED),
     onboardClient: vi.fn().mockResolvedValue(ONBOARDED),
     setLanguage: vi.fn().mockResolvedValue(ONBOARDED),
-    getMyCalendarFeedLink: vi.fn().mockResolvedValue(MY_CALENDAR_FEED),
     ...overrides
   };
 }
@@ -230,32 +222,6 @@ describe("ProfileScreen language switch", () => {
     expect(screen.getByText("boom")).toBeTruthy();
   });
 
-  it("fetches the current user's calendar feed link and offers open/copy actions", async () => {
-    const openFeed = vi.spyOn(window, "open").mockImplementation(() => null);
-    const writeText = vi.fn().mockResolvedValue(undefined);
-    Object.defineProperty(navigator, "clipboard", {
-      configurable: true,
-      value: { writeText }
-    });
-    api = makeApi({ getMe: vi.fn().mockReturnValue({ ...ME, language: "en" }) });
-    renderWithProviders(<ProfileScreen client={{ ...ONBOARDED, language: "en" }} />);
-
-    fireEvent.click(screen.getByRole("button", { name: /Google Calendar feed/i }));
-
-    await screen.findByText(MY_CALENDAR_FEED.url);
-    expect(api.getMyCalendarFeedLink).toHaveBeenCalledTimes(1);
-
-    fireEvent.click(screen.getByRole("button", { name: "Open feed" }));
-    expect(openFeed).toHaveBeenCalledWith(
-      MY_CALENDAR_FEED.url,
-      "_blank",
-      "noopener,noreferrer"
-    );
-
-    fireEvent.click(screen.getByRole("button", { name: "Copy link" }));
-    await waitFor(() => expect(writeText).toHaveBeenCalledWith(MY_CALENDAR_FEED.url));
-    await screen.findByText("Calendar feed link copied");
-  });
 });
 
 describe("Router onboarding decision", () => {
