@@ -97,6 +97,13 @@ function makeCourtBlocksRepo(
     heldOccupancyForDate: vi.fn(async () => []),
     blocksOccupancyForDate: vi.fn(async () => []),
     insert: vi.fn(async (input) => ({ id: "b0000000-0000-4000-8000-000000000001", ...input })),
+    updateAssignment: vi.fn(async (id, input) => ({
+      id,
+      reason: "Intermediate",
+      groupTrainingId: null,
+      ...input
+    })),
+    findByGroupTrainingId: vi.fn(async () => null),
     deleteByGroupTrainingId: vi.fn(async () => true),
     ...overrides
   } as unknown as CourtBlocksRepository;
@@ -176,7 +183,22 @@ describe("TrainingsController", () => {
     await expect(controller.list(String(ADMIN_ID), validQuery)).resolves.toEqual([
       sampleTraining
     ]);
-    expect(trainingsRepo.listInRange).toHaveBeenCalledWith("2026-07-01", "2026-07-31", undefined);
+    expect(trainingsRepo.listInRange).toHaveBeenCalledWith(
+      "2026-07-01",
+      "2026-07-31",
+      undefined,
+      false
+    );
+
+    await expect(
+      controller.list(String(ADMIN_ID), { ...validQuery, includeTerminal: "true" })
+    ).resolves.toEqual([sampleTraining]);
+    expect(trainingsRepo.listInRange).toHaveBeenLastCalledWith(
+      "2026-07-01",
+      "2026-07-31",
+      undefined,
+      true
+    );
   });
 
   it("rejects generate from a non-admin header with ForbiddenException and writes nothing", async () => {
@@ -735,8 +757,59 @@ describe("Admin manager writes (A1)", () => {
     return { controller, lockRef, cancelBookedCalls, notify };
   }
 
+  function makeCourtAssignmentController(lock: Training | undefined): {
+    controller: TrainingsController;
+    insertCourtBlock: ReturnType<typeof vi.fn>;
+    updateCourtBlock: ReturnType<typeof vi.fn>;
+  } {
+    const insertCourtBlock = vi.fn(async (input) => ({
+      id: "b0000000-0000-4000-8000-000000000001",
+      ...input
+    }));
+    const updateCourtBlock = vi.fn(async () => ({
+      id: "b0000000-0000-4000-8000-000000000001",
+      courtId: "c0000000-0000-4000-8000-000000000001",
+      date: lock?.date ?? "2099-06-01",
+      startTime: lock?.startTime ?? "20:00",
+      endTime: lock?.endTime ?? "21:30",
+      reason: "Intermediate",
+      groupTrainingId: lock?.id ?? TRAINING_ID
+    }));
+    const repo = makeTrainingsRepo({
+      transaction: vi.fn(async (work: (tx: unknown) => Promise<unknown>) => work({})),
+      findDateById: vi.fn(async (id: string) =>
+        lock && lock.id === id ? { date: lock.date } : undefined
+      ),
+      findFullForUpdate: vi.fn(async (_tx: unknown, id: string) =>
+        lock && lock.id === id ? lock : undefined
+      )
+    } as unknown as Partial<TrainingsRepository>);
+    const courtBlocksRepo = makeCourtBlocksRepo({
+      findByGroupTrainingId: vi.fn(async () => null),
+      insert: insertCourtBlock,
+      updateCourt: updateCourtBlock,
+      updateAssignment: updateCourtBlock
+    } as unknown as Partial<CourtBlocksRepository>);
+    const controller = new TrainingsController(
+      new TrainingsService(
+        repo,
+        makeGroupsRepo(),
+        makeTrainersRepo(),
+        makeClientsRepo(),
+        makeNotifications(),
+        courtBlocksRepo,
+        makeBookingsRepo(),
+        makeDomainEvents(),
+        env
+      )
+    );
+    return { controller, insertCourtBlock, updateCourtBlock };
+  }
+
   const openLock = (): TrainingLockRow => ({
     id: TRAINING_ID,
+    groupId: GROUP_ID,
+    clientId: null,
     capacity: 12,
     bookedCount: 3,
     status: "open",
@@ -794,6 +867,61 @@ describe("Admin manager writes (A1)", () => {
     it("rejects a non-uuid path id (Zod) (400)", () => {
       const { controller } = makeController(openLock());
       expect(() => controller.delete(String(ADMIN_ID), "nope")).toThrow(BadRequestException);
+    });
+  });
+
+  describe("PATCH /trainings/:id/court", () => {
+    const COURT_ID = "c0000000-0000-4000-8000-000000000001";
+
+    const openTraining = (): Training => ({
+      id: TRAINING_ID,
+      groupId: GROUP_ID,
+      date: "2099-06-01",
+      startTime: "20:00",
+      endTime: "21:30",
+      trainerId: TRAINER_ID,
+      clientId: null,
+      capacity: 12,
+      bookedCount: 3,
+      priceSingleRsd: null,
+      status: "open"
+    });
+
+    it("an admin header assigns a court and returns the training", async () => {
+      const { controller, insertCourtBlock } = makeCourtAssignmentController(openTraining());
+
+      const result = await controller.assignOrReassignCourt(String(ADMIN_ID), TRAINING_ID, {
+        courtId: COURT_ID
+      });
+
+      expect(result).toEqual(openTraining());
+      expect(insertCourtBlock).toHaveBeenCalledWith(
+        expect.objectContaining({
+          courtId: COURT_ID,
+          groupTrainingId: TRAINING_ID
+        }),
+        expect.anything()
+      );
+    });
+
+    it("rejects invalid id/header/body at the boundary before any court write", () => {
+      const { controller, insertCourtBlock, updateCourtBlock } =
+        makeCourtAssignmentController(openTraining());
+
+      expect(() =>
+        controller.assignOrReassignCourt(String(ADMIN_ID), "nope", { courtId: COURT_ID })
+      ).toThrow(BadRequestException);
+      expect(() =>
+        controller.assignOrReassignCourt(undefined, TRAINING_ID, { courtId: COURT_ID })
+      ).toThrow(BadRequestException);
+      expect(() =>
+        controller.assignOrReassignCourt("not-a-number", TRAINING_ID, { courtId: COURT_ID })
+      ).toThrow(BadRequestException);
+      expect(() =>
+        controller.assignOrReassignCourt(String(ADMIN_ID), TRAINING_ID, { courtId: "nope" })
+      ).toThrow(BadRequestException);
+      expect(insertCourtBlock).not.toHaveBeenCalled();
+      expect(updateCourtBlock).not.toHaveBeenCalled();
     });
   });
 
@@ -926,6 +1054,30 @@ describe("Admin reschedule writes (PATCH /trainings/:id/time[-series])", () => {
     const updatedIds: string[] = [];
     const repo = makeTrainingsRepo({
       transaction: vi.fn(async (work: (tx: unknown) => Promise<unknown>) => work({})),
+      findDateById: vi.fn(async (id: string) =>
+        lock && lock.id === id ? { date: lock.date } : undefined
+      ),
+      findCalendarItemById: vi.fn(async (id: string) =>
+        lock && lock.id === id
+          ? {
+              id: lock.id,
+              groupId: lock.groupId,
+              date: lock.date,
+              startTime: lock.startTime,
+              endTime: lock.endTime,
+              trainerId: lock.trainerId,
+              clientId: lock.clientId,
+              capacity: lock.capacity,
+              bookedCount: lock.bookedCount,
+              priceSingleRsd: lock.priceSingleRsd,
+              status: lock.status,
+              groupName: lock.groupId ? "Group" : null,
+              trainerName: "Trainer",
+              courtNumber: null,
+              clientName: lock.clientId ? "Client" : null
+            }
+          : undefined
+      ),
       findFullForUpdate: vi.fn(async (_tx: unknown, id: string) =>
         lock && lock.id === id ? lock : undefined
       ),
@@ -935,7 +1087,10 @@ describe("Admin reschedule writes (PATCH /trainings/:id/time[-series])", () => {
           return { ...(lock as Training), id, startTime, endTime };
         }
       ),
-      listFutureNonCancelledIndividual: vi.fn(async () => (lock ? [{ id: lock.id }] : []))
+      listFutureNonCancelledIndividual: vi.fn(async () => (lock ? [{ id: lock.id }] : [])),
+      listDatesByIds: vi.fn(async (_tx: unknown, ids: readonly string[]) =>
+        lock && ids.includes(lock.id) ? [{ id: lock.id, date: lock.date }] : []
+      )
     } as unknown as Partial<TrainingsRepository>);
     const bookingsRepo = makeBookingsRepo({
       findSubscriptionIdForTrainingOwner: vi.fn(async () => SUBSCRIPTION_ID),

@@ -290,6 +290,9 @@ export class BookingsService {
     clientId: string
   ): Promise<TrainingLockRow> {
     const isIndividual = training.groupId === null && training.clientId !== null;
+    if (isIndividual && training.capacity > 2) {
+      throw new BadRequestException("Individual training capacity cannot exceed 2");
+    }
     if (
       !isIndividual ||
       training.capacity !== 1 ||

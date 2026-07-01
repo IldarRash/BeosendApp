@@ -20,6 +20,7 @@ const useUpdateIndividualPrice = vi.fn();
 const useDeleteTraining = vi.fn();
 const useDeleteTrainingSeries = vi.fn();
 const useChangeCapacity = vi.fn();
+const useChangeTrainingCourt = vi.fn();
 const useGroups = vi.fn();
 const useGenerationStatus = vi.fn();
 const useTrainers = vi.fn();
@@ -29,6 +30,7 @@ const useCreateWalkIn = vi.fn();
 const useBookManual = vi.fn();
 const useTrainingDetail = vi.fn();
 const useRoster = vi.fn();
+const useTrainingsCalendar = vi.fn();
 
 vi.mock("../hooks/useTrainings", () => ({
   useTrainings: (...args: unknown[]) => useTrainings(...args),
@@ -39,7 +41,8 @@ vi.mock("../hooks/useTrainings", () => ({
   useUpdateIndividualPrice: () => useUpdateIndividualPrice(),
   useDeleteTraining: () => useDeleteTraining(),
   useDeleteTrainingSeries: () => useDeleteTrainingSeries(),
-  useChangeCapacity: () => useChangeCapacity()
+  useChangeCapacity: () => useChangeCapacity(),
+  useChangeTrainingCourt: () => useChangeTrainingCourt()
 }));
 vi.mock("../hooks/useClients", () => ({
   useClientsList: (...args: unknown[]) => useClientsList(...args),
@@ -54,6 +57,9 @@ vi.mock("../hooks/useTrainers", () => ({ useTrainers: () => useTrainers() }));
 vi.mock("../hooks/useCourts", () => ({ useCourts: () => useCourts() }));
 vi.mock("../hooks/useTrainingDetail", () => ({
   useTrainingDetail: (...args: unknown[]) => useTrainingDetail(...args)
+}));
+vi.mock("../hooks/useTrainingsCalendar", () => ({
+  useTrainingsCalendar: (...args: unknown[]) => useTrainingsCalendar(...args)
 }));
 vi.mock("../hooks/useRoster", () => ({
   useRoster: (...args: unknown[]) => useRoster(...args),
@@ -237,10 +243,12 @@ beforeEach(() => {
   useDeleteTraining.mockReturnValue(idleMutation());
   useDeleteTrainingSeries.mockReturnValue(idleMutation());
   useChangeCapacity.mockReturnValue(idleMutation());
+  useChangeTrainingCourt.mockReturnValue(idleMutation());
   useClientsList.mockReturnValue(idleQuery([CLIENT]));
   useCreateWalkIn.mockReturnValue(idleMutation());
   useBookManual.mockReturnValue(idleMutation());
   useTrainings.mockReturnValue({ isPending: false, isError: false, error: null, data: [TRAINING] });
+  useTrainingsCalendar.mockReturnValue(idleQuery([DETAIL]));
   // Roster modal: detail + roster load instantly when a row opens it.
   useTrainingDetail.mockReturnValue({ isPending: false, isError: false, error: null, data: DETAIL });
   useRoster.mockReturnValue({ isPending: false, isError: false, error: null, data: ROSTER });
@@ -267,13 +275,29 @@ function currentMonthRange(): { from: string; to: string } {
 }
 
 /** The last query object passed to the (mocked) useTrainings hook. */
-function lastTrainingsQuery(): { from?: string; to?: string } | null {
+function lastTrainingsQuery(): { from?: string; to?: string; includeTerminal?: boolean } | null {
   const calls = useTrainings.mock.calls;
-  return (calls.at(-1)?.[0] ?? null) as { from?: string; to?: string } | null;
+  return (calls.at(-1)?.[0] ?? null) as {
+    from?: string;
+    to?: string;
+    includeTerminal?: boolean;
+  } | null;
+}
+
+/** The last query object passed to the (mocked) useTrainingsCalendar hook. */
+function lastCalendarQuery(): { includeTerminal?: boolean } | null {
+  const calls = useTrainingsCalendar.mock.calls;
+  return (calls.at(-1)?.[0] ?? null) as { includeTerminal?: boolean } | null;
 }
 
 function trainingTableRows(): HTMLElement[] {
   return within(screen.getByRole("table")).getAllByRole("row").slice(2);
+}
+
+function openEditForRow(rowIndex = 0): HTMLElement {
+  const row = trainingTableRows()[rowIndex];
+  fireEvent.click(within(row).getByRole("button", { name: "Изменить" }));
+  return screen.getByRole("dialog", { name: "Изменить" });
 }
 
 function openIndividualGenerationDialog(): HTMLElement {
@@ -315,6 +339,37 @@ describe("Trainings page", () => {
     expect(
       screen.queryByText("Укажите период (с даты и по дату), чтобы увидеть тренировки.")
     ).toBeNull();
+  });
+
+  it("omits terminal statuses by default and includes them only when requested", () => {
+    render(<Trainings />);
+
+    const range = currentMonthRange();
+    expect(lastTrainingsQuery()).toMatchObject({ from: range.from, to: range.to });
+    expect(lastTrainingsQuery()).not.toHaveProperty("includeTerminal");
+
+    fireEvent.click(
+      screen.getByRole("checkbox", { name: /Показать заверш[её]нные и отмен[её]нные/ })
+    );
+
+    expect(lastTrainingsQuery()).toMatchObject({
+      from: range.from,
+      to: range.to,
+      includeTerminal: true
+    });
+  });
+
+  it("omits terminal statuses in the calendar until requested", () => {
+    render(<Trainings />);
+
+    fireEvent.click(screen.getByRole("button", { name: /Календарь/ }));
+    expect(lastCalendarQuery()).not.toHaveProperty("includeTerminal");
+
+    fireEvent.click(
+      screen.getByRole("checkbox", { name: /Показать заверш[её]нные и отмен[её]нные/ })
+    );
+
+    expect(lastCalendarQuery()).toMatchObject({ includeTerminal: true });
   });
 
   it("moves the range to the generated month after a successful generate", () => {
@@ -396,7 +451,7 @@ describe("Trainings page", () => {
     fireEvent.click(within(dialog).getByRole("button", { name: "Удалить тренировку" }));
 
     expect(notify).toHaveBeenCalledWith(
-      "Тренировка удалена. Записанные клиенты уведомлены.",
+      "Тренировка отменена и скрыта. Записанные клиенты уведомлены.",
       "success"
     );
   });
@@ -523,8 +578,7 @@ describe("Trainings page", () => {
     render(<Trainings />);
     setRange();
 
-    fireEvent.click(screen.getByRole("button", { name: "Вместимость" }));
-    const dialog = screen.getByRole("dialog", { name: "Изменить вместимость" });
+    const dialog = openEditForRow();
     // The server-decided error is rendered; the page never computes the floor itself.
     expect(
       within(dialog).getByText("Вместимость не может быть ниже числа записанных (4).")
@@ -751,13 +805,22 @@ describe("Trainings page", () => {
   });
 
   it("keeps sorted/filtered training row actions bound to the correct row id", () => {
-    const rescheduleMutate = vi.fn();
+    const callOrder: string[] = [];
+    const courtMutate = vi.fn((_input: unknown) => {
+      callOrder.push("court");
+    });
+    const rescheduleMutate = vi.fn((_input: unknown, opts?: { onSuccess?: () => void }) => {
+      callOrder.push("time");
+      expect(courtMutate).not.toHaveBeenCalled();
+      opts?.onSuccess?.();
+    });
     const capacityMutate = vi.fn();
     const priceMutate = vi.fn();
     const bookMutate = vi.fn();
     useRescheduleTraining.mockReturnValue({ ...idleMutation(), mutate: rescheduleMutate });
     useChangeCapacity.mockReturnValue({ ...idleMutation(), mutate: capacityMutate });
     useUpdateIndividualPrice.mockReturnValue({ ...idleMutation(), mutate: priceMutate });
+    useChangeTrainingCourt.mockReturnValue({ ...idleMutation(), mutate: courtMutate });
     useBookManual.mockReturnValue({ ...idleMutation(), mutate: bookMutate });
     useTrainings.mockReturnValue({
       isPending: false,
@@ -783,40 +846,44 @@ describe("Trainings page", () => {
     expect(useTrainingDetail.mock.calls.at(-1)?.[0]).toBe(INDIVIDUAL.id);
     fireEvent.click(screen.getByRole("button", { name: "Закрыть" }));
 
-    fireEvent.click(within(trainingTableRows()[0]).getByRole("button", { name: "Изменить время" }));
-    let dialog = screen.getByRole("dialog", { name: "Изменить время тренировки" });
+    expect(within(trainingTableRows()[0]).queryByRole("button", { name: "Изменить время" })).toBeNull();
+    expect(within(trainingTableRows()[0]).queryByRole("button", { name: "Вместимость" })).toBeNull();
+    expect(within(trainingTableRows()[0]).queryByRole("button", { name: "Цена" })).toBeNull();
+
+    let dialog = openEditForRow(0);
     fireEvent.change(within(dialog).getByLabelText("Начало"), { target: { value: "19:30" } });
     fireEvent.change(within(dialog).getByLabelText("Окончание"), { target: { value: "20:30" } });
-    fireEvent.click(within(dialog).getByRole("button", { name: "Сохранить время" }));
+    const capacityInput = within(dialog).getByLabelText("Вместимость") as HTMLInputElement;
+    expect(capacityInput.getAttribute("max")).toBe("2");
+    fireEvent.change(capacityInput, { target: { value: "2" } });
+    fireEvent.change(within(dialog).getByLabelText("Цена за тренировку, RSD"), {
+      target: { value: "2700" }
+    });
+    fireEvent.change(within(dialog).getByLabelText("Корт"), {
+      target: { value: COURTS[1].id }
+    });
+    fireEvent.click(within(dialog).getByRole("button", { name: "Сохранить" }));
+
+    expect(callOrder).toEqual(["time", "court"]);
     expect(rescheduleMutate.mock.calls[0][0]).toEqual({
       id: INDIVIDUAL.id,
       input: { startTime: "19:30", endTime: "20:30" },
       series: false
     });
-    fireEvent.click(within(dialog).getByRole("button", { name: "Закрыть" }));
-
-    fireEvent.click(within(trainingTableRows()[0]).getByRole("button", { name: "Вместимость" }));
-    dialog = screen.getByRole("dialog", { name: "Изменить вместимость" });
-    fireEvent.change(within(dialog).getByLabelText("Вместимость"), { target: { value: "2" } });
-    fireEvent.click(within(dialog).getByRole("button", { name: "Сохранить" }));
     expect(capacityMutate.mock.calls[0][0]).toEqual({
       id: INDIVIDUAL.id,
       input: { capacity: 2 }
     });
-    fireEvent.click(within(dialog).getByRole("button", { name: "Закрыть" }));
-
-    fireEvent.click(within(trainingTableRows()[0]).getByRole("button", { name: "Цена" }));
-    dialog = screen.getByRole("dialog", { name: "Изменить цену" });
-    fireEvent.change(within(dialog).getByLabelText("Цена за тренировку, RSD"), {
-      target: { value: "2700" }
-    });
-    fireEvent.click(within(dialog).getByRole("button", { name: "Сохранить цену" }));
     expect(priceMutate.mock.calls[0][0]).toEqual({
       id: INDIVIDUAL.id,
       input: { priceSingleRsd: 2700 },
       series: false
     });
-    fireEvent.click(within(dialog).getByRole("button", { name: "Закрыть" }));
+    expect(courtMutate.mock.calls[0][0]).toEqual({
+      id: INDIVIDUAL.id,
+      courtId: COURTS[1].id
+    });
+    fireEvent.click(within(dialog).getByRole("button", { name: "Отмена" }));
 
     fireEvent.click(within(trainingTableRows()[0]).getByRole("button", { name: "Добавить человека" }));
     dialog = screen.getByRole("dialog", { name: "Добавить человека на тренировку" });
@@ -869,26 +936,18 @@ describe("Trainings page", () => {
     });
   });
 
-  it("reschedules only this instance for a group training (no series option)", () => {
-    const mutate = vi.fn();
-    useRescheduleTraining.mockReturnValue({ ...idleMutation(), mutate });
+  it("opens the unified edit modal for a group training without individual-only controls", () => {
     render(<Trainings />);
     setRange();
 
-    fireEvent.click(screen.getByRole("button", { name: "Изменить время" }));
-    const dialog = screen.getByRole("dialog", { name: "Изменить время тренировки" });
-    // A group training cannot move a whole series — the scope picker is absent.
+    const dialog = openEditForRow();
+    // Group trainings do not expose individual time/price controls or series scope.
     expect(within(dialog).queryByLabelText("Что изменить")).toBeNull();
-    fireEvent.change(within(dialog).getByLabelText("Начало"), { target: { value: "09:00" } });
-    fireEvent.change(within(dialog).getByLabelText("Окончание"), { target: { value: "10:30" } });
-    fireEvent.click(within(dialog).getByRole("button", { name: "Сохранить время" }));
-
-    expect(mutate).toHaveBeenCalledTimes(1);
-    expect(mutate.mock.calls[0][0]).toEqual({
-      id: TRAINING.id,
-      input: { startTime: "09:00", endTime: "10:30" },
-      series: false
-    });
+    expect(within(dialog).queryByLabelText("Начало")).toBeNull();
+    expect(within(dialog).queryByLabelText("Окончание")).toBeNull();
+    expect(within(dialog).queryByLabelText("Цена за тренировку, RSD")).toBeNull();
+    expect(within(dialog).getByLabelText("Вместимость")).toBeTruthy();
+    expect(within(dialog).getByLabelText("Корт")).toBeTruthy();
   });
 
   it("reschedules the whole series when chosen for an individual training", () => {
@@ -903,13 +962,14 @@ describe("Trainings page", () => {
     render(<Trainings />);
     setRange();
 
-    fireEvent.click(screen.getByRole("button", { name: "Изменить время" }));
-    const dialog = screen.getByRole("dialog", { name: "Изменить время тренировки" });
+    const dialog = openEditForRow();
     // The individual row offers the series scope; pick it and submit the new window.
-    fireEvent.change(within(dialog).getByLabelText("Что изменить"), { target: { value: "series" } });
+    fireEvent.change(within(dialog).getAllByLabelText("Что изменить")[0], {
+      target: { value: "series" }
+    });
     fireEvent.change(within(dialog).getByLabelText("Начало"), { target: { value: "19:00" } });
     fireEvent.change(within(dialog).getByLabelText("Окончание"), { target: { value: "20:00" } });
-    fireEvent.click(within(dialog).getByRole("button", { name: "Сохранить время" }));
+    fireEvent.click(within(dialog).getByRole("button", { name: "Сохранить" }));
 
     expect(mutate).toHaveBeenCalledTimes(1);
     expect(mutate.mock.calls[0][0]).toEqual({
@@ -931,13 +991,11 @@ describe("Trainings page", () => {
     render(<Trainings />);
     setRange();
 
-    const priceButtons = within(screen.getByRole("table")).getAllByRole("button", { name: "Цена" });
-    fireEvent.click(priceButtons[priceButtons.length - 1]);
-    const dialog = screen.getByRole("dialog", { name: "Изменить цену" });
+    const dialog = openEditForRow();
     fireEvent.change(within(dialog).getByLabelText("Цена за тренировку, RSD"), {
       target: { value: "3000" }
     });
-    fireEvent.click(within(dialog).getByRole("button", { name: "Сохранить цену" }));
+    fireEvent.click(within(dialog).getByRole("button", { name: "Сохранить" }));
 
     expect(mutate).toHaveBeenCalledTimes(1);
     expect(mutate.mock.calls[0][0]).toEqual({
@@ -959,16 +1017,14 @@ describe("Trainings page", () => {
     render(<Trainings />);
     setRange();
 
-    const priceButtons = within(screen.getByRole("table")).getAllByRole("button", { name: "Цена" });
-    fireEvent.click(priceButtons[priceButtons.length - 1]);
-    const dialog = screen.getByRole("dialog", { name: "Изменить цену" });
-    fireEvent.change(within(dialog).getByLabelText("Что изменить"), {
+    const dialog = openEditForRow();
+    fireEvent.change(within(dialog).getAllByLabelText("Что изменить")[1], {
       target: { value: "series" }
     });
     fireEvent.change(within(dialog).getByLabelText("Цена за тренировку, RSD"), {
       target: { value: "3200" }
     });
-    fireEvent.click(within(dialog).getByRole("button", { name: "Сохранить цену" }));
+    fireEvent.click(within(dialog).getByRole("button", { name: "Сохранить" }));
 
     expect(mutate).toHaveBeenCalledTimes(1);
     expect(mutate.mock.calls[0][0]).toEqual({
@@ -990,11 +1046,11 @@ describe("Trainings page", () => {
     render(<Trainings />);
     setRange();
 
-    const priceButtons = within(screen.getByRole("table")).getAllByRole("button", { name: "Цена" });
-    fireEvent.click(priceButtons[priceButtons.length - 1]);
-    const dialog = screen.getByRole("dialog", { name: "Изменить цену" });
-    fireEvent.click(within(dialog).getByRole("button", { name: "Очистить" }));
-    fireEvent.click(within(dialog).getByRole("button", { name: "Сохранить цену" }));
+    const dialog = openEditForRow();
+    fireEvent.change(within(dialog).getByLabelText("Цена за тренировку, RSD"), {
+      target: { value: "" }
+    });
+    fireEvent.click(within(dialog).getByRole("button", { name: "Сохранить" }));
 
     expect(mutate).toHaveBeenCalledTimes(1);
     expect(mutate.mock.calls[0][0]).toEqual({

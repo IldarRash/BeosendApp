@@ -608,6 +608,62 @@ describe("listTrainingsQuerySchema", () => {
       listTrainingsQuerySchema.safeParse({ from: "07/01/2026", to: "2026-07-31" }).success
     ).toBe(false);
   });
+
+  it("defaults includeTerminal to false", () => {
+    const parsed = listTrainingsQuerySchema.parse({
+      from: "2026-07-01",
+      to: "2026-07-31"
+    });
+    expect(parsed.includeTerminal).toBe(false);
+  });
+
+  it("parses includeTerminal from boolean and string query values", () => {
+    expect(
+      listTrainingsQuerySchema.parse({
+        from: "2026-07-01",
+        to: "2026-07-31",
+        includeTerminal: true
+      }).includeTerminal
+    ).toBe(true);
+    expect(
+      listTrainingsQuerySchema.parse({
+        from: "2026-07-01",
+        to: "2026-07-31",
+        includeTerminal: false
+      }).includeTerminal
+    ).toBe(false);
+    expect(
+      listTrainingsQuerySchema.parse({
+        from: "2026-07-01",
+        to: "2026-07-31",
+        includeTerminal: "true"
+      }).includeTerminal
+    ).toBe(true);
+    expect(
+      listTrainingsQuerySchema.parse({
+        from: "2026-07-01",
+        to: "2026-07-31",
+        includeTerminal: "false"
+      }).includeTerminal
+    ).toBe(false);
+  });
+
+  it("rejects an invalid includeTerminal", () => {
+    expect(
+      listTrainingsQuerySchema.safeParse({
+        from: "2026-07-01",
+        to: "2026-07-31",
+        includeTerminal: "1"
+      }).success
+    ).toBe(false);
+    expect(
+      listTrainingsQuerySchema.safeParse({
+        from: "2026-07-01",
+        to: "2026-07-31",
+        includeTerminal: "not-a-bool"
+      }).success
+    ).toBe(false);
+  });
 });
 
 describe("availableSlotsQuerySchema", () => {

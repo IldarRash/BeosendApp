@@ -17,6 +17,8 @@ type TrainingInsert = typeof tables.trainings.$inferInsert;
 /** A training row locked FOR UPDATE, carrying just what the admin manager writes need. */
 export interface TrainingLockRow {
   id: string;
+  groupId: string | null;
+  clientId: string | null;
   capacity: number;
   bookedCount: number;
   status: TrainingStatus;
@@ -313,6 +315,8 @@ export class TrainingsRepository {
     const [row] = await tx
       .select({
         id: tables.trainings.id,
+        groupId: tables.trainings.groupId,
+        clientId: tables.trainings.clientId,
         capacity: tables.trainings.capacity,
         bookedCount: tables.trainings.bookedCount,
         status: tables.trainings.status,
@@ -461,10 +465,26 @@ export class TrainingsRepository {
     return toTraining(row);
   }
 
-  /** Trainings whose date is in [from, to], optionally for one group, ordered for admin views. */
-  async listInRange(from: string, to: string, groupId?: string): Promise<Training[]> {
-    const dateRange = and(gte(tables.trainings.date, from), lte(tables.trainings.date, to));
-    const where = groupId ? and(dateRange, eq(tables.trainings.groupId, groupId)) : dateRange;
+  /**
+   * Trainings whose date is in [from, to], optionally for one group, with optional
+   * terminal-status visibility: when `includeTerminal` is true, cancelled/completed
+   * are included; otherwise both are hidden from admin list views.
+   */
+  async listInRange(
+    from: string,
+    to: string,
+    groupId?: string,
+    includeTerminal = false
+  ): Promise<Training[]> {
+    const filters = [gte(tables.trainings.date, from), lte(tables.trainings.date, to)];
+    if (!includeTerminal) {
+      filters.push(ne(tables.trainings.status, "cancelled"));
+      filters.push(ne(tables.trainings.status, "completed"));
+    }
+    if (groupId) {
+      filters.push(eq(tables.trainings.groupId, groupId));
+    }
+    const where = and(...filters);
     const rows = await this.database.db
       .select()
       .from(tables.trainings)
@@ -479,20 +499,25 @@ export class TrainingsRepository {
    * (every training has a trainer); group and court are LEFT (a training may have no
    * group, and only auto-blocked trainings carry a court). Ordered by date then start
    * time. Times are normalized "HH:MM:SS" -> "HH:MM" like the other reads.
+   *
+   * By default cancelled and completed rows are hidden; includeTerminal=true keeps
+   * terminal rows for admin audit/repair workflows.
    */
   async listCalendar(
     from: string,
     to: string,
     groupId?: string,
-    trainerId?: string
+    trainerId?: string,
+    includeTerminal = false
   ): Promise<TrainingCalendarRow[]> {
     const filters = [
       gte(tables.trainings.date, from),
       lte(tables.trainings.date, to),
-      // Cancelled trainings are soft-deleted: kept in the table for history, but
-      // hidden from the admin calendar (they should "disappear" once cancelled).
-      ne(tables.trainings.status, "cancelled")
     ];
+    if (!includeTerminal) {
+      filters.push(ne(tables.trainings.status, "cancelled"));
+      filters.push(ne(tables.trainings.status, "completed"));
+    }
     if (groupId) {
       filters.push(eq(tables.trainings.groupId, groupId));
     }

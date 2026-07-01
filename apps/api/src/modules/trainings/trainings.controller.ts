@@ -42,7 +42,7 @@ import {
   type TrainingRoster,
   type TrainingScheduleSlot
 } from "@beosand/types";
-import type { ZodSchema } from "zod";
+import type { TypeOf, ZodTypeAny } from "zod";
 import { ENV } from "../../config/config.module";
 import { TrainingsService } from "./trainings.service";
 
@@ -199,7 +199,7 @@ export class TrainingsController {
     });
   }
 
-  /** Admin: hard-delete a training (purges its rows) and notify its booked clients. Gated in the service. */
+  /** Admin: soft-cancel a training and notify its booked clients. Gated in the service. */
   @Delete(":id")
   delete(
     @Headers("x-telegram-id") telegramIdHeader: string | undefined,
@@ -232,9 +232,22 @@ export class TrainingsController {
     return this.trainings.autoAssignOrphans(actorTelegramId, input);
   }
 
-  /** Admin: reserve a court for an unassigned ("orphan") training. Gated in the service. */
+  /** Admin: assign a court for a training. Existing assignment is replaced. Gated in the service. */
   @Post(":id/assign-court")
   assignCourt(
+    @Headers("x-telegram-id") telegramIdHeader: string | undefined,
+    @Param("id") id: string,
+    @Body() body: unknown
+  ): Promise<Training> {
+    const actorTelegramId = parseTelegramId(telegramIdHeader);
+    const trainingId = validate(uuid, id);
+    const input = validate(assignCourtSchema, body ?? {});
+    return this.trainings.assignCourt(actorTelegramId, trainingId, input);
+  }
+
+  /** Admin: assign or reassign a court for a single training. Gated in the service. */
+  @Patch(":id/court")
+  assignOrReassignCourt(
     @Headers("x-telegram-id") telegramIdHeader: string | undefined,
     @Param("id") id: string,
     @Body() body: unknown
@@ -368,7 +381,7 @@ function parseTelegramId(
 }
 
 /** Zod-validate at the boundary; surface failures as 400 instead of 500. */
-function validate<T>(schema: ZodSchema<T>, input: unknown): T {
+function validate<TSchema extends ZodTypeAny>(schema: TSchema, input: unknown): TypeOf<TSchema> {
   const result = schema.safeParse(input);
   if (!result.success) {
     throw new BadRequestException(result.error.issues.map((issue) => issue.message).join("; "));

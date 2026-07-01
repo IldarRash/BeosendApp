@@ -641,6 +641,9 @@ export class ApiClient {
     if (query.groupId) {
       params.set("groupId", query.groupId);
     }
+    if (query.includeTerminal) {
+      params.set("includeTerminal", "true");
+    }
     return this.request(`/trainings?${params.toString()}`, trainingsSchema);
   }
 
@@ -659,7 +662,22 @@ export class ApiClient {
     if (query.trainerId) {
       params.set("trainerId", query.trainerId);
     }
+    if (query.includeTerminal) {
+      params.set("includeTerminal", "true");
+    }
     return this.request(`/trainings/calendar?${params.toString()}`, trainingCalendarSchema);
+  }
+
+  /**
+   * Re-assign a training's court (PATCH /trainings/:id/court, body `{ courtId }`).
+   * The admin UI sends a valid court id from the picker; the server re-checks
+   * availability and overlaps.
+   */
+  changeTrainingCourt(trainingId: string, courtId: string): Promise<Training> {
+    return this.request(`/trainings/${trainingId}/court`, trainingSchema, {
+      method: "PATCH",
+      body: JSON.stringify({ courtId })
+    });
   }
 
   /**

@@ -373,11 +373,18 @@ export const autoAssignResultSchema = z.object({
 export type AutoAssignResult = z.infer<typeof autoAssignResultSchema>;
 
 /** Admin range query for trainings (GET /trainings). */
+const queryBooleanSchema = z.preprocess((value) => {
+  if (value === "true") return true;
+  if (value === "false") return false;
+  return value;
+}, z.boolean());
+
 export const listTrainingsQuerySchema = z.object({
   from: dateString,
   to: dateString,
   groupId: uuid.optional(),
-  trainerId: uuid.optional()
+  trainerId: uuid.optional(),
+  includeTerminal: queryBooleanSchema.optional().default(false)
 });
 export type ListTrainingsQuery = z.infer<typeof listTrainingsQuerySchema>;
 

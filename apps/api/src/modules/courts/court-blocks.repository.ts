@@ -12,6 +12,13 @@ export interface InsertCourtBlock {
   groupTrainingId?: string | null;
 }
 
+export interface UpdateCourtBlockAssignment {
+  courtId: string;
+  date: string;
+  startTime: string;
+  endTime: string;
+}
+
 /** Persisted court-block row, as the entity contract expects it. */
 export interface CourtBlockRow {
   id: string;
@@ -285,6 +292,25 @@ export class CourtBlocksRepository {
     const rows = await db
       .update(tables.courtBlocks)
       .set({ courtId })
+      .where(eq(tables.courtBlocks.id, id))
+      .returning(blockColumns);
+    return normalizeBlock(rows[0]);
+  }
+
+  /** Move a linked assignment to a court/date/time in one write. Returns the updated row. */
+  async updateAssignment(
+    id: string,
+    input: UpdateCourtBlockAssignment,
+    db: Database = this.database.db
+  ): Promise<CourtBlockRow> {
+    const rows = await db
+      .update(tables.courtBlocks)
+      .set({
+        courtId: input.courtId,
+        date: input.date,
+        startTime: input.startTime,
+        endTime: input.endTime
+      })
       .where(eq(tables.courtBlocks.id, id))
       .returning(blockColumns);
     return normalizeBlock(rows[0]);

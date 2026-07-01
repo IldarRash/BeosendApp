@@ -11,7 +11,8 @@ function calendarKey(query: ListTrainingsQuery): readonly unknown[] {
     query.from,
     query.to,
     query.groupId ?? null,
-    query.trainerId ?? null
+    query.trainerId ?? null,
+    query.includeTerminal ?? false
   ] as const;
 }
 
