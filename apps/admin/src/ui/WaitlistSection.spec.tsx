@@ -90,6 +90,7 @@ const ROSTER: TrainingRoster = {
       bookingId: "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa",
       clientId: "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb",
       clientName: "Игорь",
+      telegramPhotoUrl: null,
       bookingStatus: "booked",
       bookingType: "single",
       groupSubscriptionId: null

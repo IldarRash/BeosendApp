@@ -1,4 +1,4 @@
-import { useMemo, useState, type FormEvent } from "react";
+import { useEffect, useMemo, useState, type FormEvent } from "react";
 import type {
   Court,
   CreateGroupInput,
@@ -34,6 +34,52 @@ function currentYearMonth(): { year: number; month: number } {
 /** A member with a known clientId — the only ones the admin can transfer. */
 function transferableName(member: GroupMember): string {
   return member.fullName ?? member.firstName;
+}
+
+function avatarInitial(name: string): string {
+  return name.trim().charAt(0).toLocaleUpperCase("ru") || "?";
+}
+
+function MemberNameCell({ member }: { member: GroupMember }): JSX.Element {
+  const name = transferableName(member);
+  const photoUrl = member.telegramPhotoUrl;
+  const [imageState, setImageState] = useState<"pending" | "loaded" | "failed">(
+    photoUrl ? "pending" : "failed"
+  );
+
+  useEffect(() => {
+    setImageState(photoUrl ? "pending" : "failed");
+  }, [photoUrl]);
+
+  return (
+    <span className="admin-person">
+      <span className="admin-avatar" aria-hidden="true">
+        {photoUrl && imageState !== "failed" ? (
+          <img
+            className={
+              imageState === "loaded"
+                ? "admin-avatar__image"
+                : "admin-avatar__image admin-avatar__image--pending"
+            }
+            src={photoUrl}
+            alt=""
+            onLoad={() => setImageState("loaded")}
+            onError={() => setImageState("failed")}
+          />
+        ) : null}
+        <span
+          className={
+            imageState === "loaded"
+              ? "admin-avatar__fallback admin-avatar__fallback--hidden"
+              : "admin-avatar__fallback"
+          }
+        >
+          {avatarInitial(name)}
+        </span>
+      </span>
+      <span className="admin-person__name">{name}</span>
+    </span>
+  );
 }
 
 type Translate = (key: string, params?: Record<string, string | number>) => string;
@@ -367,7 +413,7 @@ function MembersDrawer({ group, groups, year, month, onClose }: MembersDrawerPro
     {
       key: "name",
       header: t("admin.groups.colMember"),
-      render: (member) => transferableName(member)
+      render: (member) => <MemberNameCell member={member} />
     },
     {
       key: "actions",

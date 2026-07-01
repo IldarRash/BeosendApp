@@ -860,6 +860,61 @@ h4 {
   background: var(--paper);
 }
 
+/* Compact avatar + name cells used in admin roster/member tables. */
+.admin-person {
+  display: inline-flex;
+  align-items: center;
+  gap: 9px;
+  min-width: 0;
+  max-width: 100%;
+  color: var(--ink-900);
+  font-weight: 600;
+}
+
+.admin-person__name {
+  min-width: 0;
+  overflow-wrap: anywhere;
+  line-height: 1.25;
+}
+
+.admin-avatar {
+  position: relative;
+  display: inline-grid;
+  place-items: center;
+  width: 28px;
+  height: 28px;
+  flex: 0 0 28px;
+  overflow: hidden;
+  border: 1px solid var(--border-strong);
+  border-radius: 50%;
+  background: color-mix(in srgb, var(--sand-200) 72%, var(--paper));
+  color: var(--ink-700);
+  box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.56);
+}
+
+.admin-avatar__image {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.admin-avatar__image--pending {
+  opacity: 0;
+}
+
+.admin-avatar__fallback {
+  font-family: var(--font-serif);
+  font-size: 13px;
+  font-weight: 700;
+  line-height: 1;
+}
+
+.admin-avatar__fallback--hidden {
+  visibility: hidden;
+}
+
 /* Compact icon action button used inside table rows. */
 .iconbtn {
   width: 30px;

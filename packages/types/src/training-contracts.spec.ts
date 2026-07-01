@@ -19,6 +19,7 @@ import {
   generateIndividualMonthSchema,
   generateMonthSchema,
   groupBookingResultSchema,
+  groupMemberSchema,
   groupSchema,
   rescheduleTrainingSchema,
   trainingSchema,
@@ -1072,6 +1073,7 @@ describe("rosterParticipantSchema", () => {
     bookingId: "22222222-2222-2222-2222-222222222222",
     clientId: "33333333-3333-3333-3333-333333333333",
     clientName: "Ana",
+    telegramPhotoUrl: "https://t.me/i/userpic/320/ana.jpg",
     bookingStatus: "booked"
   };
 
@@ -1097,6 +1099,44 @@ describe("rosterParticipantSchema", () => {
     const parsed = rosterParticipantSchema.safeParse({ ...base, groupSubscriptionId: null });
     expect(parsed.success).toBe(false);
   });
+
+  it("accepts a null Telegram photo URL and rejects a malformed URL", () => {
+    expect(
+      rosterParticipantSchema.safeParse({
+        ...base,
+        telegramPhotoUrl: null,
+        bookingType: "single",
+        groupSubscriptionId: null
+      }).success
+    ).toBe(true);
+    expect(
+      rosterParticipantSchema.safeParse({
+        ...base,
+        telegramPhotoUrl: "not-a-url",
+        bookingType: "single",
+        groupSubscriptionId: null
+      }).success
+    ).toBe(false);
+  });
+});
+
+describe("groupMemberSchema", () => {
+  const base = {
+    firstName: "Ana",
+    avatarInitial: "A",
+    telegramPhotoUrl: "https://t.me/i/userpic/320/ana.jpg"
+  };
+
+  it("accepts valid and null Telegram photo URLs", () => {
+    expect(groupMemberSchema.safeParse(base).success).toBe(true);
+    expect(groupMemberSchema.safeParse({ ...base, telegramPhotoUrl: null }).success).toBe(true);
+  });
+
+  it("rejects a malformed Telegram photo URL", () => {
+    expect(groupMemberSchema.safeParse({ ...base, telegramPhotoUrl: "not-a-url" }).success).toBe(
+      false
+    );
+  });
 });
 
 describe("trainingRosterSchema", () => {
@@ -1111,6 +1151,7 @@ describe("trainingRosterSchema", () => {
         bookingId: "22222222-2222-2222-2222-222222222222",
         clientId: "33333333-3333-3333-3333-333333333333",
         clientName: "Ana",
+        telegramPhotoUrl: "https://t.me/i/userpic/320/ana.jpg",
         bookingStatus: "booked",
         bookingType: "group",
         groupSubscriptionId: "44444444-4444-4444-4444-444444444444"

@@ -79,7 +79,15 @@ const MEMBERS: GroupMembers = {
   month: 6,
   memberCount: 1,
   callerSubscribed: false,
-  members: [{ firstName: "Ана", avatarInitial: "А", clientId: CLIENT_ID, fullName: "Ана Петровић" }]
+  members: [
+    {
+      firstName: "Ана",
+      avatarInitial: "А",
+      telegramPhotoUrl: null,
+      clientId: CLIENT_ID,
+      fullName: "Ана Петровић"
+    }
+  ]
 };
 
 function query<T>(over: Partial<{ data: T; isLoading: boolean; isError: boolean }>) {
@@ -280,6 +288,41 @@ describe("Groups", () => {
     fireEvent.click(screen.getByRole("button", { name: "Состав группы Утренняя группа" }));
     const drawer = screen.getByRole("dialog", { name: "Состав: Утренняя группа" });
     expect(within(drawer).getByText("Ана Петровић")).toBeTruthy();
+  });
+
+  it("renders member avatar+name and falls back to the initial when the photo fails", () => {
+    useGroupMembers.mockReturnValue(
+      query<GroupMembers>({
+        data: {
+          groupId: GROUP.id,
+          year: 2026,
+          month: 6,
+          memberCount: 1,
+          callerSubscribed: false,
+          members: [
+            {
+              firstName: "Ana",
+              avatarInitial: "A",
+              clientId: CLIENT_ID,
+              fullName: "Ana Petrovic",
+              telegramPhotoUrl: "https://t.me/i/userpic/320/ana.jpg"
+            } as GroupMembers["members"][number] & { telegramPhotoUrl: string }
+          ]
+        }
+      })
+    );
+    renderPage();
+
+    fireEvent.click(screen.getByRole("button", { name: /Состав группы Утренняя группа/ }));
+    const drawer = screen.getByRole("dialog", { name: /Состав: Утренняя группа/ });
+    const row = within(drawer).getByText("Ana Petrovic").closest("tr") as HTMLElement;
+    const photo = row.querySelector("img") as HTMLImageElement;
+    expect(photo.src).toBe("https://t.me/i/userpic/320/ana.jpg");
+
+    fireEvent.error(photo);
+
+    expect(within(row).getByText("A")).toBeTruthy();
+    expect(row.querySelector("img")).toBeNull();
   });
 
   it("transfers a member to a chosen target group (source group excluded)", () => {

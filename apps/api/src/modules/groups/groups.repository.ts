@@ -16,6 +16,7 @@ type GroupRowWithTrainer = GroupRow & { trainerName: string; courtNumber: number
 export interface GroupMemberRow {
   clientId: string;
   name: string;
+  telegramPhotoUrl: string | null;
 }
 
 /** Only place groups DB access lives. Returns typed rows; no business rules. */
@@ -72,7 +73,11 @@ export class GroupsRepository {
    */
   async listMonthMembers(groupId: string, from: string, to: string): Promise<GroupMemberRow[]> {
     return this.database.db
-      .selectDistinct({ clientId: tables.clients.id, name: tables.clients.name })
+      .selectDistinct({
+        clientId: tables.clients.id,
+        name: tables.clients.name,
+        telegramPhotoUrl: tables.clients.telegramPhotoUrl
+      })
       .from(tables.bookings)
       .innerJoin(tables.trainings, eq(tables.bookings.trainingId, tables.trainings.id))
       .innerJoin(tables.clients, eq(tables.bookings.clientId, tables.clients.id))

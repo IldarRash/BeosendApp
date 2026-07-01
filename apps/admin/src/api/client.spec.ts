@@ -984,7 +984,13 @@ describe("ApiClient group members & transfer", () => {
       memberCount: 1,
       callerSubscribed: false,
       members: [
-        { firstName: "Ана", avatarInitial: "А", clientId: CLIENT_ID, fullName: "Ана Петровић" }
+        {
+          firstName: "Ана",
+          avatarInitial: "А",
+          telegramPhotoUrl: null,
+          clientId: CLIENT_ID,
+          fullName: "Ана Петровић"
+        }
       ]
     });
     const result = await new ApiClient("http://api.test").getGroupMembers(GROUP_ID, 2026, 6);

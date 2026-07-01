@@ -667,6 +667,7 @@ export const rosterParticipantSchema = z.object({
   bookingId: uuid,
   clientId: uuid,
   clientName: z.string(),
+  telegramPhotoUrl: z.string().url().nullable(),
   bookingStatus,
   /** Drop-in ("single") vs. part of a monthly group subscription ("group"). */
   bookingType,
@@ -705,6 +706,7 @@ export type MarkAttendanceInput = z.infer<typeof markAttendanceSchema>;
 export const groupMemberSchema = z.object({
   firstName: z.string(),
   avatarInitial: z.string().min(1),
+  telegramPhotoUrl: z.string().url().nullable(),
   clientId: uuid.optional(),
   fullName: z.string().optional()
 });

@@ -16,6 +16,7 @@
   "scripts": {
     "dev": "turbo run dev",
     "build": "turbo run build",
+    "check": "node scripts/check.mjs",
     "lint": "turbo run lint",
     "typecheck": "turbo run typecheck",
     "test": "turbo run test",

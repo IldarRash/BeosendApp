@@ -1,8 +1,52 @@
-import type { ReactNode } from "react";
+import { useEffect, useState, type ReactNode } from "react";
 import type { BookingStatus, RosterParticipant } from "@beosand/types";
 import { DataTable, type Column } from "./DataTable";
 
 type Translate = (key: string, params?: Record<string, string | number>) => string;
+
+function avatarInitial(name: string): string {
+  return name.trim().charAt(0).toLocaleUpperCase("ru") || "?";
+}
+
+function AvatarNameCell({ name, photoUrl }: { name: string; photoUrl?: string | null }): JSX.Element {
+  const [imageState, setImageState] = useState<"pending" | "loaded" | "failed">(
+    photoUrl ? "pending" : "failed"
+  );
+
+  useEffect(() => {
+    setImageState(photoUrl ? "pending" : "failed");
+  }, [photoUrl]);
+
+  return (
+    <span className="admin-person">
+      <span className="admin-avatar" aria-hidden="true">
+        {photoUrl && imageState !== "failed" ? (
+          <img
+            className={
+              imageState === "loaded"
+                ? "admin-avatar__image"
+                : "admin-avatar__image admin-avatar__image--pending"
+            }
+            src={photoUrl}
+            alt=""
+            onLoad={() => setImageState("loaded")}
+            onError={() => setImageState("failed")}
+          />
+        ) : null}
+        <span
+          className={
+            imageState === "loaded"
+              ? "admin-avatar__fallback admin-avatar__fallback--hidden"
+              : "admin-avatar__fallback"
+          }
+        >
+          {avatarInitial(name)}
+        </span>
+      </span>
+      <span className="admin-person__name">{name}</span>
+    </span>
+  );
+}
 
 /** Catalog key for the booking status the API returns (never recomputed here). */
 function bookingStatusLabel(status: BookingStatus, t: Translate): string {
@@ -64,7 +108,13 @@ export function RosterList({
   actions
 }: RosterListProps): JSX.Element {
   const columns: Column<RosterParticipant>[] = [
-    { key: "name", header: t("admin.attendance.colClient"), render: (p) => p.clientName },
+    {
+      key: "name",
+      header: t("admin.attendance.colClient"),
+      render: (p) => (
+        <AvatarNameCell name={p.clientName} photoUrl={p.telegramPhotoUrl} />
+      )
+    },
     {
       key: "kind",
       header: t("admin.roster.colKind"),

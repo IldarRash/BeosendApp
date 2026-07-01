@@ -28,6 +28,18 @@ Cover the behavior the task changed, not framework defaults.
 `*.spec.ts` next to the unit. `vitest run`. Deterministic dates (pass year/month/fixed clock); no real
 network/Telegram. Keep fixtures small and readable.
 
+## Running checks
+
+Use the repository runner instead of ad hoc commands:
+
+- `pnpm check` runs full workspace lint, then full workspace tests.
+- `pnpm check <scope>` runs lint and tests for one workspace scope. Scope may be a short alias
+  (`admin`, `api`, `bot`, `miniapp`, `types`, `db`, `config`, `i18n`), a workspace path
+  (`apps/admin`, `packages/types`), or an explicit pnpm filter (`@beosand/admin`).
+
+When the user asks to "check tests" or "run tests", run `pnpm check` unless they explicitly ask for a
+scoped run.
+
 ## Done
 
-New tests fail before the fix and pass after; `pnpm test` green across the workspace.
+New tests fail before the fix and pass after; `pnpm check` green across the workspace.
