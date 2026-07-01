@@ -14,11 +14,11 @@ interface TrainingRosterModalProps {
 }
 
 /**
- * Read-only detail popup for one training on the Trainings table: the joined
+ * Detail popup for one training on the Trainings table: the joined
  * "whose training?" header (occupancy, status, court — all the API's) plus its
  * attendee list via {@link RosterSection}, so the owner can see exactly who signed
- * up for that date, including one-time drop-ins. Pure interaction layer; the
- * destructive actions stay on the table/calendar, this view only reads.
+ * up for that date, including one-time drop-ins. Roster and waitlist actions call
+ * the API and refresh server-owned state rather than recomputing it locally.
  */
 export function TrainingRosterModal({
   trainingId,

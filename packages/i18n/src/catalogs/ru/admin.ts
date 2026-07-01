@@ -496,6 +496,15 @@ export const adminRu: Record<string, string> = {
   "admin.roster.openLabel": "Список записанных",
   "admin.roster.open": "Записанные",
   "admin.roster.close": "Скрыть записанных",
+  "admin.roster.colActions": "Действия",
+  "admin.roster.remove": "Убрать",
+  "admin.roster.removeAria": "Убрать клиента {client} из тренировки",
+  "admin.roster.removing": "Удаление…",
+  "admin.roster.removeTitle": "Убрать участника",
+  "admin.roster.removeConfirm": "Убрать",
+  "admin.roster.removePrompt": "Убрать {client} с тренировки {date}, {start}–{end}? Запись будет отменена на сервере, а место освободится.",
+  "admin.roster.removed": "{client} убран(а) из тренировки.",
+  "admin.roster.removeFailed": "Не удалось убрать участника.",
 
   // ── Clients page ──────────────────────────────────────────────────────────
   "admin.clients.title": "Клиенты",

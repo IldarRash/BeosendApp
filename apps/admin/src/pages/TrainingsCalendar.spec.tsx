@@ -18,7 +18,14 @@ vi.mock("../hooks/useTrainingDetail", () => ({
   useTrainingDetail: (...args: unknown[]) => useTrainingDetail(...args)
 }));
 vi.mock("../hooks/useRoster", () => ({
-  useRoster: (...args: unknown[]) => useRoster(...args)
+  useRoster: (...args: unknown[]) => useRoster(...args),
+  useCancelRosterParticipant: () => ({
+    mutate: vi.fn(),
+    reset: vi.fn(),
+    isPending: false,
+    isError: false,
+    error: null
+  })
 }));
 vi.mock("../hooks/useGroups", () => ({ useGroups: () => useGroups() }));
 vi.mock("../hooks/useTrainers", () => ({ useTrainers: () => useTrainers() }));

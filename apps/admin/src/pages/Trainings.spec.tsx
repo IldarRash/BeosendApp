@@ -56,7 +56,14 @@ vi.mock("../hooks/useTrainingDetail", () => ({
   useTrainingDetail: (...args: unknown[]) => useTrainingDetail(...args)
 }));
 vi.mock("../hooks/useRoster", () => ({
-  useRoster: (...args: unknown[]) => useRoster(...args)
+  useRoster: (...args: unknown[]) => useRoster(...args),
+  useCancelRosterParticipant: () => ({
+    mutate: vi.fn(),
+    reset: vi.fn(),
+    isPending: false,
+    isError: false,
+    error: null
+  })
 }));
 // The roster modal now renders the under-roster waitlist section; mock its hooks
 // so opening the modal doesn't reach the real ApiClient.

@@ -1399,6 +1399,8 @@ describe("BookingsService.listMine", () => {
 describe("BookingsService.cancelBooking", () => {
   let bookingsRepo: FakeBookingsRepository;
   let clientsRepo: FakeClientsRepository;
+  let promotedTrainings: string[];
+  let waitlist: WaitlistService;
   let service: BookingsService;
 
   const BOOKING_ID = "dddddddd-dddd-dddd-dddd-dddddddddddd";
@@ -1409,12 +1411,18 @@ describe("BookingsService.cancelBooking", () => {
   beforeEach(() => {
     bookingsRepo = new FakeBookingsRepository();
     clientsRepo = new FakeClientsRepository();
+    promotedTrainings = [];
+    waitlist = {
+      promoteNext: async (trainingId: string): Promise<void> => {
+        promotedTrainings.push(trainingId);
+      }
+    } as unknown as WaitlistService;
     service = new BookingsService(
       bookingsRepo as unknown as BookingsRepository,
       clientsRepo as unknown as ClientsRepository,
       new FakeGroupsRepository() as unknown as GroupsRepository,
       fakeNotifications,
-      fakeWaitlist,
+      waitlist,
       new FakeTrainersRepository() as unknown as TrainersRepository,
       fakeDomainEvents,
       env
@@ -1445,6 +1453,7 @@ describe("BookingsService.cancelBooking", () => {
     expect(result.status).toBe("cancelled");
     expect(bookingsRepo.training.bookedCount).toBe(5);
     expect(bookingsRepo.training.status).toBe("open");
+    expect(promotedTrainings).toEqual([TRAINING_ID]);
   });
 
   it("cancelling one group date leaves siblings sharing the subscription booked", async () => {
@@ -1484,6 +1493,7 @@ describe("BookingsService.cancelBooking", () => {
     // The recompute never persisted, so the real tx would roll the cancel back too.
     expect(bookingsRepo.training.bookedCount).toBe(6);
     expect(bookingsRepo.training.status).toBe("full");
+    expect(promotedTrainings).toEqual([]);
   });
 
   it("rejects cancelling another client's booking with a 403, changing no seat count", async () => {
@@ -1514,6 +1524,7 @@ describe("BookingsService.cancelBooking", () => {
       ConflictException
     );
     expect(bookingsRepo.training.bookedCount).toBe(4);
+    expect(promotedTrainings).toEqual([]);
   });
 
   it("404s an unknown booking", async () => {
