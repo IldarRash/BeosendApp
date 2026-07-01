@@ -663,6 +663,68 @@ describe("ApiClient trainings calendar (Slice B)", () => {
     mockFetchOnce(withoutTrainer);
     await expect(new ApiClient("http://api.test").trainingDetail(TRAINING_ID)).rejects.toThrow();
   });
+
+  it("includes includeTerminal=true in calendar query when requested", async () => {
+    const calls = mockFetchOnce([]);
+    await new ApiClient("http://api.test").trainingsCalendar({
+      from: "2026-07-01",
+      to: "2026-07-31",
+      includeTerminal: true
+    });
+    expect(calls[0]?.url).toBe(
+      "http://api.test/trainings/calendar?from=2026-07-01&to=2026-07-31&includeTerminal=true"
+    );
+  });
+});
+
+describe("ApiClient trainings list (Slice B)", () => {
+  afterEach(() => {
+    vi.unstubAllGlobals();
+  });
+
+  const TRAINING_ID = "44444444-4444-4444-4444-444444444444";
+  const COURT_ID = "22222222-2222-2222-2222-222222222222";
+  const TRAINING_GROUP_ID = "11111111-1111-1111-1111-111111111111";
+
+  const training = {
+    id: TRAINING_ID,
+    groupId: TRAINING_GROUP_ID,
+    date: "2026-07-06",
+    startTime: "18:00",
+    endTime: "19:00",
+    trainerId: "55555555-5555-5555-5555-555555555555",
+    capacity: 12,
+    bookedCount: 4,
+    priceSingleRsd: 1500,
+    clientId: null,
+    status: "open"
+  };
+
+  it("adds includeTerminal=true only when requested in trainings list query", async () => {
+    const calls = mockFetchOnce([training]);
+    await new ApiClient("http://api.test").listTrainings({
+      from: "2026-07-01",
+      to: "2026-07-31",
+      includeTerminal: true
+    });
+    expect(calls[0]?.url).toBe("http://api.test/trainings?from=2026-07-01&to=2026-07-31&includeTerminal=true");
+  });
+
+  it("changes a training court via PATCH /trainings/:id/court", async () => {
+    const calls = mockFetchOnce(training);
+    const result = await new ApiClient("http://api.test").changeTrainingCourt(TRAINING_ID, COURT_ID);
+    expect(calls[0]?.url).toBe(`http://api.test/trainings/${TRAINING_ID}/court`);
+    expect(calls[0]?.init?.method).toBe("PATCH");
+    expect(JSON.parse(calls[0]?.init?.body as string)).toEqual({ courtId: COURT_ID });
+    expect(result.id).toBe(TRAINING_ID);
+  });
+
+  it("rejects a malformed change-training-court response", async () => {
+    mockFetchOnce({ ...training, groupId: 123 });
+    await expect(
+      new ApiClient("http://api.test").changeTrainingCourt(TRAINING_ID, COURT_ID)
+    ).rejects.toThrow();
+  });
 });
 
 describe("ApiClient error handling & clients", () => {

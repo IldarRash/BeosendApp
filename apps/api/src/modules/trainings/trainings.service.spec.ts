@@ -204,7 +204,30 @@ class FakeTrainingsRepository {
   }
 
   async findCalendarItemById(id: string): Promise<TrainingCalendarRow | undefined> {
-    return this.calendar.find((r) => r.id === id);
+    const calendarRow = this.calendar.find((r) => r.id === id);
+    if (calendarRow) {
+      return calendarRow;
+    }
+    const row = this.rows.find((r) => r.id === id);
+    return row
+      ? {
+          id: row.id,
+          groupId: row.groupId,
+          date: row.date,
+          startTime: row.startTime,
+          endTime: row.endTime,
+          trainerId: row.trainerId,
+          clientId: row.clientId,
+          capacity: row.capacity,
+          bookedCount: row.bookedCount,
+          priceSingleRsd: row.priceSingleRsd,
+          status: row.status,
+          groupName: row.groupId ? "Group" : null,
+          trainerName: "Trainer",
+          courtNumber: null,
+          clientName: row.clientId ? "Client" : null
+        }
+      : undefined;
   }
 
   trainerToday: TrainerTrainingRow[] = [];
@@ -266,6 +289,8 @@ class FakeTrainingsRepository {
     return row
       ? {
           id: row.id,
+          groupId: row.groupId,
+          clientId: row.clientId,
           capacity: row.capacity,
           bookedCount: row.bookedCount,
           status: row.status,
@@ -443,12 +468,12 @@ class FakeTrainingsRepository {
   private lockToTraining(lock: TrainingLockRow): Training {
     return {
       id: lock.id,
-      groupId: null,
+      groupId: lock.groupId,
       date: "2099-06-01",
       startTime: "20:00",
       endTime: "21:30",
       trainerId: lock.trainerId,
-      clientId: null,
+      clientId: lock.clientId,
       capacity: lock.capacity,
       bookedCount: lock.bookedCount,
       priceSingleRsd: null,
@@ -489,6 +514,7 @@ class FakeGroupsRepository {
 }
 
 interface FakeOccupancyRow {
+  id?: string;
   courtId: string;
   startTime: string;
   durationMinutes: number;
@@ -528,6 +554,11 @@ class FakeCourtBlocksRepository {
     reason: string;
     groupTrainingId?: string | null;
   }[] = [];
+  updated: string[] = [];
+  updatedAssignments: {
+    id: string;
+    input: { courtId: string; date: string; startTime: string; endTime: string };
+  }[] = [];
   deletedTrainingIds: string[] = [];
   calls: string[] = [];
 
@@ -549,7 +580,11 @@ class FakeCourtBlocksRepository {
     this.calls.push(`held:${date}`);
     return this.held.filter((r) => !r.date || r.date === date).map((r) => ({ ...r }));
   }
-  async blocksOccupancyForDate(date: string): Promise<FakeOccupancyRow[]> {
+  async blocksOccupancyForDate(
+    date: string,
+    _tx?: Database,
+    excludeBlockId?: string
+  ): Promise<FakeOccupancyRow[]> {
     this.calls.push(`blocks:${date}`);
     // Mirror the real DB read: previously-committed auto-blocks on this date are
     // visible to a later read (cross-group in-run accumulation in generate-all).
@@ -560,9 +595,23 @@ class FakeCourtBlocksRepository {
         startTime: b.startTime,
         durationMinutes: minutesBetween(b.startTime, b.endTime)
       }));
-    return [...this.existingBlocks.filter((r) => !r.date || r.date === date), ...persisted].map(
-      (r) => ({ ...r })
-    );
+    const linked = [...this.linkedBlocks.values()]
+      .filter((b) => b.date === date)
+      .map((b) => ({
+        id: b.id,
+        courtId: b.courtId,
+        startTime: b.startTime,
+        durationMinutes: minutesBetween(b.startTime, b.endTime)
+      }));
+    return [
+      ...this.existingBlocks.filter(
+        (r) =>
+          (!r.date || r.date === date) &&
+          (excludeBlockId === undefined || r.id !== excludeBlockId)
+      ),
+      ...persisted,
+      ...linked.filter((r) => excludeBlockId === undefined || r.id !== excludeBlockId)
+    ].map((r) => ({ ...r }));
   }
   async insert(input: {
     courtId: string;
@@ -584,8 +633,65 @@ class FakeCourtBlocksRepository {
 
   // Training ids that already hold a court block (guards a double assign-court).
   blockedTrainingIds = new Set<string>();
-  async findByGroupTrainingId(id: string): Promise<{ id: string } | null> {
-    return this.blockedTrainingIds.has(id) ? { id: "existing-block" } : null;
+  linkedBlocks = new Map<
+    string,
+    {
+      id: string;
+      courtId: string;
+      date: string;
+      startTime: string;
+      endTime: string;
+      reason: string;
+      groupTrainingId: string;
+    }
+  >();
+  async findByGroupTrainingId(id: string): Promise<{
+    id: string;
+    courtId: string;
+    date: string;
+    startTime: string;
+    endTime: string;
+    reason: string;
+    groupTrainingId: string;
+  } | null> {
+    const linked = this.linkedBlocks.get(id);
+    if (linked) {
+      return { ...linked };
+    }
+    return this.blockedTrainingIds.has(id)
+      ? {
+          id: "existing-block",
+          courtId: "c0000000-0000-4000-8000-000000000001",
+          date: "2099-06-01",
+          startTime: "20:00",
+          endTime: "21:30",
+          reason: "Existing",
+          groupTrainingId: id
+        }
+      : null;
+  }
+
+  async updateCourt(id: string, courtId: string): Promise<{ id: string }> {
+    this.calls.push(`update:${id}:${courtId}`);
+    this.updated.push(id);
+    return { id };
+  }
+
+  async updateAssignment(
+    id: string,
+    input: { courtId: string; date: string; startTime: string; endTime: string }
+  ): Promise<{ id: string }> {
+    this.calls.push(
+      `updateAssignment:${id}:${input.courtId}:${input.date}:${input.startTime}:${input.endTime}`
+    );
+    this.updated.push(id);
+    this.updatedAssignments.push({ id, input });
+    for (const [trainingId, block] of this.linkedBlocks) {
+      if (block.id === id) {
+        this.linkedBlocks.set(trainingId, { ...block, ...input });
+      }
+    }
+    return { id };
   }
 }
 
@@ -761,6 +867,19 @@ describe("TrainingsService", () => {
     ).rejects.toBeInstanceOf(ForbiddenException);
   });
 
+  it("defaults list calls to hide terminal statuses unless includeTerminal=true", async () => {
+    const spy = vi.spyOn(trainingsRepo, "listInRange");
+    await service.list(ADMIN_ID, { from: "2026-07-01", to: "2026-07-31", groupId: GROUP_ID });
+    expect(spy).toHaveBeenCalledWith("2026-07-01", "2026-07-31", GROUP_ID, false);
+    await service.list(ADMIN_ID, {
+      from: "2026-07-01",
+      to: "2026-07-31",
+      groupId: GROUP_ID,
+      includeTerminal: true
+    });
+    expect(spy).toHaveBeenCalledWith("2026-07-01", "2026-07-31", GROUP_ID, true);
+  });
+
   it("list returns generated trainings within the range", async () => {
     await generate();
     const listed = await service.list(ADMIN_ID, {
@@ -802,6 +921,31 @@ describe("TrainingsService", () => {
       await expect(
         service.listCalendar(ADMIN_ID, { from: "2026-07-31", to: "2026-07-01" })
       ).rejects.toBeInstanceOf(BadRequestException);
+    });
+
+    it("defaults listCalendar calls to hide terminal statuses unless includeTerminal=true", async () => {
+      const spy = vi.spyOn(trainingsRepo, "listCalendar");
+      trainingsRepo.calendar = [calItem({ status: "cancelled", id: "bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb" })];
+      await service.listCalendar(ADMIN_ID, { from: "2026-07-01", to: "2026-07-31" });
+      expect(spy).toHaveBeenCalledWith(
+        "2026-07-01",
+        "2026-07-31",
+        undefined,
+        undefined,
+        false
+      );
+      await service.listCalendar(ADMIN_ID, {
+        from: "2026-07-01",
+        to: "2026-07-31",
+        includeTerminal: true
+      });
+      expect(spy).toHaveBeenCalledWith(
+        "2026-07-01",
+        "2026-07-31",
+        undefined,
+        undefined,
+        true
+      );
     });
 
     it("listCalendar returns contract-valid items in the range, with null group/court allowed", async () => {
@@ -1346,7 +1490,7 @@ describe("TrainingsService", () => {
     });
   });
 
-  describe("deleteTraining (hard-delete, admin-only)", () => {
+  describe("deleteTraining (soft-cancel, admin-only)", () => {
     const TRAINING_ID = "aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa";
     const TRAINER_ID = "33333333-3333-3333-3333-333333333333";
 
@@ -1356,6 +1500,8 @@ describe("TrainingsService", () => {
       bookedCount: 3,
       status: "open",
       trainerId: TRAINER_ID,
+      groupId: null,
+      clientId: null,
       ...over
     });
 
@@ -1365,7 +1511,6 @@ describe("TrainingsService", () => {
         ForbiddenException
       );
       expect(trainingsRepo.cancelBookedCalls).toBe(0);
-      expect(trainingsRepo.purgeCalls).toEqual([]);
       expect(notifications.sendTrainingCancelled).not.toHaveBeenCalled();
     });
 
@@ -1378,11 +1523,11 @@ describe("TrainingsService", () => {
       expect(notifications.sendTrainingCancelled).not.toHaveBeenCalled();
     });
 
-    it("cancels a booked training, notifies the captured clients BEFORE the purge, then purges in FK order and returns {id}", async () => {
+    it("cancels a booked training, notifies the captured clients, and returns {id}", async () => {
       trainingsRepo.lock = openLock({ bookedCount: 3 });
       trainingsRepo.cancelledClientIds = ["client-a", "client-b", "client-c"];
-      // Mark the notify in the same ordered log so we can assert it runs while the
-      // training row still exists (i.e. strictly before `training:<id>` is purged).
+      // Mark notify in the same ordered log so we can assert it runs while court
+      // cleanup is in the same transaction.
       notifications.sendTrainingCancelled.mockImplementationOnce(async () => {
         trainingsRepo.purgeCalls.push(`notify:${TRAINING_ID}`);
         return 0;
@@ -1399,15 +1544,9 @@ describe("TrainingsService", () => {
         "client-b",
         "client-c"
       ]);
-      // Notify happens BEFORE the purge (FK from notifications.training_id → trainings),
-      // then tx2 purges in FK order: notifications → waitlist → bookings → training row.
-      expect(trainingsRepo.purgeCalls).toEqual([
-        `notify:${TRAINING_ID}`,
-        `notifications:${TRAINING_ID}`,
-        `waitlist:${TRAINING_ID}`,
-        `bookings:${TRAINING_ID}`,
-        `training:${TRAINING_ID}`
-      ]);
+      // Notify happens after tx1 cancellation (and after booking flips) while the
+      // row still exists for FK-safe notification-log writes.
+      expect(trainingsRepo.purgeCalls).toEqual([`notify:${TRAINING_ID}`]);
       // The court block keyed by this training is freed (cancelOneInTx + idempotent tx2 delete).
       expect(courtBlocksRepo.deletedTrainingIds).toContain(TRAINING_ID);
       const firstLock = courtBlocksRepo.calls.indexOf("lock:2099-06-01");
@@ -1416,7 +1555,7 @@ describe("TrainingsService", () => {
       expect(firstLock).toBeLessThan(firstDelete);
     });
 
-    it("does not cancel an already-cancelled training but still purges it and returns {id} (clientIds empty)", async () => {
+    it("does not recancel an already-cancelled training and returns {id} (clientIds empty)", async () => {
       trainingsRepo.lock = openLock({ bookedCount: 0, status: "cancelled" });
 
       const result = await service.deleteTraining(ADMIN_ID, TRAINING_ID);
@@ -1426,19 +1565,12 @@ describe("TrainingsService", () => {
       expect(trainingsRepo.cancelBookedCalls).toBe(0);
       // Notify is still called, with no affected clients (idempotent, never 500s).
       expect(notifications.sendTrainingCancelled).toHaveBeenCalledWith(TRAINING_ID, []);
-      // The purge still runs in full FK order.
-      expect(trainingsRepo.purgeCalls).toEqual([
-        `notifications:${TRAINING_ID}`,
-        `waitlist:${TRAINING_ID}`,
-        `bookings:${TRAINING_ID}`,
-        `training:${TRAINING_ID}`
-      ]);
+      // No block delete happens because it is already cancelled in this path.
+      expect(trainingsRepo.purgeCalls).toEqual([]);
       expect(courtBlocksRepo.calls).toEqual([
         `date:${TRAINING_ID}`,
         "lock:2099-06-01",
-        `full-lock:${TRAINING_ID}`,
-        "lock:2099-06-01",
-        `deleteAuto:${TRAINING_ID}`
+        `full-lock:${TRAINING_ID}`
       ]);
     });
 
@@ -1449,7 +1581,7 @@ describe("TrainingsService", () => {
       const result = await service.deleteTraining(ADMIN_ID, TRAINING_ID);
 
       expect(result).toEqual({ id: TRAINING_ID });
-      expect(trainingsRepo.purgeCalls).toContain(`training:${TRAINING_ID}`);
+      expect(trainingsRepo.cancelBookedCalls).toBe(1);
     });
   });
 
@@ -1463,7 +1595,9 @@ describe("TrainingsService", () => {
         capacity: 12,
         bookedCount: 5,
         status: "open",
-        trainerId: TRAINER_ID
+        trainerId: TRAINER_ID,
+        groupId: null,
+        clientId: null
       };
 
       const result = await service.changeCapacity(ADMIN_ID, TRAINING_ID, { capacity: 5 });
@@ -1478,7 +1612,9 @@ describe("TrainingsService", () => {
         capacity: 5,
         bookedCount: 5,
         status: "full",
-        trainerId: TRAINER_ID
+        trainerId: TRAINER_ID,
+        groupId: null,
+        clientId: null
       };
 
       const result = await service.changeCapacity(ADMIN_ID, TRAINING_ID, { capacity: 8 });
@@ -1493,7 +1629,9 @@ describe("TrainingsService", () => {
         capacity: 12,
         bookedCount: 6,
         status: "open",
-        trainerId: TRAINER_ID
+        trainerId: TRAINER_ID,
+        groupId: null,
+        clientId: null
       };
 
       await expect(
@@ -1509,7 +1647,9 @@ describe("TrainingsService", () => {
         capacity: 12,
         bookedCount: 0,
         status: "open",
-        trainerId: TRAINER_ID
+        trainerId: TRAINER_ID,
+        groupId: null,
+        clientId: null
       };
 
       await expect(
@@ -1530,7 +1670,9 @@ describe("TrainingsService", () => {
         capacity: 12,
         bookedCount: 0,
         status: "cancelled",
-        trainerId: TRAINER_ID
+        trainerId: TRAINER_ID,
+        groupId: null,
+        clientId: null
       };
 
       await expect(
@@ -1545,7 +1687,9 @@ describe("TrainingsService", () => {
         capacity: 12,
         bookedCount: 3,
         status: "completed",
-        trainerId: TRAINER_ID
+        trainerId: TRAINER_ID,
+        groupId: null,
+        clientId: null
       };
 
       await expect(
@@ -2102,14 +2246,27 @@ describe("TrainingsService", () => {
       expect(courtBlocksRepo.inserted).toHaveLength(0);
     });
 
-    it("409s a training that already holds a court block (no double assignment)", async () => {
+    it("reassigns an existing court block with the locked training time instead of double-assigning", async () => {
       trainingsRepo.fullLock = orphan();
       courtBlocksRepo.blockedTrainingIds.add(TRAINING_ID);
 
-      await expect(
-        service.assignCourt(ADMIN_ID, TRAINING_ID, { courtId: COURT_2 })
-      ).rejects.toBeInstanceOf(ConflictException);
+      await service.assignCourt(ADMIN_ID, TRAINING_ID, { courtId: COURT_2 });
       expect(courtBlocksRepo.inserted).toHaveLength(0);
+      expect(courtBlocksRepo.updated).toEqual([`${"existing-block"}`]);
+      expect(courtBlocksRepo.updatedAssignments).toEqual([
+        {
+          id: "existing-block",
+          input: {
+            courtId: COURT_2,
+            date: "2026-07-06",
+            startTime: "20:00",
+            endTime: "21:30"
+          }
+        }
+      ]);
+      expect(courtBlocksRepo.calls[courtBlocksRepo.calls.length - 1]).toBe(
+        `updateAssignment:existing-block:${COURT_2}:2026-07-06:20:00:21:30`
+      );
     });
 
     it("409s a cancelled training", async () => {
@@ -2131,6 +2288,13 @@ describe("TrainingsService", () => {
         service.assignCourt(NON_ADMIN_ID, TRAINING_ID, { courtId: COURT_1 })
       ).rejects.toBeInstanceOf(ForbiddenException);
       expect(courtBlocksRepo.inserted).toHaveLength(0);
+    });
+
+    it("creates a block for an individual training with a neutral reason", async () => {
+      trainingsRepo.fullLock = orphan({ groupId: null, clientId: "11111111-1111-1111-1111-111111111111" });
+      await service.assignCourt(ADMIN_ID, TRAINING_ID, { courtId: COURT_1 });
+      expect(courtBlocksRepo.inserted).toHaveLength(1);
+      expect(courtBlocksRepo.inserted[0].reason).toBe("Manual assignment");
     });
   });
 
@@ -2332,6 +2496,7 @@ describe("TrainingsService", () => {
   });
 
   describe("rescheduleTraining (admin time reschedule, part 2)", () => {
+    const COURT_1 = "c0000000-0000-4000-8000-000000000001";
     const CLIENT_ID = "c1111111-1111-4111-8111-111111111111";
     const TRAINER_ID = baseGroup.trainerId;
     const SUBSCRIPTION_ID = "5b000000-0000-4000-8000-000000000001";
@@ -2413,6 +2578,85 @@ describe("TrainingsService", () => {
       expect(bookingsRepo.inserted.every((b) => b.status === "booked")).toBe(true);
     });
 
+    it("/time moves an existing linked court block to the new time and preserves its court", async () => {
+      const targetId = "10000000-0000-4000-8000-000000000101";
+      trainingsRepo.rows = [individual({ id: targetId, date: "2099-07-06" })];
+      courtBlocksRepo.linkedBlocks.set(targetId, {
+        id: "block-101",
+        courtId: COURT_1,
+        date: "2099-07-06",
+        startTime: "18:00",
+        endTime: "19:00",
+        reason: "Manual assignment",
+        groupTrainingId: targetId
+      });
+
+      await service.rescheduleTraining(
+        ADMIN_ID,
+        targetId,
+        { startTime: NEW_START, endTime: NEW_END },
+        { series: false }
+      );
+
+      expect(courtBlocksRepo.updatedAssignments).toEqual([
+        {
+          id: "block-101",
+          input: {
+            courtId: COURT_1,
+            date: "2099-07-06",
+            startTime: NEW_START,
+            endTime: NEW_END
+          }
+        }
+      ]);
+      expect(trainingsRepo.updateTimesIds).toEqual([targetId]);
+      expectCallBefore(courtBlocksRepo.calls, "lock:2099-07-06", `full-lock:${targetId}`);
+      expectCallBefore(courtBlocksRepo.calls, "lock:2099-07-06", "blocks:2099-07-06");
+      expectCallBefore(
+        courtBlocksRepo.calls,
+        "blocks:2099-07-06",
+        `updateAssignment:block-101:${COURT_1}:2099-07-06:${NEW_START}:${NEW_END}`
+      );
+    });
+
+    it("/time rejects when the linked court is occupied at the new slot and leaves the training time unchanged", async () => {
+      const targetId = "10000000-0000-4000-8000-000000000102";
+      trainingsRepo.rows = [individual({ id: targetId, date: "2099-07-06" })];
+      courtBlocksRepo.linkedBlocks.set(targetId, {
+        id: "block-102",
+        courtId: COURT_1,
+        date: "2099-07-06",
+        startTime: "18:00",
+        endTime: "19:00",
+        reason: "Manual assignment",
+        groupTrainingId: targetId
+      });
+      courtBlocksRepo.existingBlocks = [
+        {
+          id: "other-block",
+          courtId: COURT_1,
+          date: "2099-07-06",
+          startTime: NEW_START,
+          durationMinutes: 90
+        }
+      ];
+
+      await expect(
+        service.rescheduleTraining(
+          ADMIN_ID,
+          targetId,
+          { startTime: NEW_START, endTime: NEW_END },
+          { series: false }
+        )
+      ).rejects.toBeInstanceOf(ConflictException);
+
+      const row = trainingsRepo.rows.find((r) => r.id === targetId)!;
+      expect(row.startTime).toBe("18:00");
+      expect(row.endTime).toBe("19:00");
+      expect(trainingsRepo.updateTimesIds).toEqual([]);
+      expect(courtBlocksRepo.updatedAssignments).toEqual([]);
+    });
+
     it("/time-series moves every FUTURE sibling and leaves PAST instances unchanged; bookings intact", async () => {
       const pastId = "10000000-0000-4000-8000-00000000000a";
       const targetId = "10000000-0000-4000-8000-00000000000b";
@@ -2441,6 +2685,8 @@ describe("TrainingsService", () => {
       expect(result.map((t) => t.id)).toEqual([targetId, futureId]);
       expect(result.every((t) => t.startTime === NEW_START && t.endTime === NEW_END)).toBe(true);
       expect(trainingsRepo.updateTimesIds.sort()).toEqual([targetId, futureId].sort());
+      expectCallBefore(courtBlocksRepo.calls, `lock:${addDaysLocal(today, 1)}`, `full-lock:${targetId}`);
+      expectCallBefore(courtBlocksRepo.calls, `lock:${addDaysLocal(today, 8)}`, `full-lock:${targetId}`);
       // The PAST instance is never written and keeps its original window (history rule).
       expect(trainingsRepo.updateTimesIds).not.toContain(pastId);
       const pastRow = trainingsRepo.rows.find((r) => r.id === pastId)!;

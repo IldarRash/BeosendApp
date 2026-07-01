@@ -124,6 +124,7 @@ export function TrainingsCalendar(): JSX.Element {
   const [month, setMonth] = useState(now.getMonth() + 1); // 1-based
   const [filterGroupId, setFilterGroupId] = useState("");
   const [filterTrainerId, setFilterTrainerId] = useState("");
+  const [showTerminal, setShowTerminal] = useState(false);
   const [openId, setOpenId] = useState<string | null>(null);
 
   const groups = useGroups();
@@ -133,7 +134,8 @@ export function TrainingsCalendar(): JSX.Element {
     from: monthStart(year, month),
     to: monthEnd(year, month),
     ...(filterGroupId ? { groupId: filterGroupId } : {}),
-    ...(filterTrainerId ? { trainerId: filterTrainerId } : {})
+    ...(filterTrainerId ? { trainerId: filterTrainerId } : {}),
+    ...(showTerminal ? { includeTerminal: true } : {})
   };
   const calendar = useTrainingsCalendar(query);
 
@@ -220,6 +222,14 @@ export function TrainingsCalendar(): JSX.Element {
             value={filterTrainerId}
             onChange={(e) => setFilterTrainerId(e.target.value)}
           />
+          <label className="cluster">
+            <input
+              type="checkbox"
+              checked={showTerminal}
+              onChange={(event) => setShowTerminal(event.target.checked)}
+            />
+            {t("admin.trainings.showTerminal")}
+          </label>
         </div>
       </div>
 

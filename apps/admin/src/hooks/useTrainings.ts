@@ -26,7 +26,14 @@ const COURT_BLOCKS_KEY = ["court-blocks"] as const;
 
 /** Stable cache key for one trainings range query. */
 function listKey(query: ListTrainingsQuery): readonly unknown[] {
-  return [...TRAININGS_KEY, "list", query.from, query.to, query.groupId ?? null] as const;
+  return [
+    ...TRAININGS_KEY,
+    "list",
+    query.from,
+    query.to,
+    query.groupId ?? null,
+    query.includeTerminal ?? false
+  ] as const;
 }
 
 /**
@@ -197,6 +204,20 @@ export function useRescheduleTraining(): UseMutationResult<
       series: boolean;
     }): Promise<Training | Training[]> =>
       series ? api.rescheduleTrainingSeries(id, input) : api.rescheduleTraining(id, input),
+    onSuccess: () => invalidateTrainings(queryClient)
+  });
+}
+
+/** Change a training court and refresh all training-related surfaces. */
+export function useChangeTrainingCourt(): UseMutationResult<
+  Training,
+  Error,
+  { id: string; courtId: string }
+> {
+  const api = useApiClient();
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: ({ id, courtId }) => api.changeTrainingCourt(id, courtId),
     onSuccess: () => invalidateTrainings(queryClient)
   });
 }

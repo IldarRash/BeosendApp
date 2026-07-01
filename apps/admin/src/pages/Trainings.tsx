@@ -39,6 +39,7 @@ import {
   useGenerateIndividualMonth,
   useGenerateMonth,
   useRescheduleTraining,
+  useChangeTrainingCourt,
   useUpdateIndividualPrice,
   useTrainings
 } from "../hooks/useTrainings";
@@ -46,7 +47,7 @@ import { TrainingsCalendar } from "./TrainingsCalendar";
 
 type TrainingsView = "table" | "calendar";
 type DeleteScope = "single" | "series";
-type PriceScope = "single" | "series";
+type EditScope = "single" | "series";
 
 type Translate = (key: string, params?: Record<string, string | number>) => string;
 
@@ -132,13 +133,16 @@ export function Trainings(): JSX.Element {
   const [from, setFrom] = useState(() => currentMonthRange().from);
   const [to, setTo] = useState(() => currentMonthRange().to);
   const [filterGroupId, setFilterGroupId] = useState("");
+  const [showTerminal, setShowTerminal] = useState(false);
 
   const groups = useGroups();
   const trainers = useTrainers();
   const courts = useCourts();
 
   const query: ListTrainingsQuery | null =
-    from && to ? { from, to, ...(filterGroupId ? { groupId: filterGroupId } : {}) } : null;
+    from && to
+      ? { from, to, ...(filterGroupId ? { groupId: filterGroupId } : {}), ...(showTerminal ? { includeTerminal: true } : {}) }
+      : null;
   const trainings = useTrainings(query);
 
   const groupOptions = useMemo<SelectOption[]>(
@@ -204,11 +208,10 @@ export function Trainings(): JSX.Element {
   const generateIndividual = useGenerateIndividualMonth();
 
   // ── Reschedule a training's time (single or whole individual series) ──────
-  const [rescheduleTarget, setRescheduleTarget] = useState<Training | null>(null);
+  const [editTarget, setEditTarget] = useState<Training | null>(null);
   const reschedule = useRescheduleTraining();
-
-  const [priceTarget, setPriceTarget] = useState<Training | null>(null);
   const updatePrice = useUpdateIndividualPrice();
+  const changeCourt = useChangeTrainingCourt();
 
   // ── Delete ─────────────────────────────────────────────────────────────
   const [deleteTarget, setDeleteTarget] = useState<Training | null>(null);
@@ -217,7 +220,6 @@ export function Trainings(): JSX.Element {
   const deleteSeries = useDeleteTrainingSeries();
 
   // ── Change capacity ────────────────────────────────────────────────────
-  const [capacityTarget, setCapacityTarget] = useState<Training | null>(null);
   const changeCapacity = useChangeCapacity();
 
   // ── Add person (Feature 5 — admin/trainer manual booking) ────────────────
@@ -299,37 +301,18 @@ export function Trainings(): JSX.Element {
             >
               {t("admin.trainings.actionAddPerson")}
             </Button>
-            {individual ? (
-              <Button
-                variant="ghost"
-                onClick={() => {
-                  updatePrice.reset();
-                  setPriceTarget(row);
-                }}
-                disabled={row.status === "cancelled" || row.status === "completed"}
-              >
-                {t("admin.trainings.actionPrice")}
-              </Button>
-            ) : null}
             <Button
               variant="ghost"
               onClick={() => {
                 reschedule.reset();
-                setRescheduleTarget(row);
+                updatePrice.reset();
+                changeCapacity.reset();
+                changeCourt.reset();
+                setEditTarget(row);
               }}
               disabled={row.status === "cancelled" || row.status === "completed"}
             >
-              {t("admin.trainings.actionReschedule")}
-            </Button>
-            <Button
-              variant="ghost"
-              onClick={() => {
-                changeCapacity.reset();
-                setCapacityTarget(row);
-              }}
-              disabled={row.status === "cancelled"}
-            >
-              {t("admin.trainings.actionCapacity")}
+              {t("admin.action.edit")}
             </Button>
             <Button
               variant="danger"
@@ -359,6 +342,18 @@ export function Trainings(): JSX.Element {
     : del.isError
       ? errorText(del.error, t)
       : undefined;
+
+  const editError = reschedule.isError
+    ? errorText(reschedule.error, t)
+    : updatePrice.isError
+      ? errorText(updatePrice.error, t)
+      : changeCapacity.isError
+        ? errorText(changeCapacity.error, t)
+        : changeCourt.isError
+          ? errorText(changeCourt.error, t)
+          : undefined;
+  const editPending =
+    reschedule.isPending || updatePrice.isPending || changeCapacity.isPending || changeCourt.isPending;
 
   return (
     <AppShell>
@@ -423,6 +418,14 @@ export function Trainings(): JSX.Element {
               value={filterGroupId}
               onChange={(e) => setFilterGroupId(e.target.value)}
             />
+            <label className="cluster">
+              <input
+                type="checkbox"
+                checked={showTerminal}
+                onChange={(event) => setShowTerminal(event.target.checked)}
+              />
+              {t("admin.trainings.showTerminal")}
+            </label>
           </form>
 
           {query === null ? (
@@ -519,57 +522,103 @@ export function Trainings(): JSX.Element {
         }}
       />
 
-      <RescheduleModal
-        target={rescheduleTarget}
-        pending={reschedule.isPending}
-        error={reschedule.isError ? errorText(reschedule.error, t) : undefined}
+      <TrainingEditModal
+        target={editTarget}
+        courts={courts.data ?? []}
+        pending={editPending}
+        error={editError}
         onClose={() => {
           reschedule.reset();
-          setRescheduleTarget(null);
-        }}
-        onSubmit={(input, series) => {
-          if (!rescheduleTarget) return;
-          reschedule.mutate(
-            { id: rescheduleTarget.id, input, series },
-            {
-              onSuccess: () => {
-                setRescheduleTarget(null);
-                notify(
-                  series
-                    ? t("admin.trainings.rescheduledSeries")
-                    : t("admin.trainings.rescheduledSingle"),
-                  "success"
-                );
-              }
-            }
-          );
-        }}
-      />
-
-      <IndividualPriceModal
-        target={priceTarget}
-        pending={updatePrice.isPending}
-        error={updatePrice.isError ? errorText(updatePrice.error, t) : undefined}
-        onClose={() => {
           updatePrice.reset();
-          setPriceTarget(null);
+          changeCapacity.reset();
+          changeCourt.reset();
+          setEditTarget(null);
         }}
-        onSubmit={(input, series) => {
-          if (!priceTarget) return;
-          updatePrice.mutate(
-            { id: priceTarget.id, input, series },
-            {
-              onSuccess: () => {
-                setPriceTarget(null);
-                notify(
-                  series
-                    ? t("admin.trainings.priceUpdatedSeries")
-                    : t("admin.trainings.priceUpdatedSingle"),
-                  "success"
-                );
-              }
+        onSubmit={(changes) => {
+          if (!editTarget) return;
+          let pendingOperations = 0;
+          const finishOrClose = () => {
+            pendingOperations -= 1;
+            if (pendingOperations === 0) {
+              setEditTarget(null);
             }
-          );
+          };
+          const runCourtUpdate = () => {
+            if (!changes.courtId) return;
+            changeCourt.mutate(
+              { id: editTarget.id, courtId: changes.courtId },
+              {
+                onSuccess: () => {
+                  notify(t("admin.trainings.courtUpdated"), "success");
+                  finishOrClose();
+                }
+              }
+            );
+          };
+
+          if (changes.time) {
+            pendingOperations += 1;
+            reschedule.mutate(
+              { id: editTarget.id, input: changes.time.input, series: changes.time.series },
+              {
+                onSuccess: () => {
+                  const message = changes.time?.series
+                    ? t("admin.trainings.rescheduledSeries")
+                    : t("admin.trainings.rescheduledSingle");
+                  notify(message, "success");
+                  runCourtUpdate();
+                  finishOrClose();
+                }
+              }
+            );
+          }
+
+          if (changes.price) {
+            pendingOperations += 1;
+            updatePrice.mutate(
+              { id: editTarget.id, input: changes.price.input, series: changes.price.series },
+            {
+                onSuccess: () => {
+                  const message = changes.price?.series
+                    ? t("admin.trainings.priceUpdatedSeries")
+                    : t("admin.trainings.priceUpdatedSingle");
+                  notify(message, "success");
+                  finishOrClose();
+                }
+              }
+            );
+          }
+
+          if (changes.capacity !== undefined) {
+            pendingOperations += 1;
+            const input: ChangeCapacityInput = { capacity: changes.capacity };
+            changeCapacity.mutate(
+              { id: editTarget.id, input },
+              {
+                onSuccess: (updated) => {
+                  notify(
+                    t("admin.trainings.capacityUpdated", {
+                      capacity: updated.capacity,
+                      status: statusLabel(updated.status, t)
+                    }),
+                    "success"
+                  );
+                  finishOrClose();
+                }
+              }
+            );
+          }
+
+          if (changes.courtId) {
+            pendingOperations += 1;
+            if (!changes.time) {
+              runCourtUpdate();
+            }
+          }
+
+          if (pendingOperations === 0) {
+            setEditTarget(null);
+          }
         }}
       />
 
@@ -652,32 +701,6 @@ export function Trainings(): JSX.Element {
         ) : null}
       </Modal>
 
-      <ChangeCapacityModal
-        target={capacityTarget}
-        pending={changeCapacity.isPending}
-        error={changeCapacity.isError ? errorText(changeCapacity.error, t) : undefined}
-        onClose={() => setCapacityTarget(null)}
-        onSubmit={(capacity) => {
-          if (!capacityTarget) return;
-          const input: ChangeCapacityInput = { capacity };
-          changeCapacity.mutate(
-            { id: capacityTarget.id, input },
-            {
-              onSuccess: (updated) => {
-                setCapacityTarget(null);
-                notify(
-                  t("admin.trainings.capacityUpdated", {
-                    capacity: updated.capacity,
-                    status: statusLabel(updated.status, t)
-                  }),
-                  "success"
-                );
-              }
-            }
-          );
-        }}
-      />
-
       <AddPersonModal
         target={addPersonTarget}
         onClose={() => setAddPersonTarget(null)}
@@ -695,7 +718,6 @@ export function Trainings(): JSX.Element {
     </AppShell>
   );
 }
-
 // ── Generate month modal ───────────────────────────────────────────────────
 
 interface GenerateMonthModalProps {
@@ -946,59 +968,131 @@ function GenerateAllResultModal({
 
 // ── Change capacity modal ──────────────────────────────────────────────────
 
-interface IndividualPriceModalProps {
+type TrainingEditChanges = {
+  time?: {
+    input: RescheduleTrainingInput;
+    series: boolean;
+  };
+  price?: {
+    input: UpdateIndividualPriceInput;
+    series: boolean;
+  };
+  capacity?: number;
+  courtId?: string;
+};
+
+interface TrainingEditModalProps {
   target: Training | null;
+  courts: Court[];
   pending: boolean;
   error?: string;
   onClose: () => void;
-  onSubmit: (input: UpdateIndividualPriceInput, series: boolean) => void;
+  onSubmit: (changes: TrainingEditChanges) => void;
 }
-
 /**
- * Change or clear the per-session RSD price for an individual training. The
- * console only collects `{ priceSingleRsd }` and the target scope; the API owns
- * individual-only validation, future-series selection and money validation.
+ * Consolidated edit modal for time/price/capacity/court updates.
+ *
+ * Time and price are only exposed for individual trainings and support the
+ * existing "single/series" scope semantics. Capacity and court are always shown
+ * for mutable rows; only changed fields are submitted.
  */
-function IndividualPriceModal({
+function TrainingEditModal({
   target,
+  courts,
   pending,
   error,
   onClose,
   onSubmit
-}: IndividualPriceModalProps): JSX.Element {
+}: TrainingEditModalProps): JSX.Element {
   const t = useT();
+  const open = target !== null;
   const isIndividual = target !== null && isIndividualTraining(target);
 
-  const [scope, setScope] = useState<PriceScope>("single");
-  const [price, setPrice] = useState<number | null>(target?.priceSingleRsd ?? null);
-
   const [seededFor, setSeededFor] = useState<string | null>(null);
+  const [timeScope, setTimeScope] = useState<EditScope>("single");
+  const [priceScope, setPriceScope] = useState<EditScope>("single");
+  const [startTime, setStartTime] = useState("");
+  const [endTime, setEndTime] = useState("");
+  const [price, setPrice] = useState<number | null>(null);
+  const [capacity, setCapacity] = useState<number | null>(null);
+  const [courtId, setCourtId] = useState("");
+
   if (target && seededFor !== target.id) {
     setSeededFor(target.id);
-    setScope("single");
+    setTimeScope("single");
+    setPriceScope("single");
+    setStartTime(target.startTime);
+    setEndTime(target.endTime);
     setPrice(target.priceSingleRsd);
+    setCapacity(target.capacity);
+    setCourtId("");
   }
 
+  const timeHasChanges =
+    isIndividual &&
+    target !== null &&
+    (startTime !== target.startTime || endTime !== target.endTime);
+  const priceHasChanges = isIndividual && target !== null && price !== target.priceSingleRsd;
+  const capacityHasChanges = target !== null && capacity !== null && capacity !== target.capacity;
+  const courtHasChanges = courtId !== "";
+  const hasChanges = timeHasChanges || priceHasChanges || capacityHasChanges || courtHasChanges;
+  const canSubmit = open && !pending && capacity !== null && hasChanges;
+
+  const courtOptions: SelectOption[] = [
+    { value: "", label: t("admin.trainings.courtNoChange") },
+    ...courts.map((court) => ({
+      value: court.id,
+      label: t("admin.trainings.courtOption", { number: court.number })
+    }))
+  ];
+
+  const scopeOptions: SelectOption[] = [
+    { value: "single", label: t("admin.trainings.rescheduleScopeSingle") },
+    { value: "series", label: t("admin.trainings.rescheduleScopeSeries") }
+  ];
+
   function handleSubmit(): void {
-    if (!target || pending) return;
-    onSubmit({ priceSingleRsd: price }, isIndividual && scope === "series");
+    if (!canSubmit || !target) return;
+
+    const changes: TrainingEditChanges = {};
+
+    if (timeHasChanges) {
+      changes.time = {
+        input: { startTime, endTime },
+        series: timeScope === "series"
+      };
+    }
+
+    if (priceHasChanges) {
+      changes.price = {
+        input: { priceSingleRsd: price },
+        series: priceScope === "series"
+      };
+    }
+
+    if (capacityHasChanges) {
+      changes.capacity = capacity;
+    }
+
+    if (courtHasChanges) {
+      changes.courtId = courtId;
+    }
+
+    onSubmit(changes);
   }
 
   return (
     <Modal
-      open={target !== null}
-      title={t("admin.trainings.priceTitle")}
+      open={open}
+      title={t("admin.action.edit")}
       onClose={onClose}
       footer={
         <>
           <Button variant="ghost" onClick={onClose}>
             {t("admin.action.cancel")}
           </Button>
-          <Button variant="ghost" disabled={pending || price === null} onClick={() => setPrice(null)}>
-            {t("admin.trainings.priceClear")}
-          </Button>
-          <Button disabled={pending || !isIndividual} onClick={handleSubmit}>
-            {pending ? t("admin.action.saving") : t("admin.trainings.priceSubmit")}
+          <Button disabled={!canSubmit} onClick={handleSubmit}>
+            {pending ? t("admin.action.saving") : t("admin.action.save")}
           </Button>
         </>
       }
@@ -1006,92 +1100,71 @@ function IndividualPriceModal({
       {target ? (
         <>
           <p className="state">
-            {t("admin.trainings.pricePrompt", {
+            {t("admin.trainings.reschedulePrompt", {
               date: target.date,
               start: target.startTime,
               end: target.endTime
             })}
           </p>
-          <SelectField
-            label={t("admin.trainings.priceScope")}
-            options={[
-              { value: "single", label: t("admin.trainings.rescheduleScopeSingle") },
-              { value: "series", label: t("admin.trainings.rescheduleScopeSeries") }
-            ]}
-            value={scope}
-            onChange={(e) => setScope(e.target.value as PriceScope)}
-            hint={t("admin.trainings.priceScopeHint")}
-          />
+          {isIndividual ? (
+            <>
+              <SelectField
+                label={t("admin.trainings.rescheduleScope")}
+                options={scopeOptions}
+                value={timeScope}
+                onChange={(e) => setTimeScope(e.target.value as EditScope)}
+                hint={t("admin.trainings.rescheduleScopeHint")}
+              />
+              <TimeField
+                label={t("admin.trainings.individualStart")}
+                value={startTime}
+                onChange={(e) => setStartTime(e.target.value)}
+              />
+              <TimeField
+                label={t("admin.trainings.individualEnd")}
+                value={endTime}
+                onChange={(e) => setEndTime(e.target.value)}
+              />
+            </>
+          ) : null}
+          {isIndividual ? (
+            <>
+              <SelectField
+                label={t("admin.trainings.priceScope")}
+                options={scopeOptions}
+                value={priceScope}
+                onChange={(e) => setPriceScope(e.target.value as EditScope)}
+                hint={t("admin.trainings.priceScopeHint")}
+              />
+              <NumberField
+                label={t("admin.trainings.individualPrice")}
+                value={price}
+                onValueChange={setPrice}
+                min={0}
+                hint={t("admin.trainings.individualPriceHint")}
+              />
+            </>
+          ) : null}
           <NumberField
-            label={t("admin.trainings.individualPrice")}
-            value={price}
-            onValueChange={setPrice}
-            min={0}
-            hint={t("admin.trainings.individualPriceHint")}
-            error={error}
+            label={t("admin.field.capacity")}
+            value={capacity}
+            onValueChange={setCapacity}
+            min={1}
+            max={isIndividual ? 2 : undefined}
+            hint={t("admin.trainings.capacityHint", { booked: target.bookedCount })}
+          />
+          <SelectField
+            label={t("admin.field.court")}
+            options={courtOptions}
+            value={courtId}
+            onChange={(e) => setCourtId(e.target.value)}
           />
         </>
       ) : null}
-    </Modal>
-  );
-}
-
-interface ChangeCapacityModalProps {
-  target: Training | null;
-  pending: boolean;
-  error?: string;
-  onClose: () => void;
-  onSubmit: (capacity: number) => void;
-}
-
-function ChangeCapacityModal({
-  target,
-  pending,
-  error,
-  onClose,
-  onSubmit
-}: ChangeCapacityModalProps): JSX.Element {
-  const t = useT();
-  const [capacity, setCapacity] = useState<number | null>(target?.capacity ?? null);
-
-  // Reset the field to the target's capacity whenever a new row is opened.
-  const [seededFor, setSeededFor] = useState<string | null>(null);
-  if (target && seededFor !== target.id) {
-    setSeededFor(target.id);
-    setCapacity(target.capacity);
-  }
-
-  return (
-    <Modal
-      open={target !== null}
-      title={t("admin.trainings.capacityTitle")}
-      onClose={onClose}
-      footer={
-        <>
-          <Button variant="ghost" onClick={onClose}>
-            {t("admin.action.cancel")}
-          </Button>
-          <Button
-            disabled={capacity === null || pending}
-            onClick={() => {
-              if (capacity === null) return;
-              onSubmit(capacity);
-            }}
-          >
-            {pending ? t("admin.action.saving") : t("admin.action.save")}
-          </Button>
-        </>
-      }
-    >
-      {target ? (
-        <NumberField
-          label={t("admin.field.capacity")}
-          value={capacity}
-          onValueChange={setCapacity}
-          min={1}
-          hint={t("admin.trainings.capacityHint", { booked: target.bookedCount })}
-          error={error}
-        />
+      {error ? (
+        <p className="state state--error" role="alert">
+          {error}
+        </p>
       ) : null}
     </Modal>
   );
@@ -1493,118 +1566,6 @@ function GenerateIndividualModal({
         <p className="state state--error" role="alert">
           {error}
         </p>
-      ) : null}
-    </Modal>
-  );
-}
-
-// ── Reschedule (change time) modal ───────────────────────────────────────────
-
-type RescheduleScope = "single" | "series";
-
-interface RescheduleModalProps {
-  target: Training | null;
-  pending: boolean;
-  error?: string;
-  onClose: () => void;
-  onSubmit: (input: RescheduleTrainingInput, series: boolean) => void;
-}
-
-/**
- * Change a training's time window. For an individual (1-on-1) training the admin
- * may shift "only this" instance or "the whole series" (every future instance of
- * the batch); a group/one-off training only offers the single shift. The scope is
- * gated to individual rows (clientId set / no group) — the server enforces the same
- * rule, the UI just guides. Time-order and slot validation are the server's; the
- * modal only collects the new start/end.
- */
-function RescheduleModal({
-  target,
-  pending,
-  error,
-  onClose,
-  onSubmit
-}: RescheduleModalProps): JSX.Element {
-  const t = useT();
-  // An individual training is group-less with an owning client; only it may move
-  // a whole series.
-  const isIndividual = target !== null && target.groupId === null && target.clientId !== null;
-
-  const [scope, setScope] = useState<RescheduleScope>("single");
-  const [startTime, setStartTime] = useState("");
-  const [endTime, setEndTime] = useState("");
-
-  // Seed the time fields from the opened row, and reset the scope to "single".
-  const [seededFor, setSeededFor] = useState<string | null>(null);
-  if (target && seededFor !== target.id) {
-    setSeededFor(target.id);
-    setScope("single");
-    setStartTime(target.startTime);
-    setEndTime(target.endTime);
-  }
-
-  const scopeOptions: SelectOption[] = [
-    { value: "single", label: t("admin.trainings.rescheduleScopeSingle") },
-    { value: "series", label: t("admin.trainings.rescheduleScopeSeries") }
-  ];
-
-  const canSubmit = !pending && startTime !== "" && endTime !== "";
-
-  function handleSubmit(): void {
-    if (!canSubmit) return;
-    onSubmit({ startTime, endTime }, isIndividual && scope === "series");
-  }
-
-  return (
-    <Modal
-      open={target !== null}
-      title={t("admin.trainings.rescheduleTitle")}
-      onClose={onClose}
-      footer={
-        <>
-          <Button variant="ghost" onClick={onClose}>
-            {t("admin.action.cancel")}
-          </Button>
-          <Button disabled={!canSubmit} onClick={handleSubmit}>
-            {pending ? t("admin.action.saving") : t("admin.trainings.rescheduleSubmit")}
-          </Button>
-        </>
-      }
-    >
-      {target ? (
-        <>
-          <p className="state">
-            {t("admin.trainings.reschedulePrompt", {
-              date: target.date,
-              start: target.startTime,
-              end: target.endTime
-            })}
-          </p>
-          {isIndividual ? (
-            <SelectField
-              label={t("admin.trainings.rescheduleScope")}
-              options={scopeOptions}
-              value={scope}
-              onChange={(e) => setScope(e.target.value as RescheduleScope)}
-              hint={t("admin.trainings.rescheduleScopeHint")}
-            />
-          ) : null}
-          <TimeField
-            label={t("admin.trainings.individualStart")}
-            value={startTime}
-            onChange={(e) => setStartTime(e.target.value)}
-          />
-          <TimeField
-            label={t("admin.trainings.individualEnd")}
-            value={endTime}
-            onChange={(e) => setEndTime(e.target.value)}
-          />
-          {error ? (
-            <p className="state state--error" role="alert">
-              {error}
-            </p>
-          ) : null}
-        </>
       ) : null}
     </Modal>
   );

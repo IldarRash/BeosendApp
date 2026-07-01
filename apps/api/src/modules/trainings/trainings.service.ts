@@ -515,7 +515,12 @@ export class TrainingsService {
     if (query.to < query.from) {
       throw new BadRequestException("`to` must be on or after `from`");
     }
-    return this.trainings.listInRange(query.from, query.to, query.groupId);
+    return this.trainings.listInRange(
+      query.from,
+      query.to,
+      query.groupId,
+      query.includeTerminal ?? false
+    );
   }
 
   /**
@@ -536,7 +541,8 @@ export class TrainingsService {
       query.from,
       query.to,
       query.groupId,
-      query.trainerId
+      query.trainerId,
+      query.includeTerminal ?? false
     );
     return rows.map((row) => trainingCalendarItemSchema.parse(row));
   }
@@ -827,23 +833,9 @@ export class TrainingsService {
   }
 
   /**
-   * Admin: HARD-DELETE a training (manager console). This deliberately overrides the
-   * usual "rows are kept, never deleted" invariant — the training and all its
-   * dependent rows are purged so the session vanishes entirely.
-   *
-   * Ordering matters because of the FK from `notifications.training_id` to
-   * `trainings` (NO cascade): clients must be notified WHILE the training row still
-   * exists, because the cancelled-notification write inserts a notifications row
-   * carrying this trainingId. So we notify first, then purge.
-   *
-   * Two transactions on purpose:
-   *  - tx1 cancels the training the same way a normal cancel does (lock FOR UPDATE,
-   *    flip booked/pending bookings → cancelled, mark cancelled, free the court),
-   *    returning the affected clientIds. An already-cancelled training yields [].
-   *  - then notify those clients (training row still present → notification-log FK ok).
-   *  - tx2 is the committed delete: purge notifications → waitlist → bookings → court
-   *    block → training row, in FK order. If tx2 fails, the training is simply left
-   *    cancelled and the delete is safely retryable.
+   * Admin: soft-cancel one training. The training row is kept so history remains,
+   * while active/pending bookings are cancelled, the training is marked cancelled,
+   * and its auto court block is released.
    */
   async deleteTraining(actorTelegramId: number, id: string): Promise<{ id: string }> {
     this.assertAdmin(actorTelegramId);
@@ -853,7 +845,6 @@ export class TrainingsService {
       throw new NotFoundException(`Training ${id} not found`);
     }
 
-    let trainingDate = ref.date;
     const clientIds = await this.trainings.transaction(async (tx) => {
       await this.courtBlocks.lockDate(ref.date, tx);
       const locked = await this.trainings.findFullForUpdate(tx, id);
@@ -863,29 +854,15 @@ export class TrainingsService {
       if (locked.date !== ref.date) {
         throw new ConflictException("Training changed while deletion was in progress");
       }
-      trainingDate = locked.date;
       if (locked.status === "cancelled") {
         return [];
       }
       return this.cancelOneInTx(tx, id);
     });
 
-    // The training row still exists here, so the notification-log insert's FK to
-    // trainings holds. A Telegram/DB hiccup is logged and swallowed, never aborting
-    // the delete that follows.
+    // The training row still exists here, so notification writes stay FK-safe.
+    // A Telegram/DB hiccup is logged and swallowed; cancellation is already persisted.
     await this.notifyCancelledSafely(id, clientIds);
-
-    await this.trainings.transaction(async (tx) => {
-      await this.courtBlocks.lockDate(trainingDate, tx);
-      await this.trainings.deleteNotificationsForTraining(tx, id);
-      await this.trainings.deleteWaitlistForTraining(tx, id);
-      await this.trainings.deleteBookingsForTraining(tx, id);
-      // Idempotent: tx1 already freed the court for a non-cancelled training; calling
-      // again also covers the already-cancelled branch (and the manual-block case is
-      // untouched — only the auto-block keyed by this trainingId is removed).
-      await this.courtBlocks.deleteByGroupTrainingId(id, tx);
-      await this.trainings.deleteTrainingRow(tx, id);
-    });
 
     return { id };
   }
@@ -983,15 +960,8 @@ export class TrainingsService {
         throw new ConflictException(`Cannot assign a court to a ${locked.status} training`);
       }
       const existingBlock = await this.courtBlocks.findByGroupTrainingId(trainingId, tx);
-      if (existingBlock) {
-        throw new ConflictException("Training already has a court assigned");
-      }
-      if (!locked.groupId) {
-        throw new BadRequestException("Training has no group");
-      }
-
-      const group = await this.groups.findById(locked.groupId);
-      if (!group) {
+      const group = locked.groupId ? await this.groups.findById(locked.groupId) : null;
+      if (group === null && locked.groupId) {
         throw new NotFoundException(`Group ${locked.groupId} not found`);
       }
 
@@ -1003,7 +973,11 @@ export class TrainingsService {
       // before this occupancy read and the following insert.
       const [heldRequests, blocks] = await Promise.all([
         this.courtBlocks.heldOccupancyForDate(locked.date, tx),
-        this.courtBlocks.blocksOccupancyForDate(locked.date, tx)
+        this.courtBlocks.blocksOccupancyForDate(
+          locked.date,
+          tx,
+          existingBlock ? existingBlock.id : undefined
+        )
       ]);
 
       // Reuse the generator's guard: it returns the picked court only if the
@@ -1021,17 +995,30 @@ export class TrainingsService {
         throw new ConflictException("Court is not available for this slot.");
       }
 
-      await this.courtBlocks.insert(
-        {
-          courtId: input.courtId,
-          date: locked.date,
-          startTime: locked.startTime,
-          endTime: locked.endTime,
-          reason: group.name,
-          groupTrainingId: trainingId
-        },
-        tx
-      );
+      if (existingBlock) {
+        await this.courtBlocks.updateAssignment(
+          existingBlock.id,
+          {
+            courtId: input.courtId,
+            date: locked.date,
+            startTime: locked.startTime,
+            endTime: locked.endTime
+          },
+          tx
+        );
+      } else {
+        await this.courtBlocks.insert(
+          {
+            courtId: input.courtId,
+            date: locked.date,
+            startTime: locked.startTime,
+            endTime: locked.endTime,
+            reason: group?.name ?? "Manual assignment",
+            groupTrainingId: trainingId
+          },
+          tx
+        );
+      }
 
       return locked;
     });
@@ -1148,6 +1135,10 @@ export class TrainingsService {
       }
       if (locked.status === "cancelled" || locked.status === "completed") {
         throw new ConflictException(`Cannot change capacity of a ${locked.status} training`);
+      }
+      const isIndividual = locked.groupId === null && locked.clientId !== null;
+      if (isIndividual && input.capacity > 2) {
+        throw new BadRequestException("Individual training capacity cannot exceed 2");
       }
       if (input.capacity < locked.bookedCount) {
         throw new BadRequestException(
@@ -1331,10 +1322,38 @@ export class TrainingsService {
   ): Promise<Training | Training[]> {
     this.assertAdmin(actorTelegramId);
 
+    const targetDate = options.series ? undefined : await this.trainings.findDateById(id);
+    const seriesTarget = options.series ? await this.trainings.findCalendarItemById(id) : undefined;
+    if (!targetDate && !seriesTarget) {
+      throw new NotFoundException(`Training ${id} not found`);
+    }
+    if (seriesTarget) {
+      if (seriesTarget.status === "cancelled" || seriesTarget.status === "completed") {
+        throw new ConflictException(`Cannot reschedule a ${seriesTarget.status} training`);
+      }
+      if (seriesTarget.groupId !== null || seriesTarget.clientId === null) {
+        throw new BadRequestException("Reschedule applies only to individual (1-on-1) trainings");
+      }
+    }
+
     const updated = await this.trainings.transaction(async (tx) => {
+      const seriesTargets = seriesTarget
+        ? await this.resolveFutureSeriesTargets(tx, seriesTarget)
+        : undefined;
+      const seriesTargetDates = seriesTargets
+        ? await this.trainings.listDatesByIds(tx, seriesTargets)
+        : undefined;
+      const datesToLock = seriesTargetDates?.map((row) => row.date) ?? [targetDate!.date];
+      for (const date of sortedUnique(datesToLock)) {
+        await this.courtBlocks.lockDate(date, tx);
+      }
+
       const target = await this.trainings.findFullForUpdate(tx, id);
       if (!target) {
         throw new NotFoundException(`Training ${id} not found`);
+      }
+      if (!datesToLock.includes(target.date)) {
+        throw new ConflictException("Training changed while reschedule was in progress");
       }
       if (target.status === "cancelled" || target.status === "completed") {
         throw new ConflictException(`Cannot reschedule a ${target.status} training`);
@@ -1350,13 +1369,23 @@ export class TrainingsService {
       }
 
       if (!options.series) {
+        await this.moveLinkedCourtBlockForReschedule(tx, target, input.startTime, input.endTime);
         const row = await this.trainings.updateTimes(tx, id, input.startTime, input.endTime);
         return trainingSchema.parse(row);
       }
 
-      const targets = await this.resolveFutureSeriesTargets(tx, target);
       const rows: Training[] = [];
-      for (const seriesId of targets) {
+      for (const seriesId of seriesTargets!) {
+        const locked =
+          seriesId === target.id ? target : await this.trainings.findFullForUpdate(tx, seriesId);
+        if (!locked) {
+          throw new ConflictException("Training changed while reschedule was in progress");
+        }
+        this.assertSameIndividualSeriesTarget(locked, target, "reschedule");
+        if (locked.status === "cancelled" || locked.status === "completed") {
+          continue;
+        }
+        await this.moveLinkedCourtBlockForReschedule(tx, locked, input.startTime, input.endTime);
         rows.push(await this.trainings.updateTimes(tx, seriesId, input.startTime, input.endTime));
       }
       // Order by date for a stable, predictable response (the resolver's ids carry no
@@ -1368,6 +1397,49 @@ export class TrainingsService {
     return updated;
   }
 
+  private async moveLinkedCourtBlockForReschedule(
+    tx: Database,
+    training: Training,
+    startTime: string,
+    endTime: string
+  ): Promise<void> {
+    const existingBlock = await this.courtBlocks.findByGroupTrainingId(training.id, tx);
+    if (!existingBlock) {
+      return;
+    }
+
+    const durationMinutes = minutesOfDay(endTime) - minutesOfDay(startTime);
+    const slots = courtSlotsCovered(startTime, durationMinutes);
+    const activeCourts = await this.courtBlocks.activeCourts(tx);
+    const [heldRequests, blocks] = await Promise.all([
+      this.courtBlocks.heldOccupancyForDate(training.date, tx),
+      this.courtBlocks.blocksOccupancyForDate(training.date, tx, existingBlock.id)
+    ]);
+
+    const picked = this.pickCourtForSlots(
+      slots,
+      activeCourts,
+      activeCourts.length,
+      existingBlock.courtId,
+      heldRequests,
+      blocks
+    );
+    if (picked !== existingBlock.courtId) {
+      throw new ConflictException("Court is not available for this slot.");
+    }
+
+    await this.courtBlocks.updateAssignment(
+      existingBlock.id,
+      {
+        courtId: existingBlock.courtId,
+        date: training.date,
+        startTime,
+        endTime
+      },
+      tx
+    );
+  }
+
   /**
    * The FUTURE non-terminal INDIVIDUAL trainings of the locked target's series,
    * including the target itself. The series is resolved from the owner booking's
@@ -1377,7 +1449,10 @@ export class TrainingsService {
    * idempotency read covers), so PAST and cancelled siblings are excluded. Returns the
    * ids to reschedule; the caller writes each inside its tx.
    */
-  private async resolveFutureSeriesTargets(tx: Database, target: Training): Promise<string[]> {
+  private async resolveFutureSeriesTargets(
+    tx: Database,
+    target: Pick<Training, "id" | "clientId" | "trainerId">
+  ): Promise<string[]> {
     if (target.clientId === null) {
       return [target.id];
     }
