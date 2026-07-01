@@ -65,11 +65,12 @@ export function BookingItemCard({ item, onCancel }: BookingItemCardProps): JSX.E
   const timeRange = formatTimeRange(item.startTime, item.endTime);
   const statusLabel = t(style.labelKey);
 
-  const rowLabel = `${weekday}, ${dayMonth} · ${timeRange}. ${item.trainerName} · ${item.levelName}. ${statusLabel}`;
+  const rowLabel = `${item.trainingContextLabel}. ${weekday}, ${dayMonth} · ${timeRange}. ${item.trainerName} · ${item.levelName}. ${statusLabel}`;
 
   const main = (
     <div className="lrow__main">
-      <div className="lrow__title">
+      <div className="lrow__title">{item.trainingContextLabel}</div>
+      <div className="lrow__sub">
         {weekday}, {dayMonth} · {timeRange}
       </div>
       <div className="lrow__sub">{item.trainerName} · {item.levelName}</div>

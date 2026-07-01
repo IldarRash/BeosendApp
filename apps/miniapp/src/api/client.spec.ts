@@ -290,6 +290,7 @@ describe("MiniappApiClient.listAvailableSlots", () => {
 
 const SCHEDULE_SLOT_OPEN: TrainingScheduleSlot = {
   ...SLOT,
+  trainingContextLabel: "Mix",
   trainingStatus: "open",
   bookable: true
 };
@@ -297,6 +298,7 @@ const SCHEDULE_SLOT_OPEN: TrainingScheduleSlot = {
 const SCHEDULE_SLOT_FULL: TrainingScheduleSlot = {
   ...SLOT,
   trainingId: "99999999-9999-9999-9999-999999999999",
+  trainingContextLabel: "Women",
   freeSeats: 0,
   trainingStatus: "full",
   bookable: false
@@ -324,6 +326,14 @@ describe("MiniappApiClient.listTrainingSchedule", () => {
       "fetch",
       vi.fn().mockResolvedValue(jsonResponse(200, [{ ...SCHEDULE_SLOT_FULL, bookable: "no" }]))
     );
+    const client = new MiniappApiClient(BASE);
+
+    await expect(client.listTrainingSchedule({})).rejects.toThrow();
+  });
+
+  it("rejects a schedule row missing the context label via the contract (unsafe path)", async () => {
+    const { trainingContextLabel: _omit, ...withoutLabel } = SCHEDULE_SLOT_OPEN;
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue(jsonResponse(200, [withoutLabel])));
     const client = new MiniappApiClient(BASE);
 
     await expect(client.listTrainingSchedule({})).rejects.toThrow();
@@ -661,6 +671,7 @@ const MY_BOOKING_ITEM: MyBookingItem = {
   dayOfWeek: 3,
   startTime: "18:00",
   endTime: "19:30",
+  trainingContextLabel: "Individual",
   trainerName: "Иван",
   levelName: "Начинающий",
   bookingStatus: "booked",
@@ -691,6 +702,14 @@ describe("MiniappApiClient.listMyBookings", () => {
       "fetch",
       vi.fn().mockResolvedValue(jsonResponse(200, [{ ...MY_BOOKING_ITEM, canCancel: "yes" }]))
     );
+    const client = new MiniappApiClient(BASE);
+
+    await expect(client.listMyBookings(CLIENT.id, "upcoming")).rejects.toThrow();
+  });
+
+  it("rejects a booking item missing the context label via the contract (unsafe path)", async () => {
+    const { trainingContextLabel: _omit, ...withoutLabel } = MY_BOOKING_ITEM;
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue(jsonResponse(200, [withoutLabel])));
     const client = new MiniappApiClient(BASE);
 
     await expect(client.listMyBookings(CLIENT.id, "upcoming")).rejects.toThrow();

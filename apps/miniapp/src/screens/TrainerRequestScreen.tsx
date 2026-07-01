@@ -1,6 +1,6 @@
-import { useState } from "react";
+import { useMemo, useState } from "react";
 import { Placeholder } from "@telegram-apps/telegram-ui";
-import type { IndividualRequestResult, Trainer } from "@beosand/types";
+import { dateString, type IndividualRequestResult, type Trainer } from "@beosand/types";
 import { useIndividualTrainers, useRequestIndividual } from "../api/hooks";
 import { resolveErrorMessage } from "../api/errors";
 import { useT, type TranslateFn } from "../i18n/LanguageProvider";
@@ -14,8 +14,10 @@ import {
   dayOfWeekFromDate,
   formatDayMonth,
   formatTimeRange,
+  offeredDates,
   todayLocalDate,
-  weekdayFullKey
+  weekdayFullKey,
+  weekdayShortKey
 } from "../ui/format";
 
 /**
@@ -212,9 +214,13 @@ function TrainerConfirm({
 }): JSX.Element {
   const t = useT();
   const typeLabel = trainerTypeLabel(trainer.type, t);
-  const canSubmit = isCompleteSlot(slot) && !submitting;
+  const minDate = todayLocalDate();
+  const quickDates = useMemo(() => offeredDates(), []);
+  const canSubmit = isCompleteSlot(slot, minDate) && !submitting;
   const invalidRange = slot.startTime !== "" && slot.endTime !== "" && slot.endTime <= slot.startTime;
-  const dateLine = slot.date ? formatIndividualDate(slot.date, t) : t("miniapp.individual.pickDate");
+  const dateLine = isSelectableDate(slot.date, minDate)
+    ? formatIndividualDate(slot.date, t)
+    : t("miniapp.individual.pickDate");
   const timeLine =
     slot.startTime && slot.endTime
       ? formatTimeRange(slot.startTime, slot.endTime)
@@ -230,6 +236,27 @@ function TrainerConfirm({
   return (
     <div className="screen" aria-busy={submitting || undefined}>
       <div className="tg-sech">{t("miniapp.individual.confirmTitle")}</div>
+      <div className="datestrip" role="group" aria-label={t("miniapp.booking.dateLabel")}>
+        {quickDates.map((date) => {
+          const dow = dayOfWeekFromDate(date);
+          const weekday = t(weekdayShortKey(dow));
+          const dayMonth = formatDayMonth(date);
+          const selected = slot.date === date;
+          return (
+            <button
+              key={date}
+              type="button"
+              className={selected ? "dchip is-on" : "dchip"}
+              aria-pressed={selected}
+              aria-label={`${t(weekdayFullKey(dow))} ${dayMonth}`}
+              onClick={() => onSlotChange({ ...slot, date })}
+            >
+              <div className="dchip__dow">{weekday}</div>
+              <div className="dchip__day">{dayMonth.slice(0, 2)}</div>
+            </button>
+          );
+        })}
+      </div>
       <div className="card">
         <label className="sumrow">
           <span className="sumrow__k">{t("miniapp.booking.dateLabel")}</span>
@@ -238,7 +265,7 @@ function TrainerConfirm({
               aria-label={t("miniapp.booking.dateLabel")}
               className="tg-input"
               type="date"
-              min={todayLocalDate()}
+              min={minDate}
               value={slot.date}
               onChange={(event) => onSlotChange({ ...slot, date: event.currentTarget.value })}
             />
@@ -409,8 +436,17 @@ interface IndividualSlot {
   endTime: string;
 }
 
-function isCompleteSlot(slot: IndividualSlot): boolean {
-  return slot.date !== "" && slot.startTime !== "" && slot.endTime !== "" && slot.endTime > slot.startTime;
+function isCompleteSlot(slot: IndividualSlot, minDate = todayLocalDate()): boolean {
+  return (
+    isSelectableDate(slot.date, minDate) &&
+    slot.startTime !== "" &&
+    slot.endTime !== "" &&
+    slot.endTime > slot.startTime
+  );
+}
+
+function isSelectableDate(date: string, minDate: string): boolean {
+  return dateString.safeParse(date).success && date >= minDate;
 }
 
 function formatIndividualDate(date: string, t: TranslateFn): string {

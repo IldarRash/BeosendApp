@@ -751,6 +751,9 @@ export class BookingsService {
         (row.bookingStatus === "booked" || row.bookingStatus === "pending") &&
         row.date >= today &&
         (row.trainingStatus === "open" || row.trainingStatus === "full");
+      const trainingContextLabel =
+        row.groupName ??
+        (row.trainingGroupId === null && row.trainingClientId !== null ? "Individual" : "");
       return myBookingItemSchema.parse({
         bookingId: row.bookingId,
         trainingId: row.trainingId,
@@ -759,6 +762,7 @@ export class BookingsService {
         dayOfWeek: isoWeekdayOf(row.date),
         startTime: row.startTime,
         endTime: row.endTime,
+        trainingContextLabel,
         trainerName: row.trainerName,
         levelName: row.levelName,
         bookingStatus: row.bookingStatus,

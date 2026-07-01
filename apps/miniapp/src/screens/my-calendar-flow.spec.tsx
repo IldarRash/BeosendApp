@@ -3,14 +3,15 @@ import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/re
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { AppRoot } from "@telegram-apps/telegram-ui";
 import type { ReactNode } from "react";
-import type {
-  Booking,
-  Client,
-  MiniappMe,
-  MyBookingItem,
-  MyCourtRequestItem,
-  TrainingScheduleSlot,
-  WaitlistEntry
+import {
+  trainingScheduleSlotSchema,
+  type Booking,
+  type Client,
+  type MiniappMe,
+  type MyBookingItem,
+  type MyCourtRequestItem,
+  type TrainingScheduleSlot,
+  type WaitlistEntry
 } from "@beosand/types";
 import { LanguageProvider } from "../i18n/LanguageProvider";
 import { CalendarScreen } from "./CalendarScreen";
@@ -64,6 +65,7 @@ const MY_BOOKING: MyBookingItem = {
   dayOfWeek: 3,
   startTime: "18:00",
   endTime: "19:30",
+  trainingContextLabel: "Individual",
   trainerName: "Иван",
   levelName: "Начинающий",
   bookingStatus: "booked",
@@ -95,6 +97,7 @@ const SLOT_ALREADY_BOOKED: TrainingScheduleSlot = {
   levelName: "Начинающий",
   freeSeats: 3,
   priceSingleRsd: 1500,
+  trainingContextLabel: "Mix",
   trainingStatus: "open",
   bookable: true
 };
@@ -118,6 +121,7 @@ const SLOT_FULL: TrainingScheduleSlot = {
   startTime: "19:00",
   endTime: "20:30",
   freeSeats: 0,
+  trainingContextLabel: "Women",
   trainingStatus: "full",
   bookable: false
 };
@@ -240,6 +244,7 @@ describe("CalendarScreen merged feeds", () => {
       "12:00"
     );
     expect(cell.querySelector(".cal-cell__event--training")).toBeTruthy();
+    expect(cell.querySelector(".cal-cell__event--training")?.textContent).toContain("Individual");
     // The later 20:00 available slot is the overflowed event, so no available label here.
     expect(cell.querySelector(".cal-cell__event--available")).toBeNull();
   });
@@ -260,6 +265,7 @@ describe("CalendarScreen merged feeds", () => {
     const availableRows = await screen.findAllByRole("listitem", { name: /^Доступно/ });
     expect(availableRows).toHaveLength(1);
     expect(availableRows[0].getAttribute("aria-label")).toContain("20:00–21:30");
+    expect(availableRows[0].getAttribute("aria-label")).toContain("Mix");
     // The booked 18:00 training appears as a booking, not as an available row.
     expect(screen.queryByRole("listitem", { name: /^Доступно.*18:00/ })).toBeNull();
     expect(screen.getByRole("listitem", { name: /^Тренировка/ })).toBeTruthy();
@@ -305,6 +311,7 @@ describe("CalendarScreen merged feeds", () => {
     fireEvent.click(await screen.findByRole("gridcell", { name: /^10 число/ }));
     fireEvent.click(await screen.findByRole("listitem", { name: /18:00/ }));
 
+    expect(await screen.findByText("Individual")).toBeTruthy();
     await screen.findByText("Anya");
     expect(screen.getByText("Marko")).toBeTruthy();
     expect(screen.getByText("Lena")).toBeTruthy();
@@ -324,8 +331,10 @@ describe("CalendarScreen merged feeds", () => {
 
     renderWithProviders(<CalendarScreen />);
 
-    fireEvent.click(await screen.findByRole("gridcell", { name: /^Day 11,/ }));
-    const fullRow = await screen.findByRole("listitem", { name: /Waitlist.*19:00/ });
+    const dayCell = await screen.findByRole("gridcell", { name: /^Day 11,/ });
+    await waitFor(() => expect(dayCell.textContent).toContain("Women"));
+    fireEvent.click(dayCell);
+    const fullRow = await screen.findByRole("listitem", { name: /Waitlist.*Women.*19:00/ });
     expect(fullRow.textContent).toContain("Full");
     fireEvent.click(fullRow);
 
@@ -338,5 +347,23 @@ describe("CalendarScreen merged feeds", () => {
       trainingId: FULL_TRAINING_ID
     });
     await screen.findByText("You're on the waitlist · position 3");
+  });
+
+  it("shows an error instead of fabricating labels when schedule validation rejects a missing trainingContextLabel", async () => {
+    const { trainingContextLabel: _omitted, ...slotWithoutLabel } = SLOT_FREE;
+    api = makeApi({
+      getMe: vi.fn().mockReturnValue({ ...ME, language: "en" }),
+      listTrainingSchedule: vi.fn().mockImplementation(async () =>
+        trainingScheduleSlotSchema.array().parse([slotWithoutLabel])
+      )
+    });
+
+    renderWithProviders(<CalendarScreen />);
+
+    const alert = await screen.findByRole("alert");
+    expect(alert.textContent).toContain("trainingContextLabel");
+    expect(screen.queryByText("Mix")).toBeNull();
+    expect(screen.queryByText("Available")).toBeNull();
+    expect(screen.queryByText("Training")).toBeNull();
   });
 });

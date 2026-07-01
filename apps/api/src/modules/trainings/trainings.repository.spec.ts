@@ -1,5 +1,5 @@
 import { PgDialect } from "drizzle-orm/pg-core";
-import type { Database } from "@beosand/db";
+import { tables, type Database } from "@beosand/db";
 import { describe, expect, it } from "vitest";
 import { TrainingsRepository } from "./trainings.repository";
 import type { DatabaseService } from "../../db/database.service";
@@ -78,5 +78,29 @@ describe("TrainingsRepository.hasActiveParticipantAccess", () => {
 
     expect(result).toBe(false);
     expect(rendered).toHaveLength(2);
+  });
+});
+
+describe("TrainingsRepository.listSchedule", () => {
+  it("selects the joined group name as the server-owned context label", async () => {
+    let selection: Record<string, unknown> | undefined;
+    const builder = {
+      from: () => builder,
+      innerJoin: () => builder,
+      where: () => builder,
+      orderBy: async () => [] as unknown[]
+    };
+    const db = {
+      select: (columns: Record<string, unknown>) => {
+        selection = columns;
+        return builder;
+      }
+    } as unknown as Database;
+    const repo = new TrainingsRepository({ db } as unknown as DatabaseService);
+
+    await repo.listSchedule("2026-07-01", "2026-07-31");
+
+    expect(selection).toBeDefined();
+    expect(selection?.trainingContextLabel).toBe(tables.groups.name);
   });
 });

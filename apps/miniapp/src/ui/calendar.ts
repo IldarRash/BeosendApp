@@ -94,9 +94,9 @@ export interface CellPreview<T> {
 /**
  * Project a day's already-projected events to the Google-style cell preview: the first
  * `max` of them plus the overflow count. The SCREEN owns the projection of a raw
- * {@link indexByDate} bucket to the `{ kind, time, label }` shape (time + the short
- * localized kind word) — this helper is deliberately generic and React-free, so it only
- * slices and counts. Empty/short days yield `overflow: 0`. Pure: no React/DOM.
+ * {@link indexByDate} bucket to the `{ kind, time, label }` shape (time + the screen's
+ * already-resolved display label) — this helper is deliberately generic and React-free,
+ * so it only slices and counts. Empty/short days yield `overflow: 0`. Pure: no React/DOM.
  */
 export function cellPreview<T>(items: ReadonlyArray<T>, max = 2): CellPreview<T> {
   return {

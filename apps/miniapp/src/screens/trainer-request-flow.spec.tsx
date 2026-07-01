@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { AppRoot } from "@telegram-apps/telegram-ui";
 import type { Client, IndividualRequestResult, MiniappMe, Trainer } from "@beosand/types";
@@ -62,6 +62,7 @@ const INACTIVE_TRAINER: Trainer = {
 };
 
 const REQUEST_ID = "99999999-9999-9999-9999-999999999999";
+const FIXED_NOW = new Date(2026, 6, 1, 12, 0, 0); // 2026-07-01 local
 
 interface FakeApi {
   getMe: ReturnType<typeof vi.fn>;
@@ -115,18 +116,30 @@ function renderScreen() {
 }
 
 function fillIndividualSlot(): void {
-  fireEvent.change(screen.getByLabelText("Дата"), { target: { value: "2026-07-10" } });
+  fireEvent.change(dateInput(), { target: { value: "2026-07-10" } });
   fireEvent.change(screen.getByLabelText("Начало"), { target: { value: "18:00" } });
   fireEvent.change(screen.getByLabelText("Конец"), { target: { value: "19:00" } });
 }
 
+function fillIndividualTimes(): void {
+  fireEvent.change(screen.getByLabelText("Начало"), { target: { value: "18:00" } });
+  fireEvent.change(screen.getByLabelText("Конец"), { target: { value: "19:00" } });
+}
+
+function dateInput(): HTMLInputElement {
+  return screen.getByLabelText("Дата", { selector: "input" }) as HTMLInputElement;
+}
+
 beforeEach(() => {
+  vi.useFakeTimers({ shouldAdvanceTime: true });
+  vi.setSystemTime(FIXED_NOW);
   api = makeApi();
 });
 
 afterEach(() => {
   cleanup();
   vi.clearAllMocks();
+  vi.useRealTimers();
 });
 
 describe("TrainerRequestScreen", () => {
@@ -167,6 +180,28 @@ describe("TrainerRequestScreen", () => {
     expect(screen.queryByRole("alert")).toBeNull();
   });
 
+  it("offers the next 14 date chips and submits the picked chip date", async () => {
+    renderScreen();
+
+    fireEvent.click(await screen.findByRole("button", { name: /Марко/ }));
+
+    const dateRail = await screen.findByRole("group", { name: "Дата" });
+    const dateChips = within(dateRail).getAllByRole("button");
+    expect(dateChips).toHaveLength(14);
+
+    fireEvent.click(dateChips[2]);
+    fillIndividualTimes();
+    fireEvent.click(screen.getByRole("button", { name: "Запросить тренировку" }));
+
+    await waitFor(() => expect(api.requestIndividualSession).toHaveBeenCalledTimes(1));
+    expect(api.requestIndividualSession.mock.calls[0][0]).toEqual({
+      trainerId: MAIN_TRAINER.id,
+      date: "2026-07-03",
+      startTime: "18:00",
+      endTime: "19:00"
+    });
+  });
+
   it("renders delivered:false (trainer-unavailable) as a CALM soft state, NOT an error", async () => {
     api = makeApi({
       requestIndividualSession: vi
@@ -191,11 +226,24 @@ describe("TrainerRequestScreen", () => {
     renderScreen();
 
     fireEvent.click(await screen.findByRole("button", { name: /Марко/ }));
-    fireEvent.change(await screen.findByLabelText("Дата"), { target: { value: "2026-07-10" } });
+    fireEvent.change(dateInput(), { target: { value: "2026-07-10" } });
     fireEvent.change(screen.getByLabelText("Начало"), { target: { value: "19:00" } });
     fireEvent.change(screen.getByLabelText("Конец"), { target: { value: "18:00" } });
 
     expect(await screen.findByText("Время окончания должно быть позже начала.")).toBeTruthy();
+    expect(
+      (screen.getByRole("button", { name: "Запросить тренировку" }) as HTMLButtonElement).disabled
+    ).toBe(true);
+    expect(api.requestIndividualSession).not.toHaveBeenCalled();
+  });
+
+  it("keeps the request disabled for a past fallback date", async () => {
+    renderScreen();
+
+    fireEvent.click(await screen.findByRole("button", { name: /Марко/ }));
+    fireEvent.change(dateInput(), { target: { value: "2026-06-30" } });
+    fillIndividualTimes();
+
     expect(
       (screen.getByRole("button", { name: "Запросить тренировку" }) as HTMLButtonElement).disabled
     ).toBe(true);

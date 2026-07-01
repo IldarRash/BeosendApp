@@ -1339,6 +1339,9 @@ describe("BookingsService.listMine", () => {
     endTime: "19:30",
     trainerName: "Coach",
     levelName: "Beginners",
+    trainingGroupId: GROUP_ID,
+    groupName: "Mix",
+    trainingClientId: null,
     bookingStatus: "booked",
     trainingStatus: "open",
     ...over
@@ -1349,6 +1352,29 @@ describe("BookingsService.listMine", () => {
     const [item] = await service.listMine(OWNER_ID, CLIENT_ID, "upcoming");
     expect(item.canCancel).toBe(true);
     expect(item.dayOfWeek).toBe(1);
+  });
+
+  it("uses the joined group name as the booking context label", async () => {
+    bookingsRepo.myRows = [
+      row({ trainingGroupId: GROUP_ID, groupName: "Women", trainingClientId: CLIENT_ID })
+    ];
+    const [item] = await service.listMine(OWNER_ID, CLIENT_ID, "upcoming");
+    expect(item.trainingContextLabel).toBe("Women");
+  });
+
+  it("uses Individual for the caller's own individual training", async () => {
+    bookingsRepo.myRows = [
+      row({ trainingGroupId: null, groupName: null, trainingClientId: CLIENT_ID })
+    ];
+    const [item] = await service.listMine(OWNER_ID, CLIENT_ID, "upcoming");
+    expect(item.trainingContextLabel).toBe("Individual");
+  });
+
+  it("does not derive Individual from a missing joined group name when group id is present", async () => {
+    bookingsRepo.myRows = [
+      row({ trainingGroupId: GROUP_ID, groupName: null, trainingClientId: CLIENT_ID })
+    ];
+    await expect(service.listMine(OWNER_ID, CLIENT_ID, "upcoming")).rejects.toThrow();
   });
 
   it("does not allow cancel for a cancelled booking", async () => {

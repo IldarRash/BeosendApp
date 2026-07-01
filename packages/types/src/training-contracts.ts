@@ -12,6 +12,8 @@ import {
 } from "./common";
 import { localeSchema } from "./i18n-contracts";
 
+const trainingContextLabel = z.string().min(1).refine((value) => value.trim().length > 0);
+
 // --- Levels (3.2) ---
 export const levelSchema = z.object({
   id: uuid,
@@ -422,6 +424,7 @@ export type TrainingScheduleQuery = z.infer<typeof trainingScheduleQuerySchema>;
  * `trainingStatus="full"`, `freeSeats=0`, `bookable=false`.
  */
 export const trainingScheduleSlotSchema = slotCardSchema.extend({
+  trainingContextLabel,
   trainingStatus,
   bookable: z.boolean()
 });
@@ -604,6 +607,7 @@ export const myBookingItemSchema = z.object({
   dayOfWeek,
   startTime: timeString,
   endTime: timeString,
+  trainingContextLabel,
   trainerName: z.string(),
   levelName: z.string(),
   bookingStatus,
