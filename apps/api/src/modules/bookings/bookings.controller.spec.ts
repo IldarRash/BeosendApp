@@ -64,6 +64,60 @@ function makeService(overrides: Partial<BookingsService> = {}): BookingsService 
   } as unknown as BookingsService;
 }
 
+describe("BookingsController client-scoped booking writes", () => {
+  let service: BookingsService;
+  let controller: BookingsController;
+
+  beforeEach(() => {
+    service = makeService();
+    controller = new BookingsController(service);
+  });
+
+  it("disables admin fallback for POST /bookings/single with x-client-telegram-id", async () => {
+    await controller.createSingle(
+      undefined,
+      {
+        clientId: CLIENT_ID,
+        trainingId: "44444444-4444-4444-4444-444444444444"
+      },
+      HEADER
+    );
+
+    expect(service.createSingle).toHaveBeenCalledWith(
+      OWNER_ID,
+      {
+        clientId: CLIENT_ID,
+        trainingId: "44444444-4444-4444-4444-444444444444"
+      },
+      { allowAdmin: false }
+    );
+  });
+
+  it("disables admin fallback for POST /bookings/group with x-client-telegram-id", async () => {
+    await controller.createGroup(
+      undefined,
+      {
+        clientId: CLIENT_ID,
+        groupId: "55555555-5555-5555-5555-555555555555",
+        year: 2099,
+        month: 6
+      },
+      HEADER
+    );
+
+    expect(service.createGroupBooking).toHaveBeenCalledWith(
+      OWNER_ID,
+      {
+        clientId: CLIENT_ID,
+        groupId: "55555555-5555-5555-5555-555555555555",
+        year: 2099,
+        month: 6
+      },
+      { allowAdmin: false }
+    );
+  });
+});
+
 describe("BookingsController.listMine (GET /bookings/mine)", () => {
   let service: BookingsService;
   let controller: BookingsController;
@@ -80,12 +134,16 @@ describe("BookingsController.listMine (GET /bookings/mine)", () => {
     await expect(
       controller.listMine(HEADER, { clientId: CLIENT_ID, scope: "upcoming" })
     ).resolves.toEqual([item]);
-    expect(service.listMine).toHaveBeenCalledWith(OWNER_ID, CLIENT_ID, "upcoming");
+    expect(service.listMine).toHaveBeenCalledWith(OWNER_ID, CLIENT_ID, "upcoming", {
+      allowAdmin: true
+    });
   });
 
   it("forwards the past scope unchanged", async () => {
     await controller.listMine(HEADER, { clientId: CLIENT_ID, scope: "past" });
-    expect(service.listMine).toHaveBeenCalledWith(OWNER_ID, CLIENT_ID, "past");
+    expect(service.listMine).toHaveBeenCalledWith(OWNER_ID, CLIENT_ID, "past", {
+      allowAdmin: true
+    });
   });
 
   // A Mini App client session is bridged to x-client-telegram-id only (the
@@ -93,7 +151,16 @@ describe("BookingsController.listMine (GET /bookings/mine)", () => {
   // from the client header — the path the prior escalation finding centered on.
   it("resolves the actor from x-client-telegram-id when x-telegram-id is absent", async () => {
     await controller.listMine(undefined, { clientId: CLIENT_ID, scope: "upcoming" }, HEADER);
-    expect(service.listMine).toHaveBeenCalledWith(OWNER_ID, CLIENT_ID, "upcoming");
+    expect(service.listMine).toHaveBeenCalledWith(OWNER_ID, CLIENT_ID, "upcoming", {
+      allowAdmin: false
+    });
+  });
+
+  it("disables admin fallback when x-client-telegram-id is present even with a raw header", async () => {
+    await controller.listMine("9999", { clientId: CLIENT_ID, scope: "upcoming" }, HEADER);
+    expect(service.listMine).toHaveBeenCalledWith(OWNER_ID, CLIENT_ID, "upcoming", {
+      allowAdmin: false
+    });
   });
 
   // Unsafe/forbidden path: a non-admin caller asking for another client's uuid.
@@ -165,7 +232,18 @@ describe("BookingsController.cancel (POST /bookings/:id/cancel)", () => {
 
   it("forwards the HEADER actor and the path id to the service", async () => {
     await expect(controller.cancel(HEADER, BOOKING_ID)).resolves.toEqual(cancelledBooking);
-    expect(service.cancelBooking).toHaveBeenCalledWith(OWNER_ID, BOOKING_ID);
+    expect(service.cancelBooking).toHaveBeenCalledWith(OWNER_ID, BOOKING_ID, {
+      allowAdmin: true
+    });
+  });
+
+  it("forwards client-scoped cancel with admin fallback disabled", async () => {
+    await expect(controller.cancel(undefined, BOOKING_ID, HEADER)).resolves.toEqual(
+      cancelledBooking
+    );
+    expect(service.cancelBooking).toHaveBeenCalledWith(OWNER_ID, BOOKING_ID, {
+      allowAdmin: false
+    });
   });
 
   it("surfaces a 403 ForbiddenException for a booking the caller does not own", async () => {

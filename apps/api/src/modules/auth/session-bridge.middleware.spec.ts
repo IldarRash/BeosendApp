@@ -36,12 +36,23 @@ describe("SessionBridgeMiddleware", () => {
   });
 
   it("bridges a client-scope Mini App token to x-client-telegram-id ONLY, never x-telegram-id", () => {
-    const token = signSessionToken({ sub: 1234, name: "Bea", scope: "client" }, SESSION_SECRET);
+    const token = signSessionToken(
+      {
+        sub: 1234,
+        name: "Bea",
+        scope: "client",
+        username: "bea",
+        photoUrl: "https://t.me/i/userpic/320/bea.jpg"
+      },
+      SESSION_SECRET
+    );
     const req: Req = { headers: { authorization: `Bearer ${token}` } };
 
     run(req);
 
     expect(req.headers["x-client-telegram-id"]).toBe("1234");
+    expect(req.headers["x-client-telegram-username"]).toBe("bea");
+    expect(req.headers["x-client-telegram-photo-url"]).toBe("https://t.me/i/userpic/320/bea.jpg");
     expect(req.headers["x-telegram-id"]).toBeUndefined();
   });
 
@@ -57,13 +68,39 @@ describe("SessionBridgeMiddleware", () => {
     expect(req.headers["x-client-telegram-id"]).toBe("1234");
   });
 
-  it("strips an inbound x-client-telegram-id when there is no valid client token", () => {
-    const req: Req = { headers: { "x-client-telegram-id": "1234", "x-telegram-id": "7777" } };
+  it("strips inbound client identity headers when there is no valid client token", () => {
+    const req: Req = {
+      headers: {
+        "x-client-telegram-id": "1234",
+        "x-client-telegram-username": "forged",
+        "x-client-telegram-photo-url": "https://attacker.test/photo.jpg",
+        "x-telegram-id": "7777"
+      }
+    };
 
     run(req);
 
     expect(req.headers["x-client-telegram-id"]).toBeUndefined();
+    expect(req.headers["x-client-telegram-username"]).toBeUndefined();
+    expect(req.headers["x-client-telegram-photo-url"]).toBeUndefined();
     expect(req.headers["x-telegram-id"]).toBe("7777");
+  });
+
+  it("strips forged client display headers before applying a client token with omitted optionals", () => {
+    const token = signSessionToken({ sub: 1234, name: "Bea", scope: "client" }, SESSION_SECRET);
+    const req: Req = {
+      headers: {
+        authorization: `Bearer ${token}`,
+        "x-client-telegram-username": "forged",
+        "x-client-telegram-photo-url": "https://attacker.test/photo.jpg"
+      }
+    };
+
+    run(req);
+
+    expect(req.headers["x-client-telegram-id"]).toBe("1234");
+    expect(req.headers["x-client-telegram-username"]).toBeUndefined();
+    expect(req.headers["x-client-telegram-photo-url"]).toBeUndefined();
   });
 
   it("overrides any raw x-telegram-id sent alongside a valid Bearer with the verified sub", () => {

@@ -1,0 +1,1 @@
+ALTER TABLE "clients" ADD COLUMN "telegram_photo_url" text;

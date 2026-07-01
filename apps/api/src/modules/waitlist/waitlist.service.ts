@@ -36,13 +36,18 @@ interface JoinInput {
   trainingId: string;
 }
 
+interface ClientOwnershipOptions {
+  allowAdmin?: boolean;
+}
+
 /**
  * Owns the waitlist domain logic (frictionless waitlist). Invariants live here:
  * - GROUP trainings only: a training with a null groupId never enters any waitlist
  *   flow (join rejects it; promote/sweep ignore it).
  * - Ownership: a client may only join for its own record (resolved from
- *   telegram_id); ADMIN_TELEGRAM_IDS may act on any. The bot-supplied clientId is
- *   never trusted — it must equal the resolved row.
+ *   telegram_id); trusted raw admins may act on any. The client-supplied clientId
+ *   is never trusted — it must equal the resolved row unless the controller
+ *   explicitly allows admin fallback.
  * - Join is only for a FULL slot: a still-bookable training is rejected with a
  *   typed 409 (a client must never sit on a waitlist for a slot they could book).
  * - Positions are contiguous per training (append at max+1) and promotion respects
@@ -70,8 +75,12 @@ export class WaitlistService {
    * 409 if it is still bookable (waitlist is only for full slots) and a duplicate
    * active entry is also a 409. The new entry appends at max(position)+1.
    */
-  async join(actorTelegramId: number, input: JoinInput): Promise<WaitlistEntry> {
-    await this.assertOwnsClient(actorTelegramId, input.clientId);
+  async join(
+    actorTelegramId: number,
+    input: JoinInput,
+    options: ClientOwnershipOptions = {}
+  ): Promise<WaitlistEntry> {
+    await this.assertOwnsClient(actorTelegramId, input.clientId, options);
 
     const entry = await this.waitlist.transaction(async (tx) => {
       const training = await this.waitlist.findTrainingForUpdate(tx, input.trainingId);
@@ -625,12 +634,16 @@ export class WaitlistService {
   }
 
   /**
-   * The caller may only act on its own client record; admins may act on any.
+   * The caller may only act on its own client record; trusted raw admins may act on any.
    * Re-resolve from telegram_id and require equality so a bot-supplied clientId
    * can never target another client.
    */
-  private async assertOwnsClient(actorTelegramId: number, clientId: string): Promise<void> {
-    if (isAdmin(this.env, actorTelegramId)) {
+  private async assertOwnsClient(
+    actorTelegramId: number,
+    clientId: string,
+    options: ClientOwnershipOptions = {}
+  ): Promise<void> {
+    if ((options.allowAdmin ?? true) && isAdmin(this.env, actorTelegramId)) {
       return;
     }
     const client = await this.clients.findByTelegramId(actorTelegramId);

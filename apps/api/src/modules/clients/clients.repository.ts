@@ -57,6 +57,7 @@ export class ClientsRepository {
         name: values.name,
         telegramId: null,
         telegramUsername: null,
+        telegramPhotoUrl: null,
         source: "walk_in",
         phone: values.phone ?? null,
         email: values.email ?? null,
@@ -113,6 +114,27 @@ export class ClientsRepository {
         target: tables.clients.telegramId,
         where: sql`${tables.clients.telegramId} IS NOT NULL`
       })
+      .returning();
+    return row ? toClient(row) : undefined;
+  }
+
+  /**
+   * Sync Mini App display identity from a verified client session. This writes
+   * only Telegram display fields; profile/admin-managed columns stay untouched.
+   * A null value intentionally clears a Telegram-omitted optional field.
+   */
+  async syncTelegramDisplayIdentity(
+    telegramId: number,
+    identity: { telegramUsername: string | null; telegramPhotoUrl: string | null },
+    tx: Database = this.database.db
+  ): Promise<Client | undefined> {
+    const [row] = await tx
+      .update(tables.clients)
+      .set({
+        telegramUsername: identity.telegramUsername,
+        telegramPhotoUrl: identity.telegramPhotoUrl
+      })
+      .where(eq(tables.clients.telegramId, telegramId))
       .returning();
     return row ? toClient(row) : undefined;
   }
@@ -240,6 +262,7 @@ function toClient(row: ClientRow): Client {
     name: row.name,
     telegramId: row.telegramId,
     telegramUsername: row.telegramUsername,
+    telegramPhotoUrl: row.telegramPhotoUrl,
     levelId: row.levelId,
     source: clientSourceOf(row.source),
     phone: row.phone,

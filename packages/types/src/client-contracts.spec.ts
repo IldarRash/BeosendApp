@@ -101,6 +101,17 @@ describe("onboardClientSchema (POST /clients/onboard body)", () => {
       }).success
     ).toBe(false);
   });
+
+  it("rejects a body-supplied telegramPhotoUrl (Mini App photo comes from verified session)", () => {
+    expect(
+      onboardClientSchema.safeParse({
+        telegramId: 42,
+        name: "РђРЅСЏ",
+        consentAccepted: true,
+        telegramPhotoUrl: "https://t.me/i/userpic/320/anya.jpg"
+      }).success
+    ).toBe(false);
+  });
 });
 
 describe("listClientsQuerySchema (GET /clients query)", () => {
@@ -132,6 +143,7 @@ describe("clientSchema (bot-facing client record)", () => {
       name: "Аня",
       telegramId: 42,
       telegramUsername: "anya",
+      telegramPhotoUrl: "https://t.me/i/userpic/320/anya.jpg",
       levelId: UUID,
       source: "telegram" as const,
       phone: null,
@@ -152,6 +164,7 @@ describe("clientSchema (bot-facing client record)", () => {
       name: "Аня",
       telegramId: 42,
       telegramUsername: null,
+      telegramPhotoUrl: null,
       levelId: null,
       source: "telegram" as const,
       phone: null,
@@ -172,6 +185,7 @@ describe("clientSchema (bot-facing client record)", () => {
       name: "Marko",
       telegramId: null,
       telegramUsername: null,
+      telegramPhotoUrl: null,
       levelId: null,
       source: "walk_in" as const,
       phone: "+381601234567",
@@ -193,6 +207,7 @@ describe("clientSchema (bot-facing client record)", () => {
       name: "Аня",
       telegramId: 42,
       telegramUsername: "anya",
+      telegramPhotoUrl: null,
       levelId: UUID,
       source: "telegram" as const,
       phone: null,
@@ -214,6 +229,7 @@ describe("clientSchema (bot-facing client record)", () => {
         name: "Аня",
         telegramId: 42,
         telegramUsername: "anya",
+        telegramPhotoUrl: null,
         levelId: UUID,
         source: "telegram",
         phone: null,
@@ -235,6 +251,7 @@ describe("clientSchema (bot-facing client record)", () => {
         name: "Аня",
         telegramId: 42,
         telegramUsername: null,
+        telegramPhotoUrl: null,
         levelId: null,
         source: "web",
         phone: null,
@@ -254,6 +271,7 @@ describe("clientSchema (bot-facing client record)", () => {
         name: "Аня",
         telegramId: 42,
         telegramUsername: null,
+        telegramPhotoUrl: null,
         levelId: null,
         source: "telegram",
         phone: null,
@@ -273,6 +291,7 @@ describe("clientSchema (bot-facing client record)", () => {
         name: "Аня",
         telegramId: 42,
         telegramUsername: null,
+        telegramPhotoUrl: null,
         levelId: null,
         source: "telegram",
         phone: null,
@@ -316,6 +335,7 @@ describe("updateClientSchema (PATCH /clients/:id body)", () => {
 
   it("rejects identity/unknown fields (strict)", () => {
     expect(updateClientSchema.safeParse({ telegramId: 7 }).success).toBe(false);
+    expect(updateClientSchema.safeParse({ telegramPhotoUrl: "https://t.me/p.jpg" }).success).toBe(false);
     expect(updateClientSchema.safeParse({ language: "ru" }).success).toBe(false);
     expect(updateClientSchema.safeParse({ name: "Marko", page: 2 }).success).toBe(false);
   });

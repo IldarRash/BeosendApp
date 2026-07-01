@@ -39,3 +39,33 @@ describe("ClientsRepository.insertIgnoreConflict", () => {
     expect(rendered).toContain("is not null");
   });
 });
+
+describe("ClientsRepository.syncTelegramDisplayIdentity", () => {
+  it("updates only Telegram display identity columns", async () => {
+    let patch: Record<string, unknown> | undefined;
+    const builder = {
+      set: (values: Record<string, unknown>) => {
+        patch = values;
+        return builder;
+      },
+      where: () => builder,
+      returning: async () => [] as unknown[]
+    };
+    const tx = { update: () => builder } as unknown as Database;
+    const repo = new ClientsRepository({ db: tx } as unknown as DatabaseService);
+
+    await repo.syncTelegramDisplayIdentity(
+      123,
+      {
+        telegramUsername: null,
+        telegramPhotoUrl: "https://t.me/i/userpic/320/ana.jpg"
+      },
+      tx
+    );
+
+    expect(patch).toEqual({
+      telegramUsername: null,
+      telegramPhotoUrl: "https://t.me/i/userpic/320/ana.jpg"
+    });
+  });
+});

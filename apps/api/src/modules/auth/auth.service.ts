@@ -19,6 +19,7 @@ import {
   adminMeSchema,
   adminSessionSchema,
   localeSchema,
+  miniappMeSchema,
   miniappSessionSchema
 } from "@beosand/types";
 import { ENV } from "../../config/config.module";
@@ -93,7 +94,13 @@ export class AuthService {
     // First Mini App contact also links a staff member added by @username.
     await this.staffLinking.linkPendingStaff(user.telegramId, user.username);
     const token = signSessionToken(
-      { sub: user.telegramId, name: user.name, scope: "client", username: user.username },
+      {
+        sub: user.telegramId,
+        name: user.name,
+        scope: "client",
+        username: user.username,
+        photoUrl: user.photoUrl
+      },
       this.env.ADMIN_SESSION_SECRET
     );
 
@@ -229,6 +236,7 @@ export class AuthService {
       first_name?: unknown;
       last_name?: unknown;
       username?: unknown;
+      photo_url?: unknown;
       language_code?: unknown;
     };
     if (typeof user.id !== "number") {
@@ -239,14 +247,21 @@ export class AuthService {
     const last = typeof user.last_name === "string" ? user.last_name : "";
     const name = [first, last].filter((part) => part.length > 0).join(" ").trim();
     const username = typeof user.username === "string" ? user.username : undefined;
+    const photoUrl = typeof user.photo_url === "string" ? user.photo_url : undefined;
     const language = this.toLocale(user.language_code);
 
-    return {
+    const me = {
       telegramId: user.id,
       name: name.length > 0 ? name : first.length > 0 ? first : String(user.id),
       ...(username !== undefined ? { username } : {}),
+      ...(photoUrl !== undefined ? { photoUrl } : {}),
       ...(language !== undefined ? { language } : {})
     };
+    const parsedMe = miniappMeSchema.safeParse(me);
+    if (!parsedMe.success) {
+      throw new UnauthorizedException("Telegram initData user field is malformed");
+    }
+    return parsedMe.data;
   }
 
   /** Narrow a Telegram `language_code` to a supported locale, else undefined. */

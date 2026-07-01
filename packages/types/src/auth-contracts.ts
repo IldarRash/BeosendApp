@@ -72,6 +72,7 @@ export const miniappMeSchema = z
     telegramId: z.number().int(),
     name: z.string(),
     username: z.string().optional(),
+    photoUrl: z.string().url().optional(),
     /** Telegram `language_code`, narrowed to a supported locale when possible. */
     language: localeSchema.optional()
   })

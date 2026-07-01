@@ -39,6 +39,7 @@ const ONBOARDED: Client = {
   name: "Аня",
   telegramId: 42,
   telegramUsername: "anya",
+  telegramPhotoUrl: null,
   levelId: LEVEL.id,
   source: "telegram",
   phone: null,
@@ -201,6 +202,46 @@ describe("OnboardingWizard", () => {
 });
 
 describe("ProfileScreen language switch", () => {
+  it("renders the stored client photo and hides a missing Telegram username", () => {
+    const client: Client = {
+      ...ONBOARDED,
+      telegramUsername: null,
+      telegramPhotoUrl: "https://t.me/i/userpic/320/profile.jpg"
+    };
+
+    renderWithProviders(<ProfileScreen client={client} />);
+
+    const img = screen.getByRole("img", { name: "Аня" });
+    expect(img.getAttribute("src")).toBe("https://t.me/i/userpic/320/profile.jpg");
+    expect(screen.queryByText("@anya")).toBeNull();
+    expect(document.body.textContent).not.toContain("@");
+  });
+
+  it("renders initials when no stored photo exists", () => {
+    const { container } = renderWithProviders(
+      <ProfileScreen client={{ ...ONBOARDED, telegramPhotoUrl: null }} />
+    );
+
+    expect(screen.queryByRole("img")).toBeNull();
+    expect(container.querySelector(".profile-avatar .tg-avatar")?.textContent).toBe("А");
+  });
+
+  it("falls back to initials when the stored photo fails to load", () => {
+    const { container } = renderWithProviders(
+      <ProfileScreen
+        client={{
+          ...ONBOARDED,
+          telegramPhotoUrl: "https://t.me/i/userpic/320/broken.jpg"
+        }}
+      />
+    );
+
+    fireEvent.error(screen.getByRole("img", { name: "Аня" }));
+
+    expect(screen.queryByRole("img")).toBeNull();
+    expect(container.querySelector(".profile-avatar .tg-avatar")?.textContent).toBe("А");
+  });
+
   it("persists the chosen locale via setLanguage and reflects it in the UI", async () => {
     api = makeApi({ setLanguage: vi.fn().mockResolvedValue({ ...ONBOARDED, language: "en" }) });
     renderWithProviders(<ProfileScreen client={ONBOARDED} />);

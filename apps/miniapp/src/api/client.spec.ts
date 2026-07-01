@@ -24,7 +24,13 @@ const BASE = "https://api.test";
 
 const SESSION: MiniappSession = {
   token: "tok-1",
-  user: { telegramId: 42, name: "Аня", username: "anya", language: "ru" }
+  user: {
+    telegramId: 42,
+    name: "Аня",
+    username: "anya",
+    photoUrl: "https://t.me/i/userpic/320/anya.jpg",
+    language: "ru"
+  }
 };
 
 const CLIENT: Client = {
@@ -32,6 +38,7 @@ const CLIENT: Client = {
   name: "Аня",
   telegramId: 42,
   telegramUsername: "anya",
+  telegramPhotoUrl: "https://t.me/i/userpic/320/anya.jpg",
   levelId: null,
   source: "telegram",
   phone: null,
@@ -75,6 +82,33 @@ describe("MiniappApiClient.authenticate", () => {
     expect((init as RequestInit).headers).not.toHaveProperty("authorization");
   });
 
+  it("validates the optional Mini App photoUrl from the session contract", async () => {
+    const sessionWithPhoto: MiniappSession = {
+      ...SESSION,
+      user: { ...SESSION.user, photoUrl: "https://t.me/i/userpic/320/fresh.jpg" }
+    };
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue(jsonResponse(200, sessionWithPhoto)));
+    const client = new MiniappApiClient(BASE);
+
+    await expect(client.authenticate("init-data-raw")).resolves.toEqual(sessionWithPhoto);
+    expect(client.getMe()?.photoUrl).toBe("https://t.me/i/userpic/320/fresh.jpg");
+  });
+
+  it("rejects a malformed session photoUrl via the contract", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockResolvedValue(
+        jsonResponse(200, {
+          ...SESSION,
+          user: { ...SESSION.user, photoUrl: "not-a-url" }
+        })
+      )
+    );
+    const client = new MiniappApiClient(BASE);
+
+    await expect(client.authenticate("init-data-raw")).rejects.toThrow();
+  });
+
   it("rejects a malformed session body via the contract (unsafe path)", async () => {
     // Missing the required `user` field — the API/contract must reject it, not render it.
     vi.stubGlobal("fetch", vi.fn().mockResolvedValue(jsonResponse(200, { token: "tok-1" })));
@@ -108,6 +142,18 @@ describe("MiniappApiClient.getClientByTelegramId", () => {
     vi.stubGlobal(
       "fetch",
       vi.fn().mockResolvedValue(jsonResponse(200, { ...CLIENT, telegramId: "42" }))
+    );
+    const client = new MiniappApiClient(BASE);
+
+    await expect(client.getClientByTelegramId(42)).rejects.toThrow();
+  });
+
+  it("rejects a malformed client photo field (unsafe path)", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockResolvedValue(
+        jsonResponse(200, { ...CLIENT, telegramPhotoUrl: "not-a-url" })
+      )
     );
     const client = new MiniappApiClient(BASE);
 

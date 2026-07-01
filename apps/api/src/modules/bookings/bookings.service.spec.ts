@@ -155,6 +155,7 @@ const ownerClient: Client = {
   name: "Owner",
   telegramId: OWNER_ID,
   telegramUsername: null,
+  telegramPhotoUrl: null,
   levelId: null,
   source: "telegram",
   phone: null,
@@ -173,6 +174,7 @@ const walkInClient: Client = {
   name: "Marko",
   telegramId: null,
   telegramUsername: null,
+  telegramPhotoUrl: null,
   levelId: null,
   source: "walk_in",
   phone: "+381601234567",
@@ -877,6 +879,33 @@ describe("BookingsService.createSingle", () => {
     expect(bookingsRepo.training.bookedCount).toBe(1);
   });
 
+  it("rejects a client-scoped admin booking for another client", async () => {
+    clientsRepo.client = { ...ownerClient, telegramId: ADMIN_ID };
+    bookingsRepo.training = { id: TRAINING_ID, capacity: 6, bookedCount: 0, status: "open" };
+
+    await expect(
+      service.createSingle(
+        ADMIN_ID,
+        { clientId: OTHER_CLIENT_ID, trainingId: TRAINING_ID },
+        { allowAdmin: false }
+      )
+    ).rejects.toBeInstanceOf(ForbiddenException);
+    expect(bookingsRepo.bookings).toHaveLength(0);
+    expect(bookingsRepo.training.bookedCount).toBe(0);
+  });
+
+  it("lets a client-scoped admin book for their own client record", async () => {
+    clientsRepo.client = { ...ownerClient, telegramId: ADMIN_ID };
+    bookingsRepo.training = { id: TRAINING_ID, capacity: 6, bookedCount: 0, status: "open" };
+
+    const booking = expectBooked(
+      await service.createSingle(ADMIN_ID, input, { allowAdmin: false })
+    );
+
+    expect(booking.clientId).toBe(CLIENT_ID);
+    expect(bookingsRepo.training.bookedCount).toBe(1);
+  });
+
   // Oversell invariant: the FOR-UPDATE → recompute loop must let exactly
   // `capacity` distinct clients book, flip the slot to full on the capacity-th,
   // and then reject every further attempt with a 409 — never bookedCount > capacity.
@@ -1219,6 +1248,22 @@ describe("BookingsService.createGroupBooking", () => {
     expect(bookingsRepo.bookings).toHaveLength(0);
   });
 
+  it("rejects a client-scoped admin monthly booking for another client", async () => {
+    clientsRepo.client = { ...ownerClient, telegramId: ADMIN_ID };
+    bookingsRepo.monthTrainings = [
+      monthTraining("a1111111-1111-1111-1111-111111111111", "2099-06-01")
+    ];
+
+    await expect(
+      service.createGroupBooking(
+        ADMIN_ID,
+        { ...input, clientId: OTHER_CLIENT_ID },
+        { allowAdmin: false }
+      )
+    ).rejects.toBeInstanceOf(ForbiddenException);
+    expect(bookingsRepo.bookings).toHaveLength(0);
+  });
+
   it("rolls back the whole month when an insert fails mid-batch (atomicity)", async () => {
     bookingsRepo.monthTrainings = [
       monthTraining("a1111111-1111-1111-1111-111111111111", "2099-06-01"),
@@ -1420,6 +1465,23 @@ describe("BookingsService.listMine", () => {
     const items = await service.listMine(ADMIN_ID, OTHER_CLIENT_ID, "upcoming");
     expect(items).toHaveLength(1);
   });
+
+  it("rejects a client-scoped admin listing another client's bookings", async () => {
+    clientsRepo.client = { ...ownerClient, telegramId: ADMIN_ID };
+    bookingsRepo.myRows = [row()];
+    await expect(
+      service.listMine(ADMIN_ID, OTHER_CLIENT_ID, "upcoming", { allowAdmin: false })
+    ).rejects.toBeInstanceOf(ForbiddenException);
+  });
+
+  it("lets a client-scoped admin list their own bookings", async () => {
+    clientsRepo.client = { ...ownerClient, telegramId: ADMIN_ID };
+    bookingsRepo.myRows = [row()];
+    const items = await service.listMine(ADMIN_ID, CLIENT_ID, "upcoming", {
+      allowAdmin: false
+    });
+    expect(items).toHaveLength(1);
+  });
 });
 
 describe("BookingsService.cancelBooking", () => {
@@ -1538,6 +1600,29 @@ describe("BookingsService.cancelBooking", () => {
     bookingsRepo.training = { id: TRAINING_ID, capacity: 6, bookedCount: 2, status: "open" };
 
     const result = await service.cancelBooking(ADMIN_ID, BOOKING_ID);
+    expect(result.status).toBe("cancelled");
+    expect(bookingsRepo.training.bookedCount).toBe(1);
+  });
+
+  it("rejects a client-scoped admin cancelling another client's booking", async () => {
+    clientsRepo.client = { ...ownerClient, telegramId: ADMIN_ID };
+    bookingsRepo.bookings = [booking({ clientId: OTHER_CLIENT_ID })];
+    bookingsRepo.training = { id: TRAINING_ID, capacity: 6, bookedCount: 2, status: "open" };
+
+    await expect(
+      service.cancelBooking(ADMIN_ID, BOOKING_ID, { allowAdmin: false })
+    ).rejects.toBeInstanceOf(ForbiddenException);
+    expect(bookingsRepo.bookings[0].status).toBe("booked");
+    expect(bookingsRepo.training.bookedCount).toBe(2);
+  });
+
+  it("lets a client-scoped admin cancel their own booking", async () => {
+    clientsRepo.client = { ...ownerClient, telegramId: ADMIN_ID };
+    bookingsRepo.bookings = [booking()];
+    bookingsRepo.training = { id: TRAINING_ID, capacity: 6, bookedCount: 2, status: "open" };
+
+    const result = await service.cancelBooking(ADMIN_ID, BOOKING_ID, { allowAdmin: false });
+
     expect(result.status).toBe("cancelled");
     expect(bookingsRepo.training.bookedCount).toBe(1);
   });

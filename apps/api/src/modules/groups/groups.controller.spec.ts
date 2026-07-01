@@ -166,3 +166,32 @@ describe("GroupsController", () => {
     expect(repo.update).not.toHaveBeenCalled();
   });
 });
+
+describe("GroupsController.members (GET /groups/:id/members)", () => {
+  const groupId = intermediate.id;
+  let service: GroupsService;
+  let controller: GroupsController;
+
+  beforeEach(() => {
+    service = {
+      listMembers: vi.fn()
+    } as unknown as GroupsService;
+    controller = new GroupsController(service);
+  });
+
+  it("forwards raw admin header with admin fallback enabled", async () => {
+    await controller.members(String(ADMIN_ID), groupId, { year: 2099, month: 6 });
+
+    expect(service.listMembers).toHaveBeenCalledWith(ADMIN_ID, groupId, 2099, 6, {
+      allowAdmin: true
+    });
+  });
+
+  it("disables admin roster fallback when x-client-telegram-id is present", async () => {
+    await controller.members(undefined, groupId, { year: 2099, month: 6 }, String(ADMIN_ID));
+
+    expect(service.listMembers).toHaveBeenCalledWith(ADMIN_ID, groupId, 2099, 6, {
+      allowAdmin: false
+    });
+  });
+});

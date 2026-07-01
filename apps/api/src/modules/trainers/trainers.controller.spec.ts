@@ -111,6 +111,7 @@ const client: Client = {
   name: "Ivan",
   telegramId: 777,
   telegramUsername: "ivan",
+  telegramPhotoUrl: null,
   levelId: null,
   source: "telegram",
   phone: null,
