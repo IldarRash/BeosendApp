@@ -386,7 +386,12 @@ export const listTrainingsQuerySchema = z.object({
   trainerId: uuid.optional(),
   includeTerminal: queryBooleanSchema.optional().default(false)
 });
-export type ListTrainingsQuery = z.infer<typeof listTrainingsQuerySchema>;
+export type ListTrainingsQuery = Omit<
+  z.infer<typeof listTrainingsQuerySchema>,
+  "includeTerminal"
+> & {
+  includeTerminal?: boolean;
+};
 
 /** Slot card shown to a client (section 5). */
 export const slotCardSchema = z.object({
