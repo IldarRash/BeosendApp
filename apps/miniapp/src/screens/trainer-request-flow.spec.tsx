@@ -61,6 +61,8 @@ const INACTIVE_TRAINER: Trainer = {
   individualVisible: true
 };
 
+const REQUEST_ID = "99999999-9999-9999-9999-999999999999";
+
 interface FakeApi {
   getMe: ReturnType<typeof vi.fn>;
   getClientByTelegramId: ReturnType<typeof vi.fn>;
@@ -79,7 +81,7 @@ function makeApi(overrides: Partial<FakeApi> = {}): FakeApi {
     listIndividualTrainers: vi.fn().mockResolvedValue([MAIN_TRAINER, INACTIVE_TRAINER]),
     requestIndividualSession: vi
       .fn()
-      .mockResolvedValue({ delivered: true } satisfies IndividualRequestResult),
+      .mockResolvedValue({ id: REQUEST_ID, delivered: true } satisfies IndividualRequestResult),
     ...overrides
   };
 }
@@ -112,6 +114,12 @@ function renderScreen() {
   );
 }
 
+function fillIndividualSlot(): void {
+  fireEvent.change(screen.getByLabelText("Дата"), { target: { value: "2026-07-10" } });
+  fireEvent.change(screen.getByLabelText("Начало"), { target: { value: "18:00" } });
+  fireEvent.change(screen.getByLabelText("Конец"), { target: { value: "19:00" } });
+}
+
 beforeEach(() => {
   api = makeApi();
 });
@@ -139,12 +147,19 @@ describe("TrainerRequestScreen", () => {
 
     fireEvent.click(await screen.findByRole("button", { name: /Марко/ }));
 
-    // Confirm sub-state shows the trainer's name; request via the (fallback) button.
+    // Confirm sub-state shows the trainer's name and the proposed date/time summary.
     expect(await screen.findByText("Индивидуальная тренировка")).toBeTruthy();
+    fillIndividualSlot();
+    expect(screen.getByText("18:00–19:00")).toBeTruthy();
     fireEvent.click(screen.getByRole("button", { name: "Запросить тренировку" }));
 
     await waitFor(() => expect(api.requestIndividualSession).toHaveBeenCalledTimes(1));
-    expect(api.requestIndividualSession.mock.calls[0][0]).toBe(MAIN_TRAINER.id);
+    expect(api.requestIndividualSession.mock.calls[0][0]).toEqual({
+      trainerId: MAIN_TRAINER.id,
+      date: "2026-07-10",
+      startTime: "18:00",
+      endTime: "19:00"
+    });
 
     // delivered:true → a calm success announced as status, never an alert.
     const success = await screen.findByText("Запрос отправлен");
@@ -156,11 +171,12 @@ describe("TrainerRequestScreen", () => {
     api = makeApi({
       requestIndividualSession: vi
         .fn()
-        .mockResolvedValue({ delivered: false, reason: "trainer-unavailable" })
+        .mockResolvedValue({ id: REQUEST_ID, delivered: false, reason: "trainer-unavailable" })
     });
     renderScreen();
 
     fireEvent.click(await screen.findByRole("button", { name: /Марко/ }));
+    fillIndividualSlot();
     fireEvent.click(await screen.findByRole("button", { name: "Запросить тренировку" }));
 
     // The soft state is informational (role=status), never a red alert.
@@ -169,6 +185,21 @@ describe("TrainerRequestScreen", () => {
     expect(screen.queryByRole("alert")).toBeNull();
     // It offers a way to pick another trainer rather than treating it as a failure.
     expect(screen.getByRole("button", { name: "Выбрать другого" })).toBeTruthy();
+  });
+
+  it("keeps the request disabled for an invalid time range and shows a validation note", async () => {
+    renderScreen();
+
+    fireEvent.click(await screen.findByRole("button", { name: /Марко/ }));
+    fireEvent.change(await screen.findByLabelText("Дата"), { target: { value: "2026-07-10" } });
+    fireEvent.change(screen.getByLabelText("Начало"), { target: { value: "19:00" } });
+    fireEvent.change(screen.getByLabelText("Конец"), { target: { value: "18:00" } });
+
+    expect(await screen.findByText("Время окончания должно быть позже начала.")).toBeTruthy();
+    expect(
+      (screen.getByRole("button", { name: "Запросить тренировку" }) as HTMLButtonElement).disabled
+    ).toBe(true);
+    expect(api.requestIndividualSession).not.toHaveBeenCalled();
   });
 
   it("shows the empty state when there are no active trainers", async () => {

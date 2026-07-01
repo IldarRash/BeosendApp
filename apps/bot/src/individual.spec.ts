@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
-import type { IndividualRequestResult, Trainer } from "@beosand/types";
+import type { Trainer } from "@beosand/types";
 import { getStaticCatalog } from "@beosand/i18n";
 import { NAV_ACTIONS } from "./menu";
 import {
@@ -7,15 +7,19 @@ import {
   buildPickData,
   handleIndividualEntry,
   handleIndividualPick,
+  handleIndividualSlotText,
+  parseIndividualSlotText,
   parseIndividualPick,
   trainerPickKeyboard,
+  type IndividualTextCtx,
   type IndividualApi
 } from "./individual";
-import type { MenuReplyCtx } from "./navigation";
+import type { RequestIndividualSessionResult } from "./api-client";
 
 const ru = getStaticCatalog("ru");
 
 const trainerId = "33333333-3333-3333-3333-333333333333";
+const requestId = "66666666-6666-6666-6666-666666666666";
 
 const trainers: Trainer[] = [
   {
@@ -61,9 +65,12 @@ function callbacksOf(keyboard: { inline_keyboard: unknown[][] }): (string | unde
     );
 }
 
-function fakeCtx(): { ctx: MenuReplyCtx; reply: ReturnType<typeof vi.fn> } {
+function fakeCtx(text?: string): { ctx: IndividualTextCtx; reply: ReturnType<typeof vi.fn> } {
   const reply = vi.fn().mockResolvedValue(undefined);
-  return { ctx: { reply, from: { id: 999 } }, reply };
+  return {
+    ctx: { reply, from: { id: 999 }, session: {}, message: text ? { text } : undefined },
+    reply
+  };
 }
 
 describe("parseIndividualPick", () => {
@@ -130,33 +137,93 @@ describe("handleIndividualEntry", () => {
 });
 
 describe("handleIndividualPick", () => {
-  function api(result: IndividualRequestResult): IndividualApi {
+  it("stores the trainer id and prompts for date/time instead of calling the API immediately", async () => {
+    const { ctx, reply } = fakeCtx();
+    await handleIndividualPick(ctx, ru, 999, trainerId);
+    expect(ctx.session.individualRequest).toEqual({ trainerId });
+    expect(reply.mock.calls[0][0]).toBe(ru["bot.individual.pickSlot"]);
+  });
+
+  it("falls back to the main menu when the caller has no telegram id", async () => {
+    const { ctx, reply } = fakeCtx();
+    await handleIndividualPick(ctx, ru, undefined, trainerId);
+    expect(ctx.session.individualRequest).toBeUndefined();
+    expect(reply).toHaveBeenCalledOnce();
+  });
+});
+
+describe("parseIndividualSlotText", () => {
+  it("parses and validates the required individual request body", () => {
+    expect(parseIndividualSlotText("2026-07-15 18:00-19:00", 999)).toEqual({
+      telegramId: 999,
+      date: "2026-07-15",
+      startTime: "18:00",
+      endTime: "19:00"
+    });
+  });
+
+  it("rejects invalid format and end-before-start values", () => {
+    expect(parseIndividualSlotText("15.07.2026 18-19", 999)).toBeUndefined();
+    expect(parseIndividualSlotText("2026-07-15 19:00-18:00", 999)).toBeUndefined();
+  });
+});
+
+describe("handleIndividualSlotText", () => {
+  function api(result: RequestIndividualSessionResult): IndividualApi {
     return {
       listIndividualTrainers: vi.fn(),
       requestIndividualSession: vi.fn().mockResolvedValue(result)
     };
   }
 
-  it("confirms when the API reports delivery", async () => {
-    const { ctx, reply } = fakeCtx();
-    const client = api({ delivered: true });
-    await handleIndividualPick(ctx, client, ru, 999, trainerId);
-    expect(client.requestIndividualSession).toHaveBeenCalledWith(trainerId, 999);
+  it("sends the selected date/time when the API reports delivery", async () => {
+    const { ctx, reply } = fakeCtx("2026-07-15 18:00-19:00");
+    ctx.session.individualRequest = { trainerId };
+    const client = api({ id: requestId, delivered: true });
+    await expect(handleIndividualSlotText(ctx, client, ru, 999)).resolves.toBe(true);
+    expect(client.requestIndividualSession).toHaveBeenCalledWith(trainerId, {
+      telegramId: 999,
+      date: "2026-07-15",
+      startTime: "18:00",
+      endTime: "19:00"
+    });
+    expect(ctx.session.individualRequest).toBeUndefined();
     expect(reply.mock.calls[0][0]).toBe(ru["bot.individual.requested"]);
   });
 
   it("shows the soft unavailable message when the trainer can't be reached", async () => {
-    const { ctx, reply } = fakeCtx();
+    const { ctx, reply } = fakeCtx("2026-07-15 18:00-19:00");
+    ctx.session.individualRequest = { trainerId };
     const client = api({ delivered: false, reason: "trainer-unavailable" });
-    await handleIndividualPick(ctx, client, ru, 999, trainerId);
+    await handleIndividualSlotText(ctx, client, ru, 999);
     expect(reply.mock.calls[0][0]).toBe(ru["bot.individual.trainerUnavailable"]);
   });
 
-  it("falls back to the main menu when the caller has no telegram id", async () => {
-    const { ctx, reply } = fakeCtx();
-    const client = api({ delivered: true });
-    await handleIndividualPick(ctx, client, ru, undefined, trainerId);
+  it("prompts for the expected format and keeps the pending trainer on invalid text", async () => {
+    const { ctx, reply } = fakeCtx("tomorrow evening");
+    ctx.session.individualRequest = { trainerId };
+    const client = api({ id: requestId, delivered: true });
+    await expect(handleIndividualSlotText(ctx, client, ru, 999)).resolves.toBe(true);
     expect(client.requestIndividualSession).not.toHaveBeenCalled();
+    expect(ctx.session.individualRequest).toEqual({ trainerId });
+    expect(reply.mock.calls[0][0]).toBe(ru["bot.individual.invalidSlot"]);
+  });
+
+  it("returns false when no individual request is pending", async () => {
+    const { ctx, reply } = fakeCtx("2026-07-15 18:00-19:00");
+    const client = api({ id: requestId, delivered: true });
+    await expect(handleIndividualSlotText(ctx, client, ru, 999)).resolves.toBe(false);
+    expect(client.requestIndividualSession).not.toHaveBeenCalled();
+    expect(reply).not.toHaveBeenCalled();
+  });
+
+  it("falls back to the main menu when the caller has no telegram id", async () => {
+    const { ctx, reply } = fakeCtx("2026-07-15 18:00-19:00");
+    ctx.session.individualRequest = { trainerId };
+    const client = api({ id: requestId, delivered: true });
+    await handleIndividualSlotText(ctx, client, ru, undefined);
+    expect(client.requestIndividualSession).not.toHaveBeenCalled();
+    expect(ctx.session.individualRequest).toBeUndefined();
     expect(reply).toHaveBeenCalledOnce();
   });
 });

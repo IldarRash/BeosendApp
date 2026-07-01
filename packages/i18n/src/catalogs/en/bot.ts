@@ -42,6 +42,10 @@ export const botEn: Record<string, string> = {
   "bot.individual.trainerUnavailable":
     "This coach is not available on Telegram yet. Choose another or contact the manager.",
   "bot.individual.pickButton": "🧑‍🏫 {name}",
+  "bot.individual.pickSlot":
+    "Send the date and time in one message: YYYY-MM-DD HH:MM-HH:MM\nExample: 2026-07-15 18:00-19:00",
+  "bot.individual.invalidSlot":
+    "I could not read the date and time. Send it as YYYY-MM-DD HH:MM-HH:MM, for example 2026-07-15 18:00-19:00.",
 
   // --- Shared navigation (menu.ts) ---
   "bot.nav.back": "⬅️ Back",

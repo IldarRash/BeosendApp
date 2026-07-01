@@ -113,8 +113,8 @@ describe("BookingsRepository.findGroupTrainingsForMonthForUpdate WHERE filter", 
   });
 });
 
-describe("BookingsRepository.findClientBookableTrainingForUpdate WHERE filter", () => {
-  it("keeps the public single-booking predicate aligned with bookable catalogue rows", async () => {
+describe("BookingsRepository.findClientVisibleTrainingForUpdate WHERE filter", () => {
+  it("keeps the public single-booking predicate aligned with visible catalogue rows", async () => {
     let where: unknown;
     const builder = {
       from: () => builder,
@@ -129,7 +129,7 @@ describe("BookingsRepository.findClientBookableTrainingForUpdate WHERE filter", 
     const tx = { select: () => builder } as unknown as Database;
     const repo = new BookingsRepository({ db: tx } as unknown as DatabaseService);
 
-    await repo.findClientBookableTrainingForUpdate(
+    await repo.findClientVisibleTrainingForUpdate(
       tx,
       "33333333-3333-4333-8333-333333333333",
       "2026-06-25"
@@ -140,18 +140,17 @@ describe("BookingsRepository.findClientBookableTrainingForUpdate WHERE filter", 
     const sql = rendered.sql.toLowerCase();
     expect(sql).toContain('"id" =');
     expect(sql).toContain('"date" >=');
-    expect(sql).toContain('"status" =');
-    expect(sql).toContain('"trainings"."booked_count" < "trainings"."capacity"');
     expect(sql).toContain('"group_id" is not null');
     expect(sql).toContain('"hidden" =');
+    expect(sql).not.toContain('"trainings"."booked_count" < "trainings"."capacity"');
     expect(rendered.params).toEqual(
       expect.arrayContaining([
         "33333333-3333-4333-8333-333333333333",
         "2026-06-25",
-        "open",
         false
       ])
     );
+    expect(rendered.params).not.toContain("open");
     expect(rendered.params.filter((param) => param === "active")).toHaveLength(3);
   });
 });

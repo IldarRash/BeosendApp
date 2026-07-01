@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import type { Client, Locale, Trainer } from "@beosand/types";
+import type { Client, IndividualTrainingRequest, Locale, Trainer } from "@beosand/types";
 import { Logger } from "@nestjs/common";
 import type { NotificationRecipient } from "./notifications.repository";
 import { NotificationsService } from "./notifications.service";
@@ -45,7 +45,11 @@ interface TemplatesMock {
 }
 
 type TrainerIndividualNotifier = NotificationsService & {
-  notifyTrainerOfIndividualRequest(trainer: Trainer, client: Client): Promise<boolean>;
+  notifyTrainerOfIndividualRequest(
+    trainer: Trainer,
+    client: Client,
+    request: IndividualTrainingRequest
+  ): Promise<boolean>;
 };
 
 function makeRepo(): RepoMock {
@@ -66,6 +70,20 @@ const baseEnv = {
   ADMIN_TELEGRAM_IDS: [] as string[],
   ADMIN_URL: undefined as string | undefined,
   TELEGRAM_BOT_TOKEN
+};
+
+const individualRequest: IndividualTrainingRequest = {
+  id: "99999999-9999-4999-8999-999999999999",
+  clientId: "client-1",
+  trainerId: "trainer-1",
+  date: "2099-07-01",
+  startTime: "10:00",
+  endTime: "11:00",
+  status: "pending",
+  trainingId: null,
+  createdAt: "2099-06-30T10:00:00.000Z",
+  decidedAt: null,
+  decidedBy: null
 };
 
 describe("NotificationsService", () => {
@@ -388,7 +406,12 @@ describe("NotificationsService", () => {
     };
 
     it("DMs every admin (never the client) and writes no send-log row", async () => {
-      const ok = await service.notifyAdminsOfIndividualRequest([111, 222], trainer, client);
+      const ok = await service.notifyAdminsOfIndividualRequest(
+        [111, 222],
+        trainer,
+        client,
+        individualRequest
+      );
 
       expect(ok).toBe(true);
       expect(sender.sendMessage).toHaveBeenCalledTimes(2);
@@ -400,23 +423,23 @@ describe("NotificationsService", () => {
     });
 
     it("composes a clickable client link and names the requested trainer", async () => {
-      await service.notifyAdminsOfIndividualRequest([111], trainer, client);
+      await service.notifyAdminsOfIndividualRequest([111], trainer, client, individualRequest);
       const text = sender.sendMessage.mock.calls[0][1] as string;
       expect(text).toContain("https://t.me/ivan");
       expect(text).toContain("Jovana");
     });
 
     it("returns false and DMs no one when there are no admins", async () => {
-      await expect(service.notifyAdminsOfIndividualRequest([], trainer, client)).resolves.toBe(
-        false
-      );
+      await expect(
+        service.notifyAdminsOfIndividualRequest([], trainer, client, individualRequest)
+      ).resolves.toBe(false);
       expect(sender.sendMessage).not.toHaveBeenCalled();
     });
 
     it("tolerates a per-admin failure and still reports delivered for the rest", async () => {
       sender.sendMessage.mockRejectedValueOnce(new Error("blocked"));
       await expect(
-        service.notifyAdminsOfIndividualRequest([111, 222], trainer, client)
+        service.notifyAdminsOfIndividualRequest([111, 222], trainer, client, individualRequest)
       ).resolves.toBe(true);
       expect(sender.sendMessage).toHaveBeenCalledTimes(2);
     });
@@ -434,7 +457,7 @@ describe("NotificationsService", () => {
       let ok = true;
       let warnText = "";
       try {
-        ok = await service.notifyAdminsOfIndividualRequest([111], trainer, client);
+        ok = await service.notifyAdminsOfIndividualRequest([111], trainer, client, individualRequest);
         warnText = warnSpy.mock.calls.map((call) => call.join(" ")).join("\n");
       } finally {
         warnSpy.mockRestore();
@@ -488,7 +511,8 @@ describe("NotificationsService", () => {
     it("DMs the trainer telegram id, not the client or admin, with a clickable client link and no send-log row", async () => {
       const ok = await (service as TrainerIndividualNotifier).notifyTrainerOfIndividualRequest(
         trainer,
-        client
+        client,
+        individualRequest
       );
 
       expect(ok).toBe(true);
@@ -504,7 +528,8 @@ describe("NotificationsService", () => {
       await expect(
         (service as TrainerIndividualNotifier).notifyTrainerOfIndividualRequest(
           { ...trainer, telegramId: null, telegramUsername: "jovana_beosand" },
-          client
+          client,
+          individualRequest
         )
       ).resolves.toBe(false);
 
@@ -527,7 +552,8 @@ describe("NotificationsService", () => {
       try {
         ok = await (service as TrainerIndividualNotifier).notifyTrainerOfIndividualRequest(
           trainer,
-          client
+          client,
+          individualRequest
         );
         warnText = warnSpy.mock.calls.map((call) => call.join(" ")).join("\n");
       } finally {
@@ -578,7 +604,8 @@ describe("NotificationsService", () => {
       try {
         ok = await (serviceWithoutToken as TrainerIndividualNotifier).notifyTrainerOfIndividualRequest(
           trainer,
-          client
+          client,
+          individualRequest
         );
         warnText = warnSpy.mock.calls.map((call) => call.join(" ")).join("\n");
       } finally {

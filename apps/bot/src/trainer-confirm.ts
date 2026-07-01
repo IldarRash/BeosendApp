@@ -16,32 +16,42 @@ import { t, type Catalog } from "./i18n";
  * - `decline:bk:<bookingId>`   — decline one pending single booking.
  * - `confirm:sub:<id>`         — confirm a monthly subscription batch.
  * - `decline:sub:<id>`         — decline a monthly subscription batch.
+ * - `confirm:ind:<requestId>`  — confirm one pending individual request.
+ * - `decline:ind:<requestId>`  — decline one pending individual request.
  */
 export const TRAINER_CONFIRM_ACTIONS = {
   confirmBookingPrefix: "confirm:bk:",
   declineBookingPrefix: "decline:bk:",
   confirmSubscriptionPrefix: "confirm:sub:",
-  declineSubscriptionPrefix: "decline:sub:"
+  declineSubscriptionPrefix: "decline:sub:",
+  confirmIndividualPrefix: "confirm:ind:",
+  declineIndividualPrefix: "decline:ind:"
 } as const;
 
 /** A parsed trainer decision: which kind of target, the action, and its id. */
 export interface TrainerDecision {
-  target: "booking" | "subscription";
+  target: "booking" | "subscription" | "individual";
   action: "confirm" | "decline";
   id: string;
 }
 
 /**
  * Resolve a callback to a trainer decision, or undefined if it isn't one of the
- * four confirm/decline actions. The id is the suffix after the prefix (a uuid,
+ * known confirm/decline actions. The id is the suffix after the prefix (a uuid,
  * which contains no colon, so it round-trips cleanly).
  */
 export function parseTrainerDecision(data: string | undefined): TrainerDecision | undefined {
   if (data === undefined) {
     return undefined;
   }
-  const { confirmBookingPrefix, declineBookingPrefix, confirmSubscriptionPrefix, declineSubscriptionPrefix } =
-    TRAINER_CONFIRM_ACTIONS;
+  const {
+    confirmBookingPrefix,
+    declineBookingPrefix,
+    confirmSubscriptionPrefix,
+    declineSubscriptionPrefix,
+    confirmIndividualPrefix,
+    declineIndividualPrefix
+  } = TRAINER_CONFIRM_ACTIONS;
   if (data.startsWith(confirmBookingPrefix)) {
     return { target: "booking", action: "confirm", id: data.slice(confirmBookingPrefix.length) };
   }
@@ -62,13 +72,32 @@ export function parseTrainerDecision(data: string | undefined): TrainerDecision 
       id: data.slice(declineSubscriptionPrefix.length)
     };
   }
+  if (data.startsWith(confirmIndividualPrefix)) {
+    return {
+      target: "individual",
+      action: "confirm",
+      id: data.slice(confirmIndividualPrefix.length)
+    };
+  }
+  if (data.startsWith(declineIndividualPrefix)) {
+    return {
+      target: "individual",
+      action: "decline",
+      id: data.slice(declineIndividualPrefix.length)
+    };
+  }
   return undefined;
 }
 
 /** The slice of ApiClient the trainer-confirm handler needs. */
 export type TrainerConfirmApi = Pick<
   ApiClient,
-  "confirmBooking" | "declineBooking" | "confirmSubscription" | "declineSubscription"
+  | "confirmBooking"
+  | "declineBooking"
+  | "confirmSubscription"
+  | "declineSubscription"
+  | "confirmIndividualRequest"
+  | "declineIndividualRequest"
 >;
 
 /** Dispatch a parsed decision to the matching ApiClient method. */
@@ -81,6 +110,11 @@ function callDecision(
     return decision.action === "confirm"
       ? api.confirmBooking(decision.id, telegramId)
       : api.declineBooking(decision.id, telegramId);
+  }
+  if (decision.target === "individual") {
+    return decision.action === "confirm"
+      ? api.confirmIndividualRequest(decision.id, telegramId)
+      : api.declineIndividualRequest(decision.id, telegramId);
   }
   return decision.action === "confirm"
     ? api.confirmSubscription(decision.id, telegramId)

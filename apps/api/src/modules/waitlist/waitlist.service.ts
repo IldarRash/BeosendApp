@@ -160,6 +160,36 @@ export class WaitlistService {
   }
 
   /**
+   * Append a plain single-training waitlist entry inside the caller's booking
+   * transaction. Used by /bookings/single when the selected GROUP training is full:
+   * the booking service owns the full/group/duplicate-booking checks and this layer
+   * owns the active waitlist duplicate guard plus queue position.
+   */
+  async appendSingleEntry(
+    tx: Database,
+    params: { clientId: string; trainingId: string }
+  ): Promise<WaitlistEntry | undefined> {
+    const existing = await this.waitlist.findActiveEntryForClient(
+      tx,
+      params.clientId,
+      params.trainingId
+    );
+    if (existing) {
+      return undefined;
+    }
+    const created = await this.waitlist.appendEntry(tx, {
+      clientId: params.clientId,
+      trainingId: params.trainingId,
+      groupSubscriptionId: null
+    });
+    this.logger.log(
+      `Single booking auto-waitlisted client ${params.clientId} on full training ` +
+        `${params.trainingId} at position ${created.position}`
+    );
+    return created;
+  }
+
+  /**
    * Admin: promote a waitlist entry straight to a booking (no confirmation window).
    * Admin-gated here (never in the controller/bot). In one transaction: load the
    * entry FOR UPDATE (must be `waiting`|`notified`), load its training FOR UPDATE,

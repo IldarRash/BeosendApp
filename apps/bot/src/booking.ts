@@ -1,4 +1,4 @@
-import type { SlotCard } from "@beosand/types";
+import type { SingleBookingResult, SlotCard } from "@beosand/types";
 import type { ApiClient } from "./api-client";
 import { showMainMenu, type MenuReplyCtx } from "./navigation";
 import { t, type Catalog } from "./i18n";
@@ -21,7 +21,7 @@ import {
 /** The slice of ApiClient the booking handlers need. */
 export type BookingApi = Pick<
   ApiClient,
-  "listAvailableSlots" | "createSingleBooking" | "joinWaitlist"
+  "listAvailableSlots" | "createSingleBooking"
 >;
 
 /** Look up the currently-bookable slot card for a trainingId, or null. */
@@ -58,9 +58,9 @@ export async function handleBookStart(
 
 /**
  * Step 3: create the booking. Ownership is re-resolved server-side from the
- * caller's telegram_id. On a 409 (slot just filled) the bot auto-joins the
- * waitlist for this training in one step — no separate "join?" tap — and shows
- * the returned queue position. The API decides eligibility; the bot only renders.
+ * caller's telegram_id. When the API reports that the seat was auto-waitlisted,
+ * the bot shows the returned queue position. The API decides eligibility,
+ * booking, waitlist insertion and ordering; the bot only renders.
  */
 export async function handleBookConfirm(
   ctx: MenuReplyCtx,
@@ -76,9 +76,10 @@ export async function handleBookConfirm(
     return;
   }
   const result = await api.createSingleBooking({ clientId, trainingId }, telegramId);
-  if (!result.ok) {
-    // Slot full/already booked → automatically queue on the waitlist (frictionless).
-    await autoJoinWaitlist(ctx, api, catalog, telegramId, clientId, trainingId);
+  if (isWaitlistedResult(result)) {
+    await ctx.reply(t(catalog, "bot.waitlist.autoJoined", { position: result.position }), {
+      reply_markup: fullSlotFooterKeyboard(catalog)
+    });
     return;
   }
   // Re-read the (now updated) slot only for the success card's display details;
@@ -96,28 +97,8 @@ export async function handleBookConfirm(
   });
 }
 
-/**
- * Auto-join the waitlist after a booking 409 and confirm with the queue position.
- * A join conflict (already on the list / slot turned bookable again) is surfaced
- * with the server's friendly message. The bot forwards ids only — the API owns
- * eligibility, ordering and the position.
- */
-async function autoJoinWaitlist(
-  ctx: MenuReplyCtx,
-  api: BookingApi,
-  catalog: Catalog,
-  telegramId: number,
-  clientId: string,
-  trainingId: string
-): Promise<void> {
-  const result = await api.joinWaitlist({ clientId, trainingId }, telegramId);
-  if (!result.ok) {
-    await ctx.reply(t(catalog, "bot.waitlist.joinConflict"), {
-      reply_markup: fullSlotFooterKeyboard(catalog)
-    });
-    return;
-  }
-  await ctx.reply(t(catalog, "bot.waitlist.autoJoined", { position: result.entry.position }), {
-    reply_markup: fullSlotFooterKeyboard(catalog)
-  });
+function isWaitlistedResult(
+  result: SingleBookingResult
+): result is Extract<SingleBookingResult, { status: "waitlisted" }> {
+  return result.status === "waitlisted";
 }

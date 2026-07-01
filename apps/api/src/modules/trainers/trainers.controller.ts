@@ -12,6 +12,8 @@ import {
 } from "@nestjs/common";
 import {
   createTrainerSchema,
+  decideIndividualRequestSchema,
+  type IndividualRequestDecisionResult,
   individualRequestSchema,
   type IndividualRequestResult,
   type Trainer,
@@ -85,7 +87,33 @@ export class TrainersController {
     if (input.telegramId !== actorTelegramId) {
       throw new ForbiddenException("Individual requests may only be made for yourself");
     }
-    return this.trainers.requestIndividual(trainerId, actorTelegramId);
+    return this.trainers.requestIndividual(trainerId, input);
+  }
+
+  /** Trainer/admin: confirm one durable individual request. Authz lives in service. */
+  @Post("individual-requests/:requestId/confirm")
+  confirmIndividualRequest(
+    @Headers("x-telegram-id") telegramIdHeader: string | undefined,
+    @Param("requestId") requestId: string,
+    @Body() body: unknown
+  ): Promise<IndividualRequestDecisionResult> {
+    const actorTelegramId = parseTelegramId(telegramIdHeader);
+    const id = validate(uuid, requestId);
+    validate(decideIndividualRequestSchema, body ?? {});
+    return this.trainers.confirmIndividualRequest(actorTelegramId, id);
+  }
+
+  /** Trainer/admin: decline one durable individual request. Authz lives in service. */
+  @Post("individual-requests/:requestId/decline")
+  declineIndividualRequest(
+    @Headers("x-telegram-id") telegramIdHeader: string | undefined,
+    @Param("requestId") requestId: string,
+    @Body() body: unknown
+  ): Promise<IndividualRequestDecisionResult> {
+    const actorTelegramId = parseTelegramId(telegramIdHeader);
+    const id = validate(uuid, requestId);
+    validate(decideIndividualRequestSchema, body ?? {});
+    return this.trainers.declineIndividualRequest(actorTelegramId, id);
   }
 }
 

@@ -184,19 +184,20 @@ export class TrainingsRepository {
   }
 
   /**
-   * Future (date >= fromDate) non-cancelled INDIVIDUAL trainings for one client +
+   * Future (date >= fromDate) non-terminal INDIVIDUAL trainings for one client +
    * trainer — the whole-series reschedule candidate set, intersected with the
    * subscription's training ids in the service. Individual trainings carry the client
    * on trainings.clientId, so the series is keyed on clientId + trainerId. Only the id
-   * is needed (the service writes each inside a tx). Past + cancelled instances are
+   * is needed (the service writes each inside a tx). Past + terminal instances are
    * excluded so history is never rewritten.
    */
   async listFutureNonCancelledIndividual(
     clientId: string,
     trainerId: string,
-    fromDate: string
+    fromDate: string,
+    db: Database = this.database.db
   ): Promise<{ id: string }[]> {
-    return this.database.db
+    return db
       .select({ id: tables.trainings.id })
       .from(tables.trainings)
       .where(
@@ -204,10 +205,24 @@ export class TrainingsRepository {
           eq(tables.trainings.clientId, clientId),
           eq(tables.trainings.trainerId, trainerId),
           gte(tables.trainings.date, fromDate),
-          ne(tables.trainings.status, "cancelled")
+          inArray(tables.trainings.status, ["open", "full"])
         )
       )
       .orderBy(asc(tables.trainings.date), asc(tables.trainings.startTime));
+  }
+
+  /** Dates for a target id set; no business rules. Caller uses this before date-scoped writes. */
+  async listDatesByIds(
+    db: Database,
+    ids: readonly string[]
+  ): Promise<{ id: string; date: string }[]> {
+    if (ids.length === 0) {
+      return [];
+    }
+    return db
+      .select({ id: tables.trainings.id, date: tables.trainings.date })
+      .from(tables.trainings)
+      .where(inArray(tables.trainings.id, [...ids]));
   }
 
   /**
@@ -425,6 +440,20 @@ export class TrainingsRepository {
     const [row] = await tx
       .update(tables.trainings)
       .set({ startTime, endTime })
+      .where(eq(tables.trainings.id, id))
+      .returning();
+    return toTraining(row);
+  }
+
+  /** Persist an individual training's per-session price inside the caller's tx. */
+  async updatePrice(
+    tx: Database,
+    id: string,
+    priceSingleRsd: number | null
+  ): Promise<Training> {
+    const [row] = await tx
+      .update(tables.trainings)
+      .set({ priceSingleRsd })
       .where(eq(tables.trainings.id, id))
       .returning();
     return toTraining(row);

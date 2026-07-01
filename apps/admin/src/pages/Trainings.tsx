@@ -13,7 +13,8 @@ import {
   type RescheduleTrainingInput,
   type Trainer,
   type Training,
-  type TrainingStatus
+  type TrainingStatus,
+  type UpdateIndividualPriceInput
 } from "@beosand/types";
 import { AppShell } from "../ui/AppShell";
 import { Button } from "../ui/Button";
@@ -24,6 +25,7 @@ import { TrainingRosterModal } from "../ui/TrainingRosterModal";
 import { NumberField, SelectField, TextField, TimeField, type SelectOption } from "../ui/Field";
 import { useToast } from "../ui/Toast";
 import { useT } from "../i18n/LanguageProvider";
+import { formatRsd } from "../lib/format";
 import { useCourts } from "../hooks/useCourts";
 import { useGroups } from "../hooks/useGroups";
 import { useTrainers } from "../hooks/useTrainers";
@@ -32,15 +34,19 @@ import { useGenerationStatus } from "../hooks/useGenerationStatus";
 import {
   useChangeCapacity,
   useDeleteTraining,
+  useDeleteTrainingSeries,
   useGenerateAllGroups,
   useGenerateIndividualMonth,
   useGenerateMonth,
   useRescheduleTraining,
+  useUpdateIndividualPrice,
   useTrainings
 } from "../hooks/useTrainings";
 import { TrainingsCalendar } from "./TrainingsCalendar";
 
 type TrainingsView = "table" | "calendar";
+type DeleteScope = "single" | "series";
+type PriceScope = "single" | "series";
 
 type Translate = (key: string, params?: Record<string, string | number>) => string;
 
@@ -73,6 +79,25 @@ function monthOptions(t: Translate): SelectOption[] {
 /** Human-readable error from a failed mutation (the API decides the message). */
 function errorText(error: unknown, t: Translate): string {
   return error instanceof Error ? error.message : t("admin.trainings.opFailed");
+}
+
+/** UI hint only; the API still enforces which rows support individual actions. */
+function isIndividualTraining(row: Training): boolean {
+  return row.groupId === null && row.clientId !== null;
+}
+
+/** Display-only client option label; search/matching still happens on the server. */
+function clientLabel(client: Client): string {
+  return [client.name, client.telegramUsername ? `@${client.telegramUsername}` : null, client.phone]
+    .filter(Boolean)
+    .join(" · ");
+}
+
+function trainingPriceLabel(row: Training, t: Translate): string {
+  if (!isIndividualTraining(row)) return "—";
+  return row.priceSingleRsd === null
+    ? t("admin.trainings.priceUnset")
+    : formatRsd(row.priceSingleRsd);
 }
 
 /**
@@ -147,9 +172,14 @@ export function Trainings(): JSX.Element {
   const [rescheduleTarget, setRescheduleTarget] = useState<Training | null>(null);
   const reschedule = useRescheduleTraining();
 
+  const [priceTarget, setPriceTarget] = useState<Training | null>(null);
+  const updatePrice = useUpdateIndividualPrice();
+
   // ── Delete ─────────────────────────────────────────────────────────────
   const [deleteTarget, setDeleteTarget] = useState<Training | null>(null);
+  const [deleteScope, setDeleteScope] = useState<DeleteScope>("single");
   const del = useDeleteTraining();
+  const deleteSeries = useDeleteTrainingSeries();
 
   // ── Change capacity ────────────────────────────────────────────────────
   const [capacityTarget, setCapacityTarget] = useState<Training | null>(null);
@@ -171,6 +201,12 @@ export function Trainings(): JSX.Element {
     { key: "group", header: t("admin.trainings.colGroup"), render: (row) => groupCell(row) },
     { key: "trainer", header: t("admin.trainings.colTrainer"), render: (row) => trainerName(row.trainerId) },
     {
+      key: "price",
+      header: t("admin.trainings.colPrice"),
+      numeric: true,
+      render: (row) => trainingPriceLabel(row, t)
+    },
+    {
       key: "occupancy",
       header: t("admin.trainings.colOccupancy"),
       numeric: true,
@@ -184,56 +220,84 @@ export function Trainings(): JSX.Element {
     {
       key: "actions",
       header: t("admin.trainings.colActions"),
-      render: (row) => (
-        <div style={{ display: "flex", gap: 8 }}>
-          <Button variant="ghost" onClick={() => setRosterTarget(row)}>
-            {t("admin.roster.open")}
-          </Button>
-          <Button
-            variant="ghost"
-            onClick={() => setAddPersonTarget(row)}
-            disabled={
-              row.status === "full" ||
-              row.status === "cancelled" ||
-              row.status === "completed"
-            }
-          >
-            {t("admin.trainings.actionAddPerson")}
-          </Button>
-          <Button
-            variant="ghost"
-            onClick={() => {
-              reschedule.reset();
-              setRescheduleTarget(row);
-            }}
-            disabled={row.status === "cancelled" || row.status === "completed"}
-          >
-            {t("admin.trainings.actionReschedule")}
-          </Button>
-          <Button
-            variant="ghost"
-            onClick={() => {
-              changeCapacity.reset();
-              setCapacityTarget(row);
-            }}
-            disabled={row.status === "cancelled"}
-          >
-            {t("admin.trainings.actionCapacity")}
-          </Button>
-          <Button
-            variant="danger"
-            onClick={() => {
-              del.reset();
-              setDeleteTarget(row);
-            }}
-            disabled={row.status === "completed"}
-          >
-            {t("admin.trainings.actionDelete")}
-          </Button>
-        </div>
-      )
+      render: (row) => {
+        const individual = isIndividualTraining(row);
+        return (
+          <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+            <Button variant="ghost" onClick={() => setRosterTarget(row)}>
+              {t("admin.roster.open")}
+            </Button>
+            <Button
+              variant="ghost"
+              onClick={() => setAddPersonTarget(row)}
+              disabled={
+                (row.status === "full" && !individual) ||
+                row.status === "cancelled" ||
+                row.status === "completed"
+              }
+            >
+              {t("admin.trainings.actionAddPerson")}
+            </Button>
+            {individual ? (
+              <Button
+                variant="ghost"
+                onClick={() => {
+                  updatePrice.reset();
+                  setPriceTarget(row);
+                }}
+                disabled={row.status === "cancelled" || row.status === "completed"}
+              >
+                {t("admin.trainings.actionPrice")}
+              </Button>
+            ) : null}
+            <Button
+              variant="ghost"
+              onClick={() => {
+                reschedule.reset();
+                setRescheduleTarget(row);
+              }}
+              disabled={row.status === "cancelled" || row.status === "completed"}
+            >
+              {t("admin.trainings.actionReschedule")}
+            </Button>
+            <Button
+              variant="ghost"
+              onClick={() => {
+                changeCapacity.reset();
+                setCapacityTarget(row);
+              }}
+              disabled={row.status === "cancelled"}
+            >
+              {t("admin.trainings.actionCapacity")}
+            </Button>
+            <Button
+              variant="danger"
+              onClick={() => {
+                del.reset();
+                deleteSeries.reset();
+                setDeleteScope("single");
+                setDeleteTarget(row);
+              }}
+              disabled={row.status === "completed"}
+            >
+              {t("admin.trainings.actionDelete")}
+            </Button>
+          </div>
+        );
+      }
     }
   ];
+
+  const deleteAsSeries =
+    deleteTarget !== null && isIndividualTraining(deleteTarget) && deleteScope === "series";
+  const deletePending = deleteAsSeries ? deleteSeries.isPending : del.isPending;
+  const deleteError = deleteAsSeries
+    ? deleteSeries.isError
+      ? errorText(deleteSeries.error, t)
+      : undefined
+    : del.isError
+      ? errorText(del.error, t)
+      : undefined;
 
   return (
     <AppShell>
@@ -421,20 +485,70 @@ export function Trainings(): JSX.Element {
         }}
       />
 
+      <IndividualPriceModal
+        target={priceTarget}
+        pending={updatePrice.isPending}
+        error={updatePrice.isError ? errorText(updatePrice.error, t) : undefined}
+        onClose={() => {
+          updatePrice.reset();
+          setPriceTarget(null);
+        }}
+        onSubmit={(input, series) => {
+          if (!priceTarget) return;
+          updatePrice.mutate(
+            { id: priceTarget.id, input, series },
+            {
+              onSuccess: () => {
+                setPriceTarget(null);
+                notify(
+                  series
+                    ? t("admin.trainings.priceUpdatedSeries")
+                    : t("admin.trainings.priceUpdatedSingle"),
+                  "success"
+                );
+              }
+            }
+          );
+        }}
+      />
+
       <Modal
         open={deleteTarget !== null}
         title={t("admin.trainings.deleteTitle")}
-        onClose={() => setDeleteTarget(null)}
+        onClose={() => {
+          del.reset();
+          deleteSeries.reset();
+          setDeleteTarget(null);
+        }}
         footer={
           <>
-            <Button variant="ghost" onClick={() => setDeleteTarget(null)}>
+            <Button
+              variant="ghost"
+              onClick={() => {
+                del.reset();
+                deleteSeries.reset();
+                setDeleteTarget(null);
+              }}
+            >
               {t("admin.trainings.deleteKeep")}
             </Button>
             <Button
               variant="danger"
-              disabled={del.isPending}
+              disabled={deletePending}
               onClick={() => {
                 if (!deleteTarget) return;
+                if (deleteAsSeries) {
+                  deleteSeries.mutate(deleteTarget.id, {
+                    onSuccess: (result) => {
+                      setDeleteTarget(null);
+                      notify(
+                        t("admin.trainings.deletedSeries", { count: result.ids.length }),
+                        "success"
+                      );
+                    }
+                  });
+                  return;
+                }
                 del.mutate(deleteTarget.id, {
                   onSuccess: () => {
                     setDeleteTarget(null);
@@ -443,7 +557,7 @@ export function Trainings(): JSX.Element {
                 });
               }}
             >
-              {del.isPending ? t("admin.trainings.deleting") : t("admin.trainings.deleteConfirm")}
+              {deletePending ? t("admin.trainings.deleting") : t("admin.trainings.deleteConfirm")}
             </Button>
           </>
         }
@@ -458,9 +572,21 @@ export function Trainings(): JSX.Element {
             })}
           </p>
         ) : null}
-        {del.isError ? (
+        {deleteTarget && isIndividualTraining(deleteTarget) ? (
+          <SelectField
+            label={t("admin.trainings.deleteScope")}
+            options={[
+              { value: "single", label: t("admin.trainings.deleteScopeSingle") },
+              { value: "series", label: t("admin.trainings.deleteScopeSeries") }
+            ]}
+            value={deleteScope}
+            onChange={(e) => setDeleteScope(e.target.value as DeleteScope)}
+            hint={t("admin.trainings.deleteScopeHint")}
+          />
+        ) : null}
+        {deleteError ? (
           <p className="state state--error" role="alert">
-            {errorText(del.error, t)}
+            {deleteError}
           </p>
         ) : null}
       </Modal>
@@ -759,6 +885,96 @@ function GenerateAllResultModal({
 
 // ── Change capacity modal ──────────────────────────────────────────────────
 
+interface IndividualPriceModalProps {
+  target: Training | null;
+  pending: boolean;
+  error?: string;
+  onClose: () => void;
+  onSubmit: (input: UpdateIndividualPriceInput, series: boolean) => void;
+}
+
+/**
+ * Change or clear the per-session RSD price for an individual training. The
+ * console only collects `{ priceSingleRsd }` and the target scope; the API owns
+ * individual-only validation, future-series selection and money validation.
+ */
+function IndividualPriceModal({
+  target,
+  pending,
+  error,
+  onClose,
+  onSubmit
+}: IndividualPriceModalProps): JSX.Element {
+  const t = useT();
+  const isIndividual = target !== null && isIndividualTraining(target);
+
+  const [scope, setScope] = useState<PriceScope>("single");
+  const [price, setPrice] = useState<number | null>(target?.priceSingleRsd ?? null);
+
+  const [seededFor, setSeededFor] = useState<string | null>(null);
+  if (target && seededFor !== target.id) {
+    setSeededFor(target.id);
+    setScope("single");
+    setPrice(target.priceSingleRsd);
+  }
+
+  function handleSubmit(): void {
+    if (!target || pending) return;
+    onSubmit({ priceSingleRsd: price }, isIndividual && scope === "series");
+  }
+
+  return (
+    <Modal
+      open={target !== null}
+      title={t("admin.trainings.priceTitle")}
+      onClose={onClose}
+      footer={
+        <>
+          <Button variant="ghost" onClick={onClose}>
+            {t("admin.action.cancel")}
+          </Button>
+          <Button variant="ghost" disabled={pending || price === null} onClick={() => setPrice(null)}>
+            {t("admin.trainings.priceClear")}
+          </Button>
+          <Button disabled={pending || !isIndividual} onClick={handleSubmit}>
+            {pending ? t("admin.action.saving") : t("admin.trainings.priceSubmit")}
+          </Button>
+        </>
+      }
+    >
+      {target ? (
+        <>
+          <p className="state">
+            {t("admin.trainings.pricePrompt", {
+              date: target.date,
+              start: target.startTime,
+              end: target.endTime
+            })}
+          </p>
+          <SelectField
+            label={t("admin.trainings.priceScope")}
+            options={[
+              { value: "single", label: t("admin.trainings.rescheduleScopeSingle") },
+              { value: "series", label: t("admin.trainings.rescheduleScopeSeries") }
+            ]}
+            value={scope}
+            onChange={(e) => setScope(e.target.value as PriceScope)}
+            hint={t("admin.trainings.priceScopeHint")}
+          />
+          <NumberField
+            label={t("admin.trainings.individualPrice")}
+            value={price}
+            onValueChange={setPrice}
+            min={0}
+            hint={t("admin.trainings.individualPriceHint")}
+            error={error}
+          />
+        </>
+      ) : null}
+    </Modal>
+  );
+}
+
 interface ChangeCapacityModalProps {
   target: Training | null;
   pending: boolean;
@@ -883,7 +1099,7 @@ function AddPersonModal({ target, onClose, onBooked }: AddPersonModalProps): JSX
     { value: "", label: t("admin.trainings.addPersonPick") },
     ...(clients.data ?? []).map((c: Client) => ({
       value: c.id,
-      label: c.phone ? `${c.name} · ${c.phone}` : c.name
+      label: clientLabel(c)
     }))
   ];
 
@@ -1095,7 +1311,7 @@ function GenerateIndividualModal({
     { value: "", label: t("admin.trainings.individualPickClient") },
     ...(clients.data ?? []).map((c: Client) => ({
       value: c.id,
-      label: c.phone ? `${c.name} · ${c.phone}` : c.name
+      label: clientLabel(c)
     }))
   ];
 
@@ -1104,6 +1320,11 @@ function GenerateIndividualModal({
     ...trainers.map((tr) => ({ value: tr.id, label: tr.name }))
   ];
 
+  const invalidTimeWindow = startTime !== "" && endTime !== "" && endTime <= startTime;
+  const timeWindowError = invalidTimeWindow
+    ? t("admin.trainings.individualTimeWindowError")
+    : undefined;
+
   const canSubmit =
     !pending &&
     clientId !== "" &&
@@ -1111,6 +1332,7 @@ function GenerateIndividualModal({
     days.length > 0 &&
     startTime !== "" &&
     endTime !== "" &&
+    !invalidTimeWindow &&
     year !== null &&
     price !== null;
 
@@ -1190,6 +1412,7 @@ function GenerateIndividualModal({
         label={t("admin.trainings.individualEnd")}
         value={endTime}
         onChange={(e) => setEndTime(e.target.value)}
+        error={timeWindowError}
       />
       <NumberField label={t("admin.trainings.fieldYear")} value={year} onValueChange={setYear} />
       <SelectField

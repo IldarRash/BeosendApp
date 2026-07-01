@@ -42,6 +42,10 @@ export const botSr: Record<string, string> = {
   "bot.individual.trainerUnavailable":
     "Ovaj trener trenutno nije dostupan na Telegramu. Izaberite drugog ili kontaktirajte menadžera.",
   "bot.individual.pickButton": "🧑‍🏫 {name}",
+  "bot.individual.pickSlot":
+    "Pošaljite željeni datum i vreme jednom porukom: YYYY-MM-DD HH:MM-HH:MM\nNa primer: 2026-07-15 18:00-19:00",
+  "bot.individual.invalidSlot":
+    "Nismo uspeli da pročitamo datum i vreme. Pošaljite u formatu YYYY-MM-DD HH:MM-HH:MM, na primer 2026-07-15 18:00-19:00.",
 
   // --- Shared navigation (menu.ts) ---
   "bot.nav.back": "⬅️ Nazad",

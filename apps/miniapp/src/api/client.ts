@@ -20,6 +20,7 @@ import {
   myBookingItemSchema,
   myCourtRequestItemSchema,
   previewCourtRequestSchema,
+  singleBookingResultSchema,
   slotCardSchema,
   trainerSchema,
   trainingParticipantsSchema,
@@ -47,6 +48,7 @@ import {
   type MyBookingScope,
   type MyCourtRequestItem,
   type OnboardClientInput,
+  type SingleBookingResult,
   type SlotCard,
   type Trainer,
   type TrainingParticipants,
@@ -298,15 +300,20 @@ export class MiniappApiClient {
    * before render: `delivered:true` is success, `delivered:false`
    * (reason `trainer-unavailable`) is a calm 200 informational state, NOT an error.
    */
-  requestIndividualSession(trainerId: string): Promise<IndividualRequestResult> {
+  requestIndividualSession(input: IndividualSessionRequestInput): Promise<IndividualRequestResult> {
     const telegramId = this.identity?.telegramId;
     if (telegramId == null) {
       return Promise.reject(new AuthError("No verified Telegram identity to request a trainer"));
     }
-    return this.request(`/trainers/${trainerId}/individual-request`, individualRequestResultSchema, {
-      method: "POST",
-      body: JSON.stringify(individualRequestSchema.parse({ telegramId }))
-    });
+    const { trainerId, date, startTime, endTime } = input;
+    return this.request(
+      `/trainers/${trainerId}/individual-request`,
+      individualRequestResultSchema,
+      {
+        method: "POST",
+        body: JSON.stringify(individualRequestSchema.parse({ telegramId, date, startTime, endTime }))
+      }
+    );
   }
 
   /**
@@ -317,8 +324,8 @@ export class MiniappApiClient {
    * use. A 409 (slot filled meanwhile) surfaces as {@link ConflictError} so the
    * screen can show the server message verbatim and refetch the list.
    */
-  createSingleBooking(input: CreateSingleBookingInput): Promise<Booking> {
-    return this.request("/bookings/single", bookingSchema, {
+  createSingleBooking(input: CreateSingleBookingInput): Promise<SingleBookingResult> {
+    return this.request("/bookings/single", singleBookingResultSchema, {
       method: "POST",
       body: JSON.stringify(createSingleBookingSchema.parse(input))
     });
@@ -539,6 +546,14 @@ export interface CourtRequestInput {
   durationHours: CourtDurationHours;
   /** The specific courts the client picked (1…6). Omitted = single-court bot path. */
   courtNumbers?: number[];
+}
+
+/** The proposed one-on-one slot; the ApiClient supplies telegramId from the session. */
+export interface IndividualSessionRequestInput {
+  trainerId: string;
+  date: string;
+  startTime: string;
+  endTime: string;
 }
 
 /**

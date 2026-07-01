@@ -59,6 +59,7 @@ export const DEFAULT_TEMPLATES: Record<Locale, Record<NotificationTemplateKey, s
       "Новая заявка на запись ⏳\n{clientName}\n{training}\nПодтвердите или отклоните запись.",
     "individual-request-admin":
       "Заявка на индивидуальную тренировку 🏐\nКлиент: {clientName}\nТренер: {trainerName}\n" +
+      "{date} {startTime}-{endTime}\n" +
       "Свяжитесь с клиентом и согласуйте тренировку.",
     "court-request-created-admin":
       "🎾 Новая заявка на корт\n{clientName} (id {clientTelegramId})\n" +
@@ -82,6 +83,7 @@ export const DEFAULT_TEMPLATES: Record<Locale, Record<NotificationTemplateKey, s
       "Novi zahtev za termin ⏳\n{clientName}\n{training}\nPotvrdite ili odbijte termin.",
     "individual-request-admin":
       "Zahtev za individualni trening 🏐\nKlijent: {clientName}\nTrener: {trainerName}\n" +
+      "{date} {startTime}-{endTime}\n" +
       "Kontaktirajte klijenta i dogovorite trening.",
     "court-request-created-admin":
       "🎾 Novi zahtev za teren\n{clientName} (id {clientTelegramId})\n" +
@@ -105,6 +107,7 @@ export const DEFAULT_TEMPLATES: Record<Locale, Record<NotificationTemplateKey, s
       "New booking request ⏳\n{clientName}\n{training}\nConfirm or decline the booking.",
     "individual-request-admin":
       "Individual training request 🏐\nClient: {clientName}\nTrainer: {trainerName}\n" +
+      "{date} {startTime}-{endTime}\n" +
       "Please contact the client and arrange the training.",
     "court-request-created-admin":
       "🎾 New court request\n{clientName} (id {clientTelegramId})\n" +

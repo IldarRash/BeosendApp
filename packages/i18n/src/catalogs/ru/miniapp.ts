@@ -185,8 +185,14 @@ export const miniappRu: Record<string, string> = {
   "miniapp.individual.openAria": "Запросить тренировку",
   // Confirm sub-state.
   "miniapp.individual.confirmTitle": "Индивидуальная тренировка",
+  "miniapp.individual.startLabel": "Начало",
+  "miniapp.individual.endLabel": "Конец",
+  "miniapp.individual.pickDate": "Выберите дату",
+  "miniapp.individual.pickTime": "Выберите время",
+  "miniapp.individual.summaryTitle": "Детали запроса",
+  "miniapp.individual.timeInvalid": "Время окончания должно быть позже начала.",
   "miniapp.individual.confirmBody":
-    "Мы отправим тренеру «{name}» запрос на индивидуальную тренировку. Тренер свяжется с вами, чтобы согласовать время.",
+    "Мы отправим тренеру «{name}» предложенное время. Тренер или администратор подтвердит его или предложит другой вариант.",
   "miniapp.individual.request": "Запросить тренировку",
   // Delivered-success state.
   "miniapp.individual.sentTitle": "Запрос отправлен",

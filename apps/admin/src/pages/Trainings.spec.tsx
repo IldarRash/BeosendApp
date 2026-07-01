@@ -16,7 +16,9 @@ const useGenerateMonth = vi.fn();
 const useGenerateAllGroups = vi.fn();
 const useGenerateIndividualMonth = vi.fn();
 const useRescheduleTraining = vi.fn();
+const useUpdateIndividualPrice = vi.fn();
 const useDeleteTraining = vi.fn();
+const useDeleteTrainingSeries = vi.fn();
 const useChangeCapacity = vi.fn();
 const useGroups = vi.fn();
 const useGenerationStatus = vi.fn();
@@ -34,7 +36,9 @@ vi.mock("../hooks/useTrainings", () => ({
   useGenerateAllGroups: () => useGenerateAllGroups(),
   useGenerateIndividualMonth: () => useGenerateIndividualMonth(),
   useRescheduleTraining: () => useRescheduleTraining(),
+  useUpdateIndividualPrice: () => useUpdateIndividualPrice(),
   useDeleteTraining: () => useDeleteTraining(),
+  useDeleteTrainingSeries: () => useDeleteTrainingSeries(),
   useChangeCapacity: () => useChangeCapacity()
 }));
 vi.mock("../hooks/useClients", () => ({
@@ -219,7 +223,9 @@ beforeEach(() => {
   useGenerateAllGroups.mockReturnValue(idleMutation());
   useGenerateIndividualMonth.mockReturnValue(idleMutation());
   useRescheduleTraining.mockReturnValue(idleMutation());
+  useUpdateIndividualPrice.mockReturnValue(idleMutation());
   useDeleteTraining.mockReturnValue(idleMutation());
+  useDeleteTrainingSeries.mockReturnValue(idleMutation());
   useChangeCapacity.mockReturnValue(idleMutation());
   useClientsList.mockReturnValue(idleQuery([CLIENT]));
   useCreateWalkIn.mockReturnValue(idleMutation());
@@ -254,6 +260,32 @@ function currentMonthRange(): { from: string; to: string } {
 function lastTrainingsQuery(): { from?: string; to?: string } | null {
   const calls = useTrainings.mock.calls;
   return (calls.at(-1)?.[0] ?? null) as { from?: string; to?: string } | null;
+}
+
+function openIndividualGenerationDialog(): HTMLElement {
+  fireEvent.click(screen.getByRole("button", { name: "Сгенерировать индивидуальные" }));
+  return screen.getByRole("dialog", { name: "Индивидуальные тренировки (1-на-1)" });
+}
+
+function fillIndividualGenerationForm(
+  dialog: HTMLElement,
+  times: { startTime?: string; endTime?: string } = {}
+): void {
+  fireEvent.change(within(dialog).getByLabelText("Клиент"), { target: { value: CLIENT.id } });
+  fireEvent.change(within(dialog).getByLabelText("Тренер"), { target: { value: TRAINER.id } });
+  fireEvent.click(within(dialog).getByRole("button", { name: "Понедельник" }));
+  fireEvent.click(within(dialog).getByRole("button", { name: "Среда" }));
+  fireEvent.change(within(dialog).getByLabelText("Начало"), {
+    target: { value: times.startTime ?? "18:00" }
+  });
+  fireEvent.change(within(dialog).getByLabelText("Окончание"), {
+    target: { value: times.endTime ?? "19:00" }
+  });
+  fireEvent.change(within(dialog).getByLabelText("Год"), { target: { value: "2026" } });
+  fireEvent.change(within(dialog).getByLabelText("Месяц"), { target: { value: "7" } });
+  fireEvent.change(within(dialog).getByLabelText("Цена за тренировку, RSD"), {
+    target: { value: "2500" }
+  });
 }
 
 describe("Trainings page", () => {
@@ -582,7 +614,7 @@ describe("Trainings page", () => {
     expect(within(dialog).getByText("Тренировка заполнена.")).toBeTruthy();
   });
 
-  it("disables Add person on a full training (server is still authoritative)", () => {
+  it("disables Add person on a full group training (server is still authoritative)", () => {
     useTrainings.mockReturnValue({
       isPending: false,
       isError: false,
@@ -594,6 +626,52 @@ describe("Trainings page", () => {
     expect(screen.getByRole("button", { name: "Добавить человека" }).hasAttribute("disabled")).toBe(
       true
     );
+  });
+
+  it("keeps Add person usable on a full individual training and submits the picked client", () => {
+    const mutate = vi.fn();
+    useBookManual.mockReturnValue({ ...idleMutation(), mutate });
+    useTrainings.mockReturnValue({
+      isPending: false,
+      isError: false,
+      error: null,
+      data: [{ ...INDIVIDUAL, status: "full", capacity: 1, bookedCount: 1 }]
+    });
+    render(<Trainings />);
+    setRange();
+
+    const button = screen.getByRole("button", { name: "Добавить человека" });
+    expect(button.hasAttribute("disabled")).toBe(false);
+    fireEvent.click(button);
+
+    const dialog = screen.getByRole("dialog", { name: "Добавить человека на тренировку" });
+    fireEvent.change(within(dialog).getByLabelText("Выберите клиента"), {
+      target: { value: CLIENT.id }
+    });
+    fireEvent.click(within(dialog).getByRole("button", { name: "Записать" }));
+
+    expect(mutate).toHaveBeenCalledTimes(1);
+    expect(mutate.mock.calls[0][0]).toEqual({
+      clientId: CLIENT.id,
+      trainingId: INDIVIDUAL.id,
+      useBonusCredit: false
+    });
+  });
+
+  it("makes @username search clear in Add Person and shows usernames in options", () => {
+    useClientsList.mockReturnValue(idleQuery([{ ...CLIENT, telegramUsername: "marko" }]));
+    render(<Trainings />);
+    setRange();
+
+    fireEvent.click(screen.getByRole("button", { name: "Добавить человека" }));
+    const dialog = screen.getByRole("dialog", { name: "Добавить человека на тренировку" });
+
+    expect(within(dialog).getByPlaceholderText("Имя, телефон или @username")).toBeTruthy();
+    expect(
+      within(dialog).getByRole("option", {
+        name: `${CLIENT.name} · @marko · ${CLIENT.phone}`
+      })
+    ).toBeTruthy();
   });
 
   it("labels a group training, an individual training, and a one-off distinctly", () => {
@@ -614,25 +692,29 @@ describe("Trainings page", () => {
     expect(within(table).getByText("Разовая")).toBeTruthy();
   });
 
+  it("blocks individual generation when the end time is not after the start time", () => {
+    const mutate = vi.fn();
+    useGenerateIndividualMonth.mockReturnValue({ ...idleMutation(), mutate });
+    render(<Trainings />);
+
+    const dialog = openIndividualGenerationDialog();
+    fillIndividualGenerationForm(dialog, { startTime: "19:00", endTime: "19:00" });
+    const submit = within(dialog).getByRole("button", { name: "Сгенерировать" });
+
+    expect(within(dialog).getByRole("alert").textContent).toBeTruthy();
+    expect(submit).toHaveProperty("disabled", true);
+    fireEvent.click(submit);
+
+    expect(mutate).not.toHaveBeenCalled();
+  });
+
   it("generates individual trainings with the chosen client/trainer/days/time/price", () => {
     const mutate = vi.fn();
     useGenerateIndividualMonth.mockReturnValue({ ...idleMutation(), mutate });
     render(<Trainings />);
 
-    fireEvent.click(screen.getByRole("button", { name: "Сгенерировать индивидуальные" }));
-    const dialog = screen.getByRole("dialog", { name: "Индивидуальные тренировки (1-на-1)" });
-    fireEvent.change(within(dialog).getByLabelText("Клиент"), { target: { value: CLIENT.id } });
-    fireEvent.change(within(dialog).getByLabelText("Тренер"), { target: { value: TRAINER.id } });
-    // Toggle Monday + Wednesday in the weekday picker.
-    fireEvent.click(within(dialog).getByRole("button", { name: "Понедельник" }));
-    fireEvent.click(within(dialog).getByRole("button", { name: "Среда" }));
-    fireEvent.change(within(dialog).getByLabelText("Начало"), { target: { value: "18:00" } });
-    fireEvent.change(within(dialog).getByLabelText("Окончание"), { target: { value: "19:00" } });
-    fireEvent.change(within(dialog).getByLabelText("Год"), { target: { value: "2026" } });
-    fireEvent.change(within(dialog).getByLabelText("Месяц"), { target: { value: "7" } });
-    fireEvent.change(within(dialog).getByLabelText("Цена за тренировку, RSD"), {
-      target: { value: "2500" }
-    });
+    const dialog = openIndividualGenerationDialog();
+    fillIndividualGenerationForm(dialog);
     fireEvent.click(within(dialog).getByRole("button", { name: "Сгенерировать" }));
 
     expect(mutate).toHaveBeenCalledTimes(1);
@@ -696,5 +778,110 @@ describe("Trainings page", () => {
       input: { startTime: "19:00", endTime: "20:00" },
       series: true
     });
+  });
+
+  it("updates one individual training price", () => {
+    const mutate = vi.fn();
+    useUpdateIndividualPrice.mockReturnValue({ ...idleMutation(), mutate });
+    useTrainings.mockReturnValue({
+      isPending: false,
+      isError: false,
+      error: null,
+      data: [INDIVIDUAL]
+    });
+    render(<Trainings />);
+    setRange();
+
+    fireEvent.click(screen.getByRole("button", { name: "Цена" }));
+    const dialog = screen.getByRole("dialog", { name: "Изменить цену" });
+    fireEvent.change(within(dialog).getByLabelText("Цена за тренировку, RSD"), {
+      target: { value: "3000" }
+    });
+    fireEvent.click(within(dialog).getByRole("button", { name: "Сохранить цену" }));
+
+    expect(mutate).toHaveBeenCalledTimes(1);
+    expect(mutate.mock.calls[0][0]).toEqual({
+      id: INDIVIDUAL.id,
+      input: { priceSingleRsd: 3000 },
+      series: false
+    });
+  });
+
+  it("updates the future individual price series when selected", () => {
+    const mutate = vi.fn();
+    useUpdateIndividualPrice.mockReturnValue({ ...idleMutation(), mutate });
+    useTrainings.mockReturnValue({
+      isPending: false,
+      isError: false,
+      error: null,
+      data: [INDIVIDUAL]
+    });
+    render(<Trainings />);
+    setRange();
+
+    fireEvent.click(screen.getByRole("button", { name: "Цена" }));
+    const dialog = screen.getByRole("dialog", { name: "Изменить цену" });
+    fireEvent.change(within(dialog).getByLabelText("Что изменить"), {
+      target: { value: "series" }
+    });
+    fireEvent.change(within(dialog).getByLabelText("Цена за тренировку, RSD"), {
+      target: { value: "3200" }
+    });
+    fireEvent.click(within(dialog).getByRole("button", { name: "Сохранить цену" }));
+
+    expect(mutate).toHaveBeenCalledTimes(1);
+    expect(mutate.mock.calls[0][0]).toEqual({
+      id: INDIVIDUAL.id,
+      input: { priceSingleRsd: 3200 },
+      series: true
+    });
+  });
+
+  it("clears an individual training price with null", () => {
+    const mutate = vi.fn();
+    useUpdateIndividualPrice.mockReturnValue({ ...idleMutation(), mutate });
+    useTrainings.mockReturnValue({
+      isPending: false,
+      isError: false,
+      error: null,
+      data: [INDIVIDUAL]
+    });
+    render(<Trainings />);
+    setRange();
+
+    fireEvent.click(screen.getByRole("button", { name: "Цена" }));
+    const dialog = screen.getByRole("dialog", { name: "Изменить цену" });
+    fireEvent.click(within(dialog).getByRole("button", { name: "Очистить" }));
+    fireEvent.click(within(dialog).getByRole("button", { name: "Сохранить цену" }));
+
+    expect(mutate).toHaveBeenCalledTimes(1);
+    expect(mutate.mock.calls[0][0]).toEqual({
+      id: INDIVIDUAL.id,
+      input: { priceSingleRsd: null },
+      series: false
+    });
+  });
+
+  it("deletes an individual future series when selected in the delete modal", () => {
+    const mutate = vi.fn();
+    useDeleteTrainingSeries.mockReturnValue({ ...idleMutation(), mutate });
+    useTrainings.mockReturnValue({
+      isPending: false,
+      isError: false,
+      error: null,
+      data: [INDIVIDUAL]
+    });
+    render(<Trainings />);
+    setRange();
+
+    fireEvent.click(screen.getByRole("button", { name: "Удалить" }));
+    const dialog = screen.getByRole("dialog", { name: "Удалить тренировку" });
+    fireEvent.change(within(dialog).getByLabelText("Что удалить"), {
+      target: { value: "series" }
+    });
+    fireEvent.click(within(dialog).getByRole("button", { name: "Удалить тренировку" }));
+
+    expect(mutate).toHaveBeenCalledTimes(1);
+    expect(mutate.mock.calls[0][0]).toBe(INDIVIDUAL.id);
   });
 });

@@ -1,7 +1,13 @@
 import { Inject, Injectable, Logger } from "@nestjs/common";
 import type { Env } from "@beosand/config";
 import { adminTelegramIds } from "@beosand/config";
-import type { Client, Locale, NotificationType, Trainer } from "@beosand/types";
+import type {
+  Client,
+  IndividualTrainingRequest,
+  Locale,
+  NotificationType,
+  Trainer
+} from "@beosand/types";
 import {
   bookingConfirmedMessage,
   bookingDeclinedMessage,
@@ -457,7 +463,8 @@ export class NotificationsService {
   async notifyAdminsOfIndividualRequest(
     adminIds: number[],
     trainer: Trainer,
-    client: Client
+    client: Client,
+    request: IndividualTrainingRequest
   ): Promise<boolean> {
     if (adminIds.length === 0) {
       return false;
@@ -466,8 +473,9 @@ export class NotificationsService {
     for (const adminId of adminIds) {
       try {
         const locale = await this.resolveStaffLocale(adminId);
-        const text = await this.renderIndividualRequestText(trainer, client, locale);
-        const replyMarkup = adminDeepLinkMarkup(
+        const text = await this.renderIndividualRequestText(trainer, client, request, locale);
+        const replyMarkup = withAdminDeepLink(
+          confirmDeclineKeyboard(locale, "ind", request.id),
           this.env.ADMIN_URL,
           locale,
           "/trainings",
@@ -492,13 +500,26 @@ export class NotificationsService {
    * the shared staff text copy for now, but sends no admin deep-link markup
    * because this message is for the trainer to contact the client directly.
    */
-  async notifyTrainerOfIndividualRequest(trainer: Trainer, client: Client): Promise<boolean> {
+  async notifyTrainerOfIndividualRequest(
+    trainer: Trainer,
+    client: Client,
+    request: IndividualTrainingRequest
+  ): Promise<boolean> {
     if (trainer.telegramId === null) {
       return false;
     }
     try {
-      const text = await this.renderIndividualRequestText(trainer, client, trainer.language);
-      await this.sender.sendMessage(trainer.telegramId, text);
+      const text = await this.renderIndividualRequestText(
+        trainer,
+        client,
+        request,
+        trainer.language
+      );
+      await this.sender.sendMessage(
+        trainer.telegramId,
+        text,
+        confirmDeclineKeyboard(trainer.language, "ind", request.id)
+      );
       return true;
     } catch (error) {
       this.logger.warn(
@@ -619,6 +640,7 @@ export class NotificationsService {
   private async renderIndividualRequestText(
     trainer: Trainer,
     client: Client,
+    request: IndividualTrainingRequest,
     locale: Locale
   ): Promise<string> {
     // Shared staff copy; admin-only affordances are reply markup, not template text.
@@ -627,7 +649,10 @@ export class NotificationsService {
       resolveTemplateBody("individual-request-admin", locale, override),
       {
         clientName: clientMentionLink(client),
-        trainerName: escapeHtml(trainer.name)
+        trainerName: escapeHtml(trainer.name),
+        date: request.date,
+        startTime: request.startTime,
+        endTime: request.endTime
       }
     );
   }

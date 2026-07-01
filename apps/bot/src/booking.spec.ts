@@ -1,8 +1,7 @@
 import { describe, expect, it, vi } from "vitest";
-import type { Booking, SlotCard, WaitlistEntry } from "@beosand/types";
+import type { Booking, SingleBookingResult, SlotCard, WaitlistEntry } from "@beosand/types";
 import { getStaticCatalog } from "@beosand/i18n";
 import { handleBookConfirm, handleBookStart, type BookingApi } from "./booking";
-import type { CreateSingleBookingResult, JoinWaitlistResult } from "./api-client";
 
 const ru = getStaticCatalog("ru");
 
@@ -62,10 +61,7 @@ function makeCtx(): { reply: ReturnType<typeof vi.fn>; replies: Reply[] } {
 function makeApi(overrides: Partial<BookingApi> = {}): BookingApi {
   return {
     listAvailableSlots: vi.fn(async () => [card]),
-    createSingleBooking: vi.fn(
-      async (): Promise<CreateSingleBookingResult> => ({ ok: true, booking })
-    ),
-    joinWaitlist: vi.fn(async (): Promise<JoinWaitlistResult> => ({ ok: true, entry: waitlistEntry })),
+    createSingleBooking: vi.fn(async (): Promise<SingleBookingResult> => booking),
     ...overrides
   };
 }
@@ -90,44 +86,32 @@ describe("handleBookStart", () => {
 describe("handleBookConfirm", () => {
   it("books the seat and renders success on a 2xx", async () => {
     const { reply, replies } = makeCtx();
-    const create = vi.fn(async (): Promise<CreateSingleBookingResult> => ({ ok: true, booking }));
+    const create = vi.fn(async (): Promise<SingleBookingResult> => booking);
     const api = makeApi({ createSingleBooking: create });
     await handleBookConfirm({ reply }, api, ru, 12345, CLIENT_ID, TRAINING_ID);
     expect(create).toHaveBeenCalledWith({ clientId: CLIENT_ID, trainingId: TRAINING_ID }, 12345);
     expect(replies[0]?.text).toContain("Вы записаны");
   });
 
-  it("auto-joins the waitlist (showing the position) on a 409 conflict — no join step", async () => {
+  it("shows the server-created waitlist position when /bookings/single waitlists the client", async () => {
     const { reply, replies } = makeCtx();
-    const create = vi.fn(async (): Promise<CreateSingleBookingResult> => ({
-      ok: false,
-      reason: "conflict"
-    }));
-    const join = vi.fn(async (): Promise<JoinWaitlistResult> => ({ ok: true, entry: waitlistEntry }));
-    const api = makeApi({ createSingleBooking: create, joinWaitlist: join });
+    const create = vi.fn(
+      async (): Promise<SingleBookingResult> => ({
+        status: "waitlisted",
+        waitlistEntry,
+        position: waitlistEntry.position
+      })
+    );
+    const api = makeApi({ createSingleBooking: create });
     await handleBookConfirm({ reply }, api, ru, 12345, CLIENT_ID, TRAINING_ID);
-    expect(join).toHaveBeenCalledWith({ clientId: CLIENT_ID, trainingId: TRAINING_ID }, 12345);
+    expect(create).toHaveBeenCalledWith({ clientId: CLIENT_ID, trainingId: TRAINING_ID }, 12345);
     expect(replies[0]?.text).toContain("листе ожидания");
     expect(replies[0]?.text).toContain(String(waitlistEntry.position));
   });
 
-  it("shows the join-conflict message when the auto-join itself 409s", async () => {
-    const { reply, replies } = makeCtx();
-    const create = vi.fn(async (): Promise<CreateSingleBookingResult> => ({
-      ok: false,
-      reason: "conflict"
-    }));
-    const join = vi.fn(
-      async (): Promise<JoinWaitlistResult> => ({ ok: false, reason: "conflict" })
-    );
-    const api = makeApi({ createSingleBooking: create, joinWaitlist: join });
-    await handleBookConfirm({ reply }, api, ru, 12345, CLIENT_ID, TRAINING_ID);
-    expect(replies[0]?.text).toBe(ru["bot.waitlist.joinConflict"]);
-  });
-
   it("never calls the API when the caller has no client record", async () => {
     const { reply } = makeCtx();
-    const create = vi.fn(async (): Promise<CreateSingleBookingResult> => ({ ok: true, booking }));
+    const create = vi.fn(async (): Promise<SingleBookingResult> => booking);
     const api = makeApi({ createSingleBooking: create });
     await handleBookConfirm({ reply }, api, ru, 12345, null, TRAINING_ID);
     expect(create).not.toHaveBeenCalled();

@@ -401,6 +401,60 @@ describe("ApiClient individual trainings & reschedule", () => {
       })
     ).rejects.toThrow();
   });
+
+  it("PATCHes one individual price and validates the updated training", async () => {
+    const calls = mockFetchOnce({ ...individualTraining, priceSingleRsd: 3000 });
+    const result = await new ApiClient("http://api.test").updateIndividualPrice(TRAINING_ID, {
+      priceSingleRsd: 3000
+    });
+    expect(calls[0]?.url).toBe(`http://api.test/trainings/${TRAINING_ID}/price`);
+    expect(calls[0]?.init?.method).toBe("PATCH");
+    expect(JSON.parse(calls[0]?.init?.body as string)).toEqual({ priceSingleRsd: 3000 });
+    expect(result.priceSingleRsd).toBe(3000);
+  });
+
+  it("sends null to clear one individual price", async () => {
+    const calls = mockFetchOnce({ ...individualTraining, priceSingleRsd: null });
+    const result = await new ApiClient("http://api.test").updateIndividualPrice(TRAINING_ID, {
+      priceSingleRsd: null
+    });
+    expect(JSON.parse(calls[0]?.init?.body as string)).toEqual({ priceSingleRsd: null });
+    expect(result.priceSingleRsd).toBeNull();
+  });
+
+  it("PATCHes an individual price series and validates the updated rows", async () => {
+    const calls = mockFetchOnce([{ ...individualTraining, priceSingleRsd: 3200 }]);
+    const result = await new ApiClient("http://api.test").updateIndividualPriceSeries(
+      TRAINING_ID,
+      { priceSingleRsd: 3200 }
+    );
+    expect(calls[0]?.url).toBe(`http://api.test/trainings/${TRAINING_ID}/price-series`);
+    expect(calls[0]?.init?.method).toBe("PATCH");
+    expect(JSON.parse(calls[0]?.init?.body as string)).toEqual({ priceSingleRsd: 3200 });
+    expect(result[0].priceSingleRsd).toBe(3200);
+  });
+
+  it("rejects a malformed price response (contract enforced)", async () => {
+    mockFetchOnce({ ...individualTraining, priceSingleRsd: -1 });
+    await expect(
+      new ApiClient("http://api.test").updateIndividualPrice(TRAINING_ID, {
+        priceSingleRsd: 3000
+      })
+    ).rejects.toThrow();
+  });
+
+  it("DELETEs an individual series and validates returned ids", async () => {
+    const calls = mockFetchOnce({ ids: [TRAINING_ID] });
+    const result = await new ApiClient("http://api.test").deleteTrainingSeries(TRAINING_ID);
+    expect(calls[0]?.url).toBe(`http://api.test/trainings/${TRAINING_ID}/series`);
+    expect(calls[0]?.init?.method).toBe("DELETE");
+    expect(result.ids).toEqual([TRAINING_ID]);
+  });
+
+  it("rejects a malformed delete-series result (contract enforced)", async () => {
+    mockFetchOnce({ ids: ["not-a-uuid"] });
+    await expect(new ApiClient("http://api.test").deleteTrainingSeries(TRAINING_ID)).rejects.toThrow();
+  });
 });
 
 describe("ApiClient court blocks range (Slice C)", () => {

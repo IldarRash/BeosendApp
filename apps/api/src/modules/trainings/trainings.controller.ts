@@ -23,8 +23,10 @@ import {
   rescheduleTrainingSchema,
   trainerTodayQuerySchema,
   trainerUpcomingQuerySchema,
+  updateIndividualPriceSchema,
   uuid,
   type AutoAssignResult,
+  type DeleteTrainingSeriesResult,
   type GenerateAllResult,
   type GenerateIndividualResult,
   type GenerationStatusItem,
@@ -179,6 +181,17 @@ export class TrainingsController {
     return this.trainings.deleteTraining(actorTelegramId, trainingId);
   }
 
+  /** Admin: soft-cancel this individual training plus its future series siblings. */
+  @Delete(":id/series")
+  deleteSeries(
+    @Headers("x-telegram-id") telegramIdHeader: string | undefined,
+    @Param("id") id: string
+  ): Promise<DeleteTrainingSeriesResult> {
+    const actorTelegramId = parseTelegramId(telegramIdHeader);
+    const trainingId = validate(uuid, id);
+    return this.trainings.deleteIndividualSeries(actorTelegramId, trainingId);
+  }
+
   /** Admin: auto-place every orphaned training on a date onto a free court. Gated in the service. */
   @Post("assign-courts-auto")
   autoAssignCourts(
@@ -214,6 +227,36 @@ export class TrainingsController {
     const trainingId = validate(uuid, id);
     const input = validate(changeCapacitySchema, body ?? {});
     return this.trainings.changeCapacity(actorTelegramId, trainingId, input);
+  }
+
+  /** Admin: change the price of ONE individual training instance. Gated in the service. */
+  @Patch(":id/price")
+  updatePrice(
+    @Headers("x-telegram-id") telegramIdHeader: string | undefined,
+    @Param("id") id: string,
+    @Body() body: unknown
+  ): Promise<Training> {
+    const actorTelegramId = parseTelegramId(telegramIdHeader);
+    const trainingId = validate(uuid, id);
+    const input = validate(updateIndividualPriceSchema, body ?? {});
+    return this.trainings.updateIndividualPrice(actorTelegramId, trainingId, input, {
+      series: false
+    });
+  }
+
+  /** Admin: change the price of this individual instance plus future series siblings. */
+  @Patch(":id/price-series")
+  updatePriceSeries(
+    @Headers("x-telegram-id") telegramIdHeader: string | undefined,
+    @Param("id") id: string,
+    @Body() body: unknown
+  ): Promise<Training[]> {
+    const actorTelegramId = parseTelegramId(telegramIdHeader);
+    const trainingId = validate(uuid, id);
+    const input = validate(updateIndividualPriceSchema, body ?? {});
+    return this.trainings.updateIndividualPrice(actorTelegramId, trainingId, input, {
+      series: true
+    });
   }
 
   /** Admin: reschedule the time of ONE training instance. Gated in the service. */

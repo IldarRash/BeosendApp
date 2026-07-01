@@ -4,6 +4,7 @@ import type { Level, OnboardClientInput } from "@beosand/types";
 import type { ApiClient } from "./api-client";
 import { languageKeyboard, parseSetLanguage, welcomeText } from "./menu";
 import type { SlotFilterState } from "./slot-filters";
+import type { PendingIndividualRequest } from "./individual";
 import { asLocale, DEFAULT_LOCALE, t, type Catalog, type Locale } from "./i18n";
 
 /**
@@ -33,6 +34,11 @@ export interface SessionData {
    * set; the bot never filters locally — these are forwarded to the API.
    */
   slotFilters?: SlotFilterState;
+  /**
+   * Stale bot-side individual request flow: after a trainer is picked, store
+   * only the trainer id while waiting for the client's date/time text.
+   */
+  individualRequest?: PendingIndividualRequest;
 }
 
 export type BotContext = Context & SessionFlavor<SessionData>;

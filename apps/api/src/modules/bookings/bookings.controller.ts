@@ -12,6 +12,7 @@ import {
   type Booking,
   type GroupBookingResult,
   type MyBookingItem,
+  type SingleBookingResult,
   type TransferGroupResult,
   confirmBookingSchema,
   createGroupBookingSchema,
@@ -37,7 +38,7 @@ export class BookingsController {
     @Headers("x-telegram-id") telegramIdHeader: string | undefined,
     @Body() body: unknown,
     @Headers("x-client-telegram-id") clientTelegramIdHeader?: string
-  ): Promise<Booking> {
+  ): Promise<SingleBookingResult> {
     const actorTelegramId = parseTelegramId(clientTelegramIdHeader ?? telegramIdHeader);
     const input = validate(createSingleBookingSchema, body ?? {});
     return this.bookings.createSingle(actorTelegramId, input);
