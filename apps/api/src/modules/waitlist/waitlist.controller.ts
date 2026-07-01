@@ -25,9 +25,9 @@ export class WaitlistController {
     @Body() body: unknown,
     @Headers("x-client-telegram-id") clientTelegramIdHeader?: string
   ): Promise<WaitlistEntry> {
-    const actorTelegramId = parseTelegramId(clientTelegramIdHeader ?? telegramIdHeader);
+    const actor = resolveClientActor(telegramIdHeader, clientTelegramIdHeader);
     const input = validate(createWaitlistEntrySchema, body ?? {});
-    return this.waitlist.join(actorTelegramId, input);
+    return this.waitlist.join(actor.telegramId, input, { allowAdmin: actor.allowAdmin });
   }
 
   /**
@@ -41,8 +41,8 @@ export class WaitlistController {
     @Headers("x-telegram-id") telegramIdHeader: string | undefined,
     @Headers("x-client-telegram-id") clientTelegramIdHeader?: string
   ): Promise<WaitlistAdminItem[]> {
-    const actorTelegramId = parseTelegramId(clientTelegramIdHeader ?? telegramIdHeader);
-    return this.waitlist.listMine(actorTelegramId);
+    const actor = resolveClientActor(telegramIdHeader, clientTelegramIdHeader);
+    return this.waitlist.listMine(actor.telegramId);
   }
 
   /** Admin: active queue entries for one training, ordered by position. Admin gate in the service. */
@@ -108,6 +108,22 @@ function parseTelegramId(header: string | undefined): number {
     throw new BadRequestException("Missing or invalid x-telegram-id header");
   }
   return value;
+}
+
+/**
+ * Client/self endpoints accept either the trusted raw Telegram id or the Mini App
+ * client-session bridge. A client-session actor never receives admin fallback,
+ * even when the numeric id is also configured as an admin.
+ */
+function resolveClientActor(
+  telegramIdHeader: string | undefined,
+  clientTelegramIdHeader: string | undefined
+): { telegramId: number; allowAdmin: boolean } {
+  const clientScoped = clientTelegramIdHeader !== undefined;
+  return {
+    telegramId: parseTelegramId(clientScoped ? clientTelegramIdHeader : telegramIdHeader),
+    allowAdmin: !clientScoped
+  };
 }
 
 /** Zod-validate at the boundary; surface failures as 400 instead of 500. */

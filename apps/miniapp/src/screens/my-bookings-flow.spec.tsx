@@ -3,7 +3,14 @@ import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-li
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { AppRoot } from "@telegram-apps/telegram-ui";
 import type { ReactNode } from "react";
-import type { Booking, Client, MiniappMe, MyBookingItem, MyBookingScope } from "@beosand/types";
+import {
+  myBookingItemSchema,
+  type Booking,
+  type Client,
+  type MiniappMe,
+  type MyBookingItem,
+  type MyBookingScope
+} from "@beosand/types";
 import { LanguageProvider } from "../i18n/LanguageProvider";
 import { ConflictError } from "../api/client";
 import { useAvailableSlots } from "../api/hooks";
@@ -38,6 +45,7 @@ const ONBOARDED: Client = {
   name: "Аня",
   telegramId: 42,
   telegramUsername: "anya",
+  telegramPhotoUrl: null,
   levelId: null,
   source: "telegram",
   phone: null,
@@ -58,6 +66,7 @@ const UPCOMING: MyBookingItem = {
   dayOfWeek: 3,
   startTime: "18:00",
   endTime: "19:30",
+  trainingContextLabel: "Mix",
   trainerName: "Иван",
   levelName: "Начинающий",
   bookingStatus: "booked",
@@ -81,6 +90,7 @@ const UPCOMING_LOCKED: MyBookingItem = {
 const UPCOMING_PENDING: MyBookingItem = {
   ...UPCOMING,
   bookingId: "cccccccc-cccc-cccc-cccc-cccccccccccc",
+  trainingContextLabel: "Individual",
   bookingStatus: "pending",
   canCancel: true
 };
@@ -93,6 +103,7 @@ const PAST_ATTENDED: MyBookingItem = {
   dayOfWeek: 4,
   startTime: "18:00",
   endTime: "19:30",
+  trainingContextLabel: "Mix",
   trainerName: "Иван",
   levelName: "Начинающий",
   bookingStatus: "attended",
@@ -199,10 +210,29 @@ describe("MyBookingsScreen render", () => {
     renderWithProviders(<MyBookingsScreen onBrowse={() => {}} />);
 
     await screen.findByText(/Понедельник|Среда/);
+    expect(screen.getByText("Mix")).toBeTruthy();
     // The upcoming chip reads the booked status (text, not color-only).
     expect(screen.getByText("Запись")).toBeTruthy();
     expect(screen.getByText("Иван · Начинающий")).toBeTruthy();
     expect(api.listMyBookings).toHaveBeenCalledWith(ONBOARDED.id, "upcoming");
+  });
+
+  it("shows an error instead of fabricating labels when my-bookings validation rejects a malformed trainingContextLabel", async () => {
+    api = makeApi({
+      getMe: vi.fn().mockReturnValue({ ...ME, language: "en" }),
+      listMyBookings: vi.fn().mockImplementation(async (_clientId: string, scope: MyBookingScope) =>
+        myBookingItemSchema
+          .array()
+          .parse(scope === "upcoming" ? [{ ...UPCOMING, trainingContextLabel: "   " }] : [])
+      )
+    });
+
+    renderWithProviders(<MyBookingsScreen onBrowse={() => {}} />);
+
+    const alert = await screen.findByRole("alert");
+    expect(alert.textContent).toContain("trainingContextLabel");
+    expect(screen.queryByText("Mix")).toBeNull();
+    expect(screen.queryByText("Training")).toBeNull();
   });
 
   it("offers Cancel ONLY for a server-cancellable row (canCancel gate)", async () => {
@@ -221,7 +251,7 @@ describe("MyBookingsScreen render", () => {
     api = makeApi({ listMyBookings: vi.fn().mockResolvedValue([UPCOMING_PENDING]) });
     renderWithProviders(<MyBookingsScreen onBrowse={() => {}} />);
 
-    await screen.findByText("Иван · Начинающий");
+    await screen.findByText("Individual");
     // The pending chip carries its own RU label (text, not color-only) — never "Запись".
     expect(screen.getByText("Ожидает подтверждения")).toBeTruthy();
     expect(screen.queryByText("Запись")).toBeNull();

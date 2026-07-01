@@ -488,6 +488,15 @@ export const adminEn: Record<string, string> = {
   "admin.roster.openLabel": "Attendee list",
   "admin.roster.open": "Attendees",
   "admin.roster.close": "Hide attendees",
+  "admin.roster.colActions": "Actions",
+  "admin.roster.remove": "Remove",
+  "admin.roster.removeAria": "Remove client {client} from the training",
+  "admin.roster.removing": "Removing…",
+  "admin.roster.removeTitle": "Remove participant",
+  "admin.roster.removeConfirm": "Remove",
+  "admin.roster.removePrompt": "Remove {client} from the training on {date}, {start}–{end}? The booking will be cancelled by the server and the seat released.",
+  "admin.roster.removed": "{client} has been removed from the training.",
+  "admin.roster.removeFailed": "Failed to remove participant.",
 
   // ── Clients page ──────────────────────────────────────────────────────────
   "admin.clients.title": "Clients",

@@ -21,9 +21,10 @@ interface BridgedRequest {
  *   admin gates read, so it can never satisfy an admin check regardless of who
  *   the user is (even an admin opening the Mini App acts purely as a client).
  *
- * `x-client-telegram-id` is bridge-controlled: it is stripped from every inbound
- * request first and only set from a verified client token, so a caller can't
- * forge it to impersonate a client on the self-scoped endpoints that read it.
+ * `x-client-telegram-id` and the optional client display-identity headers are
+ * bridge-controlled: they are stripped from every inbound request first and only
+ * set from a verified client token, so a caller can't forge them on the
+ * self-scoped endpoints that read them.
  *
  * Deliberately permissive and never throws:
  * - No `Authorization` header, or a non-Bearer / malformed / invalid / expired
@@ -42,6 +43,8 @@ export class SessionBridgeMiddleware implements NestMiddleware {
     // inbound one (it would let a tokenless caller impersonate a client on the
     // self-scoped endpoints that read it).
     delete req.headers["x-client-telegram-id"];
+    delete req.headers["x-client-telegram-username"];
+    delete req.headers["x-client-telegram-photo-url"];
 
     const token = extractBearerToken(req.headers.authorization);
     if (token) {
@@ -51,6 +54,12 @@ export class SessionBridgeMiddleware implements NestMiddleware {
           req.headers["x-telegram-id"] = String(claims.sub);
         } else {
           req.headers["x-client-telegram-id"] = String(claims.sub);
+          if (claims.username !== undefined) {
+            req.headers["x-client-telegram-username"] = claims.username;
+          }
+          if (claims.photoUrl !== undefined) {
+            req.headers["x-client-telegram-photo-url"] = claims.photoUrl;
+          }
           // A client token must never present an admin-readable id.
           delete req.headers["x-telegram-id"];
         }

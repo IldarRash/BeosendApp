@@ -23,7 +23,13 @@ const BASE = "https://api.test";
 
 const SESSION: MiniappSession = {
   token: "tok-1",
-  user: { telegramId: 42, name: "Аня", username: "anya", language: "ru" }
+  user: {
+    telegramId: 42,
+    name: "Аня",
+    username: "anya",
+    photoUrl: "https://t.me/i/userpic/320/anya.jpg",
+    language: "ru"
+  }
 };
 
 const CLIENT: Client = {
@@ -31,6 +37,7 @@ const CLIENT: Client = {
   name: "Аня",
   telegramId: 42,
   telegramUsername: "anya",
+  telegramPhotoUrl: "https://t.me/i/userpic/320/anya.jpg",
   levelId: null,
   source: "telegram",
   phone: null,
@@ -74,6 +81,33 @@ describe("MiniappApiClient.authenticate", () => {
     expect((init as RequestInit).headers).not.toHaveProperty("authorization");
   });
 
+  it("validates the optional Mini App photoUrl from the session contract", async () => {
+    const sessionWithPhoto: MiniappSession = {
+      ...SESSION,
+      user: { ...SESSION.user, photoUrl: "https://t.me/i/userpic/320/fresh.jpg" }
+    };
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue(jsonResponse(200, sessionWithPhoto)));
+    const client = new MiniappApiClient(BASE);
+
+    await expect(client.authenticate("init-data-raw")).resolves.toEqual(sessionWithPhoto);
+    expect(client.getMe()?.photoUrl).toBe("https://t.me/i/userpic/320/fresh.jpg");
+  });
+
+  it("rejects a malformed session photoUrl via the contract", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockResolvedValue(
+        jsonResponse(200, {
+          ...SESSION,
+          user: { ...SESSION.user, photoUrl: "not-a-url" }
+        })
+      )
+    );
+    const client = new MiniappApiClient(BASE);
+
+    await expect(client.authenticate("init-data-raw")).rejects.toThrow();
+  });
+
   it("rejects a malformed session body via the contract (unsafe path)", async () => {
     // Missing the required `user` field — the API/contract must reject it, not render it.
     vi.stubGlobal("fetch", vi.fn().mockResolvedValue(jsonResponse(200, { token: "tok-1" })));
@@ -107,6 +141,18 @@ describe("MiniappApiClient.getClientByTelegramId", () => {
     vi.stubGlobal(
       "fetch",
       vi.fn().mockResolvedValue(jsonResponse(200, { ...CLIENT, telegramId: "42" }))
+    );
+    const client = new MiniappApiClient(BASE);
+
+    await expect(client.getClientByTelegramId(42)).rejects.toThrow();
+  });
+
+  it("rejects a malformed client photo field (unsafe path)", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockResolvedValue(
+        jsonResponse(200, { ...CLIENT, telegramPhotoUrl: "not-a-url" })
+      )
     );
     const client = new MiniappApiClient(BASE);
 
@@ -289,6 +335,7 @@ describe("MiniappApiClient.listAvailableSlots", () => {
 
 const SCHEDULE_SLOT_OPEN: TrainingScheduleSlot = {
   ...SLOT,
+  trainingContextLabel: "Mix",
   trainingStatus: "open",
   bookable: true
 };
@@ -296,6 +343,7 @@ const SCHEDULE_SLOT_OPEN: TrainingScheduleSlot = {
 const SCHEDULE_SLOT_FULL: TrainingScheduleSlot = {
   ...SLOT,
   trainingId: "99999999-9999-9999-9999-999999999999",
+  trainingContextLabel: "Women",
   freeSeats: 0,
   trainingStatus: "full",
   bookable: false
@@ -323,6 +371,14 @@ describe("MiniappApiClient.listTrainingSchedule", () => {
       "fetch",
       vi.fn().mockResolvedValue(jsonResponse(200, [{ ...SCHEDULE_SLOT_FULL, bookable: "no" }]))
     );
+    const client = new MiniappApiClient(BASE);
+
+    await expect(client.listTrainingSchedule({})).rejects.toThrow();
+  });
+
+  it("rejects a schedule row missing the context label via the contract (unsafe path)", async () => {
+    const { trainingContextLabel: _omit, ...withoutLabel } = SCHEDULE_SLOT_OPEN;
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue(jsonResponse(200, [withoutLabel])));
     const client = new MiniappApiClient(BASE);
 
     await expect(client.listTrainingSchedule({})).rejects.toThrow();
@@ -660,6 +716,7 @@ const MY_BOOKING_ITEM: MyBookingItem = {
   dayOfWeek: 3,
   startTime: "18:00",
   endTime: "19:30",
+  trainingContextLabel: "Individual",
   trainerName: "Иван",
   levelName: "Начинающий",
   bookingStatus: "booked",
@@ -690,6 +747,14 @@ describe("MiniappApiClient.listMyBookings", () => {
       "fetch",
       vi.fn().mockResolvedValue(jsonResponse(200, [{ ...MY_BOOKING_ITEM, canCancel: "yes" }]))
     );
+    const client = new MiniappApiClient(BASE);
+
+    await expect(client.listMyBookings(CLIENT.id, "upcoming")).rejects.toThrow();
+  });
+
+  it("rejects a booking item missing the context label via the contract (unsafe path)", async () => {
+    const { trainingContextLabel: _omit, ...withoutLabel } = MY_BOOKING_ITEM;
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue(jsonResponse(200, [withoutLabel])));
     const client = new MiniappApiClient(BASE);
 
     await expect(client.listMyBookings(CLIENT.id, "upcoming")).rejects.toThrow();

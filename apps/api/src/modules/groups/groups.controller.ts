@@ -51,10 +51,12 @@ export class GroupsController {
     @Query() query: unknown,
     @Headers("x-client-telegram-id") clientTelegramIdHeader?: string
   ): Promise<GroupMembers> {
-    const actorTelegramId = parseTelegramId(clientTelegramIdHeader ?? telegramIdHeader);
+    const actor = resolveClientActor(telegramIdHeader, clientTelegramIdHeader);
     const groupId = validate(uuid, id);
     const { year, month } = validate(groupMembersQuerySchema, query ?? {});
-    return this.groups.listMembers(actorTelegramId, groupId, year, month);
+    return this.groups.listMembers(actor.telegramId, groupId, year, month, {
+      allowAdmin: actor.allowAdmin
+    });
   }
 
   @Post()
@@ -101,6 +103,21 @@ function parseTelegramId(header: string | undefined): number {
     throw new BadRequestException("Missing or invalid x-telegram-id header");
   }
   return value;
+}
+
+/**
+ * Members is shared by trusted raw admin callers and Mini App clients. The Mini
+ * App bridge is client-scoped, so it must not unlock the admin roster shape.
+ */
+function resolveClientActor(
+  telegramIdHeader: string | undefined,
+  clientTelegramIdHeader: string | undefined
+): { telegramId: number; allowAdmin: boolean } {
+  const clientScoped = clientTelegramIdHeader !== undefined;
+  return {
+    telegramId: parseTelegramId(clientScoped ? clientTelegramIdHeader : telegramIdHeader),
+    allowAdmin: !clientScoped
+  };
 }
 
 /**

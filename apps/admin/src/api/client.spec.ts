@@ -1399,6 +1399,21 @@ describe("ApiClient waitlist admin tools", () => {
     paidBy: null
   };
 
+  it("cancels a roster booking through the existing booking cancel path", async () => {
+    const calls = mockFetchOnce({ ...booking, status: "cancelled" });
+    const result = await new ApiClient("http://api.test").cancelBooking(BOOKING_ID);
+    expect(calls[0]?.url).toBe(`http://api.test/bookings/${BOOKING_ID}/cancel`);
+    expect(calls[0]?.init?.method).toBe("POST");
+    expect(calls[0]?.init?.body).toBeUndefined();
+    expect(result.status).toBe("cancelled");
+  });
+
+  it("rejects a malformed cancel-booking response (contract enforced)", async () => {
+    const { paymentStatus: _omit, ...withoutPaymentStatus } = booking;
+    mockFetchOnce({ ...withoutPaymentStatus, status: "cancelled" });
+    await expect(new ApiClient("http://api.test").cancelBooking(BOOKING_ID)).rejects.toThrow();
+  });
+
   it("reads a training's waitlist and validates the enriched rows", async () => {
     const calls = mockFetchOnce([adminItem]);
     const result = await new ApiClient("http://api.test").listTrainingWaitlist(TRAINING_ID);

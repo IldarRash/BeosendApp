@@ -645,6 +645,7 @@ export class TrainingsService {
           dayOfWeek: isoWeekdayOf(row.date),
           startTime: row.startTime,
           endTime: row.endTime,
+          trainingContextLabel: row.trainingContextLabel,
           trainerName: row.trainerName,
           levelName: row.levelName,
           freeSeats: seats,

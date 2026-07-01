@@ -27,10 +27,41 @@ const mineItem: WaitlistAdminItem = {
 
 function makeService(overrides: Partial<WaitlistService> = {}): WaitlistService {
   return {
+    join: vi.fn(),
     listMine: vi.fn(async () => [mineItem]),
     ...overrides
   } as unknown as WaitlistService;
 }
+
+describe("WaitlistController.join (POST /waitlist)", () => {
+  let service: WaitlistService;
+  let controller: WaitlistController;
+
+  beforeEach(() => {
+    service = makeService();
+    controller = new WaitlistController(service);
+  });
+
+  it("disables admin fallback when x-client-telegram-id is present", async () => {
+    await controller.join(
+      undefined,
+      {
+        clientId: CLIENT_ID,
+        trainingId: "44444444-4444-4444-4444-444444444444"
+      },
+      HEADER
+    );
+
+    expect(service.join).toHaveBeenCalledWith(
+      OWNER_ID,
+      {
+        clientId: CLIENT_ID,
+        trainingId: "44444444-4444-4444-4444-444444444444"
+      },
+      { allowAdmin: false }
+    );
+  });
+});
 
 // SEC-M1: /waitlist/mine must resolve the caller's client from the session identity
 // alone — no clientId query is accepted. The controller forwards ONLY the actor

@@ -27,6 +27,10 @@ import { CourtsRepository } from "../courts/courts.repository";
 import { TrainingsService } from "../trainings/trainings.service";
 import { GroupsRepository } from "./groups.repository";
 
+interface ActorRoleOptions {
+  allowAdmin?: boolean;
+}
+
 /**
  * Owns group domain logic. Reads are reference-facing (active only). Writes
  * (create/edit of schedule, capacity, prices) are admin-only, gated here by
@@ -62,7 +66,7 @@ export class GroupsService {
    * least one of the group's trainings that month). The projection is role-based,
    * enforced here so the client-facing roster can never leak other clients' ids or
    * full names:
-   * - Admin (ADMIN_TELEGRAM_IDS) gets the full member row (clientId + fullName).
+   * - Trusted raw admin callers get the full member row (clientId + fullName).
    * - Any other caller must be an onboarded client (resolved from telegram_id);
    *   they get only firstName + avatarInitial. A non-admin non-client is rejected
    *   with a 403.
@@ -71,7 +75,8 @@ export class GroupsService {
     actorTelegramId: number,
     groupId: string,
     year: number,
-    month: number
+    month: number,
+    options: ActorRoleOptions = {}
   ): Promise<GroupMembers> {
     const group = await this.groups.findById(groupId);
     if (!group) {
@@ -80,7 +85,7 @@ export class GroupsService {
 
     const [from, to] = monthBounds(year, month);
 
-    const admin = isAdmin(this.env, actorTelegramId);
+    const admin = (options.allowAdmin ?? true) && isAdmin(this.env, actorTelegramId);
     // `callerSubscribed` is the Mini App hint for a client's own monthly subscription;
     // an admin is not a subscribing client, so it is always false for an admin caller.
     let callerSubscribed = false;

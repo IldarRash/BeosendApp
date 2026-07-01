@@ -789,6 +789,18 @@ export class ApiClient {
     });
   }
 
+  /**
+   * Soft-cancel one booking (POST /bookings/:id/cancel). Used by the roster remove
+   * action; the server owns authorization, cancellable status checks, seat count
+   * recompute, and waitlist promotion. The SPA only sends the booking id and
+   * validates the returned booking row.
+   */
+  cancelBooking(bookingId: string): Promise<Booking> {
+    return this.request(`/bookings/${bookingId}/cancel`, bookingSchema, {
+      method: "POST"
+    });
+  }
+
   // ── Clients (M2) ──────────────────────────────────────────────────────────
 
   /**

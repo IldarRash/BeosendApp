@@ -1,5 +1,5 @@
 import { PgDialect } from "drizzle-orm/pg-core";
-import type { Database } from "@beosand/db";
+import { tables, type Database } from "@beosand/db";
 import { describe, expect, it } from "vitest";
 import { BookingsRepository } from "./bookings.repository";
 import type { DatabaseService } from "../../db/database.service";
@@ -66,6 +66,33 @@ describe("BookingsRepository.listForClient WHERE filter", () => {
   it("scopes the read to the supplied client id", async () => {
     const sql = await renderWhere("upcoming");
     expect(sql).toContain('"client_id" =');
+  });
+
+  it("selects the exact raw training fields needed for group vs Individual labels", async () => {
+    let selection: Record<string, unknown> | undefined;
+    const builder = {
+      from: () => builder,
+      innerJoin: () => builder,
+      leftJoin: () => builder,
+      where: () => builder,
+      orderBy: async () => [] as unknown[]
+    };
+    const db = {
+      select: (columns: Record<string, unknown>) => {
+        selection = columns;
+        return builder;
+      }
+    } as unknown as Database;
+    const repo = new BookingsRepository({ db } as unknown as DatabaseService);
+
+    await repo.listForClient("11111111-1111-4111-8111-111111111111", "upcoming", "2026-06-25");
+
+    expect(selection).toBeDefined();
+    expect(selection).toMatchObject({
+      trainingGroupId: tables.trainings.groupId,
+      groupName: tables.groups.name,
+      trainingClientId: tables.trainings.clientId
+    });
   });
 });
 

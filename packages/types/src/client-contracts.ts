@@ -9,6 +9,8 @@ export const clientSchema = z.object({
   /** Null for walk-in clients (no Telegram account); set for bot-onboarded. */
   telegramId: z.number().int().nullable(),
   telegramUsername: z.string().nullable(),
+  /** Optional Telegram-provided profile photo URL, synced only from verified Mini App identity. */
+  telegramPhotoUrl: z.string().url().nullable(),
   levelId: uuid.nullable(),
   /** "telegram" (bot-onboarded) or "walk_in" (created manually by an admin). */
   source: clientSource,
@@ -34,17 +36,19 @@ export const clientSchema = z.object({
    */
   bonusTrainingCredits: z.number().int().nonnegative()
 });
-export const onboardClientSchema = z.object({
-  telegramId: z.number().int(),
-  telegramUsername: z.string().nullable().optional(),
-  name: z.string().min(1),
-  levelId: uuid.nullable().optional(),
-  /**
-   * Explicit affirmative consent to personal-data processing (must be literally
-   * true). Onboarding is refused without it; the server stamps `consentGivenAt`.
-   */
-  consentAccepted: z.literal(true)
-});
+export const onboardClientSchema = z
+  .object({
+    telegramId: z.number().int(),
+    telegramUsername: z.string().nullable().optional(),
+    name: z.string().min(1),
+    levelId: uuid.nullable().optional(),
+    /**
+     * Explicit affirmative consent to personal-data processing (must be literally
+     * true). Onboarding is refused without it; the server stamps `consentGivenAt`.
+     */
+    consentAccepted: z.literal(true)
+  })
+  .strict();
 /**
  * Admin clients-list filter (GET /clients). `search` is a case-insensitive
  * substring matched against the client's name OR Telegram @username (the service

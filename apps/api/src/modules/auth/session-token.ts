@@ -30,6 +30,8 @@ export interface SessionClaims {
   scope: SessionScope;
   /** Optional Telegram username. */
   username?: string;
+  /** Optional Telegram profile photo URL for client display identity. */
+  photoUrl?: string;
   /** Issued-at, seconds since epoch. */
   iat: number;
   /** Expiry, seconds since epoch. */
@@ -57,7 +59,7 @@ function sign(signingInput: string, secret: string): string {
  * default is the current time.
  */
 export function signSessionToken(
-  claims: Pick<SessionClaims, "sub" | "name" | "scope" | "username">,
+  claims: Pick<SessionClaims, "sub" | "name" | "scope" | "username" | "photoUrl">,
   secret: string,
   nowSeconds: number = Math.floor(Date.now() / 1000)
 ): string {
@@ -66,6 +68,7 @@ export function signSessionToken(
     name: claims.name,
     scope: claims.scope,
     ...(claims.username !== undefined ? { username: claims.username } : {}),
+    ...(claims.photoUrl !== undefined ? { photoUrl: claims.photoUrl } : {}),
     iat: nowSeconds,
     exp: nowSeconds + SESSION_TTL_SECONDS
   };
@@ -112,7 +115,9 @@ export function verifySessionToken(
     typeof claims.sub !== "number" ||
     typeof claims.name !== "string" ||
     typeof claims.exp !== "number" ||
-    (claims.scope !== "client" && claims.scope !== "admin")
+    (claims.scope !== "client" && claims.scope !== "admin") ||
+    (claims.username !== undefined && typeof claims.username !== "string") ||
+    (claims.photoUrl !== undefined && typeof claims.photoUrl !== "string")
   ) {
     return null;
   }

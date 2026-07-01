@@ -39,6 +39,11 @@ export interface AvailableSlotRow {
   priceSingleRsd: number;
 }
 
+/** A visible group-slot row carrying its server-owned context label. */
+export interface ScheduleSlotRow extends AvailableSlotRow {
+  trainingContextLabel: string;
+}
+
 /** One of a trainer's trainings on a date, joined to its (nullable) group's level name. */
 export interface TrainerTrainingRow {
   trainingId: string;
@@ -592,7 +597,7 @@ export class TrainingsRepository {
     to: string,
     levelId?: string,
     trainerId?: string
-  ): Promise<AvailableSlotRow[]> {
+  ): Promise<ScheduleSlotRow[]> {
     const filters = [
       gte(tables.trainings.date, from),
       lte(tables.trainings.date, to),
@@ -620,6 +625,7 @@ export class TrainingsRepository {
         trainerName: tables.trainers.name,
         levelId: tables.groups.levelId,
         levelName: tables.levels.name,
+        trainingContextLabel: tables.groups.name,
         capacity: tables.trainings.capacity,
         bookedCount: tables.trainings.bookedCount,
         status: tables.trainings.status,

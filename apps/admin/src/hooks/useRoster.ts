@@ -7,12 +7,18 @@ import {
 } from "@tanstack/react-query";
 import type { Booking, MarkAttendanceInput, TrainingRoster } from "@beosand/types";
 import { useApiClient } from "../api/ApiProvider";
+import { invalidateTrainings } from "./useTrainings";
+import { invalidateWaitlist } from "./useWaitlist";
 
 const ROSTER_KEY = ["roster"] as const;
 
 /** Stable cache key for one training's roster. */
 function rosterKey(trainingId: string): readonly unknown[] {
   return [...ROSTER_KEY, trainingId] as const;
+}
+
+function invalidateRoster(queryClient: ReturnType<typeof useQueryClient>): Promise<void> {
+  return queryClient.invalidateQueries({ queryKey: ROSTER_KEY }).then(() => undefined);
 }
 
 /**
@@ -44,5 +50,28 @@ export function useMarkAttendance(): UseMutationResult<
     mutationFn: ({ bookingId, input }) => api.markAttendance(bookingId, input),
     onSuccess: (_booking, { trainingId }) =>
       queryClient.invalidateQueries({ queryKey: rosterKey(trainingId) })
+  });
+}
+
+/**
+ * Soft-cancel one roster participant through POST /bookings/:id/cancel. The API
+ * recomputes bookedCount/status and may promote the waitlist; on settle the
+ * affected reads are refreshed instead of patched locally.
+ */
+export function useCancelRosterParticipant(): UseMutationResult<
+  Booking,
+  Error,
+  { bookingId: string }
+> {
+  const api = useApiClient();
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: ({ bookingId }) => api.cancelBooking(bookingId),
+    onSettled: () =>
+      Promise.all([
+        invalidateRoster(queryClient),
+        invalidateTrainings(queryClient),
+        invalidateWaitlist(queryClient)
+      ]).then(() => undefined)
   });
 }

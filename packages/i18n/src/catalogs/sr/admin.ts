@@ -488,6 +488,15 @@ export const adminSr: Record<string, string> = {
   "admin.roster.openLabel": "Lista prijavljenih",
   "admin.roster.open": "Prijavljeni",
   "admin.roster.close": "Sakrij prijavljene",
+  "admin.roster.colActions": "Akcije",
+  "admin.roster.remove": "Ukloni",
+  "admin.roster.removeAria": "Ukloni klijenta {client} sa treninga",
+  "admin.roster.removing": "Uklanjanje…",
+  "admin.roster.removeTitle": "Ukloni učesnika",
+  "admin.roster.removeConfirm": "Ukloni",
+  "admin.roster.removePrompt": "Ukloniti {client} sa treninga {date}, {start}–{end}? Upis će biti otkazan na serveru, a mesto oslobođeno.",
+  "admin.roster.removed": "{client} je uklonjen(a) sa treninga.",
+  "admin.roster.removeFailed": "Nije moguće ukloniti učesnika.",
 
   // ── Clients page ──────────────────────────────────────────────────────────
   "admin.clients.title": "Klijenti",

@@ -13,6 +13,7 @@ import { TrainingsService } from "./trainings.service";
 import type {
   AvailableSlotRow,
   RosterRow,
+  ScheduleSlotRow,
   TrainerTrainingRow,
   TrainingCalendarRow,
   TrainingHeaderRow,
@@ -158,13 +159,13 @@ class FakeTrainingsRepository {
 
   // Mirrors the real SQL: visible grouped schedule rows in [from, to], including
   // full rows so the Mini App can offer the waitlist path.
-  schedule: AvailableSlotRow[] = [];
+  schedule: ScheduleSlotRow[] = [];
   async listSchedule(
     from: string,
     to: string,
     levelId?: string,
     trainerId?: string
-  ): Promise<AvailableSlotRow[]> {
+  ): Promise<ScheduleSlotRow[]> {
     return this.schedule
       .filter(
         (r) =>
@@ -886,7 +887,7 @@ describe("TrainingsService", () => {
     it("keeps full rows out of available but returns them in schedule as non-bookable", async () => {
       const full = slot({ status: "full", bookedCount: 6, capacity: 6 });
       trainingsRepo.available = [full];
-      trainingsRepo.schedule = [full];
+      trainingsRepo.schedule = [{ ...full, trainingContextLabel: "Women" }];
 
       expect(await service.listAvailable({})).toEqual([]);
 
@@ -895,6 +896,7 @@ describe("TrainingsService", () => {
       expect(schedule[0]).toMatchObject({
         trainingId: full.trainingId,
         freeSeats: 0,
+        trainingContextLabel: "Women",
         trainingStatus: "full",
         bookable: false
       });
@@ -1168,6 +1170,7 @@ describe("TrainingsService", () => {
       name: "Onboarded",
       telegramId,
       telegramUsername: null,
+      telegramPhotoUrl: null,
       levelId: null,
       source: "telegram",
       phone: null,
@@ -1801,6 +1804,7 @@ describe("TrainingsService", () => {
       name: "Ивана",
       telegramId: 4242,
       telegramUsername: null,
+      telegramPhotoUrl: null,
       levelId: null,
       source: "telegram",
       phone: null,

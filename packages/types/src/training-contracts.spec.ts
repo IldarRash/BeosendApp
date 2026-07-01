@@ -38,6 +38,7 @@ import {
   trainerTodayItemSchema,
   trainerTodayQuerySchema,
   trainingRosterSchema,
+  trainingScheduleSlotSchema,
   updateGroupSchema,
   updateIndividualPriceSchema,
   singleBookingResultSchema,
@@ -854,6 +855,42 @@ describe("myBookingsQuerySchema", () => {
   });
 });
 
+describe("trainingScheduleSlotSchema", () => {
+  const validSlot = {
+    trainingId: "11111111-1111-1111-1111-111111111111",
+    date: "2099-06-08",
+    dayOfWeek: 1,
+    startTime: "18:00",
+    endTime: "19:30",
+    trainerName: "Coach",
+    levelName: "Beginners",
+    freeSeats: 3,
+    priceSingleRsd: 1800,
+    trainingContextLabel: "Mix",
+    trainingStatus: "open",
+    bookable: true
+  };
+
+  it("round-trips a schedule slot carrying the server-owned context label", () => {
+    const parsed = trainingScheduleSlotSchema.safeParse(validSlot);
+    expect(parsed.success).toBe(true);
+    if (parsed.success) {
+      expect(parsed.data).toEqual(validSlot);
+    }
+  });
+
+  it("rejects a missing, empty, or whitespace-only context label", () => {
+    const { trainingContextLabel: _omitted, ...withoutLabel } = validSlot;
+    expect(trainingScheduleSlotSchema.safeParse(withoutLabel).success).toBe(false);
+    expect(
+      trainingScheduleSlotSchema.safeParse({ ...validSlot, trainingContextLabel: "" }).success
+    ).toBe(false);
+    expect(
+      trainingScheduleSlotSchema.safeParse({ ...validSlot, trainingContextLabel: "   " }).success
+    ).toBe(false);
+  });
+});
+
 describe("myBookingItemSchema", () => {
   const validItem = {
     bookingId: "11111111-1111-1111-1111-111111111111",
@@ -863,6 +900,7 @@ describe("myBookingItemSchema", () => {
     dayOfWeek: 1,
     startTime: "18:00",
     endTime: "19:30",
+    trainingContextLabel: "Individual",
     trainerName: "Coach",
     levelName: "Beginners",
     bookingStatus: "booked",
@@ -889,6 +927,17 @@ describe("myBookingItemSchema", () => {
 
   it("rejects a non-boolean canCancel", () => {
     expect(myBookingItemSchema.safeParse({ ...validItem, canCancel: "yes" }).success).toBe(false);
+  });
+
+  it("rejects a missing, empty, or whitespace-only context label", () => {
+    const { trainingContextLabel: _omitted, ...withoutLabel } = validItem;
+    expect(myBookingItemSchema.safeParse(withoutLabel).success).toBe(false);
+    expect(myBookingItemSchema.safeParse({ ...validItem, trainingContextLabel: "" }).success).toBe(
+      false
+    );
+    expect(
+      myBookingItemSchema.safeParse({ ...validItem, trainingContextLabel: "   " }).success
+    ).toBe(false);
   });
 
   it("accepts a pending booking status (trainer-confirmation hold)", () => {

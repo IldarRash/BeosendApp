@@ -38,6 +38,7 @@ function item(over: Partial<MyBookingItem> = {}): MyBookingItem {
     dayOfWeek: 3,
     startTime: "18:00",
     endTime: "19:30",
+    trainingContextLabel: "Group",
     trainerName: "Марко",
     levelName: "Начинающий",
     groupSubscriptionId: null,
