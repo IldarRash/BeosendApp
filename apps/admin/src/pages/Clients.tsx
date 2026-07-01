@@ -25,12 +25,13 @@ import { useLevels } from "../hooks/useLevels";
 import { formatDateTime } from "../lib/format";
 
 type StatusFilter = EntityStatus | "all";
+const LEVEL_UNSET_FILTER = "__unset";
 
 /**
  * M2 — Клиенты: the full client roster with a name/@tag search, plus onboarding
  * of a new client. The API owns identity, search normalization, and the admin
- * gate; this screen only collects the filters and renders the validated rows. No
- * domain logic or client-side filtering here.
+ * gate; this screen only collects the filters and renders the validated rows.
+ * Server search/status are authoritative; table filters only narrow loaded rows.
  */
 export function Clients(): JSX.Element {
   const t = useT();
@@ -56,22 +57,60 @@ export function Clients(): JSX.Element {
       levelId === null ? t("admin.clients.levelUnset") : (byId.get(levelId) ?? "—");
   }, [levels.data, t]);
 
+  const tableLevelOptions = useMemo(
+    () => [
+      { value: LEVEL_UNSET_FILTER, label: t("admin.clients.levelUnset") },
+      ...(levels.data ?? []).map((level) => ({ value: level.id, label: level.name }))
+    ],
+    [levels.data, t]
+  );
+
+  const tableStatusOptions = useMemo(
+    () => [
+      { value: "active", label: t("admin.status.active") },
+      { value: "inactive", label: t("admin.status.inactive") }
+    ],
+    [t]
+  );
+
   const columns: Column<Client>[] = [
-    { key: "name", header: t("admin.clients.cardName"), render: (c) => c.name },
+    {
+      key: "name",
+      header: t("admin.clients.cardName"),
+      render: (c) => c.name,
+      sortValue: (c) => c.name,
+      filter: { kind: "text", value: (c) => c.name }
+    },
     {
       key: "tag",
       header: t("admin.clients.cardUsername"),
-      render: (c) => (c.telegramUsername ? <code>@{c.telegramUsername}</code> : "—")
+      render: (c) => (c.telegramUsername ? <code>@{c.telegramUsername}</code> : "—"),
+      sortValue: (c) => c.telegramUsername,
+      filter: { kind: "text", value: (c) => (c.telegramUsername ? `@${c.telegramUsername}` : null) }
     },
     {
       key: "telegram",
       header: t("admin.clients.cardTelegramId"),
-      render: (c) => <code>{c.telegramId}</code>
+      render: (c) => <code>{c.telegramId}</code>,
+      sortValue: (c) => c.telegramId,
+      filter: { kind: "number", value: (c) => c.telegramId }
     },
-    { key: "level", header: t("admin.clients.cardLevel"), render: (c) => levelName(c.levelId) },
+    {
+      key: "level",
+      header: t("admin.clients.cardLevel"),
+      render: (c) => levelName(c.levelId),
+      sortValue: (c) => levelName(c.levelId),
+      filter: {
+        kind: "select",
+        value: (c) => c.levelId ?? LEVEL_UNSET_FILTER,
+        options: tableLevelOptions
+      }
+    },
     {
       key: "status",
       header: t("admin.clients.cardStatus"),
+      sortValue: (c) => (c.status === "active" ? t("admin.status.active") : t("admin.status.inactive")),
+      filter: { kind: "select", value: (c) => c.status, options: tableStatusOptions },
       render: (c) => (
         <span className={`tag ${c.status === "active" ? "tag--ok" : "tag--warn"}`}>
           {c.status === "active" ? t("admin.status.active") : t("admin.status.inactive")}
@@ -81,6 +120,8 @@ export function Clients(): JSX.Element {
     {
       key: "consent",
       header: t("admin.clients.cardConsent"),
+      sortValue: (c) => c.consentGivenAt,
+      filter: { kind: "date", value: (c) => c.consentGivenAt },
       render: (c) =>
         c.consentGivenAt ? formatDateTime(c.consentGivenAt) : t("admin.clients.consentNone")
     },
@@ -88,6 +129,8 @@ export function Clients(): JSX.Element {
       key: "bonus",
       header: t("admin.clients.cardBonus"),
       numeric: true,
+      sortValue: (c) => c.bonusTrainingCredits,
+      filter: { kind: "number", value: (c) => c.bonusTrainingCredits },
       render: (c) => (
         <span className={c.bonusTrainingCredits > 0 ? "tag tag--info" : "tag tag--muted"}>
           {c.bonusTrainingCredits}
