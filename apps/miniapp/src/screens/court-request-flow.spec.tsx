@@ -151,11 +151,23 @@ function renderScreen() {
 }
 
 async function chooseDateAndDuration(): Promise<void> {
-  const [dateStrip] = await screen.findAllByRole("group");
-  fireEvent.click(dateStrip.querySelectorAll("button")[0]);
+  await screen.findByRole("group");
+  const firstOfferedDate = document.querySelector(".court-calendar__cell.is-offered");
+  expect(firstOfferedDate).not.toBeNull();
+  fireEvent.click(firstOfferedDate!);
 
   const durationChoices = await screen.findAllByRole("radio");
   fireEvent.click(durationChoices[0]);
+}
+
+async function chooseDateAndDurationIndex(durationIndex: number): Promise<void> {
+  await screen.findByRole("group");
+  const firstOfferedDate = document.querySelector(".court-calendar__cell.is-offered");
+  expect(firstOfferedDate).not.toBeNull();
+  fireEvent.click(firstOfferedDate!);
+
+  const durationChoices = await screen.findAllByRole("radio");
+  fireEvent.click(durationChoices[durationIndex]);
 }
 
 async function openGrid(): Promise<void> {
@@ -174,6 +186,10 @@ function courtLabel(courtNumber: number, startTime: string): string {
 
 function takenCourtLabel(courtNumber: number, startTime: string): string {
   return `Корт ${courtNumber} занят ${startTime}`;
+}
+
+function overflowCourtLabel(courtNumber: number, startTime: string): string {
+  return `Корт ${courtNumber}: не помещается в день ${startTime}`;
 }
 
 beforeEach(() => {
@@ -324,11 +340,75 @@ describe("CourtRequestScreen", () => {
     });
 
     renderScreen();
-    const [dateStrip] = await screen.findAllByRole("group");
-    fireEvent.click(dateStrip.querySelectorAll("button")[0]);
+    await screen.findByRole("group");
+    const firstOfferedDate = document.querySelector(".court-calendar__cell.is-offered");
+    expect(firstOfferedDate).not.toBeNull();
+    fireEvent.click(firstOfferedDate!);
     const durationChoices = await screen.findAllByRole("radio");
     fireEvent.click(durationChoices[0]);
 
     expect(await screen.findByRole("alert")).toBeTruthy();
+  });
+
+  it("highlights every visible half-hour cell inside the selected duration interval", async () => {
+    api = makeApi({
+      getCourtClientGrid: vi.fn().mockResolvedValue({
+        ...COURT_GRID,
+        durationHours: 2,
+        rows: [1, 2].map((courtNumber) => ({
+          courtNumber,
+          cells: ["11:30", "12:00", "12:30", "13:00", "13:30"].map((startTime) => ({
+            startTime,
+            endTime: "13:30",
+            state: "free"
+          }))
+        }))
+      })
+    });
+
+    renderScreen();
+    await chooseDateAndDurationIndex(2);
+    await screen.findByRole("grid");
+
+    fireEvent.click(screen.getByRole("button", { name: courtLabel(1, "11:30") }));
+    fireEvent.click(screen.getByRole("button", { name: courtLabel(2, "11:30") }));
+
+    for (const courtNumber of [1, 2]) {
+      for (const startTime of ["11:30", "12:00", "12:30", "13:00"]) {
+        expect(screen.getByRole("button", { name: courtLabel(courtNumber, startTime) }).className).toContain(
+          "is-selected"
+        );
+      }
+      expect(screen.getByRole("button", { name: courtLabel(courtNumber, "13:30") }).className).not.toContain(
+        "is-selected"
+      );
+    }
+  });
+
+  it("renders backend overflow cells disabled, distinctly labeled, and distinct from occupied cells", async () => {
+    const overflowGrid = {
+      ...COURT_GRID,
+      rows: [
+        {
+          courtNumber: 1,
+          cells: [
+            { startTime: "20:00", endTime: "21:00", state: "overflow" },
+            { startTime: "20:30", endTime: "21:30", state: "unavailable" }
+          ]
+        }
+      ]
+    } as unknown as CourtClientGrid;
+    api = makeApi({ getCourtClientGrid: vi.fn().mockResolvedValue(overflowGrid) });
+
+    renderScreen();
+    await openGrid();
+
+    const overflowCell = screen.getByRole("button", { name: overflowCourtLabel(1, "20:00") }) as HTMLButtonElement;
+    const occupiedCell = screen.getByRole("button", { name: takenCourtLabel(1, "20:30") }) as HTMLButtonElement;
+
+    expect(overflowCell.disabled).toBe(true);
+    expect(overflowCell.className).toContain("is-overflow");
+    expect(overflowCell.className).not.toContain("is-unavailable");
+    expect(occupiedCell.className).toContain("is-unavailable");
   });
 });

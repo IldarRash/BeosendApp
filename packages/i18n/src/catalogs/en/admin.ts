@@ -670,6 +670,7 @@ export const adminEn: Record<string, string> = {
   "admin.courtRequests.courtOption": "Court No. {number}",
   "admin.courtRequests.confirmed": "Request confirmed for {client}.",
   "admin.courtRequests.rejected": "Request rejected for {client}.",
+  "admin.courtRequests.showOnLoad": "Show on grid",
   "admin.courtRequests.opFailed": "Failed to perform the operation.",
   "admin.courtRequests.conflict": "That slot was just taken or the request was already decided — the list has been refreshed.",
 
@@ -728,6 +729,7 @@ export const adminEn: Record<string, string> = {
   "admin.courtLoad.colCourt": "Court",
   "admin.courtLoad.noCourts": "No courts for the selected date.",
   "admin.courtLoad.allFreeHint": "All courts are free on the selected date.",
+  "admin.courtLoad.targetNotVisible": "This request is not visible on the selected grid.",
   "admin.courtLoad.courtNumber": "No. {number}",
   "admin.courtLoad.cellFree": "Free",
   "admin.courtLoad.cellRequest": "Request",

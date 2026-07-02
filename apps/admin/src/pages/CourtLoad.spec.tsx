@@ -1,6 +1,8 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { cleanup, fireEvent, render, screen, within } from "@testing-library/react";
+import { useEffect } from "react";
+import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { ToastProvider } from "../ui/Toast";
+import { MemoryRouter, useNavigate } from "react-router-dom";
 import type {
   Court,
   CourtLoadGrid,
@@ -191,11 +193,32 @@ function mutation(over: Record<string, unknown> = {}) {
 }
 
 /** Render the page inside a ToastProvider (the assign flow notifies on success/error). */
-function renderPage(): void {
-  render(
-    <ToastProvider>
-      <CourtLoad />
-    </ToastProvider>
+function renderPage(initialEntry = "/court-load") {
+  return render(
+    <MemoryRouter initialEntries={[initialEntry]}>
+      <ToastProvider>
+        <CourtLoad />
+      </ToastProvider>
+    </MemoryRouter>
+  );
+}
+
+function NavigateTo({ to }: { to: string }): null {
+  const navigate = useNavigate();
+  useEffect(() => {
+    navigate(to);
+  }, [navigate, to]);
+  return null;
+}
+
+function renderNavigablePage(entry: string) {
+  return render(
+    <MemoryRouter initialEntries={[entry]}>
+      <ToastProvider>
+        <NavigateTo to={entry} />
+        <CourtLoad />
+      </ToastProvider>
+    </MemoryRouter>
   );
 }
 
@@ -254,6 +277,56 @@ describe("CourtLoad page", () => {
     expect(within(timeline).getByText("№ 2")).toBeTruthy();
     expect(screen.getByLabelText("Таймлайн корта 1")).toBeTruthy();
     expect(screen.getByLabelText("Таймлайн корта 2")).toBeTruthy();
+  });
+
+  it("initializes the grid date from the date query parameter", () => {
+    renderPage(`/court-load?date=2026-06-10&requestId=${REQUEST_ID}`);
+
+    expect(useCourtLoad).toHaveBeenLastCalledWith("2026-06-10");
+    expect(screen.getByDisplayValue("2026-06-10")).toBeTruthy();
+  });
+
+  it("syncs the grid date when navigating to another court-load query URL in the same instance", async () => {
+    const firstEntry = `/court-load?date=2026-06-10&requestId=${REQUEST_ID}`;
+    const secondEntry = `/court-load?date=2026-06-11&requestId=${REQUEST_ID_ALT}`;
+    const { rerender } = renderNavigablePage(firstEntry);
+
+    expect(useCourtLoad).toHaveBeenLastCalledWith("2026-06-10");
+    expect(screen.getByDisplayValue("2026-06-10")).toBeTruthy();
+
+    rerender(
+      <MemoryRouter initialEntries={[firstEntry]}>
+        <ToastProvider>
+          <NavigateTo to={secondEntry} />
+          <CourtLoad />
+        </ToastProvider>
+      </MemoryRouter>
+    );
+
+    await waitFor(() => expect(useCourtLoad).toHaveBeenLastCalledWith("2026-06-11"));
+    expect(screen.getByDisplayValue("2026-06-11")).toBeTruthy();
+  });
+
+  it("highlights every request and hold event matching the requestId query parameter", () => {
+    const { container } = renderPage(`/court-load?date=2026-06-10&requestId=${REQUEST_ID}`);
+
+    const highlighted = Array.from(container.querySelectorAll(".court-event--target"));
+    expect(highlighted).toHaveLength(3);
+    expect(highlighted.some((event) => event.className.includes("court-event--request"))).toBe(true);
+    expect(highlighted.some((event) => event.className.includes("court-event--hold"))).toBe(true);
+    expect(highlighted.every((event) => event.getAttribute("aria-current") === "true")).toBe(true);
+
+    fireEvent.click(highlighted[0] as HTMLElement);
+    expect(useCourtRequestDetail).toHaveBeenLastCalledWith(REQUEST_ID);
+  });
+
+  it("shows a small note when the requestId query parameter is absent from the loaded grid", () => {
+    const { container } = renderPage(
+      "/court-load?date=2026-06-10&requestId=99999999-9999-4999-8999-999999999999"
+    );
+
+    expect(container.querySelector(".court-event--target")).toBeNull();
+    expect(container.querySelector(".court-load-target-note")).toBeTruthy();
   });
 
   it("tints each event card by the API's state and names it for screen readers", () => {

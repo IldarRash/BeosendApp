@@ -753,6 +753,121 @@ button.slot { display: block; }
 /* =========================================================
  * Date strip (court) — .datestrip / .dchip
  * ========================================================= */
+.court-calendar .tg-sech {
+  padding-top: 0;
+}
+
+.court-calendar__panel {
+  margin: 0 16px;
+  padding: 8px;
+  border-radius: var(--r);
+  background: var(--tg-bg);
+  border: 1px solid var(--tg-sep-soft);
+}
+
+.court-calendar__nav {
+  display: grid;
+  grid-template-columns: 36px 1fr 36px;
+  align-items: center;
+  gap: 6px;
+  margin-bottom: 4px;
+}
+
+.court-calendar__nav-btn {
+  width: 36px;
+  height: 32px;
+  border: none;
+  border-radius: 9px;
+  background: rgba(120, 120, 128, 0.1);
+  color: var(--co);
+  font-family: var(--ff);
+  font-size: 18px;
+  font-weight: 700;
+  cursor: pointer;
+}
+
+.court-calendar__nav-btn:disabled {
+  opacity: 0.28;
+  cursor: default;
+}
+
+.court-calendar__month {
+  text-align: center;
+  font-size: 15px;
+  font-weight: 650;
+  color: var(--tg-text);
+}
+
+.court-calendar__weekdays,
+.court-calendar__week {
+  display: grid;
+  grid-template-columns: repeat(7, minmax(0, 1fr));
+}
+
+.court-calendar__weekdays span {
+  padding: 5px 0 4px;
+  text-align: center;
+  color: var(--tg-hint);
+  font-size: 10px;
+  font-weight: 700;
+  text-transform: uppercase;
+}
+
+.court-calendar__cell {
+  min-width: 0;
+  aspect-ratio: 1;
+  border: none;
+  border-radius: 9px;
+  background: transparent;
+  color: var(--tg-hint);
+  font-family: var(--ff);
+  font-size: 14px;
+  font-weight: 500;
+  display: grid;
+  place-items: center;
+  position: relative;
+}
+
+.court-calendar__cell.is-offered {
+  color: var(--tg-text);
+  cursor: pointer;
+}
+
+.court-calendar__cell.is-offered::after {
+  content: "";
+  width: 4px;
+  height: 4px;
+  border-radius: 50%;
+  background: var(--teal);
+  position: absolute;
+  bottom: 5px;
+}
+
+.court-calendar__cell.is-selected {
+  background: var(--co);
+  color: #fff;
+  font-weight: 700;
+}
+
+.court-calendar__cell.is-selected::after {
+  background: #fff;
+}
+
+.court-calendar__cell:disabled {
+  cursor: default;
+  opacity: 0.36;
+}
+
+.court-calendar__cell.is-pad {
+  opacity: 0;
+}
+
+.court-calendar__cell:focus-visible,
+.court-calendar__nav-btn:focus-visible {
+  outline: 2px solid var(--co);
+  outline-offset: 2px;
+}
+
 .datestrip {
   display: flex;
   gap: 9px;
@@ -785,6 +900,47 @@ button.slot { display: block; }
 .dchip.is-on .dchip__day { color: #fff; }
 
 .dchip:focus-visible {
+  outline: 2px solid var(--co);
+  outline-offset: 2px;
+}
+
+.tg-sech--court-duration {
+  padding-top: 6px;
+}
+
+.court-duration {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 7px;
+  margin: 0 16px 2px;
+  padding: 7px;
+  border-radius: var(--r);
+  background: var(--tg-bg);
+  border: 1px solid var(--tg-sep-soft);
+}
+
+.court-duration__btn {
+  min-width: 0;
+  height: 34px;
+  border: 1px solid transparent;
+  border-radius: 10px;
+  background: rgba(120, 120, 128, 0.1);
+  color: var(--tg-subtitle);
+  cursor: pointer;
+  font-family: var(--ff);
+  font-size: 13px;
+  font-weight: 650;
+  font-variant-numeric: tabular-nums;
+}
+
+.court-duration__btn.is-on {
+  background: var(--co);
+  border-color: var(--co);
+  color: #fff;
+  box-shadow: 0 4px 12px rgba(225, 91, 67, 0.22);
+}
+
+.court-duration__btn:focus-visible {
   outline: 2px solid var(--co);
   outline-offset: 2px;
 }
@@ -959,13 +1115,32 @@ button.slot { display: block; }
   border-color: #f0c4bd;
 }
 
+.court-grid__cell.is-overflow {
+  cursor: not-allowed;
+  background: repeating-linear-gradient(
+    135deg,
+    rgba(120, 120, 128, 0.1),
+    rgba(120, 120, 128, 0.1) 6px,
+    rgba(120, 120, 128, 0.18) 6px,
+    rgba(120, 120, 128, 0.18) 12px
+  );
+  color: var(--tg-hint);
+  border-color: var(--tg-sep-soft);
+}
+
 .court-grid__cell.is-selected {
+  background: var(--co-soft);
+  color: var(--co-ink);
+  border-color: rgba(225, 91, 67, 0.42);
+}
+
+.court-grid__cell.is-selected-start {
   background: var(--co);
   color: #fff;
   border-color: var(--co);
 }
 
-.court-grid__cell.is-selected::after {
+.court-grid__cell.is-selected-start::after {
   content: "\2713";
   position: absolute;
   inset-inline-end: 6px;

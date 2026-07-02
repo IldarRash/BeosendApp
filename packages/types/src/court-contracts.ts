@@ -234,7 +234,7 @@ export type FreeCourtNumbers = z.infer<typeof freeCourtNumbersSchema>;
 
 /**
  * Mini App client-facing court booking grid. It exposes only court display
- * numbers and free/unavailable state for the selected duration; no internal ids,
+ * numbers and redacted cell state for the selected duration; no internal ids,
  * request ids, block ids, training ids, reasons, or client data.
  */
 export const courtClientGridQuerySchema = z
@@ -249,12 +249,16 @@ export const courtClientGridQuerySchema = z
   .strict();
 export type CourtClientGridQuery = z.infer<typeof courtClientGridQuerySchema>;
 
-export const courtClientGridCellState = z.enum(["free", "unavailable"]);
+export const courtClientGridCellState = z.enum(["free", "unavailable", "overflow"]);
 export type CourtClientGridCellState = z.infer<typeof courtClientGridCellState>;
+
+const courtClientGridEndTime = z
+  .string()
+  .regex(/^([01]\d|2\d):[0-5]\d$/, "expected HH:MM, allowing over-midnight overflow end times");
 
 export const courtClientGridCellSchema = z.object({
   startTime: timeString,
-  endTime: timeString,
+  endTime: courtClientGridEndTime,
   state: courtClientGridCellState
 });
 export type CourtClientGridCell = z.infer<typeof courtClientGridCellSchema>;

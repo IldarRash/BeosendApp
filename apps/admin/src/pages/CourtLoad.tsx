@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
+import { useSearchParams } from "react-router-dom";
 import type {
   Court,
   CourtLoadCell,
@@ -211,6 +212,15 @@ function allCellsFree(rows: readonly CourtLoadRow[]): boolean {
   return rows.length > 0 && rows.every((row) => row.cells.every((cell) => cell.state === "free"));
 }
 
+function gridHasRequest(grid: CourtLoadGridView, requestId: string): boolean {
+  return grid.rows.some((row) =>
+    row.cells.some(
+      (cell) =>
+        (cell.state === "request" || cell.state === "hold") && cell.requestId === requestId
+    )
+  );
+}
+
 function errorText(error: unknown, t: Translate): string {
   return error instanceof Error ? error.message : t("admin.courtLoad.loadError");
 }
@@ -227,7 +237,10 @@ function statusTone(status: CourtRequestStatus): string {
 
 export function CourtLoad(): JSX.Element {
   const t = useT();
-  const [date, setDate] = useState(todayIso());
+  const [searchParams] = useSearchParams();
+  const targetRequestId = searchParams.get("requestId");
+  const queryDate = searchParams.get("date") ?? todayIso();
+  const [date, setDate] = useState(queryDate);
   const [openRequestId, setOpenRequestId] = useState<string | null>(null);
   const [openTraining, setOpenTraining] = useState<TrainingTarget | null>(null);
   const [moveTarget, setMoveTarget] = useState<MoveTarget | null>(null);
@@ -241,9 +254,17 @@ export function CourtLoad(): JSX.Element {
   const deleteMonth = useDeleteCourtWorkingHoursMonth();
   const deleteDay = useDeleteCourtWorkingHoursDay();
 
+  useEffect(() => {
+    setDate(queryDate);
+  }, [queryDate]);
+
   const grid = load.data;
   const unassigned = grid?.unassignedTrainings ?? [];
   const window = grid ? workingWindow(grid) : null;
+  const targetRequestVisible =
+    targetRequestId !== null && grid !== undefined ? gridHasRequest(grid, targetRequestId) : false;
+  const targetRequestMissing =
+    targetRequestId !== null && !load.isPending && !load.isError && grid !== undefined && !targetRequestVisible;
 
   return (
     <AppShell>
@@ -294,6 +315,12 @@ export function CourtLoad(): JSX.Element {
           t={t}
         />
 
+        {targetRequestMissing ? (
+          <p className="state court-load-target-note" role="status">
+            {t("admin.courtLoad.targetNotVisible")}
+          </p>
+        ) : null}
+
         {date === "" ? (
           <p className="state">{t("admin.courtLoad.pickDate")}</p>
         ) : load.isPending ? (
@@ -313,6 +340,7 @@ export function CourtLoad(): JSX.Element {
               onOpenRequest={setOpenRequestId}
               onOpenTraining={setOpenTraining}
               onMoveBlock={setMoveTarget}
+              targetRequestId={targetRequestId}
               t={t}
             />
           </>
@@ -362,6 +390,7 @@ function CourtTimeline({
   onOpenRequest,
   onOpenTraining,
   onMoveBlock,
+  targetRequestId,
   t
 }: {
   grid: CourtLoadGridView;
@@ -369,6 +398,7 @@ function CourtTimeline({
   onOpenRequest: (id: string) => void;
   onOpenTraining: (target: TrainingTarget) => void;
   onMoveBlock: (target: MoveTarget) => void;
+  targetRequestId: string | null;
   t: Translate;
 }): JSX.Element {
   const ticks = axisTicks(window);
@@ -405,6 +435,7 @@ function CourtTimeline({
               onOpenRequest={onOpenRequest}
               onOpenTraining={onOpenTraining}
               onMoveBlock={onMoveBlock}
+              targetRequestId={targetRequestId}
               t={t}
             />
           ))}
@@ -420,6 +451,7 @@ function CourtTimelineRow({
   onOpenRequest,
   onOpenTraining,
   onMoveBlock,
+  targetRequestId,
   t
 }: {
   row: CourtLoadRow;
@@ -427,6 +459,7 @@ function CourtTimelineRow({
   onOpenRequest: (id: string) => void;
   onOpenTraining: (target: TrainingTarget) => void;
   onMoveBlock: (target: MoveTarget) => void;
+  targetRequestId: string | null;
   t: Translate;
 }): JSX.Element {
   const events = buildEvents(row);
@@ -445,6 +478,7 @@ function CourtTimelineRow({
             onOpenRequest={onOpenRequest}
             onOpenTraining={onOpenTraining}
             onMoveBlock={onMoveBlock}
+            isTarget={targetRequestId !== null && event.requestId === targetRequestId}
             t={t}
           />
         ))}
@@ -460,6 +494,7 @@ function CourtEventCard({
   onOpenRequest,
   onOpenTraining,
   onMoveBlock,
+  isTarget,
   t
 }: {
   event: TimelineEvent;
@@ -468,6 +503,7 @@ function CourtEventCard({
   onOpenRequest: (id: string) => void;
   onOpenTraining: (target: TrainingTarget) => void;
   onMoveBlock: (target: MoveTarget) => void;
+  isTarget: boolean;
   t: Translate;
 }): JSX.Element {
   const left = percent(window.openTime, window.closeTime, event.startTime);
@@ -476,8 +512,9 @@ function CourtEventCard({
   const className = [
     "court-event",
     `court-event--${event.state}`,
-    toneClass(event.key)
-  ].join(" ");
+    toneClass(event.key),
+    isTarget ? "court-event--target" : null
+  ].filter(Boolean).join(" ");
   const label = t("admin.courtLoad.eventAria", {
     number: row.courtNumber,
     start: event.startTime,
@@ -503,6 +540,7 @@ function CourtEventCard({
         className={className}
         style={style}
         data-event-key={event.key}
+        aria-current={isTarget ? "true" : undefined}
         aria-label={label}
         onClick={() => onOpenRequest(event.requestId as string)}
       >
@@ -518,6 +556,7 @@ function CourtEventCard({
         className={className}
         style={style}
         data-event-key={event.key}
+        aria-current={isTarget ? "true" : undefined}
         aria-label={label}
         onClick={() =>
           onOpenTraining({
@@ -539,6 +578,7 @@ function CourtEventCard({
         className={className}
         style={style}
         data-event-key={event.key}
+        aria-current={isTarget ? "true" : undefined}
         aria-label={label}
         onClick={() => onMoveBlock({ blockId: event.blockId as string, currentCourtId: row.courtId })}
       >
@@ -548,7 +588,13 @@ function CourtEventCard({
   }
 
   return (
-    <span className={className} style={style} data-event-key={event.key} aria-label={label}>
+    <span
+      className={className}
+      style={style}
+      data-event-key={event.key}
+      aria-current={isTarget ? "true" : undefined}
+      aria-label={label}
+    >
       {content}
     </span>
   );

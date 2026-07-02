@@ -122,10 +122,10 @@ export class CourtRequestsService {
 
   /**
    * Mini App redacted court grid for one date/duration. A cell represents starting
-   * a booking at that 30-minute slot on that court; only starts where the full
-   * selected duration fits inside resolved working hours are returned, and a cell
-   * is free only when the court has no pending hold, confirmed request, or block
-   * over any covered slot.
+   * a booking at that 30-minute slot on that court; every 30-minute start inside
+   * resolved working hours is returned. Starts where the selected duration would
+   * pass closing are `overflow`; fitting starts are free only when the court has
+   * no pending hold, confirmed request, or block over any covered slot.
    */
   async clientGrid(input: CourtClientGridQuery): Promise<CourtClientGrid> {
     const [courts, confirmed, blocks] = await Promise.all([
@@ -141,15 +141,15 @@ export class CourtRequestsService {
     const durationMinutes = durationMinutesOf(input.durationHours);
     const rows = courts.map((court) => {
       const cells: CourtClientGrid["rows"][number]["cells"] = [];
-      for (
-        let startMinutes = openMinutes;
-        startMinutes + durationMinutes <= closeMinutes;
-        startMinutes += 30
-      ) {
+      for (let startMinutes = openMinutes; startMinutes < closeMinutes; startMinutes += 30) {
         const startTime = timeOfMinutes(startMinutes);
         const endTime = timeOfMinutes(startMinutes + durationMinutes);
-        const slots = courtSlotsCovered(startTime, durationMinutes);
-        const state = courtFreeForSlots(court.id, slots, occupants) ? "free" : "unavailable";
+        const state =
+          startMinutes + durationMinutes > closeMinutes
+            ? "overflow"
+            : courtFreeForSlots(court.id, courtSlotsCovered(startTime, durationMinutes), occupants)
+              ? "free"
+              : "unavailable";
         cells.push({
           startTime,
           endTime,

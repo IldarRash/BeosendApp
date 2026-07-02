@@ -220,6 +220,7 @@ export const miniappEn: Record<string, string> = {
   "miniapp.court.pickCourtsHint": "You can pick several free courts.",
   "miniapp.court.courtN": "Court {n}",
   "miniapp.court.courtTaken": "Court {n} taken",
+  "miniapp.court.courtOverflow": "Court {n}: does not fit in the day",
   "miniapp.court.noCourtsTitle": "No free courts",
   "miniapp.court.noCourtsBody": "No free courts left for this time. Pick another time.",
   "miniapp.court.selectedCount": "Courts selected: {count}",

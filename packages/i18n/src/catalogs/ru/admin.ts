@@ -678,6 +678,7 @@ export const adminRu: Record<string, string> = {
   "admin.courtRequests.courtOption": "Корт № {number}",
   "admin.courtRequests.confirmed": "Заявка подтверждена для {client}.",
   "admin.courtRequests.rejected": "Заявка отклонена для {client}.",
+  "admin.courtRequests.showOnLoad": "Показать на сетке",
   "admin.courtRequests.opFailed": "Не удалось выполнить операцию.",
   "admin.courtRequests.conflict": "Слот уже занят или заявка обработана — список обновлён.",
 
@@ -736,6 +737,7 @@ export const adminRu: Record<string, string> = {
   "admin.courtLoad.colCourt": "Корт",
   "admin.courtLoad.noCourts": "На выбранную дату кортов нет.",
   "admin.courtLoad.allFreeHint": "На выбранную дату все корты свободны.",
+  "admin.courtLoad.targetNotVisible": "Эта заявка не видна на выбранной сетке.",
   "admin.courtLoad.courtNumber": "№ {number}",
   "admin.courtLoad.cellFree": "Свободно",
   "admin.courtLoad.cellRequest": "Заявка",

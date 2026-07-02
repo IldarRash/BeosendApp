@@ -220,6 +220,7 @@ export const miniappSr: Record<string, string> = {
   "miniapp.court.pickCourtsHint": "Možete izabrati više slobodnih terena.",
   "miniapp.court.courtN": "Teren {n}",
   "miniapp.court.courtTaken": "Teren {n} zauzet",
+  "miniapp.court.courtOverflow": "Teren {n}: ne staje u dan",
   "miniapp.court.noCourtsTitle": "Nema slobodnih terena",
   "miniapp.court.noCourtsBody": "Za ovo vreme nema slobodnih terena. Izaberite drugo vreme.",
   "miniapp.court.selectedCount": "Izabrano terena: {count}",

@@ -33,6 +33,9 @@ Role agents live in `.codex/agents/*.toml`.
 - Feature planning reads the polished prompt plus `docs/architecture/*`.
 - Feature briefs live in `docs/product/features/<slug>.md` and must include goal, contracts/tables
   touched, API endpoints, bot flow, acceptance criteria, tests, and dependencies.
+- Every feature plan must explicitly ask whether to run the full agent flow. Do not start the full
+  analyst/architect/implementer/test/review/run flow until the user confirms that choice in the
+  plan stage.
 - Contracts are the source of truth: add or adjust Zod contracts in `packages/types` and schema in
   `packages/db` before wiring services.
 - Backend owns domain decisions, recompute, money, and availability.
