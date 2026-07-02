@@ -12,6 +12,11 @@ subagent.
 Older operating-layer mirrors may still exist, but Codex should prefer `.codex/agents`,
 `.codex/skills`, and `.codex/rules` whenever multiple versions are present.
 
+## Subagent spawning
+
+- When spawning subagents, do not request full-context or fork mode. Pass a concise task brief and
+  relevant file paths instead; subagents must read required files directly from the workspace.
+
 ## Model routing
 
 - Use the frontier model for all analysis, review, planning, and research tasks.
