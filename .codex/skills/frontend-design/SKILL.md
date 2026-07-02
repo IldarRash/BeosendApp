@@ -23,6 +23,45 @@ You are designing the **apps/admin** console (React + Vite) for the BeoSand book
   shapes. Hand domain wiring to `frontend-implementer`. Accessibility (semantics, focus, contrast,
   `aria-*`) is part of done.
 
+## Designer protocol
+
+Adapt the OpenAI frontend-skill guidance from
+https://developers.openai.com/blog/designing-delightful-frontends-with-gpt-5-4 for BeoSand. Use the
+principles, not copied text.
+
+Before proposing or editing UI, write down three compact decisions for yourself:
+
+- **Visual thesis:** mood, material, density, and energy of the screen.
+- **Content plan:** the primary workspace, supporting context, detail/inspection area, and final
+  action.
+- **Interaction thesis:** 2-3 motion or state-change ideas that improve orientation, affordance, or
+  hierarchy.
+
+For BeoSand app/admin surfaces:
+
+- Start with the working surface itself: tables, grids, filters, status, calendars, queues, or task
+  context. Do not add a marketing hero unless the user explicitly asks for one.
+- Default to calm, Linear-style restraint: dense but readable information, strong spacing,
+  restrained color, minimal chrome, and one clear accent for action or state.
+- Prefer layout over card mosaics. Use cards only when the card is the interaction or a repeated
+  entity that needs a boundary.
+- Use utility copy over marketing copy. Headings should name the area or action; supporting text
+  should explain scope, freshness, behavior, or decision value in one sentence.
+- Keep every section to one job and one primary takeaway. If an area does not help someone operate,
+  monitor, compare, or decide, remove it.
+- Motion should clarify hierarchy or state. Use small, fast transitions for hover, selection,
+  filtering, drawers, modals, and row expansion; remove ornamental motion.
+- Protect layout safety: fixed, sticky, floating, animated, or decorative layers must not overlap
+  text, controls, tables, or tap targets on desktop or mobile.
+
+Litmus checks before handing off:
+
+- Can an operator understand the screen by scanning headings, labels, values, and selected states?
+- Is there one primary workspace and one obvious next action?
+- Are cards, borders, shadows, and backgrounds necessary for understanding or interaction?
+- Does the design still work when decorative effects are removed?
+- Does every interactive state fit and remain tappable on mobile?
+
 ---
 
 This skill guides creation of distinctive, production-grade frontend interfaces that avoid generic "AI slop" aesthetics. Implement real working code with exceptional attention to aesthetic details and creative choices.
