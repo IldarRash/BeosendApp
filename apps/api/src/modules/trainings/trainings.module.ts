@@ -5,6 +5,7 @@ import { ConnectorsModule } from "../connectors/connectors.module";
 import { CourtsModule } from "../courts/courts.module";
 import { GroupsModule } from "../groups/groups.module";
 import { NotificationsModule } from "../notifications/notifications.module";
+import { SettingsModule } from "../settings/settings.module";
 import { TrainersModule } from "../trainers/trainers.module";
 import { TrainerTodayController, TrainingsController } from "./trainings.controller";
 import { TrainingsRepository } from "./trainings.repository";
@@ -18,7 +19,8 @@ import { TrainingsService } from "./trainings.service";
     TrainersModule,
     NotificationsModule,
     CourtsModule,
-    ConnectorsModule
+    ConnectorsModule,
+    SettingsModule
   ],
   controllers: [TrainingsController, TrainerTodayController],
   // ClientsRepository and BookingsRepository (each only deps DatabaseService) are

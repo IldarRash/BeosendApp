@@ -12,6 +12,14 @@ const court: Court = {
 
 const grid: CourtLoadGrid = {
   date: "2026-06-10",
+  workingHours: {
+    date: "2026-06-10",
+    openTime: "08:00",
+    closeTime: "21:00",
+    source: "fallback"
+  },
+  openTime: "08:00",
+  closeTime: "21:00",
   openHour: 8,
   closeHour: 21,
   rows: [

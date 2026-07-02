@@ -6,6 +6,8 @@ import type { DatabaseService } from "../../db/database.service";
 
 const TRAINING_ID = "11111111-1111-4111-8111-111111111111";
 const CLIENT_ID = "22222222-2222-4222-8222-222222222222";
+const GROUP_ID = "33333333-3333-4333-8333-333333333333";
+const TRAINER_ID = "44444444-4444-4444-8444-444444444444";
 
 async function runAccessCheck(input: {
   bookingRows?: unknown[];
@@ -78,6 +80,40 @@ describe("TrainingsRepository.hasActiveParticipantAccess", () => {
 
     expect(result).toBe(false);
     expect(rendered).toHaveLength(2);
+  });
+});
+
+describe("TrainingsRepository.listInRange", () => {
+  it("includes the trainer predicate when trainerId is supplied", async () => {
+    let rendered: { sql: string; params: unknown[] } | undefined;
+    const dialect = new PgDialect();
+    const builder = {
+      from: () => builder,
+      where: (predicate: unknown) => {
+        rendered = dialect.sqlToQuery(predicate as never);
+        return builder;
+      },
+      orderBy: async () => [] as unknown[]
+    };
+    const db = {
+      select: () => builder
+    } as unknown as Database;
+    const repo = new TrainingsRepository({ db } as unknown as DatabaseService);
+
+    await repo.listInRange("2026-07-01", "2026-07-31", GROUP_ID, TRAINER_ID);
+
+    expect(rendered).toBeDefined();
+    expect(rendered?.sql.toLowerCase()).toContain('"trainings"."trainer_id" =');
+    expect(rendered?.params).toEqual(
+      expect.arrayContaining([
+        "2026-07-01",
+        "2026-07-31",
+        GROUP_ID,
+        TRAINER_ID,
+        "cancelled",
+        "completed"
+      ])
+    );
   });
 });
 

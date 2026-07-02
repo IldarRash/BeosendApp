@@ -139,6 +139,73 @@ describe("Groups", () => {
     expect(cells.getByText("12 000 RSD")).toBeTruthy();
   });
 
+  it("filters loaded groups by name, weekday, level, trainer, court, status and visibility", () => {
+    const otherLevel: Level = {
+      id: "77777777-7777-4777-8777-777777777777",
+      name: "Продвинутые",
+      status: "active"
+    };
+    const otherTrainer: Trainer = {
+      ...TRAINER,
+      id: "88888888-8888-4888-8888-888888888888",
+      name: "Марко"
+    };
+    const otherCourt: Court = {
+      id: "99999999-9999-4999-8999-999999999999",
+      number: 2,
+      status: "active"
+    };
+    const target: Group = {
+      ...GROUP,
+      id: "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa",
+      name: "Фильтр цель",
+      daysOfWeek: [5],
+      levelId: otherLevel.id,
+      trainerId: otherTrainer.id,
+      trainerName: otherTrainer.name,
+      courtId: otherCourt.id,
+      courtNumber: otherCourt.number,
+      status: "inactive",
+      hidden: true
+    };
+    const distractor: Group = {
+      ...GROUP,
+      id: "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb",
+      name: "Фильтр мимо",
+      daysOfWeek: [5],
+      levelId: otherLevel.id,
+      trainerId: otherTrainer.id,
+      trainerName: otherTrainer.name,
+      courtId: otherCourt.id,
+      courtNumber: otherCourt.number,
+      status: "inactive",
+      hidden: false
+    };
+    useGroups.mockReturnValue(query<Group[]>({ data: [GROUP, target, distractor] }));
+    useLevels.mockReturnValue(query<Level[]>({ data: [LEVEL, otherLevel] }));
+    useTrainers.mockReturnValue(query<Trainer[]>({ data: [TRAINER, otherTrainer] }));
+    useCourts.mockReturnValue(query<Court[]>({ data: [COURT, otherCourt] }));
+
+    renderPage();
+
+    fireEvent.change(screen.getByLabelText("Поиск по названию"), {
+      target: { value: "цель" }
+    });
+    fireEvent.change(screen.getByLabelText("День"), { target: { value: "5" } });
+    fireEvent.change(screen.getByLabelText("Уровень"), { target: { value: otherLevel.id } });
+    fireEvent.change(screen.getByLabelText("Тренер"), { target: { value: otherTrainer.id } });
+    fireEvent.change(screen.getByLabelText("Корт"), { target: { value: otherCourt.id } });
+    fireEvent.change(screen.getByLabelText("Статус"), { target: { value: "inactive" } });
+    fireEvent.change(screen.getByLabelText("Видимость для клиентов"), {
+      target: { value: "hidden" }
+    });
+
+    const table = screen.getByRole("table", { name: "Группы тренировок" });
+    expect(within(table).getByText("Фильтр цель")).toBeTruthy();
+    expect(within(table).queryByText("Фильтр мимо")).toBeNull();
+    expect(within(table).queryByText("Утренняя группа")).toBeNull();
+  });
+
   it("renders the visibility column from group.hidden (shown vs hidden)", () => {
     const hiddenGroup: Group = { ...GROUP_B, name: "Скрытая группа", hidden: true };
     useGroups.mockReturnValue(query<Group[]>({ data: [GROUP, hiddenGroup] }));

@@ -6,6 +6,7 @@ import { SettingsService } from "./settings.service";
 
 const ADMIN_ID = 111;
 const NON_ADMIN_ID = 222;
+const NOW = new Date("2026-07-02T10:00:00.000Z");
 
 function env(managerContact = "@env_manager"): Env {
   return {
@@ -17,7 +18,16 @@ function env(managerContact = "@env_manager"): Env {
 function repo(stored?: string): SettingsRepository {
   return {
     findValue: vi.fn(async () => stored),
-    upsertValue: vi.fn(async (_key: string, value: string) => value)
+    findRow: vi.fn(async () => undefined),
+    findRowsByPrefix: vi.fn(async () => []),
+    upsertValue: vi.fn(async (_key: string, value: string) => value),
+    upsertRow: vi.fn(async (key: string, value: string, updatedBy: number) => ({
+      key,
+      value,
+      updatedAt: NOW,
+      updatedBy
+    })),
+    deleteValue: vi.fn(async () => true)
   } as unknown as SettingsRepository;
 }
 
@@ -171,5 +181,107 @@ describe("SettingsService.updateRequestLoggingSettings", () => {
       service.updateRequestLoggingSettings(NON_ADMIN_ID, { detailed: true })
     ).rejects.toBeInstanceOf(ForbiddenException);
     expect(settingsRepo.upsertValue).not.toHaveBeenCalled();
+  });
+});
+
+describe("SettingsService court working hours", () => {
+  it("resolves day override before month default before fallback", async () => {
+    const settingsRepo = repo();
+    vi.mocked(settingsRepo.findRow).mockImplementation(async (key: string) => {
+      if (key === "court_hours_day:2026-07-15") {
+        return {
+          key,
+          value: JSON.stringify({ openTime: "09:00", closeTime: "18:00" }),
+          updatedAt: NOW,
+          updatedBy: ADMIN_ID
+        };
+      }
+      if (key === "court_hours_month:2026-07") {
+        return {
+          key,
+          value: JSON.stringify({ openTime: "08:00", closeTime: "20:00" }),
+          updatedAt: NOW,
+          updatedBy: ADMIN_ID
+        };
+      }
+      return undefined;
+    });
+    const service = new SettingsService(settingsRepo, env());
+
+    await expect(service.resolveCourtWorkingHours("2026-07-15")).resolves.toEqual({
+      date: "2026-07-15",
+      openTime: "09:00",
+      closeTime: "18:00",
+      source: "day"
+    });
+    await expect(service.resolveCourtWorkingHours("2026-07-16")).resolves.toEqual({
+      date: "2026-07-16",
+      openTime: "08:00",
+      closeTime: "20:00",
+      source: "month"
+    });
+    await expect(service.resolveCourtWorkingHours("2026-08-01")).resolves.toEqual({
+      date: "2026-08-01",
+      openTime: "07:00",
+      closeTime: "21:00",
+      source: "fallback"
+    });
+  });
+
+  it("upserts month and day settings with the acting admin id", async () => {
+    const settingsRepo = repo();
+    const service = new SettingsService(settingsRepo, env());
+
+    await expect(
+      service.updateCourtWorkingHoursMonth(ADMIN_ID, {
+        year: 2026,
+        month: 7,
+        openTime: "08:00",
+        closeTime: "20:30"
+      })
+    ).resolves.toMatchObject({
+      year: 2026,
+      month: 7,
+      openTime: "08:00",
+      closeTime: "20:30",
+      updatedBy: ADMIN_ID
+    });
+    expect(settingsRepo.upsertRow).toHaveBeenCalledWith(
+      "court_hours_month:2026-07",
+      JSON.stringify({ openTime: "08:00", closeTime: "20:30" }),
+      ADMIN_ID
+    );
+
+    await expect(
+      service.updateCourtWorkingHoursDay(ADMIN_ID, {
+        date: "2026-07-15",
+        openTime: "09:00",
+        closeTime: "18:00"
+      })
+    ).resolves.toMatchObject({
+      date: "2026-07-15",
+      openTime: "09:00",
+      closeTime: "18:00",
+      updatedBy: ADMIN_ID
+    });
+    expect(settingsRepo.upsertRow).toHaveBeenCalledWith(
+      "court_hours_day:2026-07-15",
+      JSON.stringify({ openTime: "09:00", closeTime: "18:00" }),
+      ADMIN_ID
+    );
+  });
+
+  it("forbids non-admin working-hours writes before touching app_settings", async () => {
+    const settingsRepo = repo();
+    const service = new SettingsService(settingsRepo, env());
+
+    await expect(
+      service.updateCourtWorkingHoursDay(NON_ADMIN_ID, {
+        date: "2026-07-15",
+        openTime: "09:00",
+        closeTime: "18:00"
+      })
+    ).rejects.toBeInstanceOf(ForbiddenException);
+    expect(settingsRepo.upsertRow).not.toHaveBeenCalled();
   });
 });

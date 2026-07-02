@@ -13,6 +13,7 @@ import { z } from "zod";
 import {
   confirmCourtRequestSchema,
   courtAvailabilityQuerySchema,
+  courtClientGridQuerySchema,
   courtFreeCourtsQuerySchema,
   courtRequestQueueQuerySchema,
   createCourtRequestSchema,
@@ -21,6 +22,7 @@ import {
   uuid,
   type Court,
   type CourtAvailability,
+  type CourtClientGrid,
   type CourtRequest,
   type CourtRequestAdminView,
   type CourtRequestPreview,
@@ -64,6 +66,21 @@ export class CourtRequestsController {
       );
     }
     return this.service.freeCourtNumbers(parsed.data);
+  }
+
+  /**
+   * Mini App court booking grid for a selected duration. Client path: redacted to
+   * court numbers and free/unavailable states only. Declared before `:id` routes.
+   */
+  @Get("client-grid")
+  async clientGrid(@Query() query: Record<string, unknown>): Promise<CourtClientGrid> {
+    const parsed = courtClientGridQuerySchema.safeParse(query);
+    if (!parsed.success) {
+      throw new BadRequestException(
+        "Invalid client-grid query: expected date=YYYY-MM-DD and durationHours."
+      );
+    }
+    return this.service.clientGrid(parsed.data);
   }
 
   /**

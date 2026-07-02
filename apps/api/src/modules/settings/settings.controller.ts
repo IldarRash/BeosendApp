@@ -1,7 +1,26 @@
-import { BadRequestException, Body, Controller, Get, Headers, Patch } from "@nestjs/common";
 import {
+  BadRequestException,
+  Body,
+  Controller,
+  Delete,
+  Get,
+  Headers,
+  HttpCode,
+  Patch,
+  Put,
+  Query
+} from "@nestjs/common";
+import {
+  courtWorkingHoursDayQuerySchema,
+  courtWorkingHoursMonthQuerySchema,
   updateManagerContactSchema,
+  updateCourtWorkingHoursDaySchema,
+  updateCourtWorkingHoursMonthSchema,
   updateRequestLoggingSettingsSchema,
+  type CourtWorkingHoursDayOverride,
+  type CourtWorkingHoursDayView,
+  type CourtWorkingHoursMonth,
+  type CourtWorkingHoursMonthView,
   type ManagerContact,
   type RequestLoggingSettings
 } from "@beosand/types";
@@ -48,6 +67,68 @@ export class SettingsController {
     const actorTelegramId = parseTelegramId(telegramIdHeader);
     const input = validate(updateRequestLoggingSettingsSchema, body ?? {});
     return this.settings.updateRequestLoggingSettings(actorTelegramId, input);
+  }
+
+  @Get("court-hours/month")
+  courtWorkingHoursMonth(
+    @Headers("x-telegram-id") telegramIdHeader: string | undefined,
+    @Query() query: unknown
+  ): Promise<CourtWorkingHoursMonthView> {
+    const actorTelegramId = parseTelegramId(telegramIdHeader);
+    const input = validate(courtWorkingHoursMonthQuerySchema, query ?? {});
+    return this.settings.courtWorkingHoursMonthView(actorTelegramId, input);
+  }
+
+  @Put("court-hours/month")
+  updateCourtWorkingHoursMonth(
+    @Headers("x-telegram-id") telegramIdHeader: string | undefined,
+    @Body() body: unknown
+  ): Promise<CourtWorkingHoursMonth> {
+    const actorTelegramId = parseTelegramId(telegramIdHeader);
+    const input = validate(updateCourtWorkingHoursMonthSchema, body ?? {});
+    return this.settings.updateCourtWorkingHoursMonth(actorTelegramId, input);
+  }
+
+  @Delete("court-hours/month")
+  @HttpCode(204)
+  async deleteCourtWorkingHoursMonth(
+    @Headers("x-telegram-id") telegramIdHeader: string | undefined,
+    @Query() query: unknown
+  ): Promise<void> {
+    const actorTelegramId = parseTelegramId(telegramIdHeader);
+    const input = validate(courtWorkingHoursMonthQuerySchema, query ?? {});
+    await this.settings.deleteCourtWorkingHoursMonth(actorTelegramId, input);
+  }
+
+  @Get("court-hours/day")
+  courtWorkingHoursDay(
+    @Headers("x-telegram-id") telegramIdHeader: string | undefined,
+    @Query() query: unknown
+  ): Promise<CourtWorkingHoursDayView> {
+    const actorTelegramId = parseTelegramId(telegramIdHeader);
+    const input = validate(courtWorkingHoursDayQuerySchema, query ?? {});
+    return this.settings.courtWorkingHoursDayView(actorTelegramId, input);
+  }
+
+  @Put("court-hours/day")
+  updateCourtWorkingHoursDay(
+    @Headers("x-telegram-id") telegramIdHeader: string | undefined,
+    @Body() body: unknown
+  ): Promise<CourtWorkingHoursDayOverride> {
+    const actorTelegramId = parseTelegramId(telegramIdHeader);
+    const input = validate(updateCourtWorkingHoursDaySchema, body ?? {});
+    return this.settings.updateCourtWorkingHoursDay(actorTelegramId, input);
+  }
+
+  @Delete("court-hours/day")
+  @HttpCode(204)
+  async deleteCourtWorkingHoursDay(
+    @Headers("x-telegram-id") telegramIdHeader: string | undefined,
+    @Query() query: unknown
+  ): Promise<void> {
+    const actorTelegramId = parseTelegramId(telegramIdHeader);
+    const input = validate(courtWorkingHoursDayQuerySchema, query ?? {});
+    await this.settings.deleteCourtWorkingHoursDay(actorTelegramId, input);
   }
 }
 

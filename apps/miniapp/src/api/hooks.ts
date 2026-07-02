@@ -11,6 +11,8 @@ import type {
   Client,
   ClientTrainingDetail,
   CourtAvailability,
+  CourtClientGrid,
+  CourtDurationHours,
   CourtRequest,
   CourtRequestPreview,
   FreeCourtNumbers,
@@ -34,7 +36,12 @@ import type {
 } from "@beosand/types";
 import type { Locale } from "@beosand/i18n";
 import { useApiClient } from "./ApiProvider";
-import { NotFoundError, type CourtRequestInput, type IndividualSessionRequestInput } from "./client";
+import {
+  NotFoundError,
+  type CourtClientGridInput,
+  type CourtRequestInput,
+  type IndividualSessionRequestInput
+} from "./client";
 
 /**
  * The stable query key for the caller's own Client record, keyed by Telegram id.
@@ -591,6 +598,40 @@ export function useCourtAvailability(
   });
 }
 
+/** The shared query-key prefix for the new client-grid flow read. */
+const COURT_CLIENT_GRID_KEY_PREFIX = "court-client-grid";
+
+/** A stable query key for one date + duration request against the grid endpoint. */
+export function courtClientGridQueryKey(input: CourtClientGridInput): readonly [string, string] {
+  return [COURT_CLIENT_GRID_KEY_PREFIX, `${input.date}|${input.durationHours}`] as const;
+}
+
+/**
+ * Court availability grid for a date and duration (GET /court-requests/client-grid), so
+ * the Mini App shows one compact time/court selector in one view.
+ */
+export function useCourtClientGrid(
+  date: string | undefined,
+  durationHours: CourtDurationHours | undefined
+): UseQueryResult<CourtClientGrid> {
+  const apiClient = useApiClient();
+  const hasDate = date != null && durationHours != null;
+
+  const queryInput = hasDate
+    ? { date, durationHours: durationHours! }
+    : undefined;
+
+  return useQuery<CourtClientGrid>({
+    queryKey: queryInput ? courtClientGridQueryKey(queryInput) : [COURT_CLIENT_GRID_KEY_PREFIX],
+    enabled: hasDate,
+    queryFn: () =>
+      apiClient.getCourtClientGrid({
+        date: date!,
+        durationHours: durationHours!
+      })
+  });
+}
+
 /** The shared query-key prefix for every free-courts request (for invalidation). */
 const FREE_COURTS_KEY_PREFIX = "court-free-courts";
 
@@ -646,6 +687,7 @@ export function useCreateCourtRequest(): UseMutationResult<CourtRequest, Error, 
     mutationFn: (input) => apiClient.createCourtRequest(input),
     onSettled: (_data, _error, input) => {
       void qc.invalidateQueries({ queryKey: courtAvailabilityQueryKey(input.date) });
+      void qc.invalidateQueries({ queryKey: [COURT_CLIENT_GRID_KEY_PREFIX] });
       // The picked courts are now held; refetch every free-courts read so no taken
       // court is still offered as selectable on the picker.
       void qc.invalidateQueries({ queryKey: [FREE_COURTS_KEY_PREFIX] });

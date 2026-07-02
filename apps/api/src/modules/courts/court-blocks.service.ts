@@ -10,8 +10,6 @@ import {
 import { isAdmin, type Env } from "@beosand/config";
 import type { Database } from "@beosand/db";
 import {
-  COURT_CLOSE_HOUR,
-  COURT_OPEN_HOUR,
   courtBlockSchema,
   courtFreeForSlots,
   courtSlotsCovered,
@@ -28,6 +26,7 @@ import {
   type ReassignCourtBlock
 } from "@beosand/types";
 import { ENV } from "../../config/config.module";
+import { SettingsService } from "../settings/settings.service";
 import { CourtBlocksRepository, type CourtOccupancyRow } from "./court-blocks.repository";
 
 const RECURRING_COURT_BLOCK_MAX_DAYS = 62;
@@ -45,13 +44,14 @@ export class CourtBlocksService {
 
   constructor(
     @Inject(ENV) private readonly env: Env,
-    private readonly repository: CourtBlocksRepository
+    private readonly repository: CourtBlocksRepository,
+    private readonly settings: SettingsService
   ) {}
 
   /** Create a block for a court/date/:30-aligned range. Admin-only; overlap-guarded. */
   async createBlock(callerTelegramId: number, input: CreateCourtBlock): Promise<CourtBlock> {
     this.assertAdmin(callerTelegramId, "create");
-    this.assertValidRange(input.startTime, input.endTime);
+    await this.assertValidRange(input.date, input.startTime, input.endTime);
 
     return this.repository.transaction(async (db) => {
       await this.repository.lockDate(input.date, db);
@@ -83,11 +83,13 @@ export class CourtBlocksService {
     input: CreateRecurringCourtBlocks
   ): Promise<CourtBlock[]> {
     this.assertAdmin(callerTelegramId, "create recurring");
-    this.assertValidRange(input.startTime, input.endTime);
     this.assertRecurringRangeWithinCap(input.from, input.to);
     const dates = datesMatchingWeekdays(input.from, input.to, input.daysOfWeek);
     if (dates.length === 0) {
       throw new BadRequestException("No dates in the range match the selected weekdays.");
+    }
+    for (const date of dates) {
+      await this.assertValidRange(date, input.startTime, input.endTime);
     }
 
     return this.repository.transaction(async (db) => {
@@ -172,6 +174,7 @@ export class CourtBlocksService {
         // Exclude this block: moving it off its current court frees those slots there.
         this.repository.blocksOccupancyForDate(lockedBlock.date, db, lockedBlock.id)
       ]);
+      const workingHours = await this.settings.resolveCourtWorkingHours(lockedBlock.date);
 
       // Per-court freeness on the target: no confirmed request or other block overlaps.
       if (!courtFreeForSlots(input.courtId, slots, toCellOccupants(confirmed, blocks))) {
@@ -183,8 +186,8 @@ export class CourtBlocksService {
       // free court means moving this block here would exceed the active-court count.
       const free = freeCourtsBySlot({
         activeCourtCount,
-        openHour: COURT_OPEN_HOUR,
-        closeHour: COURT_CLOSE_HOUR,
+        openTime: workingHours.openTime,
+        closeTime: workingHours.closeTime,
         confirmed: [],
         // Confirmed requests and blocks are tallied identically per slot; expressing
         // both as minute-span occupants avoids re-deriving 1|1.5|2h from minutes.
@@ -257,22 +260,23 @@ export class CourtBlocksService {
    * start < end, inside [open, close]. Mirrors the court-request working-hours rule
    * so blocks and bookings share the same clock.
    */
-  private assertValidRange(startTime: string, endTime: string): void {
+  private async assertValidRange(date: string, startTime: string, endTime: string): Promise<void> {
     if (!isSlotAligned(startTime) || !isSlotAligned(endTime)) {
       throw new BadRequestException(
         "Court blocks start and end on a 30-minute boundary (HH:00 or HH:30)."
       );
     }
+    const workingHours = await this.settings.resolveCourtWorkingHours(date);
     const startMinutes = minutesOfDay(startTime);
     const endMinutes = minutesOfDay(endTime);
+    const openMinutes = minutesOfDay(workingHours.openTime);
+    const closeMinutes = minutesOfDay(workingHours.closeTime);
     if (startMinutes >= endMinutes) {
       throw new BadRequestException("Block end time must be after the start time.");
     }
-    if (startMinutes < COURT_OPEN_HOUR * 60 || endMinutes > COURT_CLOSE_HOUR * 60) {
+    if (startMinutes < openMinutes || endMinutes > closeMinutes) {
       throw new BadRequestException(
-        `Court blocks must be within working hours (${pad(COURT_OPEN_HOUR)}:00–${pad(
-          COURT_CLOSE_HOUR
-        )}:00).`
+        `Court blocks must be within working hours (${workingHours.openTime}-${workingHours.closeTime}).`
       );
     }
   }
@@ -285,10 +289,6 @@ export class CourtBlocksService {
       );
     }
   }
-}
-
-function pad(hour: number): string {
-  return String(hour).padStart(2, "0");
 }
 
 /** Minutes spanned by a block (17:30→19:00 = 90). At least one slot. */

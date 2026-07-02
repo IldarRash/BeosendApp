@@ -203,9 +203,10 @@ describe("navigation shell", () => {
     // Open the court rental request flow (S9 — the last placeholder, now a real screen).
     fireEvent.click(await screen.findByText("Аренда корта"));
 
-    // The court flow opens on its first step (the date picker), and the BackButton is
-    // now visible (a sub-screen).
-    await screen.findByText("Выберите дату");
+    // The court flow opens as one selection screen with the date strip and duration
+    // choices visible together, and the BackButton is now visible (a sub-screen).
+    await screen.findByRole("group");
+    expect(screen.getByRole("radiogroup")).toBeTruthy();
     expect(latestBackButton().visible).toBe(true);
 
     // Firing the BackButton's onBack pops back to the Home menu.

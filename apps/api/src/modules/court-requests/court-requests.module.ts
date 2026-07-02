@@ -2,6 +2,7 @@ import { Module } from "@nestjs/common";
 import { ConnectorsModule } from "../connectors/connectors.module";
 import { NotificationTemplatesModule } from "../notification-templates/notification-templates.module";
 import { NotificationsModule } from "../notifications/notifications.module";
+import { SettingsModule } from "../settings/settings.module";
 import { CourtRequestsController } from "./court-requests.controller";
 import { CourtRequestsRepository } from "./court-requests.repository";
 import { CourtRequestsService } from "./court-requests.service";
@@ -15,7 +16,7 @@ import { CourtRequestsService } from "./court-requests.service";
  * NotificationTemplatesModule for the admin-editable, per-locale decision-DM bodies.
  */
 @Module({
-  imports: [ConnectorsModule, NotificationsModule, NotificationTemplatesModule],
+  imports: [ConnectorsModule, NotificationsModule, NotificationTemplatesModule, SettingsModule],
   controllers: [CourtRequestsController],
   providers: [CourtRequestsService, CourtRequestsRepository]
 })

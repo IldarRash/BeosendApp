@@ -40,6 +40,10 @@ import {
   popularSlotSchema,
   requestLoggingSettingsSchema,
   subscriptionSummarySchema,
+  courtWorkingHoursDayOverrideSchema,
+  courtWorkingHoursDayViewSchema,
+  courtWorkingHoursMonthSchema,
+  courtWorkingHoursMonthViewSchema,
   trainerLoadSchema,
   trainerSchema,
   trainingCalendarItemSchema,
@@ -48,6 +52,8 @@ import {
   updateTrainingScheduleCourtSchema,
   updateIndividualPriceSchema,
   updateManagerContactSchema,
+  updateCourtWorkingHoursDaySchema,
+  updateCourtWorkingHoursMonthSchema,
   updateRequestLoggingSettingsSchema,
   waitlistAdminItemSchema,
   waitlistEntrySchema,
@@ -86,6 +92,11 @@ import {
   type CourtRequest,
   type CourtRequestAdminView,
   type CourtRequestStatus,
+  type CourtWorkingHours,
+  type CourtWorkingHoursDayOverride,
+  type CourtWorkingHoursDayView,
+  type CourtWorkingHoursMonth,
+  type CourtWorkingHoursMonthView,
   type CreateCourtBlock,
   type CreateRecurringCourtBlocks,
   type CreateGroupInput,
@@ -175,6 +186,13 @@ export interface CreateLevelInput {
 }
 
 export type Health = z.infer<typeof healthSchema>;
+export type {
+  CourtWorkingHoursDayOverride,
+  CourtWorkingHoursDayView,
+  CourtWorkingHoursMonth,
+  CourtWorkingHoursMonthView
+} from "@beosand/types";
+export type CourtLoadGridView = CourtLoadGrid & { workingHours: CourtWorkingHours };
 
 const SESSION_STORAGE_KEY = "beosand.admin.session";
 
@@ -425,9 +443,72 @@ export class ApiClient {
    * 30-minute-slot cells, each free | request | hold | block | training. Admin-only;
    * carries court numbers (never a client path).
    */
-  courtLoad(date: string): Promise<CourtLoadGrid> {
+  courtLoad(date: string): Promise<CourtLoadGridView> {
     const query = new URLSearchParams({ date }).toString();
     return this.request(`/courts/load?${query}`, courtLoadGridSchema);
+  }
+
+  courtWorkingHours(year: number, month: number): Promise<CourtWorkingHoursMonthView> {
+    const query = new URLSearchParams({ year: String(year), month: String(month) }).toString();
+    return this.request(`/settings/court-hours/month?${query}`, courtWorkingHoursMonthViewSchema);
+  }
+
+  upsertCourtWorkingHoursMonth(input: {
+    year: number;
+    month: number;
+    openTime: string;
+    closeTime: string;
+  }): Promise<CourtWorkingHoursMonth> {
+    return this.request("/settings/court-hours/month", courtWorkingHoursMonthSchema, {
+      method: "PUT",
+      body: JSON.stringify(updateCourtWorkingHoursMonthSchema.parse(input))
+    });
+  }
+
+  courtWorkingHoursDay(date: string): Promise<CourtWorkingHoursDayView> {
+    const query = new URLSearchParams({ date }).toString();
+    return this.request(`/settings/court-hours/day?${query}`, courtWorkingHoursDayViewSchema);
+  }
+
+  upsertCourtWorkingHoursDay(input: {
+    date: string;
+    openTime: string;
+    closeTime: string;
+  }): Promise<CourtWorkingHoursDayOverride> {
+    return this.request("/settings/court-hours/day", courtWorkingHoursDayOverrideSchema, {
+      method: "PUT",
+      body: JSON.stringify(updateCourtWorkingHoursDaySchema.parse(input))
+    });
+  }
+
+  async deleteCourtWorkingHoursMonth(year: number, month: number): Promise<void> {
+    const query = new URLSearchParams({ year: String(year), month: String(month) }).toString();
+    const path = `/settings/court-hours/month?${query}`;
+    const res = await fetch(`${this.baseUrl}${path}`, {
+      method: "DELETE",
+      headers: this.authHeader()
+    });
+    if (res.status === 401) {
+      throw new AuthError(`API ${path} rejected the session`);
+    }
+    if (!res.ok) {
+      throw await errorFromResponse(res, path);
+    }
+  }
+
+  async deleteCourtWorkingHoursDay(date: string): Promise<void> {
+    const query = new URLSearchParams({ date }).toString();
+    const path = `/settings/court-hours/day?${query}`;
+    const res = await fetch(`${this.baseUrl}${path}`, {
+      method: "DELETE",
+      headers: this.authHeader()
+    });
+    if (res.status === 401) {
+      throw new AuthError(`API ${path} rejected the session`);
+    }
+    if (!res.ok) {
+      throw await errorFromResponse(res, path);
+    }
   }
 
   /**
@@ -662,11 +743,14 @@ export class ApiClient {
     return this.request(`/trainings/generation-status?${params.toString()}`, generationStatusSchema);
   }
 
-  /** Admin trainings list for a date range, optionally filtered to one group. */
+  /** Admin trainings list for a date range, optionally filtered to one group/trainer. */
   listTrainings(query: ListTrainingsQuery): Promise<Training[]> {
     const params = new URLSearchParams({ from: query.from, to: query.to });
     if (query.groupId) {
       params.set("groupId", query.groupId);
+    }
+    if (query.trainerId) {
+      params.set("trainerId", query.trainerId);
     }
     if (query.includeTerminal) {
       params.set("includeTerminal", "true");

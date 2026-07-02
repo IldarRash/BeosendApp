@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import type {
   Court,
   CourtLoadCell,
@@ -11,54 +11,57 @@ import type {
 import { AppShell } from "../ui/AppShell";
 import { Button } from "../ui/Button";
 import { DataTable, type Column } from "../ui/DataTable";
-import { TextField } from "../ui/Field";
+import { TextField, TimeField } from "../ui/Field";
 import { Modal } from "../ui/Modal";
 import { useToast } from "../ui/Toast";
 import { useT } from "../i18n/LanguageProvider";
-import { useAssignCourt, useAutoAssignOrphans, useCourtLoad } from "../hooks/useCourtLoad";
+import {
+  useAssignCourt,
+  useAutoAssignOrphans,
+  useCourtLoad,
+  useCourtWorkingHours,
+  useDeleteCourtWorkingHoursDay,
+  useDeleteCourtWorkingHoursMonth,
+  useSaveCourtWorkingHoursDay,
+  useSaveCourtWorkingHoursMonth
+} from "../hooks/useCourtLoad";
 import { useCourts } from "../hooks/useCourts";
 import { useCourtRequestDetail } from "../hooks/useCourtRequests";
 import { useTrainingDetail } from "../hooks/useTrainingDetail";
 import { TrainingDetailBody } from "../ui/TrainingDetailBody";
 import { ReassignCourtDialog } from "../components/ReassignCourtDialog";
 import { formatRsd } from "../lib/format";
+import type { CourtLoadGridView, CourtWorkingHoursMonthView } from "../api/client";
 
-/** A training cell's move/detail context: the covering block + court it sits on. */
 interface TrainingTarget {
   trainingId: string;
   blockId: string | null;
   courtId: string;
 }
 
-/** A block to move to another court (the clicked cell's block + its current court). */
 interface MoveTarget {
   blockId: string;
   currentCourtId: string;
 }
 
+interface TimelineWindow {
+  openTime: string;
+  closeTime: string;
+  source: "day" | "month" | "fallback" | "legacy";
+}
+
+interface TimelineEvent {
+  key: string;
+  state: Exclude<CourtLoadCellState, "free">;
+  startTime: string;
+  endTime: string;
+  requestId: string | null;
+  trainingId: string | null;
+  blockId: string | null;
+}
+
 type Translate = (key: string, params?: Record<string, string | number>) => string;
 
-/**
- * M3 — Загрузка кортов: the per-day load grid (courts × time). Every cell's state
- * (free | request | hold | block | training) comes straight from the API — this
- * screen never computes occupancy, the 6-per-slot limit, or per-slot availability.
- * A `request` cell is a confirmed court request; a `hold` cell is a still-pending
- * request whose client picked this court (held until the admin decides) — both
- * carry a `requestId` and open the same booking-detail popup, rendered in distinct
- * tints/glyphs so the admin can tell a held court from a confirmed one.
- *
- * The API returns 30-minute cells; for legibility the grid groups them into
- * 2-hour COLUMNS, each rendered as a bar of its underlying 30-min sub-segments so
- * a partly-held column reads as a partial fill. The grouping is purely visual —
- * the contract granularity is unchanged. The grid is a real <table> so screen
- * readers get column (2-hour range) and row (court) headers; each segment conveys
- * its own state via aria-label + glyph, never colour alone. A `request` segment is
- * a button that opens the booking detail; a `training` segment opens the covering
- * training's detail; `free`/`block` segments are inert (the API never identifies
- * them — a block is not a request, and has no training).
- */
-
-/** Cell states in legend order. Labels resolve through the catalog. */
 const CELL_STATES: readonly CourtLoadCellState[] = [
   "free",
   "request",
@@ -67,93 +70,80 @@ const CELL_STATES: readonly CourtLoadCellState[] = [
   "training"
 ];
 
-/** Catalog key for each cell state — also used for the cell's accessible name. */
+const CELL_STATE_GLYPH: Record<CourtLoadCellState, string> = {
+  free: ".",
+  request: "Z",
+  hold: "U",
+  block: "B",
+  training: "T"
+};
+
 function cellStateLabel(state: CourtLoadCellState, t: Translate): string {
   return t(`admin.courtLoad.cell${state.charAt(0).toUpperCase()}${state.slice(1)}`);
 }
 
-/** Short glyph shown inside the segment (state is also exposed via aria-label). */
-const CELL_STATE_GLYPH: Record<CourtLoadCellState, string> = {
-  free: "·",
-  request: "З",
-  hold: "У",
-  block: "Б",
-  training: "Т"
-};
-
-/** Width of a visual column in hours — 30-min cells are bucketed by start hour. */
-const COLUMN_HOURS = 2;
-
-/** A visual column: its 2-hour span and the 30-min cells that fall inside it. */
-interface LoadColumn {
-  /** Bucket key = the column's start hour (e.g. 8 for the 08–10 column). */
-  readonly startHour: number;
-  /** Exclusive end hour shown in the header, capped at the column's last covered slot
-   * so a short final column (e.g. 20:00–21:00) reads "20–21", not "20–22". */
-  readonly endHour: number;
-  /** The 30-min cells of this column, in the order the API returned them. */
-  readonly cells: CourtLoadCell[];
-}
-
-/** The start hour (0–23) of a contract `HH:mm` slot-start time. */
-function slotHour(cell: CourtLoadCell): number {
-  return Number.parseInt(cell.startTime.slice(0, 2), 10);
-}
-
-/** The 2-hour bucket start hour for a cell (08:xx,09:xx → 8; 10:xx,11:xx → 10). */
-function columnStartHour(cell: CourtLoadCell): number {
-  return slotHour(cell) - (slotHour(cell) % COLUMN_HOURS);
-}
-
-/**
- * Group a row's 30-min cells into ordered 2-hour columns, derived purely from the
- * returned cell start times (no hard-coded window) so it stays correct if the
- * working hours change. Each column carries its own sub-segments.
- */
-function groupColumns(cells: readonly CourtLoadCell[]): LoadColumn[] {
-  const byBucket = new Map<number, CourtLoadCell[]>();
-  for (const cell of cells) {
-    const bucket = columnStartHour(cell);
-    const existing = byBucket.get(bucket);
-    if (existing) existing.push(cell);
-    else byBucket.set(bucket, [cell]);
-  }
-  return [...byBucket.entries()]
-    .sort((a, b) => a[0] - b[0])
-    .map(([startHour, group]) => ({
-      startHour,
-      // Cap at the last covered slot's hour + 1 so the short final column reads "20–21".
-      endHour: Math.min(startHour + COLUMN_HOURS, slotHour(group[group.length - 1]) + 1),
-      cells: group
-    }));
-}
-
-/** Two-digit zero-padded hour for a column-header range label. */
-function pad2(n: number): string {
-  return String(n).padStart(2, "0");
-}
-
-/** The "08–10" range label for a 2-hour column. */
-function columnLabel(column: LoadColumn): string {
-  return `${pad2(column.startHour)}–${pad2(column.endHour)}`;
-}
-
-/** Today's date as an ISO `yyyy-mm-dd` string for the default selection. */
 function todayIso(): string {
   return new Date().toISOString().slice(0, 10);
 }
 
-/**
- * True when the grid has court rows but every already-decided cell is `free`. A
- * pure check over the API's cell states — no occupancy, limit, or availability
- * math — so we can show an explicit "all free" hint instead of a grid that reads
- * as "nothing happened".
- */
-function allCellsFree(rows: readonly CourtLoadRow[]): boolean {
-  return rows.length > 0 && rows.every((row) => row.cells.every((cell) => cell.state === "free"));
+function selectedYearMonth(date: string): { year: number; month: number } {
+  const [year, month] = date.split("-").map((part) => Number.parseInt(part, 10));
+  return {
+    year: Number.isFinite(year) ? year : new Date().getFullYear(),
+    month: Number.isFinite(month) ? month : new Date().getMonth() + 1
+  };
 }
 
-/** Stable visual identity for occupied cells. Free/unknown cells stay ungrouped. */
+function pad2(value: number): string {
+  return String(value).padStart(2, "0");
+}
+
+function hourTime(hour: number): string {
+  return `${pad2(hour)}:00`;
+}
+
+function timeToMinutes(value: string): number {
+  const [hours, minutes] = value.split(":").map((part) => Number.parseInt(part, 10));
+  return hours * 60 + minutes;
+}
+
+function minutesToTime(value: number): string {
+  return `${pad2(Math.floor(value / 60))}:${pad2(value % 60)}`;
+}
+
+function nextSlotEnd(cells: readonly CourtLoadCell[], index: number): string {
+  return cells[index + 1]?.startTime ?? minutesToTime(timeToMinutes(cells[index].startTime) + 30);
+}
+
+function workingWindow(grid: CourtLoadGridView): TimelineWindow {
+  if (grid.workingHours) {
+    return {
+      openTime: grid.workingHours.openTime,
+      closeTime: grid.workingHours.closeTime,
+      source: grid.workingHours.source
+    };
+  }
+  return {
+    openTime: hourTime(grid.openHour),
+    closeTime: hourTime(grid.closeHour),
+    source: "legacy"
+  };
+}
+
+function axisTicks(window: TimelineWindow): string[] {
+  const open = timeToMinutes(window.openTime);
+  const close = timeToMinutes(window.closeTime);
+  if (close <= open) return [window.openTime, window.closeTime];
+
+  const ticks = [window.openTime];
+  for (let minute = Math.ceil(open / 60) * 60; minute < close; minute += 60) {
+    const label = minutesToTime(minute);
+    if (label !== ticks[ticks.length - 1]) ticks.push(label);
+  }
+  if (ticks[ticks.length - 1] !== window.closeTime) ticks.push(window.closeTime);
+  return ticks;
+}
+
 function cellEventKey(cell: CourtLoadCell): string | null {
   if ((cell.state === "request" || cell.state === "hold") && cell.requestId) {
     return `${cell.state}:${cell.requestId}`;
@@ -167,69 +157,68 @@ function cellEventKey(cell: CourtLoadCell): string | null {
   return null;
 }
 
-function sameEvent(a: CourtLoadCell | undefined, b: CourtLoadCell | undefined): boolean {
-  if (!a || !b) return false;
-  const aKey = cellEventKey(a);
-  return aKey !== null && aKey === cellEventKey(b);
+function buildEvents(row: CourtLoadRow): TimelineEvent[] {
+  const events: TimelineEvent[] = [];
+  let current: TimelineEvent | null = null;
+
+  row.cells.forEach((cell, index) => {
+    if (cell.state === "free") {
+      if (current) {
+        current.endTime = cell.startTime;
+        current = null;
+      }
+      return;
+    }
+
+    const stableKey = cellEventKey(cell) ?? `${cell.state}:${row.courtId}:${cell.startTime}`;
+    if (current && current.key === stableKey) {
+      current.endTime = nextSlotEnd(row.cells, index);
+      return;
+    }
+
+    if (current) current = null;
+    current = {
+      key: stableKey,
+      state: cell.state,
+      startTime: cell.startTime,
+      endTime: nextSlotEnd(row.cells, index),
+      requestId: cell.requestId,
+      trainingId: cell.trainingId,
+      blockId: cell.blockId
+    };
+    events.push(current);
+  });
+
+  return events;
 }
 
-function sameStateDifferentEvent(
-  a: CourtLoadCell | undefined,
-  b: CourtLoadCell | undefined
-): boolean {
-  if (!a || !b || a.state !== b.state) return false;
-  const aKey = cellEventKey(a);
-  const bKey = cellEventKey(b);
-  return aKey !== null && bKey !== null && aKey !== bKey;
+function toneClass(key: string): string {
+  let hash = 0;
+  for (let i = 0; i < key.length; i += 1) {
+    hash = (hash * 31 + key.charCodeAt(i)) % 997;
+  }
+  return `court-event--tone-${hash % 6}`;
 }
 
-function segmentClassName(
-  cell: CourtLoadCell,
-  previous: CourtLoadCell | undefined,
-  next: CourtLoadCell | undefined
-): string {
-  return [
-    "load-seg",
-    `load-seg--${cell.state}`,
-    sameEvent(previous, cell) ? "load-seg--connected-prev" : "",
-    sameEvent(cell, next) ? "load-seg--connected-next" : "",
-    sameStateDifferentEvent(previous, cell) ? "load-seg--event-boundary-left" : "",
-    sameStateDifferentEvent(cell, next) ? "load-seg--event-boundary-right" : ""
-  ]
-    .filter(Boolean)
-    .join(" ");
+function percent(start: string, end: string, at: string): number {
+  const startMinutes = timeToMinutes(start);
+  const endMinutes = timeToMinutes(end);
+  const total = Math.max(endMinutes - startMinutes, 1);
+  return ((timeToMinutes(at) - startMinutes) / total) * 100;
 }
 
-function joinsPreviousColumn(row: CourtLoadRow, column: LoadColumn): boolean {
-  const firstCell = column.cells[0];
-  if (!firstCell) return false;
-  const index = row.cells.findIndex((cell) => cell.startTime === firstCell.startTime);
-  return sameEvent(row.cells[index - 1], firstCell);
+function allCellsFree(rows: readonly CourtLoadRow[]): boolean {
+  return rows.length > 0 && rows.every((row) => row.cells.every((cell) => cell.state === "free"));
 }
 
-function joinsNextColumn(row: CourtLoadRow, column: LoadColumn): boolean {
-  const lastCell = column.cells[column.cells.length - 1];
-  if (!lastCell) return false;
-  const index = row.cells.findIndex((cell) => cell.startTime === lastCell.startTime);
-  return sameEvent(lastCell, row.cells[index + 1]);
-}
-
-/** Human-readable error from a failed query (the API decides the text). */
 function errorText(error: unknown, t: Translate): string {
   return error instanceof Error ? error.message : t("admin.courtLoad.loadError");
 }
 
-/** The slot-start label (e.g. "08:30") from a cell — already a contract time-string. */
-function slotLabel(cell: CourtLoadCell): string {
-  return cell.startTime;
-}
-
-/** Reuse the moderation-queue status labels for the detail popup. */
 function statusLabel(status: CourtRequestStatus, t: Translate): string {
   return t(`admin.courtRequests.status${status.charAt(0).toUpperCase()}${status.slice(1)}`);
 }
 
-/** Map a request status to a status-tag tone (confirmed = ok, decided-away = warn). */
 function statusTone(status: CourtRequestStatus): string {
   if (status === "confirmed") return "tag--ok";
   if (status === "rejected" || status === "cancelled") return "tag--warn";
@@ -245,12 +234,16 @@ export function CourtLoad(): JSX.Element {
   const [assignTarget, setAssignTarget] = useState<UnassignedTraining | null>(null);
   const load = useCourtLoad(date || null);
   const courts = useCourts();
+  const { year, month } = useMemo(() => selectedYearMonth(date), [date]);
+  const hours = useCourtWorkingHours(year, month, date !== "");
+  const saveMonth = useSaveCourtWorkingHoursMonth();
+  const saveDay = useSaveCourtWorkingHoursDay();
+  const deleteMonth = useDeleteCourtWorkingHoursMonth();
+  const deleteDay = useDeleteCourtWorkingHoursDay();
 
   const grid = load.data;
   const unassigned = grid?.unassignedTrainings ?? [];
-  // The 2-hour column order is derived from the first row's cells (every row spans
-  // the same working window per the contract); the bucketing is purely visual.
-  const headerColumns = groupColumns(grid?.rows[0]?.cells ?? []);
+  const window = grid ? workingWindow(grid) : null;
 
   return (
     <AppShell>
@@ -286,6 +279,21 @@ export function CourtLoad(): JSX.Element {
           </ul>
         </div>
 
+        <WorkingHoursPanel
+          date={date}
+          year={year}
+          month={month}
+          effectiveWindow={window}
+          settings={hours.data}
+          loading={hours.isPending}
+          error={hours.isError ? errorText(hours.error, t) : null}
+          saveMonth={saveMonth}
+          saveDay={saveDay}
+          deleteMonth={deleteMonth}
+          deleteDay={deleteDay}
+          t={t}
+        />
+
         {date === "" ? (
           <p className="state">{t("admin.courtLoad.pickDate")}</p>
         ) : load.isPending ? (
@@ -294,43 +302,19 @@ export function CourtLoad(): JSX.Element {
           <p className="state state--error" role="alert">
             {errorText(load.error, t)}
           </p>
-        ) : grid && grid.rows.length > 0 ? (
+        ) : grid && window && grid.rows.length > 0 ? (
           <>
             {allCellsFree(grid.rows) ? (
               <p className="state">{t("admin.courtLoad.allFreeHint")}</p>
             ) : null}
-            <div className="datatable__scroll">
-              <table className="datatable load-grid">
-                <caption className="visually-hidden">
-                  {t("admin.courtLoad.caption", { date: grid.date })}
-                </caption>
-                <thead>
-                  <tr>
-                    <th scope="col" className="load-grid__corner">
-                      {t("admin.courtLoad.colCourt")}
-                    </th>
-                    {headerColumns.map((column) => (
-                      <th key={column.startHour} scope="col" className="datatable__num">
-                        {columnLabel(column)}
-                      </th>
-                    ))}
-                  </tr>
-                </thead>
-                <tbody>
-                  {grid.rows.map((row) => (
-                    <CourtRow
-                      key={row.courtId}
-                      row={row}
-                      columns={groupColumns(row.cells)}
-                      onOpenRequest={setOpenRequestId}
-                      onOpenTraining={setOpenTraining}
-                      onMoveBlock={setMoveTarget}
-                      t={t}
-                    />
-                  ))}
-                </tbody>
-              </table>
-            </div>
+            <CourtTimeline
+              grid={grid}
+              window={window}
+              onOpenRequest={setOpenRequestId}
+              onOpenTraining={setOpenTraining}
+              onMoveBlock={setMoveTarget}
+              t={t}
+            />
           </>
         ) : (
           <p className="state">{t("admin.courtLoad.noCourts")}</p>
@@ -348,11 +332,7 @@ export function CourtLoad(): JSX.Element {
 
       <RequestDetailModal requestId={openRequestId} onClose={() => setOpenRequestId(null)} t={t} />
 
-      <AssignCourtModal
-        target={assignTarget}
-        onClose={() => setAssignTarget(null)}
-        t={t}
-      />
+      <AssignCourtModal target={assignTarget} onClose={() => setAssignTarget(null)} t={t} />
 
       <TrainingDetailModal
         target={openTraining}
@@ -376,164 +356,357 @@ export function CourtLoad(): JSX.Element {
   );
 }
 
-/**
- * One court's row: the pinned court-number header followed by a 2-hour column per
- * bucket, each a bar of its 30-min sub-segments. Pure presentation — the segment
- * states are the API's.
- */
-function CourtRow({
+function CourtTimeline({
+  grid,
+  window,
+  onOpenRequest,
+  onOpenTraining,
+  onMoveBlock,
+  t
+}: {
+  grid: CourtLoadGridView;
+  window: TimelineWindow;
+  onOpenRequest: (id: string) => void;
+  onOpenTraining: (target: TrainingTarget) => void;
+  onMoveBlock: (target: MoveTarget) => void;
+  t: Translate;
+}): JSX.Element {
+  const ticks = axisTicks(window);
+  const minutes = Math.max(timeToMinutes(window.closeTime) - timeToMinutes(window.openTime), 30);
+  const minWidth = Math.max(720, Math.ceil(minutes / 30) * 54 + 124);
+
+  return (
+    <section
+      className="court-timeline"
+      aria-label={t("admin.courtLoad.caption", { date: grid.date })}
+      style={{ ["--timeline-min-width" as string]: `${minWidth}px` }}
+    >
+      <div className="court-timeline__scroll">
+        <div className="court-timeline__canvas">
+          <div className="court-timeline__head">
+            <div className="court-timeline__corner">{t("admin.courtLoad.colCourt")}</div>
+            <div className="court-timeline__axis">
+              {ticks.map((tick) => (
+                <span
+                  key={tick}
+                  className="court-timeline__tick"
+                  style={{ left: `${percent(window.openTime, window.closeTime, tick)}%` }}
+                >
+                  {tick}
+                </span>
+              ))}
+            </div>
+          </div>
+          {grid.rows.map((row) => (
+            <CourtTimelineRow
+              key={row.courtId}
+              row={row}
+              window={window}
+              onOpenRequest={onOpenRequest}
+              onOpenTraining={onOpenTraining}
+              onMoveBlock={onMoveBlock}
+              t={t}
+            />
+          ))}
+        </div>
+      </div>
+    </section>
+  );
+}
+
+function CourtTimelineRow({
   row,
-  columns,
+  window,
   onOpenRequest,
   onOpenTraining,
   onMoveBlock,
   t
 }: {
   row: CourtLoadRow;
-  columns: LoadColumn[];
+  window: TimelineWindow;
   onOpenRequest: (id: string) => void;
   onOpenTraining: (target: TrainingTarget) => void;
   onMoveBlock: (target: MoveTarget) => void;
   t: Translate;
 }): JSX.Element {
-  const cellIndexes = new Map(row.cells.map((cell, index) => [cell.startTime, index]));
-
+  const events = buildEvents(row);
   return (
-    <tr>
-      <th scope="row" className="datatable__num load-grid__court">
+    <div className="court-timeline__row">
+      <div className="court-timeline__court">
         {t("admin.courtLoad.courtNumber", { number: row.courtNumber })}
-      </th>
-      {columns.map((column) => (
-        <td
-          key={column.startHour}
-          className={[
-            "load-grid__cell",
-            joinsPreviousColumn(row, column) ? "load-grid__cell--joins-prev" : "",
-            joinsNextColumn(row, column) ? "load-grid__cell--joins-next" : ""
-          ]
-            .filter(Boolean)
-            .join(" ")}
-        >
-          <div className="load-grid__col">
-            {column.cells.map((cell) => {
-              const index = cellIndexes.get(cell.startTime) ?? -1;
-              return (
-                <LoadSegment
-                  key={cell.startTime}
-                  cell={cell}
-                  previousCell={row.cells[index - 1]}
-                  nextCell={row.cells[index + 1]}
-                  courtId={row.courtId}
-                  courtNumber={row.courtNumber}
-                  onOpenRequest={onOpenRequest}
-                  onOpenTraining={onOpenTraining}
-                  onMoveBlock={onMoveBlock}
-                  t={t}
-                />
-              );
-            })}
-          </div>
-        </td>
-      ))}
-    </tr>
+      </div>
+      <div className="court-timeline__lane" aria-label={t("admin.courtLoad.rowAria", { number: row.courtNumber })}>
+        {events.map((event) => (
+          <CourtEventCard
+            key={event.key}
+            event={event}
+            window={window}
+            row={row}
+            onOpenRequest={onOpenRequest}
+            onOpenTraining={onOpenTraining}
+            onMoveBlock={onMoveBlock}
+            t={t}
+          />
+        ))}
+      </div>
+    </div>
   );
 }
 
-/**
- * A single 30-min sub-segment. A `request` segment opens the booking detail; a
- * `training` segment opens the covering training's detail (with a move action); a
- * `block` segment opens the move-court dialog directly; `free` (and any cell without
- * the id needed to act) stays inert. State is conveyed by aria-label + glyph, never
- * colour alone.
- */
-function LoadSegment({
-  cell,
-  previousCell,
-  nextCell,
-  courtId,
-  courtNumber,
+function CourtEventCard({
+  event,
+  window,
+  row,
   onOpenRequest,
   onOpenTraining,
   onMoveBlock,
   t
 }: {
-  cell: CourtLoadCell;
-  previousCell: CourtLoadCell | undefined;
-  nextCell: CourtLoadCell | undefined;
-  courtId: string;
-  courtNumber: number;
+  event: TimelineEvent;
+  window: TimelineWindow;
+  row: CourtLoadRow;
   onOpenRequest: (id: string) => void;
   onOpenTraining: (target: TrainingTarget) => void;
   onMoveBlock: (target: MoveTarget) => void;
   t: Translate;
 }): JSX.Element {
-  const className = segmentClassName(cell, previousCell, nextCell);
-  const glyph = <span aria-hidden="true">{CELL_STATE_GLYPH[cell.state]}</span>;
-  const params = {
-    number: courtNumber,
-    hour: slotLabel(cell),
-    state: cellStateLabel(cell.state, t)
-  };
+  const left = percent(window.openTime, window.closeTime, event.startTime);
+  const right = percent(window.openTime, window.closeTime, event.endTime);
+  const width = Math.max(right - left, 1.8);
+  const className = [
+    "court-event",
+    `court-event--${event.state}`,
+    toneClass(event.key)
+  ].join(" ");
+  const label = t("admin.courtLoad.eventAria", {
+    number: row.courtNumber,
+    start: event.startTime,
+    end: event.endTime,
+    state: cellStateLabel(event.state, t)
+  });
+  const style = { left: `${left}%`, width: `${width}%` };
+  const content = (
+    <>
+      <span className="court-event__glyph" aria-hidden="true">
+        {CELL_STATE_GLYPH[event.state]}
+      </span>
+      <span className="court-event__text">
+        {cellStateLabel(event.state, t)} · {event.startTime}-{event.endTime}
+      </span>
+    </>
+  );
 
-  // A `request` (confirmed) and a `hold` (pending pick) both link to a request and
-  // open the same booking-detail popup; they differ only in tint/glyph/label.
-  if ((cell.state === "request" || cell.state === "hold") && cell.requestId) {
-    const requestId = cell.requestId;
+  if ((event.state === "request" || event.state === "hold") && event.requestId) {
     return (
       <button
         type="button"
         className={className}
-        aria-label={t("admin.courtLoad.cellOpenAria", params)}
-        onClick={() => onOpenRequest(requestId)}
+        style={style}
+        data-event-key={event.key}
+        aria-label={label}
+        onClick={() => onOpenRequest(event.requestId as string)}
       >
-        {glyph}
+        {content}
       </button>
     );
   }
 
-  if (cell.state === "training" && cell.trainingId) {
-    const trainingId = cell.trainingId;
-    const blockId = cell.blockId;
+  if (event.state === "training" && event.trainingId) {
     return (
       <button
         type="button"
         className={className}
-        aria-label={t("admin.courtLoad.cellTrainingAria", params)}
-        onClick={() => onOpenTraining({ trainingId, blockId, courtId })}
+        style={style}
+        data-event-key={event.key}
+        aria-label={label}
+        onClick={() =>
+          onOpenTraining({
+            trainingId: event.trainingId as string,
+            blockId: event.blockId,
+            courtId: row.courtId
+          })
+        }
       >
-        {glyph}
+        {content}
       </button>
     );
   }
 
-  if (cell.state === "block" && cell.blockId) {
-    const blockId = cell.blockId;
+  if (event.state === "block" && event.blockId) {
     return (
       <button
         type="button"
         className={className}
-        aria-label={t("admin.courtLoad.cellMoveAria", params)}
-        onClick={() => onMoveBlock({ blockId, currentCourtId: courtId })}
+        style={style}
+        data-event-key={event.key}
+        aria-label={label}
+        onClick={() => onMoveBlock({ blockId: event.blockId as string, currentCourtId: row.courtId })}
       >
-        {glyph}
+        {content}
       </button>
     );
   }
 
   return (
-    <span className={className} aria-label={t("admin.courtLoad.cellAria", params)}>
-      {glyph}
+    <span className={className} style={style} data-event-key={event.key} aria-label={label}>
+      {content}
     </span>
   );
 }
 
-/**
- * Detail popup for a training-origin segment. Reuses the calendar's
- * {@link useTrainingDetail} hook + exported {@link TrainingDetailBody} so the
- * "whose training?" render is identical and never duplicated. When the training
- * carries a court block, a "Сменить корт" action hands the block off to the
- * move-court dialog (the server owns the freeness/limit re-check).
- */
+function WorkingHoursPanel({
+  date,
+  year,
+  month,
+  effectiveWindow,
+  settings,
+  loading,
+  error,
+  saveMonth,
+  saveDay,
+  deleteMonth,
+  deleteDay,
+  t
+}: {
+  date: string;
+  year: number;
+  month: number;
+  effectiveWindow: TimelineWindow | null;
+  settings: CourtWorkingHoursMonthView | undefined;
+  loading: boolean;
+  error: string | null;
+  saveMonth: ReturnType<typeof useSaveCourtWorkingHoursMonth>;
+  saveDay: ReturnType<typeof useSaveCourtWorkingHoursDay>;
+  deleteMonth: ReturnType<typeof useDeleteCourtWorkingHoursMonth>;
+  deleteDay: ReturnType<typeof useDeleteCourtWorkingHoursDay>;
+  t: Translate;
+}): JSX.Element {
+  const { notify } = useToast();
+  const [monthOpen, setMonthOpen] = useState("07:00");
+  const [monthClose, setMonthClose] = useState("21:00");
+  const [dayOpen, setDayOpen] = useState("07:00");
+  const [dayClose, setDayClose] = useState("21:00");
+
+  useEffect(() => {
+    const monthDefault = settings?.monthDefault ?? settings?.fallback;
+    if (monthDefault) {
+      setMonthOpen(monthDefault.openTime);
+      setMonthClose(monthDefault.closeTime);
+    }
+    const override = settings?.dayOverrides.find((item) => item.date === date);
+    const daySeed = override ?? effectiveWindow ?? monthDefault;
+    if (daySeed) {
+      setDayOpen(daySeed.openTime);
+      setDayClose(daySeed.closeTime);
+    }
+  }, [settings, date, effectiveWindow]);
+
+  const effectiveLabel = effectiveWindow
+    ? t("admin.courtLoad.hoursEffective", {
+        open: effectiveWindow.openTime,
+        close: effectiveWindow.closeTime,
+        source: t(`admin.courtLoad.hoursSource.${effectiveWindow.source}`)
+      })
+    : t("admin.courtLoad.hoursEffectiveUnknown");
+
+  function notifyError(errorValue: unknown): void {
+    notify(errorValue instanceof Error ? errorValue.message : t("admin.courtLoad.hoursSaveFailed"), "error");
+  }
+
+  return (
+    <section className="hours-panel" aria-labelledby="court-hours-title">
+      <div className="hours-panel__head">
+        <div>
+          <h2 id="court-hours-title">{t("admin.courtLoad.hoursTitle")}</h2>
+          <p>{effectiveLabel}</p>
+        </div>
+        {loading ? <span className="tag">{t("admin.state.loading")}</span> : null}
+      </div>
+      {error ? (
+        <p className="state state--error" role="alert">
+          {t("admin.courtLoad.hoursIntegrationPending", { message: error })}
+        </p>
+      ) : null}
+      <div className="hours-panel__forms">
+        <form
+          className="hours-panel__form"
+          onSubmit={(event) => {
+            event.preventDefault();
+            saveMonth.mutate(
+              { year, month, openTime: monthOpen, closeTime: monthClose },
+              {
+                onSuccess: () => notify(t("admin.courtLoad.hoursMonthSaved"), "success"),
+                onError: notifyError
+              }
+            );
+          }}
+        >
+          <strong>{t("admin.courtLoad.hoursMonthTitle", { year, month })}</strong>
+          <TimeField label={t("admin.field.startTime")} value={monthOpen} onChange={(e) => setMonthOpen(e.target.value)} step={1800} />
+          <TimeField label={t("admin.field.endTime")} value={monthClose} onChange={(e) => setMonthClose(e.target.value)} step={1800} />
+          <div className="cluster">
+            <Button type="submit" disabled={saveMonth.isPending}>
+              {saveMonth.isPending ? t("admin.action.saving") : t("admin.action.save")}
+            </Button>
+            <Button
+              type="button"
+              variant="ghost"
+              disabled={deleteMonth.isPending}
+              onClick={() =>
+                deleteMonth.mutate(
+                  { year, month },
+                  {
+                    onSuccess: () => notify(t("admin.courtLoad.hoursMonthDeleted"), "success"),
+                    onError: notifyError
+                  }
+                )
+              }
+            >
+              {t("admin.courtLoad.hoursDeleteDefault")}
+            </Button>
+          </div>
+        </form>
+        <form
+          className="hours-panel__form"
+          onSubmit={(event) => {
+            event.preventDefault();
+            if (date === "") return;
+            saveDay.mutate(
+              { date, openTime: dayOpen, closeTime: dayClose },
+              {
+                onSuccess: () => notify(t("admin.courtLoad.hoursDaySaved"), "success"),
+                onError: notifyError
+              }
+            );
+          }}
+        >
+          <strong>{t("admin.courtLoad.hoursDayTitle", { date: date || "-" })}</strong>
+          <TimeField label={t("admin.field.startTime")} value={dayOpen} onChange={(e) => setDayOpen(e.target.value)} step={1800} />
+          <TimeField label={t("admin.field.endTime")} value={dayClose} onChange={(e) => setDayClose(e.target.value)} step={1800} />
+          <div className="cluster">
+            <Button type="submit" disabled={saveDay.isPending || date === ""}>
+              {saveDay.isPending ? t("admin.action.saving") : t("admin.courtLoad.hoursSaveDay")}
+            </Button>
+            <Button
+              type="button"
+              variant="ghost"
+              disabled={deleteDay.isPending || date === ""}
+              onClick={() =>
+                deleteDay.mutate(date, {
+                  onSuccess: () => notify(t("admin.courtLoad.hoursDayDeleted"), "success"),
+                  onError: notifyError
+                })
+              }
+            >
+              {t("admin.courtLoad.hoursDeleteDay")}
+            </Button>
+          </div>
+        </form>
+      </div>
+    </section>
+  );
+}
+
 function TrainingDetailModal({
   target,
   onClose,
@@ -577,11 +750,6 @@ function TrainingDetailModal({
   );
 }
 
-/**
- * Detail popup for a confirmed booking opened from a `request` cell. All values
- * come from the API (validated by the contract); this view does no money/time
- * math — it renders the server-decided client, time, duration, price and court.
- */
 function RequestDetailModal({
   requestId,
   onClose,
@@ -608,7 +776,6 @@ function RequestDetailModal({
   );
 }
 
-/** The definition-list body of the booking-detail popup. */
 function RequestDetailBody({
   view,
   t
@@ -635,7 +802,7 @@ function RequestDetailBody({
       <div className="detail-list__row">
         <dt>{t("admin.courtLoad.detailTime")}</dt>
         <dd>
-          {view.startTime}–{view.endTime}
+          {view.startTime}-{view.endTime}
         </dd>
       </div>
       <div className="detail-list__row">
@@ -656,15 +823,6 @@ function RequestDetailBody({
   );
 }
 
-/**
- * Slice 4 — the "Без корта" section: trainings on this date the generator could
- * not place on a court (every court was busy). The API decides which trainings are
- * orphaned (`grid.unassignedTrainings`); this section lists them and offers both a
- * one-click "auto-assign all" (each onto its group's chosen court if free, else the
- * lowest free court) and a per-training manual assign, flagged with the warning
- * (amber) accent. Rendered only when the list is non-empty. The server owns the
- * court pick + freeness/limit checks; this section computes nothing.
- */
 function UnassignedSection({
   date,
   trainings,
@@ -690,10 +848,7 @@ function UnassignedSection({
           result.skipped > 0 ? "info" : "success"
         ),
       onError: (error) =>
-        notify(
-          error instanceof Error ? error.message : t("admin.courtLoad.autoAssignFailed"),
-          "error"
-        )
+        notify(error instanceof Error ? error.message : t("admin.courtLoad.autoAssignFailed"), "error")
     });
   }
 
@@ -701,7 +856,7 @@ function UnassignedSection({
     {
       key: "time",
       header: t("admin.courtLoad.unassignedColTime"),
-      render: (training) => `${training.startTime}–${training.endTime}`
+      render: (training) => `${training.startTime}-${training.endTime}`
     },
     {
       key: "group",
@@ -754,13 +909,6 @@ function UnassignedSection({
   );
 }
 
-/**
- * Assign one unassigned training onto a chosen active court. The picker offers the
- * active courts from GET /courts; the server owns the 6-per-slot guard and the
- * chosen-court freeness check, so a clash returns a 409 surfaced as a toast — the
- * console never pre-checks availability. On success the court-load query refetches
- * (the training leaves this section and joins the grid) and the modal closes.
- */
 function AssignCourtModal({
   target,
   onClose,
@@ -775,7 +923,6 @@ function AssignCourtModal({
   const assign = useAssignCourt();
   const [pickedCourtId, setPickedCourtId] = useState<string | null>(null);
 
-  // Reset the picked court whenever a new training opens the modal.
   const [lastTrainingId, setLastTrainingId] = useState<string | null>(null);
   if (target && target.trainingId !== lastTrainingId) {
     setLastTrainingId(target.trainingId);
@@ -793,10 +940,7 @@ function AssignCourtModal({
           onClose();
         },
         onError: (error) =>
-          notify(
-            error instanceof Error ? error.message : t("admin.courtLoad.assignFailed"),
-            "error"
-          )
+          notify(error instanceof Error ? error.message : t("admin.courtLoad.assignFailed"), "error")
       }
     );
   }
@@ -838,9 +982,7 @@ function AssignCourtModal({
             <p className="state">{t("admin.courtLoad.assignCourtsLoading")}</p>
           ) : courts.isError ? (
             <p className="state state--error" role="alert">
-              {courts.error instanceof Error
-                ? courts.error.message
-                : t("admin.courtLoad.assignFailed")}
+              {courts.error instanceof Error ? courts.error.message : t("admin.courtLoad.assignFailed")}
             </p>
           ) : (courts.data ?? []).length === 0 ? (
             <p className="state" role="status">

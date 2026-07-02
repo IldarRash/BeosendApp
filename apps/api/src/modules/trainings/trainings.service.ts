@@ -21,6 +21,7 @@ import type {
   ClientTrainingDetail,
   CourtCellOccupant,
   CourtSlotOccupant,
+  CourtWorkingHours,
   DayOfWeek,
   DeleteTrainingSeriesResult,
   GenerateAllMonthInput,
@@ -49,8 +50,6 @@ import type {
 import {
   autoAssignResultSchema,
   clientTrainingDetailSchema,
-  COURT_CLOSE_HOUR,
-  COURT_OPEN_HOUR,
   courtFreeForSlots,
   courtSlotsCovered,
   deleteTrainingSeriesResultSchema,
@@ -83,6 +82,7 @@ import { ClientsRepository } from "../clients/clients.repository";
 import { CourtBlocksRepository, type CourtOccupancyRow } from "../courts/court-blocks.repository";
 import { GroupsRepository } from "../groups/groups.repository";
 import { NotificationsService } from "../notifications/notifications.service";
+import { SettingsService } from "../settings/settings.service";
 import { TrainersRepository } from "../trainers/trainers.repository";
 import { TrainingsRepository, type ClientTrainingDetailRow } from "./trainings.repository";
 
@@ -107,6 +107,7 @@ export class TrainingsService {
     private readonly courtBlocks: CourtBlocksRepository,
     private readonly bookings: BookingsRepository,
     private readonly domainEvents: DomainEventsService,
+    private readonly settings: SettingsService,
     @Inject(ENV) private readonly env: Env
   ) {}
 
@@ -440,8 +441,10 @@ export class TrainingsService {
         occupancyByDate.set(training.date, occupancy);
       }
 
+      const workingHours = await this.settings.resolveCourtWorkingHours(training.date);
       const courtId = this.pickCourtForSlots(
         slots,
+        workingHours,
         activeCourts,
         activeCourtCount,
         effectivePreferredCourtId,
@@ -480,6 +483,7 @@ export class TrainingsService {
    */
   private pickCourtForSlots(
     slots: readonly string[],
+    workingHours: CourtWorkingHours,
     activeCourts: readonly { id: string; number: number }[],
     activeCourtCount: number,
     preferredCourtId: string | undefined,
@@ -492,8 +496,8 @@ export class TrainingsService {
     // on that account — only the per-court freeness below still applies.
     const free = freeCourtsBySlot({
       activeCourtCount,
-      openHour: COURT_OPEN_HOUR,
-      closeHour: COURT_CLOSE_HOUR,
+      openTime: workingHours.openTime,
+      closeTime: workingHours.closeTime,
       confirmed: [],
       blocks: [...toSlotOccupants(heldRequests), ...toSlotOccupants(blocks)]
     });
@@ -523,6 +527,7 @@ export class TrainingsService {
       query.from,
       query.to,
       query.groupId,
+      query.trainerId,
       query.includeTerminal ?? false
     );
   }
@@ -1053,8 +1058,10 @@ export class TrainingsService {
       // Reuse the generator's guard: it returns the picked court only if the
       // preferred (requested) court is free for every covered slot and within the
       // 6-per-slot limit. Any other result means the requested court isn't grantable.
+      const workingHours = await this.settings.resolveCourtWorkingHours(locked.date);
       const picked = this.pickCourtForSlots(
         slots,
+        workingHours,
         activeCourts,
         activeCourts.length,
         input.courtId,
@@ -1223,8 +1230,10 @@ export class TrainingsService {
 
         const durationMinutes = minutesOfDay(training.endTime) - minutesOfDay(training.startTime);
         const slots = courtSlotsCovered(training.startTime, durationMinutes);
+        const workingHours = await this.settings.resolveCourtWorkingHours(training.date);
         const courtId = this.pickCourtForSlots(
           slots,
+          workingHours,
           activeCourts,
           activeCourtCount,
           group.courtId ?? undefined,
@@ -1560,8 +1569,10 @@ export class TrainingsService {
       this.courtBlocks.blocksOccupancyForDate(training.date, tx, existingBlock.id)
     ]);
 
+    const workingHours = await this.settings.resolveCourtWorkingHours(training.date);
     const picked = this.pickCourtForSlots(
       slots,
+      workingHours,
       activeCourts,
       activeCourts.length,
       existingBlock.courtId,
@@ -1604,8 +1615,10 @@ export class TrainingsService {
       this.courtBlocks.blocksOccupancyForDate(date, tx, excludeBlockId)
     ]);
 
+    const workingHours = await this.settings.resolveCourtWorkingHours(date);
     const picked = this.pickCourtForSlots(
       slots,
+      workingHours,
       activeCourts,
       activeCourts.length,
       courtId,

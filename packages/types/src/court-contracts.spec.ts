@@ -4,12 +4,15 @@ import {
   confirmCourtRequestSchema,
   courtAvailabilityQuerySchema,
   courtAvailabilitySchema,
+  courtClientGridQuerySchema,
+  courtClientGridSchema,
   courtRequestAdminViewSchema,
   courtRequestQueueQuerySchema,
   courtBlockSchema,
   courtBlocksListQuerySchema,
   courtFreeCourtsQuerySchema,
   courtLoadCellSchema,
+  courtLoadGridSchema,
   courtSchema,
   createCourtRequestSchema,
   createCourtBlockSchema,
@@ -374,6 +377,93 @@ describe("courtFreeCourtsQuerySchema (client court-picker read — coerces query
   });
 });
 
+describe("courtClientGridSchema (Mini App redacted court grid)", () => {
+  const validGrid = {
+    date: "2026-06-18",
+    durationHours: 1.5,
+    workingHours: {
+      date: "2026-06-18",
+      openTime: "09:00",
+      closeTime: "11:00",
+      source: "day"
+    },
+    rows: [
+      {
+        courtNumber: 1,
+        cells: [
+          { startTime: "09:00", endTime: "10:30", state: "free" },
+          { startTime: "10:00", endTime: "11:30", state: "unavailable" }
+        ]
+      }
+    ]
+  };
+
+  it("coerces query string durationHours and rejects invalid query fields", () => {
+    const parsed = courtClientGridQuerySchema.parse({
+      date: "2026-06-18",
+      durationHours: "1.5"
+    });
+    expect(parsed.durationHours).toBe(1.5);
+    expect(
+      courtClientGridQuerySchema.safeParse({
+        date: "2026-06-18",
+        durationHours: "2.25"
+      }).success
+    ).toBe(false);
+    expect(
+      courtClientGridQuerySchema.safeParse({
+        date: "2026-06-18",
+        durationHours: "1",
+        courtId: uuidA
+      }).success
+    ).toBe(false);
+  });
+
+  it("accepts the redacted grid shape", () => {
+    expect(courtClientGridSchema.safeParse(validGrid).success).toBe(true);
+  });
+
+  it("strips internal ids and client data from parsed grid rows/cells", () => {
+    const parsed = courtClientGridSchema.parse({
+      ...validGrid,
+      rows: [
+        {
+          courtId: uuidA,
+          courtNumber: 1,
+          clientName: "Ana",
+          cells: [
+            {
+              startTime: "09:00",
+              endTime: "10:30",
+              state: "free",
+              requestId: uuidB,
+              blockId: uuidA,
+              trainingId: uuidB,
+              reason: "manual"
+            }
+          ]
+        }
+      ]
+    });
+
+    expect(Object.keys(parsed.rows[0]).sort()).toEqual(["cells", "courtNumber"]);
+    expect(Object.keys(parsed.rows[0].cells[0]).sort()).toEqual([
+      "endTime",
+      "startTime",
+      "state"
+    ]);
+  });
+
+  it("rejects admin-only states", () => {
+    expect(
+      courtClientGridSchema.safeParse({
+        ...validGrid,
+        rows: [{ courtNumber: 1, cells: [{ startTime: "09:00", endTime: "10:30", state: "hold" }] }]
+      }).success
+    ).toBe(false);
+  });
+});
+
 describe("courtAvailabilityQuerySchema (C3 read input)", () => {
   it("accepts a valid ISO date", () => {
     expect(courtAvailabilityQuerySchema.safeParse({ date: "2026-06-10" }).success).toBe(true);
@@ -641,5 +731,27 @@ describe("courtAvailabilitySchema (C3 full response)", () => {
         slots: [{ startTime: "08:00", freeCourts: -2 }]
       }).success
     ).toBe(false);
+  });
+});
+
+describe("courtLoadGridSchema", () => {
+  it("accepts effective working hours alongside legacy numeric hour fields", () => {
+    expect(
+      courtLoadGridSchema.safeParse({
+        date: "2026-07-15",
+        workingHours: {
+          date: "2026-07-15",
+          openTime: "07:30",
+          closeTime: "20:30",
+          source: "day"
+        },
+        openTime: "07:30",
+        closeTime: "20:30",
+        openHour: 7,
+        closeHour: 21,
+        rows: [],
+        unassignedTrainings: []
+      }).success
+    ).toBe(true);
   });
 });

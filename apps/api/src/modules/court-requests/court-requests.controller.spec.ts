@@ -1,5 +1,5 @@
 import { BadRequestException, ForbiddenException } from "@nestjs/common";
-import type { CourtRequest, CourtRequestPreview } from "@beosand/types";
+import type { CourtClientGrid, CourtRequest, CourtRequestPreview } from "@beosand/types";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { CourtRequestsController } from "./court-requests.controller";
 import type { CourtRequestsService } from "./court-requests.service";
@@ -28,6 +28,18 @@ const preview: CourtRequestPreview = {
   available: true
 };
 
+const clientGrid: CourtClientGrid = {
+  date: "2026-06-10",
+  durationHours: 1,
+  workingHours: {
+    date: "2026-06-10",
+    openTime: "09:00",
+    closeTime: "11:00",
+    source: "day"
+  },
+  rows: [{ courtNumber: 1, cells: [{ startTime: "09:00", endTime: "10:00", state: "free" }] }]
+};
+
 const created: CourtRequest = {
   id: "33333333-3333-3333-3333-333333333333",
   clientId: "11111111-1111-1111-1111-111111111111",
@@ -46,6 +58,7 @@ const created: CourtRequest = {
 function makeService(overrides: Partial<CourtRequestsService> = {}): CourtRequestsService {
   return {
     getAvailability: vi.fn(),
+    clientGrid: vi.fn(async () => clientGrid),
     previewRequest: vi.fn(async () => preview),
     createRequest: vi.fn(async () => created),
     confirmRequest: vi.fn(async () => ({ ...created, status: "confirmed", decidedBy: ACTOR_ID })),
@@ -57,6 +70,30 @@ function makeService(overrides: Partial<CourtRequestsService> = {}): CourtReques
 // C2 preview/create are the only client-facing court writes. Identity is resolved
 // from the verified session (x-client-telegram-id ?? x-telegram-id); the body's
 // telegramId must match that actor or the request is rejected (no impersonation).
+describe("CourtRequestsController.clientGrid (GET /court-requests/client-grid)", () => {
+  let service: CourtRequestsService;
+  let controller: CourtRequestsController;
+
+  beforeEach(() => {
+    service = makeService();
+    controller = new CourtRequestsController(service);
+  });
+
+  it("coerces the duration query and forwards the redacted grid request", async () => {
+    await expect(
+      controller.clientGrid({ date: "2026-06-10", durationHours: "1" })
+    ).resolves.toEqual(clientGrid);
+    expect(service.clientGrid).toHaveBeenCalledWith({ date: "2026-06-10", durationHours: 1 });
+  });
+
+  it("rejects invalid query values before calling the service", async () => {
+    await expect(
+      controller.clientGrid({ date: "2026-06-10", durationHours: "2.25" })
+    ).rejects.toBeInstanceOf(BadRequestException);
+    expect(service.clientGrid).not.toHaveBeenCalled();
+  });
+});
+
 describe("CourtRequestsController.preview (POST /court-requests/preview)", () => {
   let service: CourtRequestsService;
   let controller: CourtRequestsController;

@@ -857,7 +857,7 @@ button.slot { display: block; }
 
 /* Selected chips show a small check in the corner. */
 .ccell.is-on::after {
-  content: "✓";
+  content: "\2713";
   position: absolute;
   top: 6px;
   right: 8px;
@@ -876,6 +876,126 @@ button.slot { display: block; }
 .ccell:focus-visible {
   outline: 2px solid var(--co);
   outline-offset: 2px;
+}
+
+/* =========================================================
+ * Court request availability grid (miniapp)
+ * Rows = courts, columns = 30-min starts.
+ * ========================================================= */
+.court-grid-block .tg-sech {
+  padding-top: 16px;
+}
+
+.court-grid-wrap {
+  overflow-x: auto;
+  overflow-y: auto;
+  border-radius: var(--r);
+  border: 1px solid var(--tg-sep);
+  background: var(--tg-bg);
+}
+
+.court-grid {
+  display: grid;
+  min-width: min-content;
+  background: var(--tg-bg);
+  border-collapse: collapse;
+}
+
+.court-grid__cell {
+  min-height: 44px;
+  min-width: 72px;
+  display: grid;
+  place-items: center;
+  border: 0.5px solid var(--tg-sep-soft);
+  background: var(--tg-bg);
+  font-family: var(--ff);
+  font-size: 13px;
+  line-height: 1.2;
+  text-align: center;
+  color: var(--tg-text);
+  position: relative;
+}
+
+.court-grid__cell--head {
+  font-weight: 600;
+  background: var(--tg-secondary);
+  color: var(--tg-subtitle);
+  position: sticky;
+  top: 0;
+  z-index: 2;
+}
+
+.court-grid__cell--sticky-top {
+  z-index: 2;
+}
+
+.court-grid__cell--sticky-col {
+  position: sticky;
+  left: 0;
+  z-index: 1;
+  min-width: 64px;
+  background: var(--tg-bg);
+  font-weight: 600;
+}
+
+.court-grid__cell--sticky-col.court-grid__cell--head {
+  z-index: 3;
+}
+
+.court-grid__cell--row {
+  text-align: left;
+  padding: 0 10px;
+  justify-content: start;
+}
+
+.court-grid__cell.is-free {
+  cursor: pointer;
+}
+
+.court-grid__cell.is-unavailable {
+  cursor: not-allowed;
+  background: #ffe1de;
+  color: #8f2d2b;
+  border-color: #f0c4bd;
+}
+
+.court-grid__cell.is-selected {
+  background: var(--co);
+  color: #fff;
+  border-color: var(--co);
+}
+
+.court-grid__cell.is-selected::after {
+  content: "\2713";
+  position: absolute;
+  inset-inline-end: 6px;
+  inset-block-start: 6px;
+  font-size: 12px;
+  line-height: 1;
+}
+
+.court-grid__cell:disabled {
+  opacity: 0.95;
+}
+
+.court-grid__cell:focus-visible {
+  outline: 2px solid var(--co);
+  outline-offset: -2px;
+}
+
+@media (min-width: 768px) {
+  .court-grid-wrap {
+    overflow-x: auto;
+  }
+
+  .court-grid__cell {
+    min-height: 46px;
+    min-width: 84px;
+  }
+
+  .court-grid__cell--row {
+    min-width: 72px;
+  }
 }
 
 /* =========================================================

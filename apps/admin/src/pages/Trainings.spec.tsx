@@ -276,11 +276,19 @@ function currentMonthRange(): { from: string; to: string } {
 }
 
 /** The last query object passed to the (mocked) useTrainings hook. */
-function lastTrainingsQuery(): { from?: string; to?: string; includeTerminal?: boolean } | null {
+function lastTrainingsQuery(): {
+  from?: string;
+  to?: string;
+  groupId?: string;
+  trainerId?: string;
+  includeTerminal?: boolean;
+} | null {
   const calls = useTrainings.mock.calls;
   return (calls.at(-1)?.[0] ?? null) as {
     from?: string;
     to?: string;
+    groupId?: string;
+    trainerId?: string;
     includeTerminal?: boolean;
   } | null;
 }
@@ -292,7 +300,7 @@ function lastCalendarQuery(): { includeTerminal?: boolean } | null {
 }
 
 function trainingTableRows(): HTMLElement[] {
-  return within(screen.getByRole("table")).getAllByRole("row").slice(2);
+  return within(screen.getByRole("table")).getAllByRole("row").slice(1);
 }
 
 function openEditForRow(rowIndex = 0): HTMLElement {
@@ -758,7 +766,7 @@ describe("Trainings page", () => {
     // the plain group-less/client-less row stays "Разовая".
     const rowText = within(table)
       .getAllByRole("row")
-      .slice(2)
+      .slice(1)
       .map((row) => row.textContent ?? "")
       .join("\n");
     expect(rowText).toContain("Утренняя группа");
@@ -788,10 +796,11 @@ describe("Trainings page", () => {
     render(<Trainings />);
     setRange();
 
-    const expectedQuery = { from: "2026-07-01", to: "2026-07-31" };
     const table = screen.getByRole("table");
     fireEvent.click(within(table).getByRole("button", { name: /Дата/ }));
-    const groupFilter = screen.getByLabelText("Фильтр: Группа") as HTMLSelectElement;
+    expect(lastTrainingsQuery()).toEqual({ from: "2026-07-01", to: "2026-07-31" });
+
+    const groupFilter = screen.getByLabelText("Группа") as HTMLSelectElement;
     const individualOptions = within(groupFilter).getAllByRole("option", {
       name: "Индивидуальная"
     }) as HTMLOptionElement[];
@@ -800,9 +809,55 @@ describe("Trainings page", () => {
     expect(individualOptions[1].value).toBe(collidingGroup.id);
     fireEvent.change(groupFilter, { target: { value: individualOptions[1].value } });
 
-    expect(lastTrainingsQuery()).toEqual(expectedQuery);
+    expect(lastTrainingsQuery()).toEqual({
+      from: "2026-07-01",
+      to: "2026-07-31",
+      groupId: collidingGroup.id
+    });
     expect(within(table).getByText("2026-07-08")).toBeTruthy();
     expect(within(table).queryByText("2026-07-07")).toBeNull();
+  });
+
+  it("sends selected trainer through the table query with real group and terminal filters", () => {
+    const otherTrainer: Trainer = {
+      ...TRAINER,
+      id: "99999999-9999-4999-8999-999999999999",
+      name: "Милош"
+    };
+    useTrainers.mockReturnValue({ data: [TRAINER, otherTrainer] });
+    useTrainings.mockReturnValue({
+      isPending: false,
+      isError: false,
+      error: null,
+      data: [
+        TRAINING,
+        {
+          ...TRAINING,
+          id: "88888888-8888-4888-8888-888888888888",
+          trainerId: otherTrainer.id,
+          date: "2026-07-08"
+        }
+      ]
+    });
+    render(<Trainings />);
+    setRange();
+
+    fireEvent.change(screen.getByLabelText("Группа"), { target: { value: GROUP.id } });
+    fireEvent.change(screen.getByLabelText("Тренер"), { target: { value: TRAINER.id } });
+    fireEvent.click(
+      screen.getByRole("checkbox", { name: /Показать заверш/ })
+    );
+
+    expect(lastTrainingsQuery()).toEqual({
+      from: "2026-07-01",
+      to: "2026-07-31",
+      groupId: GROUP.id,
+      trainerId: TRAINER.id,
+      includeTerminal: true
+    });
+    expect(trainingTableRows()).toHaveLength(1);
+    expect(screen.getByText("2026-07-06")).toBeTruthy();
+    expect(screen.queryByText("2026-07-08")).toBeNull();
   });
 
   it("keeps sorted/filtered training row actions bound to the correct row id", () => {
@@ -832,8 +887,8 @@ describe("Trainings page", () => {
     const expectedQuery = { from: "2026-07-01", to: "2026-07-31" };
     const table = screen.getByRole("table");
     fireEvent.click(within(table).getByRole("button", { name: /Дата/ }));
-    fireEvent.change(screen.getByLabelText("Фильтр: Время"), {
-      target: { value: "18:00–19:00" }
+    fireEvent.change(screen.getByLabelText("Группа"), {
+      target: { value: "__individual" }
     });
 
     expect(lastTrainingsQuery()).toEqual(expectedQuery);

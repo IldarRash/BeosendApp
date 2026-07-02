@@ -34,14 +34,15 @@ function listKey(query: ListTrainingsQuery): readonly unknown[] {
     query.from,
     query.to,
     query.groupId ?? null,
+    query.trainerId ?? null,
     query.includeTerminal ?? false
   ] as const;
 }
 
 /**
- * Admin trainings for a date range (GET /trainings?from&to&groupId). `enabled`
- * is true only once a from/to range is supplied so an unconfigured screen makes
- * no call.
+ * Admin trainings for a date range (GET /trainings?from&to&groupId?&trainerId?).
+ * `enabled` is true only once a from/to range is supplied so an unconfigured
+ * screen makes no call.
  */
 export function useTrainings(
   query: ListTrainingsQuery | null

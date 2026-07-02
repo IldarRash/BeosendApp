@@ -328,8 +328,10 @@ export function courtFreeForSlots(
  */
 export function courtLoadGrid(input: {
   courts: readonly { id: string; number: number }[];
-  openHour: number;
-  closeHour: number;
+  openHour?: number;
+  closeHour?: number;
+  openTime?: string;
+  closeTime?: string;
   confirmed: readonly CourtCellOccupant[];
   blocks: readonly CourtCellOccupant[];
   /** Pending requests holding a specific court (client picked it; admin not decided). */
@@ -348,8 +350,7 @@ export function courtLoadGrid(input: {
   const blockSlots = occupiedSlotsByCourt(input.blocks);
   const requestSlots = occupiedSlotsByCourt(input.confirmed);
   const holdSlots = occupiedSlotsByCourt(input.holds ?? []);
-  const openMinutes = input.openHour * 60;
-  const closeMinutes = input.closeHour * 60;
+  const { openMinutes, closeMinutes } = workingWindowMinutes(input);
 
   return input.courts.map((court) => {
     const blocked = blockSlots.get(court.id);
@@ -444,8 +445,10 @@ function occupiedSlotsByCourt(
  */
 export function freeCourtsBySlot(input: {
   activeCourtCount: number;
-  openHour: number;
-  closeHour: number;
+  openHour?: number;
+  closeHour?: number;
+  openTime?: string;
+  closeTime?: string;
   confirmed: readonly CourtOccupant[];
   blocks: readonly CourtSlotOccupant[];
 }): Map<string, number> {
@@ -463,13 +466,25 @@ export function freeCourtsBySlot(input: {
   }
 
   const result = new Map<string, number>();
-  const closeMinutes = input.closeHour * 60;
-  for (let m = input.openHour * 60; m < closeMinutes; m += SLOT_MINUTES) {
+  const { openMinutes, closeMinutes } = workingWindowMinutes(input);
+  for (let m = openMinutes; m < closeMinutes; m += SLOT_MINUTES) {
     const slot = timeOfMinutes(m);
     const free = input.activeCourtCount - (occupiedCount.get(slot) ?? 0);
     result.set(slot, Math.max(0, free));
   }
   return result;
+}
+
+function workingWindowMinutes(input: {
+  openHour?: number;
+  closeHour?: number;
+  openTime?: string;
+  closeTime?: string;
+}): { openMinutes: number; closeMinutes: number } {
+  return {
+    openMinutes: input.openTime ? minutesOfDay(input.openTime) : (input.openHour ?? 0) * 60,
+    closeMinutes: input.closeTime ? minutesOfDay(input.closeTime) : (input.closeHour ?? 24) * 60
+  };
 }
 
 // --- Member display names (group roster chips) ---

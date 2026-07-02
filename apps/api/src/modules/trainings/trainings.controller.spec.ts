@@ -22,6 +22,7 @@ import type { GroupsRepository } from "../groups/groups.repository";
 import type { CourtBlocksRepository } from "../courts/court-blocks.repository";
 import type { DomainEventsService } from "../connectors/domain-events.service";
 import type { NotificationsService } from "../notifications/notifications.service";
+import type { SettingsService } from "../settings/settings.service";
 import type { TrainersRepository } from "../trainers/trainers.repository";
 
 const ADMIN_ID = 111;
@@ -29,6 +30,17 @@ const NON_ADMIN_ID = 999;
 const GROUP_ID = "11111111-1111-1111-1111-111111111111";
 
 const env = { ADMIN_TELEGRAM_IDS: [String(ADMIN_ID)] } as unknown as Env;
+
+function makeSettings(): SettingsService {
+  return {
+    resolveCourtWorkingHours: vi.fn(async (date: string) => ({
+      date,
+      openTime: "07:00",
+      closeTime: "21:00",
+      source: "fallback"
+    }))
+  } as unknown as SettingsService;
+}
 
 const group: Group = {
   id: GROUP_ID,
@@ -167,6 +179,7 @@ describe("TrainingsController", () => {
         makeCourtBlocksRepo(),
         makeBookingsRepo(),
         makeDomainEvents(),
+        makeSettings(),
         env
       )
     );
@@ -180,13 +193,14 @@ describe("TrainingsController", () => {
   });
 
   it("admin header resolves the actor and GET /trainings lists in range", async () => {
-    await expect(controller.list(String(ADMIN_ID), validQuery)).resolves.toEqual([
-      sampleTraining
-    ]);
+    await expect(
+      controller.list(String(ADMIN_ID), { ...validQuery, trainerId: sampleTraining.trainerId })
+    ).resolves.toEqual([sampleTraining]);
     expect(trainingsRepo.listInRange).toHaveBeenCalledWith(
       "2026-07-01",
       "2026-07-31",
       undefined,
+      sampleTraining.trainerId,
       false
     );
 
@@ -196,6 +210,7 @@ describe("TrainingsController", () => {
     expect(trainingsRepo.listInRange).toHaveBeenLastCalledWith(
       "2026-07-01",
       "2026-07-31",
+      undefined,
       undefined,
       true
     );
@@ -360,6 +375,7 @@ describe("TrainingsController generate-individual", () => {
         makeCourtBlocksRepo(),
         makeBookingsRepo(),
         makeDomainEvents(),
+        makeSettings(),
         env
       )
     );
@@ -485,6 +501,7 @@ describe("Trainer-scoped reads (T2.3)", () => {
       makeCourtBlocksRepo(),
       makeBookingsRepo(),
       makeDomainEvents(),
+      makeSettings(),
       env
     );
   }
@@ -751,6 +768,7 @@ describe("Admin manager writes (A1)", () => {
         makeCourtBlocksRepo(),
         makeBookingsRepo(),
         makeDomainEvents(),
+        makeSettings(),
         env
       )
     );
@@ -800,6 +818,7 @@ describe("Admin manager writes (A1)", () => {
         courtBlocksRepo,
         makeBookingsRepo(),
         makeDomainEvents(),
+        makeSettings(),
         env
       )
     );
@@ -1106,6 +1125,7 @@ describe("Admin reschedule writes (PATCH /trainings/:id/time[-series])", () => {
         makeCourtBlocksRepo(),
         bookingsRepo,
         makeDomainEvents(),
+        makeSettings(),
         env
       )
     );
@@ -1339,6 +1359,7 @@ describe("Admin individual price/delete writes", () => {
         makeCourtBlocksRepo(),
         bookingsRepo,
         makeDomainEvents(),
+        makeSettings(),
         env
       )
     );
