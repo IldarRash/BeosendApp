@@ -1,48 +1,62 @@
 # Database
 
-Postgres, accessed via Drizzle. Schema lives only in `packages/db/src/schema.ts`; migrations are
-generated into `packages/db/drizzle/` and committed with the schema change that produced them.
+Postgres is accessed through Drizzle. The schema lives in `packages/db/src/schema.ts`; migrations live
+under `packages/db/drizzle/` and should be committed with the schema change that produced them.
 
 ## Conventions
 
-- UUID primary keys (`uuid().defaultRandom()`).
-- Money: integer columns in **RSD** (whole dinars).
-- `time` for clock times, `date` for calendar dates, `timestamptz` for instants.
-- Enums are Postgres enums mirroring the `packages/types` enums (same values).
-- Status columns default to a safe value (`active`, `open`, `pending`, `waiting`).
+- UUID primary keys with `defaultRandom()` unless a table is intentionally keyed differently.
+- Money is stored as integer RSD.
+- `time` stores clock time, `date` stores calendar date, and `timestamptz` stores instants.
+- Postgres enums mirror shared contract enums where the value set is stable.
+- Status columns default to a safe value such as `active`, `open`, `pending`, or `waiting`.
+- Repositories are the only DB access layer; services own transactions and invariants.
 
-## Tables (12)
+## Tables
+
+`packages/db/src/schema.ts` currently exports 20 tables:
 
 | Table | Purpose | Notable columns |
 | --- | --- | --- |
-| `levels` | level reference | `name`, `status` |
-| `trainers` | trainer reference | `type` (main/guest), `telegram_id?` |
-| `clients` | Telegram users | `telegram_id` (unique idx), `telegram_username?`, `level_id?` |
-| `groups` | recurring slot | `days_of_week int[]`, `start/end_time`, `capacity`, `price_single_rsd`, `price_month_rsd` |
-| `trainings` | dated instance | `group_id?`, `date`, `capacity`, `booked_count`, `status` |
-| `bookings` | client ↔ training | `type`, `group_subscription_id?`, `status`, `source` |
-| `waitlist` | queue per training | `position`, `status`, `added_at` |
-| `notifications` | outbound send log | `type`, `client_id`, `training_id?`, `sent_at` (idempotency/analytics) |
-| `broadcasts` | free-slot blasts | `type`, `payload`, `created_by`, `recipients_count` |
-| `courts` | the 6 courts | `number`, `status` |
-| `court_blocks` | admin reservations | `court_id`, date + time range, `reason` |
-| `court_requests` | client time requests | `duration_hours`, `price_rsd`, `status`, `court_id?` (set on confirm) |
+| `levels` | Level reference data | `name`, `status` |
+| `trainers` | Trainer reference/actor data | `type`, `telegram_id`, `telegram_username`, `language`, `individual_visible`, `calendar_feed_version`, `status` |
+| `managers` | Editable manager/admin records | `telegram_id`, `telegram_username`, `language`, `status` |
+| `clients` | Telegram and walk-in clients | `telegram_id`, `telegram_username`, `telegram_photo_url`, `level_id`, `source`, `phone`, `email`, `language`, `calendar_feed_version` |
+| `groups` | Recurring group slot | `level_id`, `trainer_id`, `court_id`, weekdays, time range, capacity, prices, `hidden`, `status` |
+| `trainings` | Dated group or individual session | `group_id`, `trainer_id`, `client_id`, `court_id`, date/time, capacity, `booked_count`, `price_single_rsd`, `status` |
+| `individual_training_requests` | Durable individual-training requests | `client_id`, `trainer_id`, date/time, status, `training_id`, decision metadata |
+| `bookings` | Client participation in trainings | `client_id`, `training_id`, `type`, `status`, `payment_status`, `group_subscription_id`, `source` |
+| `waitlist` | Per-training queue | `client_id`, `training_id`, `position`, `group_subscription_id`, `status`, timestamps |
+| `broadcasts` | Broadcast records | `type`, `payload`, `created_by`, `recipients_count` |
+| `notifications` | Outbound send log | `type`, `client_id`, `training_id`, `channel`, `sent_at` |
+| `courts` | Physical courts | `number`, `status` |
+| `court_blocks` | Admin court reservations | `court_id`, date/time range, `reason`, `created_by` |
+| `court_requests` | Client court-rental requests | `client_id`, date/time, `duration_hours`, `court_count`, `price_rsd`, status, decision metadata |
+| `court_request_courts` | Held/assigned courts for a request | composite `request_id` + `court_id` |
+| `webhook_endpoints` | Outbound webhook configuration | `url`, generated `secret`, subscribed events, `created_by`, `status` |
+| `webhook_deliveries` | Per-attempt webhook delivery log | `endpoint_id`, `event_type`, signed `payload`, status, attempts, retry metadata |
+| `ui_labels` | Editable localized UI labels | `key`, `language`, `value`, `updated_by` |
+| `notification_templates` | Editable localized notification templates | `event_key`, `language`, `body`, `updated_by` |
+| `app_settings` | Operational key/value settings | `key`, `value`, `updated_by`, `updated_at` |
+
+## Integrity notes
+
+- `trainings.booked_count` is recomputed by services inside transactions after booking/cancel paths.
+- Waitlist operations preserve queue position and are the source for promotion/displacement
+  notifications.
+- Individual requests are persisted first; confirmation creates the final individual training and
+  booking and links the request to that training.
+- Court availability is derived from active courts, confirmed requests, pending holds, and court
+  blocks. Multi-court requests use `court_request_courts`; the older one-request-one-court shape is
+  obsolete.
+- Connector/webhook delivery failures are operational state and must not roll back committed domain
+  writes.
 
 ## Workflow
 
 ```text
-edit schema.ts → pnpm --filter @beosand/db db:generate → commit migration
-pnpm db:up && pnpm db:migrate && pnpm db:seed   # local
+edit schema.ts -> pnpm --filter @beosand/db db:generate -> commit migration
+pnpm db:up && pnpm db:migrate && pnpm db:seed
 ```
 
-`db:seed` is idempotent: inserts levels (Beginner/Intermediate/Advanced), two sample trainers, and
-courts 1–6.
-
-## Integrity notes
-
-- `bookings.booked_count` on a training is recomputed in the service inside a transaction on every
-  booking/cancel — the row is the authoritative count, never the bot.
-- Cancelling a monthly subscription's single date updates one booking; the shared
-  `group_subscription_id` keeps the rest intact.
-- Court confirmation must verify, in the same transaction, that fewer than `count(active courts)`
-  requests are already confirmed for every hour the request covers.
+`db:seed` is idempotent and should keep reference data aligned with the current schema.
