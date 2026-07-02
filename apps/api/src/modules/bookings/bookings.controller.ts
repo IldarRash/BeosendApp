@@ -6,7 +6,8 @@ import {
   Headers,
   Param,
   Post,
-  Query
+  Query,
+  Res
 } from "@nestjs/common";
 import {
   type Booking,
@@ -14,6 +15,7 @@ import {
   type MyBookingItem,
   type SingleBookingResult,
   type TransferGroupResult,
+  calendarExportMonthQuerySchema,
   confirmBookingSchema,
   createGroupBookingSchema,
   createManualBookingSchema,
@@ -26,6 +28,12 @@ import {
 } from "@beosand/types";
 import type { ZodSchema } from "zod";
 import { BookingsService } from "./bookings.service";
+
+interface RawResponse {
+  status(code: number): RawResponse;
+  header(name: string, value: string): RawResponse;
+  send(body: string): RawResponse;
+}
 
 /** Thin: parse + Zod-validate, resolve actor, call one service method. */
 @Controller("bookings")
@@ -94,6 +102,24 @@ export class BookingsController {
     const actorTelegramId = parseTelegramId(telegramIdHeader);
     const input = validate(transferGroupSchema, body ?? {});
     return this.bookings.transferGroup(actorTelegramId, input);
+  }
+
+  /** Mini App: download the caller's own confirmed bookings for one month as ICS. */
+  @Get("mine/calendar-export")
+  async calendarExportMine(
+    @Headers("x-client-telegram-id") clientTelegramIdHeader: string | undefined,
+    @Query() query: unknown,
+    @Res() res: RawResponse
+  ): Promise<void> {
+    const actorTelegramId = parseTelegramId(clientTelegramIdHeader, "x-client-telegram-id");
+    const input = validate(calendarExportMonthQuerySchema, query ?? {});
+    const body = await this.bookings.calendarExportMine(actorTelegramId, input);
+    const monthLabel = `${input.year}-${String(input.month).padStart(2, "0")}`;
+    res
+      .status(200)
+      .header("Content-Type", "text/calendar; charset=utf-8")
+      .header("Content-Disposition", `attachment; filename="beosand-trainings-${monthLabel}.ics"`)
+      .send(body);
   }
 
   /** Client: list their own upcoming or past bookings (T1.10). Ownership in the service. */
@@ -204,10 +230,10 @@ export class BookingsController {
  * pass `x-client-telegram-id ?? x-telegram-id` so a Mini App client session
  * (bridged to x-client-telegram-id only) and the bot both resolve their actor.
  */
-function parseTelegramId(header: string | undefined): number {
+function parseTelegramId(header: string | undefined, headerName = "x-telegram-id"): number {
   const value = Number(header);
   if (!header || !Number.isInteger(value)) {
-    throw new BadRequestException("Missing or invalid x-telegram-id header");
+    throw new BadRequestException(`Missing or invalid ${headerName} header`);
   }
   return value;
 }

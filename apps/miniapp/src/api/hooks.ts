@@ -9,6 +9,7 @@ import type {
   AvailableSlotsQuery,
   Booking,
   Client,
+  ClientTrainingDetail,
   CourtAvailability,
   CourtRequest,
   CourtRequestPreview,
@@ -283,6 +284,9 @@ const MY_BOOKINGS_KEY_PREFIX = "my-bookings";
 /** The shared query-key prefix for the caller's active waitlist entries. */
 const MY_WAITLIST_KEY_PREFIX = "my-waitlist";
 
+/** The shared query-key prefix for client-scoped training detail reads. */
+const CLIENT_TRAINING_DETAIL_KEY_PREFIX = "client-training-detail";
+
 /**
  * A stable query key for one scope of the caller's bookings, keyed by clientId AND
  * scope so the two scopes (upcoming / past) cache independently and a cancel can
@@ -309,6 +313,46 @@ export function useMyBookings(scope: MyBookingScope): UseQueryResult<MyBookingIt
     queryKey: myBookingsQueryKey(clientId ?? "", scope),
     enabled: clientId != null,
     queryFn: () => apiClient.listMyBookings(clientId!, scope)
+  });
+}
+
+/** The query key for one client-scoped training detail. */
+export function clientTrainingDetailQueryKey(
+  trainingId: string
+): readonly [string, string] {
+  return [CLIENT_TRAINING_DETAIL_KEY_PREFIX, trainingId] as const;
+}
+
+/**
+ * Client-scoped detail (GET /trainings/:id/client-detail). The API owns relation,
+ * cancelability, export eligibility, and the privacy-narrowed roster; the hook only
+ * fetches the already-validated ApiClient result.
+ */
+export function useClientTrainingDetail(
+  trainingId: string | undefined
+): UseQueryResult<ClientTrainingDetail> {
+  const apiClient = useApiClient();
+  return useQuery<ClientTrainingDetail>({
+    queryKey: clientTrainingDetailQueryKey(trainingId ?? ""),
+    enabled: trainingId != null,
+    queryFn: () => apiClient.getClientTrainingDetail(trainingId!)
+  });
+}
+
+export interface CalendarExportMonthArgs {
+  year: number;
+  month: number;
+}
+
+/** Fetch the caller's own text/calendar month export for a selected month. */
+export function useExportMyBookingsCalendar(): UseMutationResult<
+  string,
+  Error,
+  CalendarExportMonthArgs
+> {
+  const apiClient = useApiClient();
+  return useMutation<string, Error, CalendarExportMonthArgs>({
+    mutationFn: ({ year, month }) => apiClient.exportMyBookingsCalendar(year, month)
   });
 }
 
@@ -375,6 +419,7 @@ export function useCancelBooking(): UseMutationResult<Booking, Error, string> {
   return useMutation<Booking, Error, string>({
     mutationFn: (bookingId) => apiClient.cancelBooking(bookingId),
     onSettled: () => {
+      void qc.invalidateQueries({ queryKey: [CLIENT_TRAINING_DETAIL_KEY_PREFIX] });
       void qc.invalidateQueries({ queryKey: [MY_BOOKINGS_KEY_PREFIX] });
       void qc.invalidateQueries({ queryKey: [AVAILABLE_SLOTS_KEY_PREFIX] });
       void qc.invalidateQueries({ queryKey: [TRAINING_SCHEDULE_KEY_PREFIX] });

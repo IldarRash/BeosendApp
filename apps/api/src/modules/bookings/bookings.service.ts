@@ -1,4 +1,4 @@
-import { randomUUID } from "node:crypto";
+import { createHash, randomUUID } from "node:crypto";
 import {
   BadRequestException,
   ConflictException,
@@ -12,6 +12,7 @@ import type { Env } from "@beosand/config";
 import { isAdmin } from "@beosand/config";
 import type {
   Booking,
+  CalendarExportMonthQuery,
   CreateManualBookingInput,
   GroupBookingResult,
   MarkAttendanceInput,
@@ -36,6 +37,7 @@ import {
 import type { Database } from "@beosand/db";
 import { ENV } from "../../config/config.module";
 import { ClientsRepository } from "../clients/clients.repository";
+import { renderTrainingIcs } from "../connectors/calendar/calendar-ics";
 import { DomainEventsService } from "../connectors/domain-events.service";
 import { GroupsRepository } from "../groups/groups.repository";
 import { NotificationsService } from "../notifications/notifications.service";
@@ -787,6 +789,28 @@ export class BookingsService {
     });
   }
 
+  /** Mini App: export the caller's own confirmed trainings for one month as ICS. */
+  async calendarExportMine(
+    actorTelegramId: number,
+    query: CalendarExportMonthQuery
+  ): Promise<string> {
+    const client = await this.clients.findByTelegramId(actorTelegramId);
+    if (!client) {
+      throw new ForbiddenException("Caller has no client record");
+    }
+
+    const [from, to] = monthBounds(query.year, query.month);
+    const items = await this.bookings.listCalendarExportForClient(client.id, from, to);
+    const monthLabel = `${query.year}-${String(query.month).padStart(2, "0")}`;
+    return renderTrainingIcs("client", items, {
+      name: `BeoSand trainings ${monthLabel}`,
+      uidSuffix: calendarExportUidSuffix(actorTelegramId, monthLabel),
+      summaryFallback: "Training",
+      summarySeparator: " - ",
+      courtLabel: (courtNumber) => `Court ${courtNumber}`
+    });
+  }
+
   /**
    * Cancel exactly one booking (T1.11) — one training, or one date of a monthly
    * group without dropping the rest. Invariants enforced here:
@@ -1313,4 +1337,12 @@ export class BookingsService {
       throw new ForbiddenException("Cannot book on behalf of another client");
     }
   }
+}
+
+function calendarExportUidSuffix(actorTelegramId: number, monthLabel: string): string {
+  const digest = createHash("sha256")
+    .update(`calendar-export:${actorTelegramId}:${monthLabel}`)
+    .digest("hex")
+    .slice(0, 16);
+  return `client-${digest}-${monthLabel}`;
 }

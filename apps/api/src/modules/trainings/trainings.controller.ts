@@ -27,9 +27,11 @@ import {
   trainingScheduleQuerySchema,
   trainerTodayQuerySchema,
   trainerUpcomingQuerySchema,
+  updateTrainingScheduleCourtSchema,
   updateIndividualPriceSchema,
   uuid,
   type AutoAssignResult,
+  type ClientTrainingDetail,
   type DeleteTrainingSeriesResult,
   type GenerateAllResult,
   type GenerateIndividualResult,
@@ -159,6 +161,17 @@ export class TrainingsController {
     return this.trainings.getCalendarItem(actorTelegramId, trainingId);
   }
 
+  /** Mini App: self-scoped client detail. Client identity comes from the trusted session header. */
+  @Get(":id/client-detail")
+  clientDetail(
+    @Headers("x-client-telegram-id") clientTelegramIdHeader: string | undefined,
+    @Param("id") id: string
+  ): Promise<ClientTrainingDetail> {
+    const actorTelegramId = parseTelegramId(clientTelegramIdHeader, "x-client-telegram-id");
+    const trainingId = validate(uuid, id);
+    return this.trainings.getClientDetail(actorTelegramId, trainingId);
+  }
+
   /** Trainer/admin: a training's roster (T2.3). Ownership enforced in the service. */
   @Get(":id/roster")
   roster(
@@ -256,6 +269,19 @@ export class TrainingsController {
     const trainingId = validate(uuid, id);
     const input = validate(assignCourtSchema, body ?? {});
     return this.trainings.assignCourt(actorTelegramId, trainingId, input);
+  }
+
+  /** Admin: atomically update one training's time and/or court assignment. */
+  @Patch(":id/schedule")
+  updateScheduleCourt(
+    @Headers("x-telegram-id") telegramIdHeader: string | undefined,
+    @Param("id") id: string,
+    @Body() body: unknown
+  ): Promise<TrainingCalendarItem> {
+    const actorTelegramId = parseTelegramId(telegramIdHeader);
+    const trainingId = validate(uuid, id);
+    const input = validate(updateTrainingScheduleCourtSchema, body ?? {});
+    return this.trainings.updateScheduleCourt(actorTelegramId, trainingId, input);
   }
 
   /** Admin: change a training's capacity (recomputes open/full). Gated in the service. */

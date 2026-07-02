@@ -1,11 +1,11 @@
 import { Inject, Injectable, UnauthorizedException } from "@nestjs/common";
 import type { Env } from "@beosand/config";
 import { type CalendarSubject, BELGRADE_TZ } from "@beosand/types";
-import ical from "ical-generator";
 import { ENV } from "../../../config/config.module";
 import { ClientsRepository } from "../../clients/clients.repository";
 import { TrainersRepository } from "../../trainers/trainers.repository";
 import { type CalendarFeedItem, TrainingsRepository } from "../../trainings/trainings.repository";
+import { renderTrainingIcs } from "./calendar-ics";
 import { verifyFeedToken } from "./calendar-token";
 
 /** Today's date (Belgrade) as "YYYY-MM-DD" — the feed's lower bound (only upcoming). */
@@ -63,7 +63,7 @@ export class CalendarFeedService {
     }
 
     const items = await this.upcomingFor(subject, id);
-    return this.buildIcs(subject, items);
+    return renderTrainingIcs(subject, items);
   }
 
   /** The subject's current feed version, or undefined if the subject doesn't exist. */
@@ -80,33 +80,6 @@ export class CalendarFeedService {
       : this.trainings.listUpcomingForClientFeed(id, fromDate);
   }
 
-  /** Render the VCALENDAR; empty `items` still yields a valid (event-less) calendar. */
-  private buildIcs(subject: CalendarSubject, items: CalendarFeedItem[]): string {
-    const calendar = ical({
-      name: subject === "trainer" ? "BeoSand — тренировки тренера" : "BeoSand — мои тренировки",
-      prodId: { company: "BeoSand", product: "calendar-feed", language: "RU" },
-      timezone: BELGRADE_TZ
-    });
-
-    for (const item of items) {
-      const event = calendar.createEvent({
-        // Stable UID per training id so re-syncs update (not duplicate) the event.
-        // Suffixed by subject so a trainer and a client subscribing to the same
-        // training don't collide if both feeds are imported into one calendar.
-        id: `training-${item.trainingId}-${subject}@beosand`,
-        start: belgradeWallClock(item.date, item.startTime),
-        end: belgradeWallClock(item.date, item.endTime),
-        summary: summaryOf(item)
-      });
-      event.timezone(BELGRADE_TZ);
-      if (item.courtNumber !== null) {
-        event.location(`Корт ${item.courtNumber}`);
-      }
-    }
-
-    return calendar.toString();
-  }
-
   private get feedSecret(): string | undefined {
     return this.env.CALENDAR_FEED_SECRET;
   }
@@ -114,26 +87,4 @@ export class CalendarFeedService {
   private get publicBaseUrl(): string | undefined {
     return this.env.PUBLIC_BASE_URL;
   }
-}
-
-/**
- * A `Date` whose *local* fields equal the Belgrade wall-clock for `date`/`time`.
- *
- * ical-generator renders a timezoned event by reading the Date's local components
- * (`getHours()`, …) verbatim and tagging them `TZID=Europe/Belgrade` — it does NOT
- * convert from the absolute instant. So passing a UTC instant only produces the right
- * wall-clock when the server's own clock is Belgrade time (true locally, false on the
- * UTC CI/Railway hosts, which shifted every event by the offset). Building the Date
- * straight from the wall-clock numbers makes the output server-timezone-independent.
- */
-function belgradeWallClock(date: string, time: string): Date {
-  const [year, month, day] = date.split("-").map(Number);
-  const [hour, minute] = time.split(":").map(Number);
-  return new Date(year, month - 1, day, hour, minute, 0, 0);
-}
-
-/** Event title: level/group name + trainer; falls back gracefully when a name is null. */
-function summaryOf(item: CalendarFeedItem): string {
-  const label = item.levelName ?? item.groupName ?? "Тренировка";
-  return `${label} • ${item.trainerName}`;
 }

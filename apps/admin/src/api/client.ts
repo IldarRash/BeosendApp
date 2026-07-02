@@ -44,6 +44,7 @@ import {
   trainingCalendarItemSchema,
   trainingRosterSchema,
   trainingSchema,
+  updateTrainingScheduleCourtSchema,
   updateIndividualPriceSchema,
   updateManagerContactSchema,
   waitlistAdminItemSchema,
@@ -127,6 +128,7 @@ import {
   type Training,
   type TrainingCalendarItem,
   type TrainingRoster,
+  type UpdateTrainingScheduleCourtInput,
   type TransferGroupInput,
   type TransferGroupResult,
   type UpdateIndividualPriceInput,
@@ -687,6 +689,21 @@ export class ApiClient {
    */
   trainingDetail(id: string): Promise<TrainingCalendarItem> {
     return this.request(`/trainings/${id}/detail`, trainingCalendarItemSchema);
+  }
+
+  /**
+   * Atomically update one training's effective time and/or court
+   * (PATCH /trainings/:id/schedule). The API owns court conflict checks and
+   * returns the joined calendar/detail row with courtId/courtNumber.
+   */
+  updateTrainingSchedule(
+    id: string,
+    input: UpdateTrainingScheduleCourtInput
+  ): Promise<TrainingCalendarItem> {
+    return this.request(`/trainings/${id}/schedule`, trainingCalendarItemSchema, {
+      method: "PATCH",
+      body: JSON.stringify(updateTrainingScheduleCourtSchema.parse(input))
+    });
   }
 
   /**

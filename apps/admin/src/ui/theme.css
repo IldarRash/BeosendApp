@@ -1554,7 +1554,7 @@ legend {
 
 .load-grid th,
 .load-grid td {
-  padding: 3px;
+  padding: 3px 4px;
   border-bottom: none;
   text-align: center;
 }
@@ -1580,6 +1580,14 @@ legend {
   background: var(--paper);
 }
 
+.load-grid__cell--joins-prev {
+  padding-left: 0;
+}
+
+.load-grid__cell--joins-next {
+  padding-right: 0;
+}
+
 .load-grid__col {
   display: flex;
   gap: 2px;
@@ -1602,6 +1610,9 @@ legend {
   font-family: var(--font-mono);
   font-size: 12px;
   line-height: 1;
+  box-shadow:
+    inset 2px 0 0 var(--load-seg-divider-left, transparent),
+    inset -2px 0 0 var(--load-seg-divider-right, transparent);
 }
 
 button.load-seg {
@@ -1619,6 +1630,27 @@ button.load-seg:focus-visible {
   outline: 2px solid var(--focus);
   outline-offset: 2px;
   z-index: 1;
+}
+
+.load-seg--connected-prev {
+  margin-left: -2px;
+  border-left-color: transparent;
+  border-top-left-radius: 0;
+  border-bottom-left-radius: 0;
+}
+
+.load-seg--connected-next {
+  border-right-color: transparent;
+  border-top-right-radius: 0;
+  border-bottom-right-radius: 0;
+}
+
+.load-seg--event-boundary-left {
+  --load-seg-divider-left: color-mix(in srgb, var(--ink-900) 34%, transparent);
+}
+
+.load-seg--event-boundary-right {
+  --load-seg-divider-right: color-mix(in srgb, var(--ink-900) 34%, transparent);
 }
 
 .load-seg--free {

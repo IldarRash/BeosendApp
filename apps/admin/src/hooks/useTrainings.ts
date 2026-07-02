@@ -15,7 +15,9 @@ import type {
   GenerateMonthInput,
   RescheduleTrainingInput,
   Training,
+  TrainingCalendarItem,
   DeleteTrainingSeriesResult,
+  UpdateTrainingScheduleCourtInput,
   UpdateIndividualPriceInput
 } from "@beosand/types";
 import { useApiClient } from "../api/ApiProvider";
@@ -218,6 +220,23 @@ export function useChangeTrainingCourt(): UseMutationResult<
   const queryClient = useQueryClient();
   return useMutation({
     mutationFn: ({ id, courtId }) => api.changeTrainingCourt(id, courtId),
+    onSuccess: () => invalidateTrainings(queryClient)
+  });
+}
+
+/**
+ * Atomically update one training's time and/or court. The API owns all conflict
+ * checks; the admin console only submits the edited fields and refreshes views.
+ */
+export function useUpdateTrainingSchedule(): UseMutationResult<
+  TrainingCalendarItem,
+  Error,
+  { id: string; input: UpdateTrainingScheduleCourtInput }
+> {
+  const api = useApiClient();
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: ({ id, input }) => api.updateTrainingSchedule(id, input),
     onSuccess: () => invalidateTrainings(queryClient)
   });
 }

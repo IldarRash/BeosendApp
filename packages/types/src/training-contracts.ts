@@ -212,6 +212,7 @@ export type Training = z.infer<typeof trainingSchema>;
 export const trainingCalendarItemSchema = trainingSchema.extend({
   groupName: z.string().nullable(),
   trainerName: z.string(),
+  courtId: uuid.nullable(),
   courtNumber: z.number().int().min(1).nullable(),
   /**
    * Owning client's name for an individual training; null for group trainings.
@@ -302,6 +303,40 @@ export const rescheduleTrainingSchema = z
   .strict()
   .refine((v) => v.endTime > v.startTime, { message: "endTime must be after startTime" });
 export type RescheduleTrainingInput = z.infer<typeof rescheduleTrainingSchema>;
+
+export const updateTrainingScheduleCourtSchema = z
+  .object({
+    startTime: timeString.optional(),
+    endTime: timeString.optional(),
+    courtId: uuid.optional()
+  })
+  .strict()
+  .superRefine((value, ctx) => {
+    const hasStart = value.startTime !== undefined;
+    const hasEnd = value.endTime !== undefined;
+    const hasCourt = value.courtId !== undefined;
+    if (!hasStart && !hasEnd && !hasCourt) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: "At least one schedule field is required"
+      });
+    }
+    if (hasStart !== hasEnd) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: "startTime and endTime must be provided together",
+        path: hasStart ? ["endTime"] : ["startTime"]
+      });
+    }
+    if (hasStart && hasEnd && value.endTime! <= value.startTime!) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: "endTime must be after startTime",
+        path: ["endTime"]
+      });
+    }
+  });
+export type UpdateTrainingScheduleCourtInput = z.infer<typeof updateTrainingScheduleCourtSchema>;
 
 /** Query for GET /trainings/generation-status — which year/month to report per-group coverage for. */
 export const generationStatusQuerySchema = z.object({
@@ -605,6 +640,14 @@ export const myBookingsQuerySchema = z
   .strict();
 export type MyBookingsQuery = z.infer<typeof myBookingsQuerySchema>;
 
+export const calendarExportMonthQuerySchema = z
+  .object({
+    year: z.coerce.number().int().min(2024),
+    month: z.coerce.number().int().min(1).max(12)
+  })
+  .strict();
+export type CalendarExportMonthQuery = z.infer<typeof calendarExportMonthQuerySchema>;
+
 /**
  * One row in a client's "My bookings" view (T1.10): the booking joined to its
  * training and the trainer/level names the bot renders. `canCancel` is
@@ -758,6 +801,51 @@ export const trainingParticipantsSchema = z.object({
   waitlist: z.array(groupMemberSchema)
 });
 export type TrainingParticipants = z.infer<typeof trainingParticipantsSchema>;
+
+export const clientTrainingMemberSchema = z
+  .object({
+    firstName: z.string(),
+    avatarInitial: z.string().min(1),
+    telegramPhotoUrl: z.string().url().nullable()
+  })
+  .strict();
+export type ClientTrainingMember = z.infer<typeof clientTrainingMemberSchema>;
+
+export const clientTrainingParticipantsSchema = z
+  .object({
+    trainingId: uuid,
+    participantCount: z.number().int().nonnegative(),
+    participants: z.array(clientTrainingMemberSchema),
+    waitlistCount: z.number().int().nonnegative(),
+    waitlist: z.array(clientTrainingMemberSchema)
+  })
+  .strict();
+export type ClientTrainingParticipants = z.infer<typeof clientTrainingParticipantsSchema>;
+
+export const clientTrainingDetailSchema = z
+  .object({
+    trainingId: uuid,
+    date: dateString,
+    dayOfWeek,
+    startTime: timeString,
+    endTime: timeString,
+    trainingContextLabel,
+    description: z.string().nullable(),
+    trainerName: z.string(),
+    levelName: z.string(),
+    courtNumber: z.number().int().min(1).nullable(),
+    bookingStatus: bookingStatus.nullable(),
+    trainingStatus,
+    viewerRelation: z.enum(["none", "booked", "waitlisted", "past"]),
+    bookingId: uuid.nullable(),
+    groupSubscriptionId: uuid.nullable(),
+    canCancel: z.boolean(),
+    exportEligible: z.boolean(),
+    waitlistPosition: z.number().int().nullable(),
+    participants: clientTrainingParticipantsSchema
+  })
+  .strict();
+export type ClientTrainingDetail = z.infer<typeof clientTrainingDetailSchema>;
 
 /** Query for GET /groups/:id/members — which month's roster to return. */
 export const groupMembersQuerySchema = z

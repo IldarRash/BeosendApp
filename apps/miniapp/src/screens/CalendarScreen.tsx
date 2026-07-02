@@ -11,12 +11,10 @@ import type {
 import {
   useMyBookings,
   useMyCourtRequests,
-  useTrainingParticipants,
   useTrainingSchedule
 } from "../api/hooks";
-import { ForbiddenError } from "../api/client";
 import { useT } from "../i18n/LanguageProvider";
-import { hapticSelection, useMainButton } from "../tg/buttons";
+import { hapticSelection } from "../tg/buttons";
 import {
   activeBookedTrainingIds,
   type CalendarKind,
@@ -30,17 +28,13 @@ import {
   shiftMonth
 } from "../ui/calendar";
 import {
-  formatDayMonth,
   formatRsd,
   formatTimeRange,
   monthKey,
-  todayLocalDate,
-  weekdayFullKey
+  todayLocalDate
 } from "../ui/format";
-import { buildGoogleCalendarTrainingUrl } from "../ui/google-calendar-link";
-import { FallbackButton } from "../ui/FallbackButton";
-import { ParticipantsRow } from "../ui/ParticipantsRow";
 import { ErrorState, LoadingState } from "../ui/StateView";
+import { TrainingDetailView } from "../ui/TrainingDetailView";
 import { useSlotBookingFlow } from "./useSlotBookingFlow";
 
 /** Monday-first weekday header keys (reusing the short weekday labels). */
@@ -197,7 +191,7 @@ export function CalendarScreen(): JSX.Element {
   // Open on today's agenda (Google-style) rather than a blank grid: a step or a re-tap
   // can still clear the selection back to null.
   const [selectedDate, setSelectedDate] = useState<string | null>(today);
-  const [selectedTraining, setSelectedTraining] = useState<MyBookingItem | null>(null);
+  const [selectedTrainingId, setSelectedTrainingId] = useState<string | null>(null);
 
   const upcoming = useMyBookings("upcoming");
   const past = useMyBookings("past");
@@ -270,7 +264,7 @@ export function CalendarScreen(): JSX.Element {
 
   const step = (delta: number): void => {
     hapticSelection();
-    setSelectedTraining(null);
+    setSelectedTrainingId(null);
     setSelectedDate(null);
     setCursor((prev) => shiftMonth(prev.year, prev.month, delta));
   };
@@ -285,11 +279,11 @@ export function CalendarScreen(): JSX.Element {
     return flow.activeSubView;
   }
 
-  if (selectedTraining) {
+  if (selectedTrainingId) {
     return (
       <TrainingDetailView
-        item={selectedTraining}
-        onBack={() => setSelectedTraining(null)}
+        trainingId={selectedTrainingId}
+        onBack={() => setSelectedTrainingId(null)}
       />
     );
   }
@@ -403,7 +397,7 @@ export function CalendarScreen(): JSX.Element {
           onBook={flow.openConfirm}
           onOpenTraining={(item) => {
             hapticSelection();
-            setSelectedTraining(item);
+            setSelectedTrainingId(item.trainingId);
           }}
         />
       )}
@@ -570,139 +564,6 @@ function TrainingRow({
       </div>
       <span className="chevron" aria-hidden="true">&gt;</span>
     </button>
-  );
-}
-
-/** Read-only detail for a training the caller already joined, including visible participants. */
-function TrainingDetailView({
-  item,
-  onBack
-}: {
-  item: MyBookingItem;
-  onBack: () => void;
-}): JSX.Element {
-  const t = useT();
-  const participants = useTrainingParticipants(item.trainingId);
-  const variant = trainingVariant(item.bookingStatus);
-  const statusLabel = t(trainingStatusKey(item.bookingStatus));
-  const timeRange = formatTimeRange(item.startTime, item.endTime);
-  const dateLine = `${t(weekdayFullKey(item.dayOfWeek))}, ${formatDayMonth(item.date)}`;
-  const googleCalendarUrl = useMemo(
-    () =>
-      buildGoogleCalendarTrainingUrl({
-        title: t("miniapp.calendar.googleTitle", { level: item.levelName }),
-        date: item.date,
-        startTime: item.startTime,
-        endTime: item.endTime,
-        details: [
-          t("miniapp.calendar.googleDetailTrainer", { trainer: item.trainerName }),
-          t("miniapp.calendar.googleDetailLevel", { level: item.levelName }),
-          t("miniapp.calendar.googleDetailStatus", { status: statusLabel })
-        ].join("\n"),
-        location: t("miniapp.calendar.googleLocation")
-      }),
-    [
-      item.date,
-      item.endTime,
-      item.levelName,
-      item.startTime,
-      item.trainerName,
-      statusLabel,
-      t
-    ]
-  );
-
-  const openGoogleCalendar = (): void => {
-    hapticSelection();
-    window.open(googleCalendarUrl, "_blank", "noopener,noreferrer");
-  };
-
-  useMainButton({
-    text: t("miniapp.calendar.backToAgenda"),
-    onClick: onBack
-  });
-
-  return (
-    <div className="screen">
-      <div className="tg-sech" style={{ padding: "0 0 7px" }}>
-        {t("miniapp.calendar.trainingDetailTitle")}
-      </div>
-
-      <div className="card">
-        <div className="sumrow">
-          <span className="sumrow__k">{t("miniapp.calendar.kindTraining")}</span>
-          <span className="sumrow__v">{item.trainingContextLabel}</span>
-        </div>
-        <div className="sumrow">
-          <span className="sumrow__k">{t("miniapp.booking.dateLabel")}</span>
-          <span className="sumrow__v">{dateLine}</span>
-        </div>
-        <div className="sumrow">
-          <span className="sumrow__k">{t("miniapp.booking.timeLabel")}</span>
-          <span className="sumrow__v">{timeRange}</span>
-        </div>
-        <div className="sumrow">
-          <span className="sumrow__k">{t("miniapp.booking.trainerLabel")}</span>
-          <span className="sumrow__v">{item.trainerName}</span>
-        </div>
-        <div className="sumrow">
-          <span className="sumrow__k">{t("miniapp.booking.levelLabel")}</span>
-          <span className="sumrow__v">{item.levelName}</span>
-        </div>
-        <div className="sumrow">
-          <span className="sumrow__k">{t("miniapp.calendar.statusLabel")}</span>
-          <span className="sumrow__v">
-            <span className={`schip schip--${variant}`}>
-              <span className="dot" aria-hidden="true" />
-              {statusLabel}
-            </span>
-          </span>
-        </div>
-        <div className="sumrow">
-          <button
-            type="button"
-            className="tg-sbtn"
-            onClick={openGoogleCalendar}
-            aria-label={t("miniapp.calendar.googleAddAria")}
-          >
-            {t("miniapp.calendar.googleAdd")}
-          </button>
-        </div>
-      </div>
-
-      {participants.isLoading ? (
-        <div className="note" role="status">
-          {t("miniapp.common.loading")}
-        </div>
-      ) : participants.data ? (
-        <>
-          <ParticipantsRow
-            members={participants.data.participants}
-            count={participants.data.participantCount}
-            title={t("miniapp.training.roster.title")}
-            emptyLabel={t("miniapp.training.roster.empty")}
-          />
-          {participants.data.waitlistCount > 0 ? (
-            <ParticipantsRow
-              members={participants.data.waitlist}
-              count={participants.data.waitlistCount}
-              title={t("miniapp.training.waitlist.title")}
-              emptyLabel={t("miniapp.training.roster.empty")}
-            />
-          ) : null}
-        </>
-      ) : participants.error instanceof ForbiddenError ? (
-        <div className="note" role="note">
-          {t("miniapp.training.roster.private")}
-        </div>
-      ) : participants.error ? (
-        <div className="note" role="alert">
-          {participants.error.message}
-        </div>
-      ) : null}
-
-      <FallbackButton text={t("miniapp.calendar.backToAgenda")} onClick={onBack} />
-    </div>
   );
 }
 

@@ -50,6 +50,7 @@ vi.mock("../i18n/LanguageProvider", async () => import("../i18n/test-utils"));
 import { CourtLoad } from "./CourtLoad";
 
 const REQUEST_ID = "33333333-3333-3333-3333-333333333333";
+const REQUEST_ID_ALT = "33333333-3333-4333-8333-333333333334";
 const TRAINING_ID = "66666666-6666-6666-6666-666666666666";
 const TRAINING_BLOCK_ID = "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa";
 const MANUAL_BLOCK_ID = "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb";
@@ -121,8 +122,8 @@ const GRID: CourtLoadGrid = {
         cell("08:30", "hold", { requestId: REQUEST_ID }),
         cell("09:00", "free"),
         cell("09:30", "free"),
-        cell("10:00", "training", { trainingId: TRAINING_ID, blockId: TRAINING_BLOCK_ID }),
-        cell("10:30", "free"),
+        cell("10:00", "request", { requestId: REQUEST_ID }),
+        cell("10:30", "request", { requestId: REQUEST_ID_ALT }),
         cell("11:00", "free"),
         cell("11:30", "free")
       ]
@@ -162,6 +163,7 @@ const TRAINING: TrainingCalendarItem = {
   priceSingleRsd: 1500,
   clientId: null,
   status: "open",
+  courtId: COURT.id,
   courtNumber: 1
 };
 
@@ -242,6 +244,30 @@ describe("CourtLoad page", () => {
     );
     expect(training.tagName).toBe("BUTTON");
     expect(training.className).toContain("load-seg--training");
+  });
+
+  it("connects adjacent cells for the same event and marks same-state event boundaries", () => {
+    renderPage();
+
+    const sameEventStart = screen.getByLabelText(
+      "Корт 1, 08:00 — Заявка. Открыть детали брони."
+    );
+    const sameEventNext = screen.getByLabelText(
+      "Корт 1, 08:30 — Заявка. Открыть детали брони."
+    );
+    expect(sameEventStart.className).toContain("load-seg--connected-next");
+    expect(sameEventNext.className).toContain("load-seg--connected-prev");
+    expect(sameEventStart.className).not.toContain("load-seg--event-boundary-right");
+
+    const differentEventStart = screen.getByLabelText(
+      "Корт 2, 10:00 — Заявка. Открыть детали брони."
+    );
+    const differentEventNext = screen.getByLabelText(
+      "Корт 2, 10:30 — Заявка. Открыть детали брони."
+    );
+    expect(differentEventStart.className).toContain("load-seg--event-boundary-right");
+    expect(differentEventNext.className).toContain("load-seg--event-boundary-left");
+    expect(differentEventNext.className).not.toContain("load-seg--connected-prev");
   });
 
   it("renders a hold (pending pick) segment distinctly and opens the request detail", () => {
