@@ -592,6 +592,7 @@ describe("ApiClient trainings calendar (Slice B)", () => {
   const GROUP_ID = "11111111-1111-1111-1111-111111111111";
   const TRAINER_ID = "22222222-2222-2222-2222-222222222222";
   const TRAINING_ID = "33333333-3333-3333-3333-333333333333";
+  const COURT_ID = "44444444-4444-4444-4444-444444444444";
 
   const calendarItem = {
     id: TRAINING_ID,
@@ -607,6 +608,7 @@ describe("ApiClient trainings calendar (Slice B)", () => {
     status: "open",
     groupName: "Утренняя группа",
     trainerName: "Анна",
+    courtId: COURT_ID,
     courtNumber: 3
   };
 
@@ -650,9 +652,16 @@ describe("ApiClient trainings calendar (Slice B)", () => {
   });
 
   it("validates a well-formed training detail and allows a null court", async () => {
-    const calls = mockFetchOnce({ ...calendarItem, groupId: null, groupName: null, courtNumber: null });
+    const calls = mockFetchOnce({
+      ...calendarItem,
+      groupId: null,
+      groupName: null,
+      courtId: null,
+      courtNumber: null
+    });
     const result = await new ApiClient("http://api.test").trainingDetail(TRAINING_ID);
     expect(calls[0]?.url).toBe(`http://api.test/trainings/${TRAINING_ID}/detail`);
+    expect(result.courtId).toBeNull();
     expect(result.courtNumber).toBeNull();
     expect(result.groupName).toBeNull();
   });
@@ -674,6 +683,40 @@ describe("ApiClient trainings calendar (Slice B)", () => {
     expect(calls[0]?.url).toBe(
       "http://api.test/trainings/calendar?from=2026-07-01&to=2026-07-31&includeTerminal=true"
     );
+  });
+
+  it("PATCHes one training schedule/court atomically and validates the joined row", async () => {
+    const calls = mockFetchOnce({
+      ...calendarItem,
+      startTime: "09:00",
+      endTime: "10:30",
+      courtId: COURT_ID,
+      courtNumber: 4
+    });
+    const result = await new ApiClient("http://api.test").updateTrainingSchedule(TRAINING_ID, {
+      startTime: "09:00",
+      endTime: "10:30",
+      courtId: COURT_ID
+    });
+    expect(calls[0]?.url).toBe(`http://api.test/trainings/${TRAINING_ID}/schedule`);
+    expect(calls[0]?.init?.method).toBe("PATCH");
+    expect(JSON.parse(calls[0]?.init?.body as string)).toEqual({
+      startTime: "09:00",
+      endTime: "10:30",
+      courtId: COURT_ID
+    });
+    expect(result.startTime).toBe("09:00");
+    expect(result.courtId).toBe(COURT_ID);
+    expect(result.courtNumber).toBe(4);
+  });
+
+  it("rejects a malformed schedule patch response (contract enforced)", async () => {
+    mockFetchOnce({ ...calendarItem, courtId: "court-4" });
+    await expect(
+      new ApiClient("http://api.test").updateTrainingSchedule(TRAINING_ID, {
+        courtId: COURT_ID
+      })
+    ).rejects.toThrow();
   });
 });
 

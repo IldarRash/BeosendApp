@@ -88,8 +88,38 @@ export interface TrainingCalendarRow {
   status: TrainingStatus;
   groupName: string | null;
   trainerName: string;
+  courtId: string | null;
   courtNumber: number | null;
   clientName: string | null;
+}
+
+/** Training display fields for a Mini App detail read; service owns visibility/privacy. */
+export interface ClientTrainingDetailRow {
+  trainingId: string;
+  groupId: string | null;
+  trainingClientId: string | null;
+  date: string;
+  startTime: string;
+  endTime: string;
+  trainerName: string;
+  levelName: string;
+  groupName: string | null;
+  courtNumber: number | null;
+  trainingStatus: TrainingStatus;
+  groupStatus: "active" | "inactive" | null;
+  groupHidden: boolean | null;
+  trainerStatus: "active" | "inactive";
+  levelStatus: "active" | "inactive" | null;
+}
+
+export interface ClientTrainingBookingRow {
+  bookingId: string;
+  groupSubscriptionId: string | null;
+  status: BookingStatus;
+}
+
+export interface ClientTrainingWaitlistRow {
+  position: number;
 }
 
 /** One roster row: a booking joined to its client name — no business rules applied. */
@@ -554,6 +584,89 @@ export class TrainingsRepository {
     return row ? toCalendarRow(row) : undefined;
   }
 
+  async findClientDetailById(id: string): Promise<ClientTrainingDetailRow | undefined> {
+    const [row] = await this.database.db
+      .select({
+        trainingId: tables.trainings.id,
+        groupId: tables.trainings.groupId,
+        trainingClientId: tables.trainings.clientId,
+        date: tables.trainings.date,
+        startTime: tables.trainings.startTime,
+        endTime: tables.trainings.endTime,
+        trainerName: tables.trainers.name,
+        levelName: tables.levels.name,
+        groupName: tables.groups.name,
+        courtNumber: tables.courts.number,
+        trainingStatus: tables.trainings.status,
+        groupStatus: tables.groups.status,
+        groupHidden: tables.groups.hidden,
+        trainerStatus: tables.trainers.status,
+        levelStatus: tables.levels.status
+      })
+      .from(tables.trainings)
+      .innerJoin(tables.trainers, eq(tables.trainings.trainerId, tables.trainers.id))
+      .leftJoin(tables.groups, eq(tables.trainings.groupId, tables.groups.id))
+      .leftJoin(tables.levels, eq(tables.groups.levelId, tables.levels.id))
+      .leftJoin(tables.courtBlocks, eq(tables.courtBlocks.groupTrainingId, tables.trainings.id))
+      .leftJoin(tables.courts, eq(tables.courts.id, tables.courtBlocks.courtId))
+      .where(eq(tables.trainings.id, id))
+      .limit(1);
+    return row
+      ? {
+          ...row,
+          startTime: row.startTime.slice(0, 5),
+          endTime: row.endTime.slice(0, 5),
+          levelName: row.levelName ?? "",
+          groupName: row.groupName ?? null,
+          courtNumber: row.courtNumber ?? null,
+          groupStatus: row.groupStatus ?? null,
+          groupHidden: row.groupHidden ?? null,
+          levelStatus: row.levelStatus ?? null
+        }
+      : undefined;
+  }
+
+  async findClientBookingForTraining(
+    clientId: string,
+    trainingId: string
+  ): Promise<ClientTrainingBookingRow | undefined> {
+    const [row] = await this.database.db
+      .select({
+        bookingId: tables.bookings.id,
+        groupSubscriptionId: tables.bookings.groupSubscriptionId,
+        status: tables.bookings.status
+      })
+      .from(tables.bookings)
+      .where(
+        and(
+          eq(tables.bookings.clientId, clientId),
+          eq(tables.bookings.trainingId, trainingId),
+          inArray(tables.bookings.status, ["pending", "booked", "attended", "no_show"])
+        )
+      )
+      .limit(1);
+    return row;
+  }
+
+  async findClientWaitlistForTraining(
+    clientId: string,
+    trainingId: string
+  ): Promise<ClientTrainingWaitlistRow | undefined> {
+    const [row] = await this.database.db
+      .select({ position: tables.waitlist.position })
+      .from(tables.waitlist)
+      .where(
+        and(
+          eq(tables.waitlist.clientId, clientId),
+          eq(tables.waitlist.trainingId, trainingId),
+          inArray(tables.waitlist.status, ["waiting", "notified"])
+        )
+      )
+      .orderBy(asc(tables.waitlist.position))
+      .limit(1);
+    return row;
+  }
+
   /**
    * Bookable client catalogue: trainings in [from, to] that are open with free
    * seats, belong to an active group/trainer/level, optionally filtered by level.
@@ -1001,6 +1114,7 @@ const calendarSelection = {
   status: tables.trainings.status,
   groupName: tables.groups.name,
   trainerName: tables.trainers.name,
+  courtId: tables.courtBlocks.courtId,
   number: tables.courts.number,
   clientName: tables.clients.name
 } as const;
@@ -1019,6 +1133,7 @@ type CalendarSelectionRow = {
   status: TrainingStatus;
   groupName: string | null;
   trainerName: string;
+  courtId: string | null;
   number: number | null;
   clientName: string | null;
 };
@@ -1076,6 +1191,7 @@ function toCalendarRow(row: CalendarSelectionRow): TrainingCalendarRow {
     status: row.status,
     groupName: row.groupName ?? null,
     trainerName: row.trainerName,
+    courtId: row.courtId ?? null,
     courtNumber: row.number ?? null,
     clientName: row.clientName ?? null
   } satisfies TrainingCalendarItem;

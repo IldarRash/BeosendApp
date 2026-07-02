@@ -16,7 +16,9 @@ import type {
   AutoAssignCourtsInput,
   AutoAssignResult,
   AvailableSlotsQuery,
+  BookingStatus,
   ChangeCapacityInput,
+  ClientTrainingDetail,
   CourtCellOccupant,
   CourtSlotOccupant,
   DayOfWeek,
@@ -41,10 +43,12 @@ import type {
   TrainingRoster,
   TrainingScheduleQuery,
   TrainingScheduleSlot,
-  UpdateIndividualPriceInput
+  UpdateIndividualPriceInput,
+  UpdateTrainingScheduleCourtInput
 } from "@beosand/types";
 import {
   autoAssignResultSchema,
+  clientTrainingDetailSchema,
   COURT_CLOSE_HOUR,
   COURT_OPEN_HOUR,
   courtFreeForSlots,
@@ -80,7 +84,7 @@ import { CourtBlocksRepository, type CourtOccupancyRow } from "../courts/court-b
 import { GroupsRepository } from "../groups/groups.repository";
 import { NotificationsService } from "../notifications/notifications.service";
 import { TrainersRepository } from "../trainers/trainers.repository";
-import { TrainingsRepository } from "./trainings.repository";
+import { TrainingsRepository, type ClientTrainingDetailRow } from "./trainings.repository";
 
 /**
  * Owns trainings domain logic. Generation copies a group's capacity/trainer/times
@@ -557,6 +561,72 @@ export class TrainingsService {
     return trainingCalendarItemSchema.parse(row);
   }
 
+  async getClientDetail(actorTelegramId: number, id: string): Promise<ClientTrainingDetail> {
+    const client = await this.clients.findByTelegramId(actorTelegramId);
+    if (!client) {
+      throw new ForbiddenException("Caller has no client record");
+    }
+
+    const row = await this.trainings.findClientDetailById(id);
+    if (!row) {
+      throw new NotFoundException(`Training ${id} not found`);
+    }
+
+    const [booking, waitlist, participantRows, waitlistRows] = await Promise.all([
+      this.trainings.findClientBookingForTraining(client.id, id),
+      this.trainings.findClientWaitlistForTraining(client.id, id),
+      this.trainings.listParticipantNames(id),
+      this.trainings.listWaitlistNames(id)
+    ]);
+
+    const today = new Date().toISOString().slice(0, 10);
+    const publicVisible = this.isClientPublicVisible(row, today);
+    if (!publicVisible && !booking && !waitlist) {
+      throw new ForbiddenException("Training detail is not visible for this client");
+    }
+
+    const participants = participantRows.map((member) => narrowMember(member, false));
+    const waitlisted = waitlistRows.map((member) => narrowMember(member, false));
+    const bookingStatus = booking?.status ?? null;
+    const canCancel =
+      (bookingStatus === "booked" || bookingStatus === "pending") &&
+      row.date >= today &&
+      (row.trainingStatus === "open" || row.trainingStatus === "full");
+    const exportEligible =
+      (bookingStatus === "booked" || bookingStatus === "attended") &&
+      row.trainingStatus !== "cancelled";
+
+    return clientTrainingDetailSchema.parse({
+      trainingId: row.trainingId,
+      date: row.date,
+      dayOfWeek: isoWeekdayOf(row.date),
+      startTime: row.startTime,
+      endTime: row.endTime,
+      trainingContextLabel:
+        row.groupName ??
+        (row.groupId === null && row.trainingClientId !== null ? "Individual" : "Training"),
+      description: null,
+      trainerName: row.trainerName,
+      levelName: row.levelName,
+      courtNumber: row.courtNumber,
+      bookingStatus,
+      trainingStatus: row.trainingStatus,
+      viewerRelation: this.viewerRelation(row.date, today, bookingStatus, waitlist !== undefined),
+      bookingId: booking?.bookingId ?? null,
+      groupSubscriptionId: booking?.groupSubscriptionId ?? null,
+      canCancel,
+      exportEligible,
+      waitlistPosition: waitlist?.position ?? null,
+      participants: {
+        trainingId: id,
+        participantCount: participants.length,
+        participants,
+        waitlistCount: waitlisted.length,
+        waitlist: waitlisted
+      }
+    });
+  }
+
   /**
    * Public client catalogue (section 5): only bookable slots as SlotCards.
    * Window defaults to today..today+14d; `from` is clamped to today so past
@@ -1026,6 +1096,80 @@ export class TrainingsService {
     return trainingSchema.parse(training);
   }
 
+  async updateScheduleCourt(
+    actorTelegramId: number,
+    trainingId: string,
+    input: UpdateTrainingScheduleCourtInput
+  ): Promise<TrainingCalendarItem> {
+    this.assertAdmin(actorTelegramId);
+
+    const ref = await this.trainings.findDateById(trainingId);
+    if (!ref) {
+      throw new NotFoundException(`Training ${trainingId} not found`);
+    }
+
+    await this.trainings.transaction(async (tx) => {
+      await this.courtBlocks.lockDate(ref.date, tx);
+      const locked = await this.trainings.findFullForUpdate(tx, trainingId);
+      if (!locked) {
+        throw new NotFoundException(`Training ${trainingId} not found`);
+      }
+      if (locked.date !== ref.date) {
+        throw new ConflictException("Training changed while schedule update was in progress");
+      }
+      if (locked.status === "cancelled" || locked.status === "completed") {
+        throw new ConflictException(`Cannot update a ${locked.status} training`);
+      }
+
+      const existingBlock = await this.courtBlocks.findByGroupTrainingId(trainingId, tx);
+      const startTime = input.startTime ?? locked.startTime;
+      const endTime = input.endTime ?? locked.endTime;
+      const courtId = input.courtId ?? existingBlock?.courtId ?? null;
+
+      if (courtId !== null) {
+        await this.assertScheduleCourtAvailable(
+          tx,
+          locked.date,
+          startTime,
+          endTime,
+          courtId,
+          existingBlock?.id
+        );
+
+        if (existingBlock) {
+          await this.courtBlocks.updateAssignment(
+            existingBlock.id,
+            { courtId, date: locked.date, startTime, endTime },
+            tx
+          );
+        } else {
+          const group = locked.groupId ? await this.groups.findById(locked.groupId) : undefined;
+          await this.courtBlocks.insert(
+            {
+              courtId,
+              date: locked.date,
+              startTime,
+              endTime,
+              reason: group?.name ?? "Manual assignment",
+              groupTrainingId: trainingId
+            },
+            tx
+          );
+        }
+      }
+
+      if (input.startTime !== undefined) {
+        await this.trainings.updateTimes(tx, trainingId, input.startTime, input.endTime!);
+      }
+    });
+
+    const row = await this.trainings.findCalendarItemById(trainingId);
+    if (!row) {
+      throw new NotFoundException(`Training ${trainingId} not found`);
+    }
+    return trainingCalendarItemSchema.parse(row);
+  }
+
   /**
    * Admin: auto-place every orphaned training (no auto-block) on a date onto a court,
    * so the owner needn't assign each one by hand. In one transaction the date's
@@ -1440,6 +1584,39 @@ export class TrainingsService {
     );
   }
 
+  private async assertScheduleCourtAvailable(
+    tx: Database,
+    date: string,
+    startTime: string,
+    endTime: string,
+    courtId: string,
+    excludeBlockId?: string
+  ): Promise<void> {
+    const activeCourts = await this.courtBlocks.activeCourts(tx);
+    if (!activeCourts.some((court) => court.id === courtId)) {
+      throw new BadRequestException("courtId must reference an active court");
+    }
+
+    const durationMinutes = minutesOfDay(endTime) - minutesOfDay(startTime);
+    const slots = courtSlotsCovered(startTime, durationMinutes);
+    const [heldRequests, blocks] = await Promise.all([
+      this.courtBlocks.heldOccupancyForDate(date, tx),
+      this.courtBlocks.blocksOccupancyForDate(date, tx, excludeBlockId)
+    ]);
+
+    const picked = this.pickCourtForSlots(
+      slots,
+      activeCourts,
+      activeCourts.length,
+      courtId,
+      heldRequests,
+      blocks
+    );
+    if (picked !== courtId) {
+      throw new ConflictException("Court is already occupied for this time.");
+    }
+  }
+
   /**
    * The FUTURE non-terminal INDIVIDUAL trainings of the locked target's series,
    * including the target itself. The series is resolved from the owner booking's
@@ -1577,6 +1754,33 @@ export class TrainingsService {
     if (!isAdmin(this.env, actorTelegramId)) {
       throw new ForbiddenException("Admin privileges required");
     }
+  }
+
+  private isClientPublicVisible(row: ClientTrainingDetailRow, today: string): boolean {
+    return (
+      row.date >= today &&
+      row.groupId !== null &&
+      (row.trainingStatus === "open" || row.trainingStatus === "full") &&
+      row.groupStatus === "active" &&
+      row.groupHidden === false &&
+      row.trainerStatus === "active" &&
+      row.levelStatus === "active"
+    );
+  }
+
+  private viewerRelation(
+    date: string,
+    today: string,
+    bookingStatus: BookingStatus | null,
+    waitlisted: boolean
+  ): "none" | "booked" | "waitlisted" | "past" {
+    if (bookingStatus !== null) {
+      return date < today ? "past" : "booked";
+    }
+    if (waitlisted) {
+      return "waitlisted";
+    }
+    return "none";
   }
 
   private resolvePublicSlotWindow(query: Pick<AvailableSlotsQuery, "from" | "to">): {

@@ -14,7 +14,7 @@ import type {
   Trainer,
   WaitlistEntry
 } from "@beosand/types";
-import type { MyBookingRow } from "./bookings.repository";
+import type { CalendarExportTrainingRow, MyBookingRow } from "./bookings.repository";
 import { beforeEach, describe, expect, it } from "vitest";
 import { BookingsService } from "./bookings.service";
 import type {
@@ -366,6 +366,8 @@ class FakeBookingsRepository {
 
   /** Rows the listForClient read returns, keyed nowhere — the test supplies them. */
   myRows: MyBookingRow[] = [];
+  calendarExportRows: CalendarExportTrainingRow[] = [];
+  calendarExportCalls: Array<{ clientId: string; from: string; to: string }> = [];
 
   async listForClient(
     _clientId: string,
@@ -373,6 +375,15 @@ class FakeBookingsRepository {
     _today: string
   ): Promise<MyBookingRow[]> {
     return this.myRows;
+  }
+
+  async listCalendarExportForClient(
+    clientId: string,
+    from: string,
+    to: string
+  ): Promise<CalendarExportTrainingRow[]> {
+    this.calendarExportCalls.push({ clientId, from, to });
+    return this.calendarExportRows;
   }
 
   async findActiveBookingForClient(
@@ -1481,6 +1492,63 @@ describe("BookingsService.listMine", () => {
       allowAdmin: false
     });
     expect(items).toHaveLength(1);
+  });
+});
+
+describe("BookingsService.calendarExportMine", () => {
+  let bookingsRepo: FakeBookingsRepository;
+  let clientsRepo: FakeClientsRepository;
+  let service: BookingsService;
+
+  beforeEach(() => {
+    bookingsRepo = new FakeBookingsRepository();
+    clientsRepo = new FakeClientsRepository();
+    service = new BookingsService(
+      bookingsRepo as unknown as BookingsRepository,
+      clientsRepo as unknown as ClientsRepository,
+      new FakeGroupsRepository() as unknown as GroupsRepository,
+      fakeNotifications,
+      fakeWaitlist,
+      new FakeTrainersRepository() as unknown as TrainersRepository,
+      fakeDomainEvents,
+      env
+    );
+  });
+
+  it("exports only the resolved caller's month rows as text/calendar content", async () => {
+    bookingsRepo.calendarExportRows = [
+      {
+        trainingId: TRAINING_ID,
+        date: "2099-06-08",
+        startTime: "18:00",
+        endTime: "19:30",
+        levelName: "Beginners",
+        groupName: "Mix",
+        trainerName: "Coach",
+        courtNumber: 2
+      }
+    ];
+
+    const body = await service.calendarExportMine(OWNER_ID, { year: 2099, month: 6 });
+
+    expect(bookingsRepo.calendarExportCalls).toEqual([
+      { clientId: CLIENT_ID, from: "2099-06-01", to: "2099-06-30" }
+    ]);
+    expect(body).toContain("BEGIN:VCALENDAR");
+    expect(body).toContain("SUMMARY:Beginners - Coach");
+    expect(body).toContain("LOCATION:Court 2");
+    expect(body).toContain(`UID:training-${TRAINING_ID}-client-`);
+    expect(body).not.toContain(CLIENT_ID);
+    expect(body).not.toContain(`UID:training-${TRAINING_ID}-client-${CLIENT_ID}-2099-06`);
+  });
+
+  it("rejects a caller with no client record before reading export rows", async () => {
+    clientsRepo.client = undefined;
+
+    await expect(service.calendarExportMine(STRANGER_ID, { year: 2099, month: 6 })).rejects.toBeInstanceOf(
+      ForbiddenException
+    );
+    expect(bookingsRepo.calendarExportCalls).toHaveLength(0);
   });
 });
 

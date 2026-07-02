@@ -105,6 +105,17 @@ export interface MyBookingRow {
   trainingStatus: TrainingStatus;
 }
 
+export interface CalendarExportTrainingRow {
+  trainingId: string;
+  date: string;
+  startTime: string;
+  endTime: string;
+  levelName: string | null;
+  groupName: string | null;
+  trainerName: string;
+  courtNumber: number | null;
+}
+
 /** Only place bookings DB access lives. Returns typed rows; no business rules. */
 @Injectable()
 export class BookingsRepository {
@@ -343,6 +354,50 @@ export class BookingsRepository {
       trainingGroupId: row.trainingGroupId ?? null,
       groupName: row.groupName ?? null,
       trainingClientId: row.trainingClientId ?? null
+    }));
+  }
+
+  async listCalendarExportForClient(
+    clientId: string,
+    from: string,
+    to: string
+  ): Promise<CalendarExportTrainingRow[]> {
+    const rows = await this.database.db
+      .select({
+        trainingId: tables.trainings.id,
+        date: tables.trainings.date,
+        startTime: tables.trainings.startTime,
+        endTime: tables.trainings.endTime,
+        levelName: tables.levels.name,
+        groupName: tables.groups.name,
+        trainerName: tables.trainers.name,
+        courtNumber: tables.courts.number
+      })
+      .from(tables.bookings)
+      .innerJoin(tables.trainings, eq(tables.bookings.trainingId, tables.trainings.id))
+      .innerJoin(tables.trainers, eq(tables.trainings.trainerId, tables.trainers.id))
+      .leftJoin(tables.groups, eq(tables.trainings.groupId, tables.groups.id))
+      .leftJoin(tables.levels, eq(tables.groups.levelId, tables.levels.id))
+      .leftJoin(tables.courtBlocks, eq(tables.courtBlocks.groupTrainingId, tables.trainings.id))
+      .leftJoin(tables.courts, eq(tables.courts.id, tables.courtBlocks.courtId))
+      .where(
+        and(
+          eq(tables.bookings.clientId, clientId),
+          inArray(tables.bookings.status, ["booked", "attended"]),
+          gte(tables.trainings.date, from),
+          lte(tables.trainings.date, to),
+          ne(tables.trainings.status, "cancelled")
+        )
+      )
+      .orderBy(asc(tables.trainings.date), asc(tables.trainings.startTime));
+
+    return rows.map((row) => ({
+      ...row,
+      startTime: row.startTime.slice(0, 5),
+      endTime: row.endTime.slice(0, 5),
+      levelName: row.levelName ?? null,
+      groupName: row.groupName ?? null,
+      courtNumber: row.courtNumber ?? null
     }));
   }
 

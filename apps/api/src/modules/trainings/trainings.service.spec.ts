@@ -12,6 +12,9 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { TrainingsService } from "./trainings.service";
 import type {
   AvailableSlotRow,
+  ClientTrainingBookingRow,
+  ClientTrainingDetailRow,
+  ClientTrainingWaitlistRow,
   RosterRow,
   ScheduleSlotRow,
   TrainerTrainingRow,
@@ -36,12 +39,12 @@ const ADMIN_ID = 111;
 const NON_ADMIN_ID = 999;
 const GROUP_ID = "11111111-1111-1111-1111-111111111111";
 
-// July 2026 is entirely in the future (today is 2026-06-03), so the skip-past
-// rule never reduces the count: 4 Mondays + 5 Wednesdays = 9 trainings.
+// September 2026 is entirely in the future for this suite and has
+// 4 Mondays + 5 Wednesdays = 9 trainings.
 const FUTURE_YEAR = 2026;
-const FUTURE_MONTH = 7;
+const FUTURE_MONTH = 9;
 const FUTURE_FIXTURE_TODAY = new Date("2026-06-03T12:00:00Z");
-const MID_MONTH_FIXTURE_TODAY = new Date("2026-07-15T12:00:00Z");
+const MID_MONTH_FIXTURE_TODAY = new Date("2026-09-15T12:00:00Z");
 
 function freezeFutureFixtureToday(): void {
   vi.useFakeTimers();
@@ -236,6 +239,7 @@ class FakeTrainingsRepository {
           status: row.status,
           groupName: row.groupId ? "Group" : null,
           trainerName: "Trainer",
+          courtId: null,
           courtNumber: null,
           clientName: row.clientId ? "Client" : null
         }
@@ -273,6 +277,28 @@ class FakeTrainingsRepository {
     _trainingId: string
   ): Promise<{ clientId: string; name: string; telegramPhotoUrl: string | null }[]> {
     return this.waitlistNames;
+  }
+
+  clientDetail: ClientTrainingDetailRow | undefined;
+  clientBooking: ClientTrainingBookingRow | undefined;
+  clientWaitlist: ClientTrainingWaitlistRow | undefined;
+  clientDetailChecks: Array<{ clientId: string; trainingId: string }> = [];
+  async findClientDetailById(id: string): Promise<ClientTrainingDetailRow | undefined> {
+    return this.clientDetail?.trainingId === id ? this.clientDetail : undefined;
+  }
+  async findClientBookingForTraining(
+    clientId: string,
+    trainingId: string
+  ): Promise<ClientTrainingBookingRow | undefined> {
+    this.clientDetailChecks.push({ clientId, trainingId });
+    return this.clientBooking;
+  }
+  async findClientWaitlistForTraining(
+    clientId: string,
+    trainingId: string
+  ): Promise<ClientTrainingWaitlistRow | undefined> {
+    this.clientDetailChecks.push({ clientId, trainingId });
+    return this.clientWaitlist;
   }
 
   participantAccess = true;
@@ -835,7 +861,7 @@ describe("TrainingsService", () => {
     });
   };
 
-  it("generates one training per group weekday across the month (9 for Mon+Wed July 2026)", async () => {
+  it("generates one training per group weekday across the month (9 for Mon+Wed September 2026)", async () => {
     const created = await generate();
     expect(created).toHaveLength(9);
   });
@@ -905,8 +931,8 @@ describe("TrainingsService", () => {
   it("list returns generated trainings within the range", async () => {
     await generate();
     const listed = await service.list(ADMIN_ID, {
-      from: "2026-07-01",
-      to: "2026-07-31",
+      from: "2026-09-01",
+      to: "2026-09-30",
       groupId: GROUP_ID
     });
     expect(listed).toHaveLength(9);
@@ -928,6 +954,7 @@ describe("TrainingsService", () => {
       status: "open",
       groupName: "Intermediate",
       trainerName: "Jovana",
+      courtId: null,
       courtNumber: 2,
       clientName: null,
       ...over
@@ -1512,6 +1539,119 @@ describe("TrainingsService", () => {
     });
   });
 
+  describe("getClientDetail (Mini App self-scoped detail)", () => {
+    const CLIENT_TG = 222;
+    const TRAINING_ID = "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa";
+    const CLIENT_ID = "cccccccc-cccc-4ccc-8ccc-cccccccccccc";
+
+    const client = (): Client => ({
+      id: CLIENT_ID,
+      name: "Onboarded",
+      telegramId: CLIENT_TG,
+      telegramUsername: null,
+      telegramPhotoUrl: null,
+      levelId: null,
+      source: "telegram",
+      phone: null,
+      email: null,
+      note: null,
+      language: "ru",
+      registeredAt: new Date().toISOString(),
+      consentGivenAt: null,
+      status: "active",
+      bonusTrainingCredits: 0
+    });
+
+    const detailRow = (
+      over: Partial<ClientTrainingDetailRow> = {}
+    ): ClientTrainingDetailRow => ({
+      trainingId: TRAINING_ID,
+      groupId: GROUP_ID,
+      trainingClientId: null,
+      date: "2099-07-06",
+      startTime: "20:00",
+      endTime: "21:30",
+      trainerName: "Jovana",
+      levelName: "Intermediate",
+      groupName: "Intermediate",
+      courtNumber: 2,
+      trainingStatus: "open",
+      groupStatus: "active",
+      groupHidden: false,
+      trainerStatus: "active",
+      levelStatus: "active",
+      ...over
+    });
+
+    beforeEach(() => {
+      clientsRepo.client = client();
+      trainingsRepo.clientDetail = detailRow();
+      trainingsRepo.clientBooking = {
+        bookingId: "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb",
+        groupSubscriptionId: null,
+        status: "booked"
+      };
+      trainingsRepo.participantNames = [
+        { clientId: CLIENT_ID, name: "Ana Petrovic", telegramPhotoUrl: null },
+        {
+          clientId: "dddddddd-dddd-4ddd-8ddd-dddddddddddd",
+          name: "Marko Novak",
+          telegramPhotoUrl: "https://t.me/i/userpic/320/marko.jpg"
+        }
+      ];
+      trainingsRepo.waitlistNames = [
+        {
+          clientId: "eeeeeeee-eeee-4eee-8eee-eeeeeeeeeeee",
+          name: "Petra Kovac",
+          telegramPhotoUrl: null
+        }
+      ];
+    });
+
+    it("returns computed viewer state and narrowed participant rows without leaking ids", async () => {
+      const result = await service.getClientDetail(CLIENT_TG, TRAINING_ID);
+
+      expect(result).not.toHaveProperty("courtId");
+      expect(result.viewerRelation).toBe("booked");
+      expect(result.canCancel).toBe(true);
+      expect(result.exportEligible).toBe(true);
+      expect(result.courtNumber).toBe(2);
+      expect(result.bookingId).toBe("bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb");
+      expect(result.participants.participants).toHaveLength(2);
+      expect(result.participants.participants[0]).toEqual({
+        firstName: "Ana",
+        avatarInitial: "A",
+        telegramPhotoUrl: null
+      });
+      expect(result.participants.participants[1]).not.toHaveProperty("clientId");
+      expect(result.participants.waitlist[0]).not.toHaveProperty("fullName");
+    });
+
+    it("forbids a hidden training for an unrelated client", async () => {
+      trainingsRepo.clientDetail = detailRow({ groupHidden: true });
+      trainingsRepo.clientBooking = undefined;
+      trainingsRepo.clientWaitlist = undefined;
+
+      await expect(service.getClientDetail(CLIENT_TG, TRAINING_ID)).rejects.toBeInstanceOf(
+        ForbiddenException
+      );
+    });
+
+    it("allows a hidden training for an active waitlisted caller and computes waitlist relation", async () => {
+      trainingsRepo.clientDetail = detailRow({ groupHidden: true });
+      trainingsRepo.clientBooking = undefined;
+      trainingsRepo.clientWaitlist = { position: 3 };
+
+      const result = await service.getClientDetail(CLIENT_TG, TRAINING_ID);
+
+      expect(result.viewerRelation).toBe("waitlisted");
+      expect(result.bookingStatus).toBeNull();
+      expect(result.waitlistPosition).toBe(3);
+      expect(result.canCancel).toBe(false);
+      expect(result.exportEligible).toBe(false);
+    });
+  });
+
   describe("deleteTraining (soft-cancel, admin-only)", () => {
     const TRAINING_ID = "aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa";
     const TRAINER_ID = "33333333-3333-3333-3333-333333333333";
@@ -1722,7 +1862,7 @@ describe("TrainingsService", () => {
   });
 
   describe("generationStatus (admin generate-month coverage)", () => {
-    // July 2026 (Mon+Wed) has 9 candidate future dates; January 2026 is entirely past.
+    // September 2026 (Mon+Wed) has 9 candidate future dates; January 2026 is entirely past.
     const PAST_MONTH = 1;
 
     beforeEach(() => {
@@ -1747,7 +1887,7 @@ describe("TrainingsService", () => {
 
     it("reports fullyGenerated=true once every expected date has a training", async () => {
       groupsRepo.activeGroups = [baseGroup];
-      await generate(); // creates all 9 July trainings for the group
+      await generate(); // creates all 9 September trainings for the group
       const [item] = await service.generationStatus(ADMIN_ID, {
         year: FUTURE_YEAR,
         month: FUTURE_MONTH
@@ -1792,7 +1932,7 @@ describe("TrainingsService", () => {
     });
 
     it("T2 — creates one auto-block per new training on its [start,end) window, reason = group name", async () => {
-      const created = await generate(); // 9 trainings (Mon+Wed July 2026)
+      const created = await generate(); // 9 trainings (Mon+Wed September 2026)
 
       expect(courtBlocksRepo.inserted).toHaveLength(created.length);
       for (const block of courtBlocksRepo.inserted) {
@@ -1826,7 +1966,7 @@ describe("TrainingsService", () => {
     });
 
     it("locks all candidate dates before re-reading existing dates, including already-generated dates", async () => {
-      const existingDate = "2026-07-01";
+      const existingDate = "2026-09-02";
       trainingsRepo.rows = [
         {
           id: "eeeeeeee-0000-4000-8000-000000000001",
@@ -2060,7 +2200,7 @@ describe("TrainingsService", () => {
       trainersRepo.trainers = [activeTrainer()];
     });
 
-    it("creates one individual instance per chosen weekday (9 for Mon+Wed July 2026)", async () => {
+    it("creates one individual instance per chosen weekday (9 for Mon+Wed September 2026)", async () => {
       const result = await service.generateIndividualMonth(ADMIN_ID, input());
       expect(result.created).toHaveLength(9);
     });
@@ -2146,7 +2286,7 @@ describe("TrainingsService", () => {
       // Freeze "today" mid-month so only the remaining Mondays/Wednesdays are created.
       freezeMidMonthFixtureToday();
       const result = await service.generateIndividualMonth(ADMIN_ID, input());
-      expect(result.created.every((t) => t.date >= "2026-07-15")).toBe(true);
+      expect(result.created.every((t) => t.date >= "2026-09-15")).toBe(true);
       expect(result.created.length).toBeLessThan(9);
       expect(result.created.length).toBeGreaterThan(0);
     });
@@ -2325,6 +2465,99 @@ describe("TrainingsService", () => {
       await service.assignCourt(ADMIN_ID, TRAINING_ID, { courtId: COURT_1 });
       expect(courtBlocksRepo.inserted).toHaveLength(1);
       expect(courtBlocksRepo.inserted[0].reason).toBe("Manual assignment");
+    });
+
+    it("updates one training's time and linked court block atomically", async () => {
+      trainingsRepo.rows = [orphan()];
+      trainingsRepo.fullLock = orphan();
+      courtBlocksRepo.linkedBlocks.set(TRAINING_ID, {
+        id: "linked-block",
+        courtId: COURT_1,
+        date: "2026-07-06",
+        startTime: "20:00",
+        endTime: "21:30",
+        reason: "Existing",
+        groupTrainingId: TRAINING_ID
+      });
+
+      const result = await service.updateScheduleCourt(ADMIN_ID, TRAINING_ID, {
+        startTime: "18:30",
+        endTime: "20:00",
+        courtId: COURT_2
+      });
+
+      expect(result.startTime).toBe("18:30");
+      expect(result.endTime).toBe("20:00");
+      expect(trainingsRepo.updateTimesIds).toEqual([TRAINING_ID]);
+      expect(courtBlocksRepo.updatedAssignments).toEqual([
+        {
+          id: "linked-block",
+          input: {
+            courtId: COURT_2,
+            date: "2026-07-06",
+            startTime: "18:30",
+            endTime: "20:00"
+          }
+        }
+      ]);
+    });
+
+    it("excludes its own linked auto-block from schedule conflict checks", async () => {
+      trainingsRepo.rows = [orphan()];
+      trainingsRepo.fullLock = orphan();
+      courtBlocksRepo.linkedBlocks.set(TRAINING_ID, {
+        id: "linked-block",
+        courtId: COURT_1,
+        date: "2026-07-06",
+        startTime: "20:00",
+        endTime: "21:30",
+        reason: "Existing",
+        groupTrainingId: TRAINING_ID
+      });
+
+      await service.updateScheduleCourt(ADMIN_ID, TRAINING_ID, { courtId: COURT_1 });
+
+      expect(courtBlocksRepo.updatedAssignments[0].input).toMatchObject({
+        courtId: COURT_1,
+        startTime: "20:00",
+        endTime: "21:30"
+      });
+    });
+
+    it("allows end-exclusive adjacent court ranges", async () => {
+      trainingsRepo.rows = [orphan()];
+      trainingsRepo.fullLock = orphan();
+      courtBlocksRepo.existingBlocks = [
+        { id: "other-block", courtId: COURT_1, startTime: "21:30", durationMinutes: 90 }
+      ];
+
+      await service.updateScheduleCourt(ADMIN_ID, TRAINING_ID, { courtId: COURT_1 });
+
+      expect(courtBlocksRepo.inserted[0]).toMatchObject({
+        courtId: COURT_1,
+        startTime: "20:00",
+        endTime: "21:30"
+      });
+    });
+
+    it("rejects an overlapping schedule/court update without mutating time or block", async () => {
+      trainingsRepo.rows = [orphan()];
+      trainingsRepo.fullLock = orphan();
+      courtBlocksRepo.existingBlocks = [
+        { id: "other-block", courtId: COURT_1, startTime: "20:30", durationMinutes: 60 }
+      ];
+
+      await expect(
+        service.updateScheduleCourt(ADMIN_ID, TRAINING_ID, {
+          startTime: "20:00",
+          endTime: "21:30",
+          courtId: COURT_1
+        })
+      ).rejects.toBeInstanceOf(ConflictException);
+
+      expect(trainingsRepo.updateTimesIds).toHaveLength(0);
+      expect(courtBlocksRepo.inserted).toHaveLength(0);
+      expect(courtBlocksRepo.updatedAssignments).toHaveLength(0);
     });
   });
 

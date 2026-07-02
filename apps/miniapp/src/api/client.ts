@@ -7,6 +7,8 @@ import {
   courtRequestSchema,
   createCourtRequestSchema,
   freeCourtNumbersSchema,
+  calendarExportMonthQuerySchema,
+  clientTrainingDetailSchema,
   createGroupBookingSchema,
   createSingleBookingSchema,
   createWaitlistEntrySchema,
@@ -30,6 +32,7 @@ import {
   type AvailableSlotsQuery,
   type Booking,
   type Client,
+  type ClientTrainingDetail,
   type CourtAvailability,
   type CourtDurationHours,
   type CourtRequest,
@@ -201,6 +204,15 @@ export class MiniappApiClient {
     return this.handle(res, path, schema);
   }
 
+  private async requestText(path: string, init?: RequestInit): Promise<string> {
+    const res = await this.fetchWithAuth(path, init);
+    if (res.status === 401 && this.initDataRaw) {
+      await this.authenticate(this.initDataRaw);
+      return this.handleText(await this.fetchWithAuth(path, init), path);
+    }
+    return this.handleText(res, path);
+  }
+
   /** One authed fetch with the JSON + Bearer headers; the single fetch contract. */
   private fetchWithAuth(path: string, init?: RequestInit): Promise<Response> {
     return fetch(`${this.baseUrl}${path}`, {
@@ -224,6 +236,22 @@ export class MiniappApiClient {
       throw await errorFromResponse(res, path);
     }
     return schema.parse(await res.json());
+  }
+
+  private async handleText(res: Response, path: string): Promise<string> {
+    if (res.status === 401) {
+      throw new AuthError(`API ${path} rejected the session`);
+    }
+    if (res.status === 404) {
+      throw new NotFoundError(`API ${path} not found`);
+    }
+    if (res.status === 403) {
+      throw new ForbiddenError(`API ${path} is not visible to this session`);
+    }
+    if (!res.ok) {
+      throw await errorFromResponse(res, path);
+    }
+    return res.text();
   }
 
   /** Bearer header for authed calls; empty before authenticate() (public endpoints). */
@@ -386,6 +414,32 @@ export class MiniappApiClient {
   listMyBookings(clientId: string, scope: MyBookingScope): Promise<MyBookingItem[]> {
     const qs = new URLSearchParams({ clientId, scope }).toString();
     return this.request(`/bookings/mine?${qs}`, myBookingItemsSchema);
+  }
+
+  /**
+   * Client-scoped detail for one visible training (GET /trainings/:id/client-detail).
+   * The API owns relation, cancelability, export eligibility, court visibility, and
+   * privacy-narrowed roster rows; the Mini App only validates and renders.
+   */
+  getClientTrainingDetail(trainingId: string): Promise<ClientTrainingDetail> {
+    return this.request(
+      `/trainings/${trainingId}/client-detail`,
+      clientTrainingDetailSchema
+    );
+  }
+
+  /**
+   * Text/calendar export for the caller's own booked trainings in one month. The
+   * query is validated by the shared contract before send; the response is an ICS
+   * payload, not JSON, so callers hand it to a browser download/navigation path.
+   */
+  async exportMyBookingsCalendar(year: number, month: number): Promise<string> {
+    const query = calendarExportMonthQuerySchema.parse({ year, month });
+    const qs = new URLSearchParams({
+      year: String(query.year),
+      month: String(query.month)
+    }).toString();
+    return this.requestText(`/bookings/mine/calendar-export?${qs}`);
   }
 
   /**

@@ -6,7 +6,9 @@ import {
   availableSlotsQuerySchema,
   bookingSchema,
   bookingStatus,
+  calendarExportMonthQuerySchema,
   changeCapacitySchema,
+  clientTrainingDetailSchema,
   confirmBookingSchema,
   createGroupBookingSchema,
   createGroupSchema,
@@ -22,7 +24,9 @@ import {
   groupMemberSchema,
   groupSchema,
   rescheduleTrainingSchema,
+  updateTrainingScheduleCourtSchema,
   trainingSchema,
+  trainingCalendarItemSchema,
   listSubscriptionsQuerySchema,
   markSubscriptionPaidSchema,
   subscriptionSummarySchema,
@@ -489,6 +493,39 @@ describe("trainingSchema (individual-training fields)", () => {
   });
 });
 
+describe("trainingCalendarItemSchema", () => {
+  const item = {
+    id: "11111111-1111-1111-1111-111111111111",
+    groupId: "22222222-2222-2222-2222-222222222222",
+    date: "2026-07-01",
+    startTime: "20:00",
+    endTime: "21:30",
+    trainerId: "33333333-3333-3333-3333-333333333333",
+    clientId: null,
+    capacity: 12,
+    bookedCount: 0,
+    priceSingleRsd: null,
+    status: "open",
+    groupName: "Intermediate",
+    trainerName: "Jovana",
+    courtId: "44444444-4444-4444-8444-444444444444",
+    courtNumber: 2,
+    clientName: null
+  };
+
+  it("requires the admin-only courtId alongside courtNumber", () => {
+    expect(trainingCalendarItemSchema.safeParse(item).success).toBe(true);
+    const { courtId: _courtId, ...withoutCourtId } = item;
+    expect(trainingCalendarItemSchema.safeParse(withoutCourtId).success).toBe(false);
+  });
+
+  it("accepts null court assignment fields", () => {
+    expect(
+      trainingCalendarItemSchema.safeParse({ ...item, courtId: null, courtNumber: null }).success
+    ).toBe(true);
+  });
+});
+
 describe("generateIndividualMonthSchema", () => {
   const validBody = {
     clientId: "11111111-1111-1111-1111-111111111111",
@@ -555,6 +592,40 @@ describe("rescheduleTrainingSchema", () => {
     expect(
       rescheduleTrainingSchema.safeParse({ startTime: "07:30", endTime: "09:00", date: "2026-07-01" })
         .success
+    ).toBe(false);
+  });
+});
+
+describe("updateTrainingScheduleCourtSchema", () => {
+  const courtId = "33333333-3333-4333-8333-333333333333";
+
+  it("accepts time-only, court-only, and combined schedule patches", () => {
+    expect(
+      updateTrainingScheduleCourtSchema.safeParse({ startTime: "07:30", endTime: "09:00" }).success
+    ).toBe(true);
+    expect(updateTrainingScheduleCourtSchema.safeParse({ courtId }).success).toBe(true);
+    expect(
+      updateTrainingScheduleCourtSchema.safeParse({
+        startTime: "07:30",
+        endTime: "09:00",
+        courtId
+      }).success
+    ).toBe(true);
+  });
+
+  it("rejects empty, stray fields, incomplete time, and non-forward windows", () => {
+    expect(updateTrainingScheduleCourtSchema.safeParse({}).success).toBe(false);
+    expect(updateTrainingScheduleCourtSchema.safeParse({ courtId, capacity: 6 }).success).toBe(
+      false
+    );
+    expect(updateTrainingScheduleCourtSchema.safeParse({ startTime: "07:30" }).success).toBe(
+      false
+    );
+    expect(
+      updateTrainingScheduleCourtSchema.safeParse({ startTime: "09:00", endTime: "09:00" }).success
+    ).toBe(false);
+    expect(
+      updateTrainingScheduleCourtSchema.safeParse({ startTime: "09:00", endTime: "07:30" }).success
     ).toBe(false);
   });
 });
@@ -912,6 +983,28 @@ describe("myBookingsQuerySchema", () => {
   });
 });
 
+describe("calendarExportMonthQuerySchema", () => {
+  it("coerces a valid year/month query", () => {
+    const parsed = calendarExportMonthQuerySchema.parse({ year: "2026", month: "7" });
+    expect(parsed).toEqual({ year: 2026, month: 7 });
+  });
+
+  it("rejects month bounds, old years, and unknown fields", () => {
+    expect(calendarExportMonthQuerySchema.safeParse({ year: "2026", month: "0" }).success).toBe(
+      false
+    );
+    expect(calendarExportMonthQuerySchema.safeParse({ year: "2026", month: "13" }).success).toBe(
+      false
+    );
+    expect(calendarExportMonthQuerySchema.safeParse({ year: "2023", month: "7" }).success).toBe(
+      false
+    );
+    expect(
+      calendarExportMonthQuerySchema.safeParse({ year: "2026", month: "7", clientId: "x" }).success
+    ).toBe(false);
+  });
+});
+
 describe("trainingScheduleSlotSchema", () => {
   const validSlot = {
     trainingId: "11111111-1111-1111-1111-111111111111",
@@ -1192,6 +1285,67 @@ describe("groupMemberSchema", () => {
     expect(groupMemberSchema.safeParse({ ...base, telegramPhotoUrl: "not-a-url" }).success).toBe(
       false
     );
+  });
+});
+
+describe("clientTrainingDetailSchema", () => {
+  const detail = {
+    trainingId: "11111111-1111-1111-1111-111111111111",
+    date: "2099-06-08",
+    dayOfWeek: 1,
+    startTime: "18:00",
+    endTime: "19:30",
+    trainingContextLabel: "Intermediate",
+    description: null,
+    trainerName: "Coach",
+    levelName: "Beginners",
+    courtNumber: 2,
+    bookingStatus: "booked",
+    trainingStatus: "open",
+    viewerRelation: "booked",
+    bookingId: "22222222-2222-2222-2222-222222222222",
+    groupSubscriptionId: null,
+    canCancel: true,
+    exportEligible: true,
+    waitlistPosition: null,
+    participants: {
+      trainingId: "11111111-1111-1111-1111-111111111111",
+      participantCount: 1,
+      participants: [{ firstName: "Ana", avatarInitial: "A", telegramPhotoUrl: null }],
+      waitlistCount: 1,
+      waitlist: [{ firstName: "Boris", avatarInitial: "B", telegramPhotoUrl: null }]
+    }
+  };
+
+  it("accepts the intended Mini App detail shape", () => {
+    expect(clientTrainingDetailSchema.safeParse(detail).success).toBe(true);
+  });
+
+  it("rejects leaked courtId, clientId, and fullName", () => {
+    expect(clientTrainingDetailSchema.safeParse({ ...detail, courtId: "x" }).success).toBe(false);
+    expect(
+      clientTrainingDetailSchema.safeParse({
+        ...detail,
+        participants: {
+          ...detail.participants,
+          participants: [
+            {
+              ...detail.participants.participants[0],
+              clientId: "33333333-3333-3333-3333-333333333333"
+            }
+          ]
+        }
+      }).success
+    ).toBe(false);
+    expect(
+      clientTrainingDetailSchema.safeParse({
+        ...detail,
+        participants: {
+          ...detail.participants,
+          waitlist: [{ ...detail.participants.waitlist[0], fullName: "Boris Petrović" }]
+        }
+      }).success
+    ).toBe(false);
   });
 });
 

@@ -20,7 +20,7 @@ const useUpdateIndividualPrice = vi.fn();
 const useDeleteTraining = vi.fn();
 const useDeleteTrainingSeries = vi.fn();
 const useChangeCapacity = vi.fn();
-const useChangeTrainingCourt = vi.fn();
+const useUpdateTrainingSchedule = vi.fn();
 const useGroups = vi.fn();
 const useGenerationStatus = vi.fn();
 const useTrainers = vi.fn();
@@ -42,7 +42,7 @@ vi.mock("../hooks/useTrainings", () => ({
   useDeleteTraining: () => useDeleteTraining(),
   useDeleteTrainingSeries: () => useDeleteTrainingSeries(),
   useChangeCapacity: () => useChangeCapacity(),
-  useChangeTrainingCourt: () => useChangeTrainingCourt()
+  useUpdateTrainingSchedule: () => useUpdateTrainingSchedule()
 }));
 vi.mock("../hooks/useClients", () => ({
   useClientsList: (...args: unknown[]) => useClientsList(...args),
@@ -188,6 +188,7 @@ const DETAIL: TrainingCalendarItem = {
   status: "open",
   groupName: "Утренняя группа",
   trainerName: "Анна",
+  courtId: COURTS[0].id,
   courtNumber: 3
 };
 
@@ -243,7 +244,7 @@ beforeEach(() => {
   useDeleteTraining.mockReturnValue(idleMutation());
   useDeleteTrainingSeries.mockReturnValue(idleMutation());
   useChangeCapacity.mockReturnValue(idleMutation());
-  useChangeTrainingCourt.mockReturnValue(idleMutation());
+  useUpdateTrainingSchedule.mockReturnValue(idleMutation());
   useClientsList.mockReturnValue(idleQuery([CLIENT]));
   useCreateWalkIn.mockReturnValue(idleMutation());
   useBookManual.mockReturnValue(idleMutation());
@@ -806,21 +807,18 @@ describe("Trainings page", () => {
 
   it("keeps sorted/filtered training row actions bound to the correct row id", () => {
     const callOrder: string[] = [];
-    const courtMutate = vi.fn((_input: unknown) => {
-      callOrder.push("court");
-    });
-    const rescheduleMutate = vi.fn((_input: unknown, opts?: { onSuccess?: () => void }) => {
-      callOrder.push("time");
-      expect(courtMutate).not.toHaveBeenCalled();
+    const scheduleMutate = vi.fn((_input: unknown, opts?: { onSuccess?: () => void }) => {
+      callOrder.push("schedule");
       opts?.onSuccess?.();
     });
+    const rescheduleMutate = vi.fn();
     const capacityMutate = vi.fn();
     const priceMutate = vi.fn();
     const bookMutate = vi.fn();
     useRescheduleTraining.mockReturnValue({ ...idleMutation(), mutate: rescheduleMutate });
     useChangeCapacity.mockReturnValue({ ...idleMutation(), mutate: capacityMutate });
     useUpdateIndividualPrice.mockReturnValue({ ...idleMutation(), mutate: priceMutate });
-    useChangeTrainingCourt.mockReturnValue({ ...idleMutation(), mutate: courtMutate });
+    useUpdateTrainingSchedule.mockReturnValue({ ...idleMutation(), mutate: scheduleMutate });
     useBookManual.mockReturnValue({ ...idleMutation(), mutate: bookMutate });
     useTrainings.mockReturnValue({
       isPending: false,
@@ -864,11 +862,11 @@ describe("Trainings page", () => {
     });
     fireEvent.click(within(dialog).getByRole("button", { name: "Сохранить" }));
 
-    expect(callOrder).toEqual(["time", "court"]);
-    expect(rescheduleMutate.mock.calls[0][0]).toEqual({
+    expect(callOrder).toEqual(["schedule"]);
+    expect(rescheduleMutate).not.toHaveBeenCalled();
+    expect(scheduleMutate.mock.calls[0][0]).toEqual({
       id: INDIVIDUAL.id,
-      input: { startTime: "19:30", endTime: "20:30" },
-      series: false
+      input: { startTime: "19:30", endTime: "20:30", courtId: COURTS[1].id }
     });
     expect(capacityMutate.mock.calls[0][0]).toEqual({
       id: INDIVIDUAL.id,
@@ -878,10 +876,6 @@ describe("Trainings page", () => {
       id: INDIVIDUAL.id,
       input: { priceSingleRsd: 2700 },
       series: false
-    });
-    expect(courtMutate.mock.calls[0][0]).toEqual({
-      id: INDIVIDUAL.id,
-      courtId: COURTS[1].id
     });
     fireEvent.click(within(dialog).getByRole("button", { name: "Отмена" }));
 
@@ -950,6 +944,47 @@ describe("Trainings page", () => {
     expect(within(dialog).getByLabelText("Корт")).toBeTruthy();
   });
 
+  it("seeds the edit modal with the current court and PATCHes a court-only schedule change", () => {
+    const mutate = vi.fn();
+    useUpdateTrainingSchedule.mockReturnValue({ ...idleMutation(), mutate });
+    useTrainings.mockReturnValue({
+      isPending: false,
+      isError: false,
+      error: null,
+      data: [{ ...TRAINING, courtId: COURTS[0].id, courtNumber: 1 }]
+    });
+    render(<Trainings />);
+    setRange();
+
+    const dialog = openEditForRow();
+    const courtSelect = within(dialog).getByLabelText("Корт") as HTMLSelectElement;
+    expect(courtSelect.value).toBe(COURTS[0].id);
+    expect(within(dialog).queryByRole("option", { name: "Без изменений" })).toBeNull();
+
+    fireEvent.change(courtSelect, { target: { value: COURTS[1].id } });
+    fireEvent.click(within(dialog).getByRole("button", { name: "Сохранить" }));
+
+    expect(mutate).toHaveBeenCalledTimes(1);
+    expect(mutate.mock.calls[0][0]).toEqual({
+      id: TRAINING.id,
+      input: { courtId: COURTS[1].id }
+    });
+  });
+
+  it("shows the API 409 schedule error without closing the edit modal", () => {
+    useUpdateTrainingSchedule.mockReturnValue({
+      ...idleMutation(),
+      isError: true,
+      error: new Error("Корт уже занят на это время.")
+    });
+    render(<Trainings />);
+    setRange();
+
+    const dialog = openEditForRow();
+
+    expect(within(dialog).getByRole("alert").textContent).toContain("Корт уже занят на это время.");
+  });
+
   it("reschedules the whole series when chosen for an individual training", () => {
     const mutate = vi.fn();
     useRescheduleTraining.mockReturnValue({ ...idleMutation(), mutate });
@@ -973,6 +1008,66 @@ describe("Trainings page", () => {
 
     expect(mutate).toHaveBeenCalledTimes(1);
     expect(mutate.mock.calls[0][0]).toEqual({
+      id: INDIVIDUAL.id,
+      input: { startTime: "19:00", endTime: "20:00" },
+      series: true
+    });
+  });
+
+  it("disables court changes when rescheduling an individual series", () => {
+    const rescheduleMutate = vi.fn();
+    const scheduleMutate = vi.fn();
+    useRescheduleTraining.mockReturnValue({ ...idleMutation(), mutate: rescheduleMutate });
+    useUpdateTrainingSchedule.mockReturnValue({ ...idleMutation(), mutate: scheduleMutate });
+    useTrainings.mockReturnValue({
+      isPending: false,
+      isError: false,
+      error: null,
+      data: [INDIVIDUAL]
+    });
+    useTrainingDetail.mockReturnValue({
+      isPending: false,
+      isError: false,
+      error: null,
+      data: {
+        ...DETAIL,
+        id: INDIVIDUAL.id,
+        groupId: null,
+        date: INDIVIDUAL.date,
+        startTime: INDIVIDUAL.startTime,
+        endTime: INDIVIDUAL.endTime,
+        capacity: INDIVIDUAL.capacity,
+        bookedCount: INDIVIDUAL.bookedCount,
+        priceSingleRsd: INDIVIDUAL.priceSingleRsd,
+        clientId: INDIVIDUAL.clientId,
+        status: INDIVIDUAL.status,
+        courtId: COURTS[0].id,
+        courtNumber: 1
+      }
+    });
+    render(<Trainings />);
+    setRange();
+
+    const dialog = openEditForRow();
+    const courtSelect = within(dialog).getByLabelText("Корт") as HTMLSelectElement;
+    expect(courtSelect.value).toBe(COURTS[0].id);
+
+    fireEvent.change(courtSelect, { target: { value: COURTS[1].id } });
+    expect(courtSelect.value).toBe(COURTS[1].id);
+    fireEvent.change(within(dialog).getAllByLabelText("Что изменить")[0], {
+      target: { value: "series" }
+    });
+
+    expect(courtSelect.value).toBe(COURTS[0].id);
+    expect(courtSelect).toHaveProperty("disabled", true);
+
+    fireEvent.change(within(dialog).getByLabelText("Начало"), { target: { value: "19:00" } });
+    fireEvent.change(within(dialog).getByLabelText("Окончание"), { target: { value: "20:00" } });
+    fireEvent.click(within(dialog).getByRole("button", { name: "Сохранить" }));
+
+    expect(scheduleMutate).not.toHaveBeenCalled();
+    expect(rescheduleMutate).toHaveBeenCalledTimes(1);
+    expect(rescheduleMutate.mock.calls[0][0]).toEqual({
       id: INDIVIDUAL.id,
       input: { startTime: "19:00", endTime: "20:00" },
       series: true

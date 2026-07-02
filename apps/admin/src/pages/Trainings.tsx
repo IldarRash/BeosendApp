@@ -14,6 +14,7 @@ import {
   type Trainer,
   type Training,
   type TrainingStatus,
+  type UpdateTrainingScheduleCourtInput,
   type UpdateIndividualPriceInput
 } from "@beosand/types";
 import { AppShell } from "../ui/AppShell";
@@ -31,6 +32,7 @@ import { useGroups } from "../hooks/useGroups";
 import { useTrainers } from "../hooks/useTrainers";
 import { useBookManual, useClientsList, useCreateWalkIn } from "../hooks/useClients";
 import { useGenerationStatus } from "../hooks/useGenerationStatus";
+import { useTrainingDetail } from "../hooks/useTrainingDetail";
 import {
   useChangeCapacity,
   useDeleteTraining,
@@ -39,7 +41,7 @@ import {
   useGenerateIndividualMonth,
   useGenerateMonth,
   useRescheduleTraining,
-  useChangeTrainingCourt,
+  useUpdateTrainingSchedule,
   useUpdateIndividualPrice,
   useTrainings
 } from "../hooks/useTrainings";
@@ -48,6 +50,7 @@ import { TrainingsCalendar } from "./TrainingsCalendar";
 type TrainingsView = "table" | "calendar";
 type DeleteScope = "single" | "series";
 type EditScope = "single" | "series";
+type TrainingEditTarget = Training & { courtId?: string | null; courtNumber?: number | null };
 
 type Translate = (key: string, params?: Record<string, string | number>) => string;
 
@@ -208,10 +211,19 @@ export function Trainings(): JSX.Element {
   const generateIndividual = useGenerateIndividualMonth();
 
   // ── Reschedule a training's time (single or whole individual series) ──────
-  const [editTarget, setEditTarget] = useState<Training | null>(null);
+  const [editTarget, setEditTarget] = useState<TrainingEditTarget | null>(null);
   const reschedule = useRescheduleTraining();
   const updatePrice = useUpdateIndividualPrice();
-  const changeCourt = useChangeTrainingCourt();
+  const updateSchedule = useUpdateTrainingSchedule();
+  const editDetail = useTrainingDetail(editTarget?.id ?? null);
+  const hydratedEditTarget =
+    editTarget && editDetail.data?.id === editTarget.id
+      ? {
+          ...editTarget,
+          courtId: editDetail.data.courtId,
+          courtNumber: editDetail.data.courtNumber
+        }
+      : editTarget;
 
   // ── Delete ─────────────────────────────────────────────────────────────
   const [deleteTarget, setDeleteTarget] = useState<Training | null>(null);
@@ -307,7 +319,7 @@ export function Trainings(): JSX.Element {
                 reschedule.reset();
                 updatePrice.reset();
                 changeCapacity.reset();
-                changeCourt.reset();
+                updateSchedule.reset();
                 setEditTarget(row);
               }}
               disabled={row.status === "cancelled" || row.status === "completed"}
@@ -346,14 +358,17 @@ export function Trainings(): JSX.Element {
   const editError = reschedule.isError
     ? errorText(reschedule.error, t)
     : updatePrice.isError
-      ? errorText(updatePrice.error, t)
-      : changeCapacity.isError
-        ? errorText(changeCapacity.error, t)
-        : changeCourt.isError
-          ? errorText(changeCourt.error, t)
+        ? errorText(updatePrice.error, t)
+        : changeCapacity.isError
+          ? errorText(changeCapacity.error, t)
+        : updateSchedule.isError
+          ? errorText(updateSchedule.error, t)
           : undefined;
   const editPending =
-    reschedule.isPending || updatePrice.isPending || changeCapacity.isPending || changeCourt.isPending;
+    reschedule.isPending ||
+    updatePrice.isPending ||
+    changeCapacity.isPending ||
+    updateSchedule.isPending;
 
   return (
     <AppShell>
@@ -523,7 +538,7 @@ export function Trainings(): JSX.Element {
       />
 
       <TrainingEditModal
-        target={editTarget}
+        target={hydratedEditTarget}
         courts={courts.data ?? []}
         pending={editPending}
         error={editError}
@@ -531,7 +546,7 @@ export function Trainings(): JSX.Element {
           reschedule.reset();
           updatePrice.reset();
           changeCapacity.reset();
-          changeCourt.reset();
+          updateSchedule.reset();
           setEditTarget(null);
         }}
         onSubmit={(changes) => {
@@ -543,30 +558,39 @@ export function Trainings(): JSX.Element {
               setEditTarget(null);
             }
           };
-          const runCourtUpdate = () => {
-            if (!changes.courtId) return;
-            changeCourt.mutate(
-              { id: editTarget.id, courtId: changes.courtId },
+
+          const scheduleInput: UpdateTrainingScheduleCourtInput = {
+            ...(changes.time && !changes.time.series ? changes.time.input : {}),
+            ...(changes.courtId && !changes.time?.series ? { courtId: changes.courtId } : {})
+          };
+          const hasScheduleUpdate = Object.keys(scheduleInput).length > 0;
+
+          if (hasScheduleUpdate) {
+            pendingOperations += 1;
+            updateSchedule.mutate(
+              { id: editTarget.id, input: scheduleInput },
               {
                 onSuccess: () => {
-                  notify(t("admin.trainings.courtUpdated"), "success");
+                  const message =
+                    changes.time && changes.courtId
+                      ? t("admin.trainings.rescheduledSingle")
+                      : changes.time
+                        ? t("admin.trainings.rescheduledSingle")
+                        : t("admin.trainings.courtUpdated");
+                  notify(message, "success");
                   finishOrClose();
                 }
               }
             );
-          };
+          }
 
-          if (changes.time) {
+          if (changes.time?.series) {
             pendingOperations += 1;
             reschedule.mutate(
               { id: editTarget.id, input: changes.time.input, series: changes.time.series },
               {
                 onSuccess: () => {
-                  const message = changes.time?.series
-                    ? t("admin.trainings.rescheduledSeries")
-                    : t("admin.trainings.rescheduledSingle");
-                  notify(message, "success");
-                  runCourtUpdate();
+                  notify(t("admin.trainings.rescheduledSeries"), "success");
                   finishOrClose();
                 }
               }
@@ -607,13 +631,6 @@ export function Trainings(): JSX.Element {
                 }
               }
             );
-          }
-
-          if (changes.courtId) {
-            pendingOperations += 1;
-            if (!changes.time) {
-              runCourtUpdate();
-            }
           }
 
           if (pendingOperations === 0) {
@@ -982,7 +999,7 @@ type TrainingEditChanges = {
 };
 
 interface TrainingEditModalProps {
-  target: Training | null;
+  target: TrainingEditTarget | null;
   courts: Court[];
   pending: boolean;
   error?: string;
@@ -993,8 +1010,9 @@ interface TrainingEditModalProps {
  * Consolidated edit modal for time/price/capacity/court updates.
  *
  * Time and price are only exposed for individual trainings and support the
- * existing "single/series" scope semantics. Capacity and court are always shown
- * for mutable rows; only changed fields are submitted.
+ * existing "single/series" scope semantics. Capacity and court are shown for
+ * mutable rows, but court changes are single-training only; only changed fields
+ * are submitted.
  */
 function TrainingEditModal({
   target,
@@ -1017,29 +1035,39 @@ function TrainingEditModal({
   const [capacity, setCapacity] = useState<number | null>(null);
   const [courtId, setCourtId] = useState("");
 
-  if (target && seededFor !== target.id) {
-    setSeededFor(target.id);
+  const seedKey = target ? `${target.id}:${target.courtId ?? ""}` : null;
+  if (target && seededFor !== seedKey) {
+    setSeededFor(seedKey);
     setTimeScope("single");
     setPriceScope("single");
     setStartTime(target.startTime);
     setEndTime(target.endTime);
     setPrice(target.priceSingleRsd);
     setCapacity(target.capacity);
-    setCourtId("");
+    setCourtId(target.courtId ?? "");
   }
 
+  const currentCourtId = target?.courtId ?? "";
   const timeHasChanges =
     isIndividual &&
     target !== null &&
     (startTime !== target.startTime || endTime !== target.endTime);
   const priceHasChanges = isIndividual && target !== null && price !== target.priceSingleRsd;
   const capacityHasChanges = target !== null && capacity !== null && capacity !== target.capacity;
-  const courtHasChanges = courtId !== "";
+  const timeSeriesSelected = isIndividual && timeScope === "series";
+  const courtHasChanges = !timeSeriesSelected && courtId !== currentCourtId;
   const hasChanges = timeHasChanges || priceHasChanges || capacityHasChanges || courtHasChanges;
   const canSubmit = open && !pending && capacity !== null && hasChanges;
 
+  const currentCourtMissing =
+    currentCourtId !== "" && courts.every((court) => court.id !== currentCourtId);
+  const currentCourtOption: SelectOption[] =
+    currentCourtMissing && target?.courtNumber
+      ? [{ value: currentCourtId, label: t("admin.trainings.courtOption", { number: target.courtNumber }) }]
+      : [];
   const courtOptions: SelectOption[] = [
-    { value: "", label: t("admin.trainings.courtNoChange") },
+    ...(currentCourtId === "" ? [{ value: "", label: t("admin.trainings.courtNoChange") }] : []),
+    ...currentCourtOption,
     ...courts.map((court) => ({
       value: court.id,
       label: t("admin.trainings.courtOption", { number: court.number })
@@ -1074,7 +1102,7 @@ function TrainingEditModal({
       changes.capacity = capacity;
     }
 
-    if (courtHasChanges) {
+    if (courtHasChanges && courtId !== "") {
       changes.courtId = courtId;
     }
 
@@ -1112,7 +1140,13 @@ function TrainingEditModal({
                 label={t("admin.trainings.rescheduleScope")}
                 options={scopeOptions}
                 value={timeScope}
-                onChange={(e) => setTimeScope(e.target.value as EditScope)}
+                onChange={(e) => {
+                  const nextScope = e.target.value as EditScope;
+                  setTimeScope(nextScope);
+                  if (nextScope === "series") {
+                    setCourtId(currentCourtId);
+                  }
+                }}
                 hint={t("admin.trainings.rescheduleScopeHint")}
               />
               <TimeField
@@ -1158,6 +1192,7 @@ function TrainingEditModal({
             options={courtOptions}
             value={courtId}
             onChange={(e) => setCourtId(e.target.value)}
+            disabled={timeSeriesSelected}
           />
         </>
       ) : null}

@@ -58,6 +58,7 @@ function makeService(overrides: Partial<BookingsService> = {}): BookingsService 
     createSingle: vi.fn(),
     createGroupBooking: vi.fn(),
     listMine: vi.fn(async () => [item]),
+    calendarExportMine: vi.fn(async () => "BEGIN:VCALENDAR\r\nEND:VCALENDAR\r\n"),
     cancelBooking: vi.fn(async () => cancelledBooking),
     markAttendance: vi.fn(async () => attendedBooking),
     ...overrides
@@ -217,6 +218,60 @@ describe("BookingsController.listMine (GET /bookings/mine)", () => {
       controller.listMine(HEADER, { clientId: CLIENT_ID, scope: "upcoming", actor: OWNER_ID })
     ).toThrow(BadRequestException);
     expect(service.listMine).not.toHaveBeenCalled();
+  });
+});
+
+describe("BookingsController.calendarExportMine (GET /bookings/mine/calendar-export)", () => {
+  let service: BookingsService;
+  let controller: BookingsController;
+  let response: {
+    status: ReturnType<typeof vi.fn>;
+    header: ReturnType<typeof vi.fn>;
+    send: ReturnType<typeof vi.fn>;
+  };
+
+  beforeEach(() => {
+    service = makeService();
+    controller = new BookingsController(service);
+    response = {
+      status: vi.fn(),
+      header: vi.fn(),
+      send: vi.fn()
+    };
+    response.status.mockReturnValue(response);
+    response.header.mockReturnValue(response);
+    response.send.mockReturnValue(response);
+  });
+
+  it("uses only the Mini App client header and writes text/calendar", async () => {
+    await controller.calendarExportMine(HEADER, { year: "2099", month: "6" }, response);
+
+    expect(service.calendarExportMine).toHaveBeenCalledWith(OWNER_ID, { year: 2099, month: 6 });
+    expect(response.status).toHaveBeenCalledWith(200);
+    expect(response.header).toHaveBeenCalledWith("Content-Type", "text/calendar; charset=utf-8");
+    expect(response.header).toHaveBeenCalledWith(
+      "Content-Disposition",
+      'attachment; filename="beosand-trainings-2099-06.ics"'
+    );
+    expect(response.send).toHaveBeenCalledWith("BEGIN:VCALENDAR\r\nEND:VCALENDAR\r\n");
+  });
+
+  it("rejects a raw x-telegram-id-only export before calling the service", async () => {
+    await expect(
+      controller.calendarExportMine(undefined, { year: "2099", month: "6" }, response)
+    ).rejects.toBeInstanceOf(BadRequestException);
+    expect(service.calendarExportMine).not.toHaveBeenCalled();
+  });
+
+  it("rejects clientId or other query fields before calling the service", async () => {
+    await expect(
+      controller.calendarExportMine(
+        HEADER,
+        { year: "2099", month: "6", clientId: OTHER_CLIENT_ID },
+        response
+      )
+    ).rejects.toBeInstanceOf(BadRequestException);
+    expect(service.calendarExportMine).not.toHaveBeenCalled();
   });
 });
 

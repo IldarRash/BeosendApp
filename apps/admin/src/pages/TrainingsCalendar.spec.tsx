@@ -95,6 +95,7 @@ const ITEM: TrainingCalendarItem = {
   status: "open",
   groupName: "Утренняя группа",
   trainerName: "Анна",
+  courtId: "11111111-1111-1111-1111-111111111111",
   courtNumber: 3
 };
 

@@ -1,9 +1,15 @@
 import type { MyBookingItem, MyBookingScope, WaitlistAdminItem } from "@beosand/types";
 import { useT } from "../i18n/LanguageProvider";
 import { BookingItemCard } from "./BookingItemCard";
+import { shiftMonth } from "./calendar";
 import { partitionUpcoming, type SubscriptionGroup } from "./my-bookings-group";
 import { EmptyState, ErrorState, LoadingState } from "./StateView";
-import { dayOfWeekFromDate, formatDayMonth, formatTimeRange, weekdayFullKey } from "./format";
+import { dayOfWeekFromDate, formatDayMonth, formatTimeRange, monthKey, weekdayFullKey } from "./format";
+
+interface MonthCursor {
+  year: number;
+  month: number;
+}
 
 interface MyBookingsViewProps {
   scope: MyBookingScope;
@@ -21,10 +27,15 @@ interface MyBookingsViewProps {
   isLoading: boolean;
   /** A request/contract error message to surface verbatim, if any. */
   errorMessage?: string;
-  /** Open the cancel confirm for a cancellable item (server `canCancel` only). */
-  onCancel: (item: MyBookingItem) => void;
+  /** Open the shared training detail for a booking row. */
+  onOpenBooking: (item: MyBookingItem) => void;
   /** Path from the empty Upcoming state to the Browse schedule. */
   onBrowse: () => void;
+  exportMonth: MonthCursor;
+  onExportMonthChange: (month: MonthCursor) => void;
+  onExportMonth: () => void;
+  isExportingMonth: boolean;
+  exportErrorMessage?: string;
 }
 
 /** The two scopes in display order; Upcoming is the default segment. */
@@ -51,11 +62,17 @@ export function MyBookingsView({
   waitlist,
   isLoading,
   errorMessage,
-  onCancel,
-  onBrowse
+  onOpenBooking,
+  onBrowse,
+  exportMonth,
+  onExportMonthChange,
+  onExportMonth,
+  isExportingMonth,
+  exportErrorMessage
 }: MyBookingsViewProps): JSX.Element {
   const t = useT();
   const isUpcoming = scope === "upcoming";
+  const exportMonthLabel = `${t(monthKey(exportMonth.month))} ${exportMonth.year}`;
 
   // Only Upcoming folds the waitlist into subscription cards; Past renders bookings flat.
   const partition = isUpcoming
@@ -75,6 +92,43 @@ export function MyBookingsView({
       <h1 style={{ fontSize: 24, fontWeight: 700, margin: 0, letterSpacing: -0.4 }}>
         {t("miniapp.myBookings.title")}
       </h1>
+
+      <div className="cal-nav" role="group" aria-label={t("miniapp.calendar.navAria")}>
+        <button
+          type="button"
+          className="cal-nav__btn"
+          aria-label={t("miniapp.calendar.prevMonth")}
+          onClick={() => onExportMonthChange(shiftMonth(exportMonth.year, exportMonth.month, -1))}
+        >
+          {"<"}
+        </button>
+        <span className="cal-nav__label" aria-live="polite">
+          {exportMonthLabel}
+        </span>
+        <button
+          type="button"
+          className="cal-nav__btn"
+          aria-label={t("miniapp.calendar.nextMonth")}
+          onClick={() => onExportMonthChange(shiftMonth(exportMonth.year, exportMonth.month, 1))}
+        >
+          {">"}
+        </button>
+      </div>
+
+      <button
+        type="button"
+        className="tg-sbtn"
+        onClick={onExportMonth}
+        disabled={isExportingMonth}
+        aria-label={`${t("miniapp.calendar.googleAddAria")} ${exportMonthLabel}`}
+      >
+        {isExportingMonth ? t("miniapp.common.loading") : `${t("miniapp.calendar.googleAdd")} (.ics)`}
+      </button>
+      {exportErrorMessage ? (
+        <div className="confirm-error" role="alert">
+          {exportErrorMessage}
+        </div>
+      ) : null}
 
       {/* Segmented tab control */}
       <div className="seg" role="tablist" aria-label={t("miniapp.myBookings.tabsAria")}>
@@ -111,9 +165,9 @@ export function MyBookingsView({
           />
         )
       ) : isUpcoming && partition ? (
-        <UpcomingList partition={partition} onCancel={onCancel} />
+        <UpcomingList partition={partition} onOpenBooking={onOpenBooking} />
       ) : (
-        <FlatBookingList items={items ?? []} onCancel={onCancel} />
+        <FlatBookingList items={items ?? []} onOpenBooking={onOpenBooking} />
       )}
     </div>
   );
@@ -126,23 +180,23 @@ export function MyBookingsView({
  */
 function UpcomingList({
   partition,
-  onCancel
+  onOpenBooking
 }: {
   partition: ReturnType<typeof partitionUpcoming>;
-  onCancel: (item: MyBookingItem) => void;
+  onOpenBooking: (item: MyBookingItem) => void;
 }): JSX.Element {
   const t = useT();
   return (
     <>
       {partition.subscriptions.map((group) => (
-        <SubscriptionCard key={group.groupSubscriptionId} group={group} onCancel={onCancel} />
+        <SubscriptionCard key={group.groupSubscriptionId} group={group} onOpenBooking={onOpenBooking} />
       ))}
 
       {partition.standalone.length > 0 && (
         <div className="card" aria-label={t("miniapp.myBookings.title")} role="list">
           {partition.standalone.map((item) => (
             <div key={item.bookingId} role="listitem">
-              <BookingItemCard item={item} onCancel={onCancel} />
+              <BookingItemCard item={item} onOpen={onOpenBooking} />
             </div>
           ))}
         </div>
@@ -158,17 +212,17 @@ function UpcomingList({
 /** The Past body: a flat list of booking rows (no subscription/waitlist grouping). */
 function FlatBookingList({
   items,
-  onCancel
+  onOpenBooking
 }: {
   items: ReadonlyArray<MyBookingItem>;
-  onCancel: (item: MyBookingItem) => void;
+  onOpenBooking: (item: MyBookingItem) => void;
 }): JSX.Element {
   const t = useT();
   return (
     <div className="card" aria-label={t("miniapp.myBookings.title")} role="list">
       {items.map((item) => (
         <div key={item.bookingId} role="listitem">
-          <BookingItemCard item={item} onCancel={onCancel} />
+          <BookingItemCard item={item} onOpen={onOpenBooking} />
         </div>
       ))}
     </div>
@@ -183,10 +237,10 @@ function FlatBookingList({
  */
 function SubscriptionCard({
   group,
-  onCancel
+  onOpenBooking
 }: {
   group: SubscriptionGroup;
-  onCancel: (item: MyBookingItem) => void;
+  onOpenBooking: (item: MyBookingItem) => void;
 }): JSX.Element {
   const t = useT();
 
@@ -214,7 +268,7 @@ function SubscriptionCard({
 
         {group.bookings.map((item) => (
           <div key={item.bookingId} role="listitem">
-            <BookingItemCard item={item} onCancel={onCancel} />
+            <BookingItemCard item={item} onOpen={onOpenBooking} />
           </div>
         ))}
 

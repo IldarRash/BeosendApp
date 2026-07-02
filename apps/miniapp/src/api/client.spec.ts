@@ -2,6 +2,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import type {
   Booking,
   Client,
+  ClientTrainingDetail,
   CourtAvailability,
   CourtRequest,
   CourtRequestPreview,
@@ -56,6 +57,15 @@ function jsonResponse(status: number, body: unknown): Response {
     ok: status >= 200 && status < 300,
     status,
     json: async () => body
+  } as unknown as Response;
+}
+
+function textResponse(status: number, body: string): Response {
+  return {
+    ok: status >= 200 && status < 300,
+    status,
+    text: async () => body,
+    json: async () => ({ message: body })
   } as unknown as Response;
 }
 
@@ -758,6 +768,130 @@ describe("MiniappApiClient.listMyBookings", () => {
     const client = new MiniappApiClient(BASE);
 
     await expect(client.listMyBookings(CLIENT.id, "upcoming")).rejects.toThrow();
+  });
+});
+
+const CLIENT_TRAINING_DETAIL: ClientTrainingDetail = {
+  trainingId: SLOT.trainingId,
+  date: "2026-06-10",
+  dayOfWeek: 3,
+  startTime: "18:00",
+  endTime: "19:30",
+  trainingContextLabel: "Individual",
+  description: null,
+  trainerName: "РРІР°РЅ",
+  levelName: "РќР°С‡РёРЅР°СЋС‰РёР№",
+  courtNumber: 2,
+  bookingStatus: "booked",
+  trainingStatus: "open",
+  viewerRelation: "booked",
+  bookingId: BOOKING.id,
+  groupSubscriptionId: null,
+  canCancel: true,
+  exportEligible: true,
+  waitlistPosition: null,
+  participants: {
+    trainingId: SLOT.trainingId,
+    participantCount: 1,
+    participants: [
+      {
+        firstName: "РђРЅСЏ",
+        avatarInitial: "Рђ",
+        telegramPhotoUrl: null
+      }
+    ],
+    waitlistCount: 1,
+    waitlist: [
+      {
+        firstName: "РњР°СЂРєРѕ",
+        avatarInitial: "Рњ",
+        telegramPhotoUrl: "https://t.me/i/userpic/320/marko.jpg"
+      }
+    ]
+  }
+};
+
+describe("MiniappApiClient.getClientTrainingDetail", () => {
+  it("GETs the client-scoped detail and validates the narrowed roster", async () => {
+    const fetchMock = vi.fn().mockResolvedValue(jsonResponse(200, CLIENT_TRAINING_DETAIL));
+    vi.stubGlobal("fetch", fetchMock);
+    const client = new MiniappApiClient(BASE);
+
+    const result = await client.getClientTrainingDetail(SLOT.trainingId);
+
+    expect(result).toEqual(CLIENT_TRAINING_DETAIL);
+    expect(fetchMock.mock.calls[0][0]).toBe(
+      `${BASE}/trainings/${SLOT.trainingId}/client-detail`
+    );
+    for (const member of [
+      ...result.participants.participants,
+      ...result.participants.waitlist
+    ]) {
+      expect(member).not.toHaveProperty("clientId");
+      expect(member).not.toHaveProperty("fullName");
+    }
+  });
+
+  it("rejects leaked client identity fields in detail participants (unsafe path)", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockResolvedValue(
+        jsonResponse(200, {
+          ...CLIENT_TRAINING_DETAIL,
+          participants: {
+            ...CLIENT_TRAINING_DETAIL.participants,
+            participants: [
+              {
+                ...CLIENT_TRAINING_DETAIL.participants.participants[0],
+                clientId: CLIENT.id,
+                fullName: CLIENT.name
+              }
+            ]
+          }
+        })
+      )
+    );
+    const client = new MiniappApiClient(BASE);
+
+    await expect(client.getClientTrainingDetail(SLOT.trainingId)).rejects.toThrow();
+  });
+
+  it("rejects a detail response that leaks a court id (unsafe path)", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockResolvedValue(
+        jsonResponse(200, { ...CLIENT_TRAINING_DETAIL, courtId: "22222222-2222-2222-2222-222222222222" })
+      )
+    );
+    const client = new MiniappApiClient(BASE);
+
+    await expect(client.getClientTrainingDetail(SLOT.trainingId)).rejects.toThrow();
+  });
+});
+
+describe("MiniappApiClient.exportMyBookingsCalendar", () => {
+  it("validates the month query and returns the text/calendar payload", async () => {
+    const ics = "BEGIN:VCALENDAR\r\nEND:VCALENDAR\r\n";
+    const fetchMock = vi.fn().mockResolvedValue(textResponse(200, ics));
+    vi.stubGlobal("fetch", fetchMock);
+    const client = new MiniappApiClient(BASE);
+
+    const result = await client.exportMyBookingsCalendar(2026, 7);
+
+    expect(result).toBe(ics);
+    const url = new URL(fetchMock.mock.calls[0][0] as string);
+    expect(url.pathname).toBe("/bookings/mine/calendar-export");
+    expect(url.searchParams.get("year")).toBe("2026");
+    expect(url.searchParams.get("month")).toBe("7");
+  });
+
+  it("rejects an invalid export month before sending", async () => {
+    const fetchMock = vi.fn();
+    vi.stubGlobal("fetch", fetchMock);
+    const client = new MiniappApiClient(BASE);
+
+    await expect(client.exportMyBookingsCalendar(2026, 13)).rejects.toThrow();
+    expect(fetchMock).not.toHaveBeenCalled();
   });
 });
 

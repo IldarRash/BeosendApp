@@ -153,6 +153,67 @@ function allCellsFree(rows: readonly CourtLoadRow[]): boolean {
   return rows.length > 0 && rows.every((row) => row.cells.every((cell) => cell.state === "free"));
 }
 
+/** Stable visual identity for occupied cells. Free/unknown cells stay ungrouped. */
+function cellEventKey(cell: CourtLoadCell): string | null {
+  if ((cell.state === "request" || cell.state === "hold") && cell.requestId) {
+    return `${cell.state}:${cell.requestId}`;
+  }
+  if (cell.state === "training" && cell.trainingId) {
+    return `${cell.state}:${cell.trainingId}`;
+  }
+  if (cell.state === "block" && cell.blockId) {
+    return `${cell.state}:${cell.blockId}`;
+  }
+  return null;
+}
+
+function sameEvent(a: CourtLoadCell | undefined, b: CourtLoadCell | undefined): boolean {
+  if (!a || !b) return false;
+  const aKey = cellEventKey(a);
+  return aKey !== null && aKey === cellEventKey(b);
+}
+
+function sameStateDifferentEvent(
+  a: CourtLoadCell | undefined,
+  b: CourtLoadCell | undefined
+): boolean {
+  if (!a || !b || a.state !== b.state) return false;
+  const aKey = cellEventKey(a);
+  const bKey = cellEventKey(b);
+  return aKey !== null && bKey !== null && aKey !== bKey;
+}
+
+function segmentClassName(
+  cell: CourtLoadCell,
+  previous: CourtLoadCell | undefined,
+  next: CourtLoadCell | undefined
+): string {
+  return [
+    "load-seg",
+    `load-seg--${cell.state}`,
+    sameEvent(previous, cell) ? "load-seg--connected-prev" : "",
+    sameEvent(cell, next) ? "load-seg--connected-next" : "",
+    sameStateDifferentEvent(previous, cell) ? "load-seg--event-boundary-left" : "",
+    sameStateDifferentEvent(cell, next) ? "load-seg--event-boundary-right" : ""
+  ]
+    .filter(Boolean)
+    .join(" ");
+}
+
+function joinsPreviousColumn(row: CourtLoadRow, column: LoadColumn): boolean {
+  const firstCell = column.cells[0];
+  if (!firstCell) return false;
+  const index = row.cells.findIndex((cell) => cell.startTime === firstCell.startTime);
+  return sameEvent(row.cells[index - 1], firstCell);
+}
+
+function joinsNextColumn(row: CourtLoadRow, column: LoadColumn): boolean {
+  const lastCell = column.cells[column.cells.length - 1];
+  if (!lastCell) return false;
+  const index = row.cells.findIndex((cell) => cell.startTime === lastCell.startTime);
+  return sameEvent(lastCell, row.cells[index + 1]);
+}
+
 /** Human-readable error from a failed query (the API decides the text). */
 function errorText(error: unknown, t: Translate): string {
   return error instanceof Error ? error.message : t("admin.courtLoad.loadError");
@@ -335,26 +396,42 @@ function CourtRow({
   onMoveBlock: (target: MoveTarget) => void;
   t: Translate;
 }): JSX.Element {
+  const cellIndexes = new Map(row.cells.map((cell, index) => [cell.startTime, index]));
+
   return (
     <tr>
       <th scope="row" className="datatable__num load-grid__court">
         {t("admin.courtLoad.courtNumber", { number: row.courtNumber })}
       </th>
       {columns.map((column) => (
-        <td key={column.startHour} className="load-grid__cell">
+        <td
+          key={column.startHour}
+          className={[
+            "load-grid__cell",
+            joinsPreviousColumn(row, column) ? "load-grid__cell--joins-prev" : "",
+            joinsNextColumn(row, column) ? "load-grid__cell--joins-next" : ""
+          ]
+            .filter(Boolean)
+            .join(" ")}
+        >
           <div className="load-grid__col">
-            {column.cells.map((cell) => (
-              <LoadSegment
-                key={cell.startTime}
-                cell={cell}
-                courtId={row.courtId}
-                courtNumber={row.courtNumber}
-                onOpenRequest={onOpenRequest}
-                onOpenTraining={onOpenTraining}
-                onMoveBlock={onMoveBlock}
-                t={t}
-              />
-            ))}
+            {column.cells.map((cell) => {
+              const index = cellIndexes.get(cell.startTime) ?? -1;
+              return (
+                <LoadSegment
+                  key={cell.startTime}
+                  cell={cell}
+                  previousCell={row.cells[index - 1]}
+                  nextCell={row.cells[index + 1]}
+                  courtId={row.courtId}
+                  courtNumber={row.courtNumber}
+                  onOpenRequest={onOpenRequest}
+                  onOpenTraining={onOpenTraining}
+                  onMoveBlock={onMoveBlock}
+                  t={t}
+                />
+              );
+            })}
           </div>
         </td>
       ))}
@@ -371,6 +448,8 @@ function CourtRow({
  */
 function LoadSegment({
   cell,
+  previousCell,
+  nextCell,
   courtId,
   courtNumber,
   onOpenRequest,
@@ -379,6 +458,8 @@ function LoadSegment({
   t
 }: {
   cell: CourtLoadCell;
+  previousCell: CourtLoadCell | undefined;
+  nextCell: CourtLoadCell | undefined;
   courtId: string;
   courtNumber: number;
   onOpenRequest: (id: string) => void;
@@ -386,7 +467,7 @@ function LoadSegment({
   onMoveBlock: (target: MoveTarget) => void;
   t: Translate;
 }): JSX.Element {
-  const className = `load-seg load-seg--${cell.state}`;
+  const className = segmentClassName(cell, previousCell, nextCell);
   const glyph = <span aria-hidden="true">{CELL_STATE_GLYPH[cell.state]}</span>;
   const params = {
     number: courtNumber,

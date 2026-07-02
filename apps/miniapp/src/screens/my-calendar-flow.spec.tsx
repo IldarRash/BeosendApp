@@ -7,6 +7,7 @@ import {
   trainingScheduleSlotSchema,
   type Booking,
   type Client,
+  type ClientTrainingDetail,
   type MiniappMe,
   type MyBookingItem,
   type MyCourtRequestItem,
@@ -72,6 +73,34 @@ const MY_BOOKING: MyBookingItem = {
   bookingStatus: "booked",
   trainingStatus: "open",
   canCancel: true
+};
+
+const TRAINING_DETAIL: ClientTrainingDetail = {
+  trainingId: BOOKED_TRAINING_ID,
+  date: MY_BOOKING.date,
+  dayOfWeek: MY_BOOKING.dayOfWeek,
+  startTime: MY_BOOKING.startTime,
+  endTime: MY_BOOKING.endTime,
+  trainingContextLabel: MY_BOOKING.trainingContextLabel,
+  description: null,
+  trainerName: MY_BOOKING.trainerName,
+  levelName: MY_BOOKING.levelName,
+  courtNumber: null,
+  bookingStatus: MY_BOOKING.bookingStatus,
+  trainingStatus: MY_BOOKING.trainingStatus,
+  viewerRelation: "booked",
+  bookingId: MY_BOOKING.bookingId,
+  groupSubscriptionId: MY_BOOKING.groupSubscriptionId,
+  canCancel: MY_BOOKING.canCancel,
+  exportEligible: true,
+  waitlistPosition: null,
+  participants: {
+    trainingId: BOOKED_TRAINING_ID,
+    participantCount: 0,
+    participants: [],
+    waitlistCount: 0,
+    waitlist: []
+  }
 };
 
 const MY_COURT: MyCourtRequestItem = {
@@ -160,6 +189,7 @@ interface FakeApi {
   listTrainingSchedule: ReturnType<typeof vi.fn>;
   createSingleBooking: ReturnType<typeof vi.fn>;
   getTrainingParticipants: ReturnType<typeof vi.fn>;
+  getClientTrainingDetail: ReturnType<typeof vi.fn>;
 }
 
 let api: FakeApi;
@@ -186,6 +216,7 @@ function makeApi(overrides: Partial<FakeApi> = {}): FakeApi {
           waitlist: []
         })
       ),
+    getClientTrainingDetail: vi.fn().mockResolvedValue(TRAINING_DETAIL),
     ...overrides
   };
 }
@@ -199,7 +230,8 @@ vi.mock("../tg/buttons", () => ({
   useMainButton: () => {},
   useBackButton: () => {},
   hapticSelection: () => {},
-  hapticSuccess: () => {}
+  hapticSuccess: () => {},
+  hapticWarning: () => {}
 }));
 
 function renderWithProviders(node: ReactNode) {
@@ -295,15 +327,18 @@ describe("CalendarScreen merged feeds", () => {
 
   it("opens a joined training detail with participant visibility", async () => {
     api = makeApi({
-      getTrainingParticipants: vi.fn().mockResolvedValue({
-        trainingId: BOOKED_TRAINING_ID,
-        participantCount: 2,
-        participants: [
-          { firstName: "Anya", avatarInitial: "A" },
-          { firstName: "Marko", avatarInitial: "M" }
-        ],
-        waitlistCount: 1,
-        waitlist: [{ firstName: "Lena", avatarInitial: "L" }]
+      getClientTrainingDetail: vi.fn().mockResolvedValue({
+        ...TRAINING_DETAIL,
+        participants: {
+          trainingId: BOOKED_TRAINING_ID,
+          participantCount: 2,
+          participants: [
+            { firstName: "Anya", avatarInitial: "A", telegramPhotoUrl: null },
+            { firstName: "Marko", avatarInitial: "M", telegramPhotoUrl: null }
+          ],
+          waitlistCount: 1,
+          waitlist: [{ firstName: "Lena", avatarInitial: "L", telegramPhotoUrl: null }]
+        }
       })
     });
 
@@ -316,7 +351,7 @@ describe("CalendarScreen merged feeds", () => {
     await screen.findByText("Anya");
     expect(screen.getByText("Marko")).toBeTruthy();
     expect(screen.getByText("Lena")).toBeTruthy();
-    expect(api.getTrainingParticipants).toHaveBeenCalledWith(BOOKED_TRAINING_ID);
+    expect(api.getClientTrainingDetail).toHaveBeenCalledWith(BOOKED_TRAINING_ID);
   });
 
   it("opens Google Calendar with a no-token template URL for one joined training", async () => {
@@ -348,6 +383,26 @@ describe("CalendarScreen merged feeds", () => {
     expect(url.searchParams.get("location")).toBe("BeoSand, Белград");
     expect(url.searchParams.get("ctz")).toBe("Europe/Belgrade");
     openCalendar.mockRestore();
+  });
+
+  it("hides one-training Google export when the detail says it is not eligible", async () => {
+    api = makeApi({
+      getClientTrainingDetail: vi.fn().mockResolvedValue({
+        ...TRAINING_DETAIL,
+        exportEligible: false
+      })
+    });
+    renderWithProviders(<CalendarScreen />);
+
+    fireEvent.click(await screen.findByRole("gridcell", { name: /^10 / }));
+    fireEvent.click(await screen.findByRole("listitem", { name: /18:00/ }));
+
+    await screen.findByText("Individual");
+    expect(
+      screen.queryByRole("button", {
+        name: "Р”РѕР±Р°РІРёС‚СЊ СЌС‚Сѓ С‚СЂРµРЅРёСЂРѕРІРєСѓ РІ Google Calendar"
+      })
+    ).toBeNull();
   });
 
   it("keeps a full schedule row visible and lets the booking result render as waitlisted", async () => {
