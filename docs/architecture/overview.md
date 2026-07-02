@@ -1,52 +1,75 @@
 # Architecture overview
 
-BeoSand is a Telegram booking system for a beach-volleyball school in Belgrade. It serves **two
-domains in one bot**:
+BeoSand is a Telegram-first booking system for a beach-volleyball school. It now has three user
+surfaces over one API and one database:
 
-1. **Training booking** — clients book school training sessions (single or a whole month of a group),
-   trainers see their day, managers run the schedule and broadcasts.
-2. **Court rental (Edition 2)** — clients request a *time* to rent a court; the admin manually
-   assigns one of the 6 courts and confirms. Money in RSD.
+1. **Telegram bot** - client, trainer, and manager interactions in Telegram.
+2. **Admin console** - browser UI for managers/admins.
+3. **Telegram Mini App** - richer client booking and calendar surface inside Telegram.
+
+The API is the domain source of truth. UI apps render, collect input, call typed API clients, and
+validate responses with shared Zod contracts; they do not compute money, capacity, or availability.
 
 ## Components
 
-```
-apps/bot   grammY Telegram bot — the only user touchpoint. Renders menus/keyboards, routes taps,
-           calls apps/api. No domain logic.
-apps/api   NestJS modular monolith (:3000) — domain source of truth. One module per domain;
-           controller → service → repository. Hosts the scheduler (reminders, waitlist) and sends
-           outbound Telegram messages (notifications, broadcasts).
-apps/admin React + Vite admin console (:5173) — manager/admin web counterpart to the bot. Interaction
-           layer; calls apps/api via a typed ApiClient. Reuses packages/types; never imports
-           packages/config (server secrets). Currently a scaffolded shell (auth + screens are a follow-up).
-packages/types   Zod contracts + pure domain helpers shared by api, bot, and admin.
-packages/db      Drizzle schema + migrations + Postgres compose. Only place the schema lives.
-packages/config  Shared tsconfig + fail-closed env contract.
+```text
+apps/bot       grammY Telegram bot. Menus/keyboards/callback routing; calls apps/api through a typed
+               ApiClient. No database writes and no domain math.
+
+apps/api       NestJS modular monolith. Controller -> service -> repository. Owns authorization,
+               validation orchestration, transactions, capacity/availability recompute, notification
+               dispatch, scheduled work, connectors, and settings.
+
+apps/admin     React + Vite admin console. Authenticated manager/admin browser surface for schedule,
+               rosters, courts, broadcasts, analytics, labels, notification templates, connectors, and
+               operational settings.
+
+apps/miniapp   React + Vite Telegram Mini App. Client surface for home, unified calendar, booking,
+               group subscription, individual request, court request, my bookings, and profile.
+
+packages/types Shared Zod contracts and pure helpers used by api, bot, admin, and miniapp.
+
+packages/db    Drizzle schema, migrations, seed, and local Postgres compose. The schema is the single
+               structural source of truth.
+
+packages/i18n  RU/SR/EN static catalogs used as bundled fallbacks by bot/admin/miniapp.
+
+packages/config Shared TypeScript and environment-contract support.
 ```
 
-## Request flow (booking example)
+## API modules
+
+`apps/api/src/app.module.ts` currently wires these domain modules:
+
+`analytics`, `auth`, `bookings`, `broadcasts`, `clients`, `connectors`, `court-requests`, `courts`,
+`groups`, `i18n`, `levels`, `managers`, `notification-templates`, `notifications`, `settings`,
+`subscriptions`, `trainers`, `trainings`, and `waitlist`.
+
+The API also installs the global `RequestLoggingInterceptor`, backed by `SettingsService`.
+
+## Request flow
 
 ```mermaid
 flowchart LR
-  U[Telegram user] --> BOT[apps/bot handler]
-  BOT -->|ApiClient + Zod| API[apps/api controller]
-  API --> SVC[service: validate + recompute]
+  UI[Bot / Admin / Mini App] --> CLIENT[Typed API client + Zod parse]
+  CLIENT --> API[apps/api controller]
+  API --> SVC[service: authz + validation + domain rules]
   SVC --> REPO[repository]
   REPO --> DB[(Postgres)]
-  SVC -->|confirmation| OUT[outbound send]
-  OUT --> U
+  SVC --> OUT[notifications / connectors]
+  OUT --> EXT[Telegram / webhook / calendar / export]
 ```
 
-The bot is an interaction layer; the API decides. The bot never writes to the database and never
-computes price or availability.
+## Core invariants
 
-## Why this shape
+- Numeric `telegramId` is identity for Telegram users; usernames and photos are display/contact data.
+- Contracts live in `packages/types`; UI clients validate rendered data against them.
+- Schema lives in `packages/db`; repositories are the only DB access layer.
+- Capacity, waitlist promotion, court availability, prices, and individual-request decisions are API
+  service responsibilities.
+- Client-facing roster/member shapes are narrowed before render; they do not expose another client's
+  id or full name.
+- Secrets stay server-side. Bot token, connector secrets, webhook signing secrets, and service-account
+  material are never returned to UI apps.
 
-- **Two apps, shared packages** keeps the bot thin and the domain testable in isolation, and leaves
-  room for a future web admin without touching domain code.
-- **Contracts in one place** (`packages/types`) means the bot and API can't drift.
-- **Schema in one place** (`packages/db`) with generated migrations keeps the DB the single source of
-  structural truth.
-
-See `domain-model.md` for entities and `database.md` for the physical schema. The build/run commands
-and invariants live in `CLAUDE.md`; the multi-agent workflow in `AGENTS.md`.
+See `domain-model.md` for entities and `database.md` for the physical schema.

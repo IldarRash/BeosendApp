@@ -43,6 +43,18 @@ const GROUP_ID = "11111111-1111-1111-1111-111111111111";
 // 4 Mondays + 5 Wednesdays = 9 trainings.
 const FUTURE_YEAR = 2026;
 const FUTURE_MONTH = 9;
+const FUTURE_FIXTURE_TODAY = new Date("2026-06-03T12:00:00Z");
+const MID_MONTH_FIXTURE_TODAY = new Date("2026-09-15T12:00:00Z");
+
+function freezeFutureFixtureToday(): void {
+  vi.useFakeTimers();
+  vi.setSystemTime(FUTURE_FIXTURE_TODAY);
+}
+
+function freezeMidMonthFixtureToday(): void {
+  vi.useFakeTimers();
+  vi.setSystemTime(MID_MONTH_FIXTURE_TODAY);
+}
 
 const baseGroup: Group = {
   id: GROUP_ID,
@@ -836,8 +848,18 @@ describe("TrainingsService", () => {
     );
   });
 
-  const generate = () =>
-    service.generateMonth(ADMIN_ID, { groupId: GROUP_ID, year: FUTURE_YEAR, month: FUTURE_MONTH });
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
+  const generate = () => {
+    freezeFutureFixtureToday();
+    return service.generateMonth(ADMIN_ID, {
+      groupId: GROUP_ID,
+      year: FUTURE_YEAR,
+      month: FUTURE_MONTH
+    });
+  };
 
   it("generates one training per group weekday across the month (9 for Mon+Wed September 2026)", async () => {
     const created = await generate();
@@ -1843,6 +1865,10 @@ describe("TrainingsService", () => {
     // September 2026 (Mon+Wed) has 9 candidate future dates; January 2026 is entirely past.
     const PAST_MONTH = 1;
 
+    beforeEach(() => {
+      freezeFutureFixtureToday();
+    });
+
     const statusFor = (over: Partial<Group> = {}) => {
       groupsRepo.activeGroups = [{ ...baseGroup, ...over }];
       return service.generationStatus(ADMIN_ID, { year: FUTURE_YEAR, month: FUTURE_MONTH });
@@ -1861,7 +1887,7 @@ describe("TrainingsService", () => {
 
     it("reports fullyGenerated=true once every expected date has a training", async () => {
       groupsRepo.activeGroups = [baseGroup];
-      await generate(); // creates all 9 July trainings for the group
+      await generate(); // creates all 9 September trainings for the group
       const [item] = await service.generationStatus(ADMIN_ID, {
         year: FUTURE_YEAR,
         month: FUTURE_MONTH
@@ -1900,6 +1926,10 @@ describe("TrainingsService", () => {
   describe("auto court blocks (Feature 2 — generateMonth)", () => {
     const COURT_1 = "c0000000-0000-4000-8000-000000000001";
     const COURT_2 = "c0000000-0000-4000-8000-000000000002";
+
+    beforeEach(() => {
+      freezeFutureFixtureToday();
+    });
 
     it("T2 — creates one auto-block per new training on its [start,end) window, reason = group name", async () => {
       const created = await generate(); // 9 trainings (Mon+Wed September 2026)
@@ -2033,6 +2063,10 @@ describe("TrainingsService", () => {
   });
 
   describe("generateMonthForAll (Feature 3)", () => {
+    beforeEach(() => {
+      freezeFutureFixtureToday();
+    });
+
     it("T6 — iterates active groups and returns per-group summary with blocked + skipped === created", async () => {
       groupsRepo.activeGroups = [baseGroup];
       const result = await service.generateMonthForAll(ADMIN_ID, {
@@ -2161,6 +2195,7 @@ describe("TrainingsService", () => {
     });
 
     beforeEach(() => {
+      freezeFutureFixtureToday();
       clientsRepo.client = individualClient();
       trainersRepo.trainers = [activeTrainer()];
     });
@@ -2248,17 +2283,12 @@ describe("TrainingsService", () => {
     });
 
     it("skips dates before today, creating only future instances", async () => {
-      vi.useFakeTimers();
       // Freeze "today" mid-month so only the remaining Mondays/Wednesdays are created.
-      vi.setSystemTime(new Date("2026-09-15T12:00:00Z"));
-      try {
-        const result = await service.generateIndividualMonth(ADMIN_ID, input());
-        expect(result.created.every((t) => t.date >= "2026-09-15")).toBe(true);
-        expect(result.created.length).toBeLessThan(9);
-        expect(result.created.length).toBeGreaterThan(0);
-      } finally {
-        vi.useRealTimers();
-      }
+      freezeMidMonthFixtureToday();
+      const result = await service.generateIndividualMonth(ADMIN_ID, input());
+      expect(result.created.every((t) => t.date >= "2026-09-15")).toBe(true);
+      expect(result.created.length).toBeLessThan(9);
+      expect(result.created.length).toBeGreaterThan(0);
     });
 
     it("404s an unknown client and writes nothing", async () => {

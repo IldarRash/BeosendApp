@@ -1,4 +1,4 @@
-﻿---
+---
 name: bot-flow-implementation
 description: Implement a grammY bot flow in apps/bot (commands, keyboards, callback handlers, multi-step conversations) that calls apps/api via the typed ApiClient. Use when adding or changing what the Telegram user sees or does.
 ---

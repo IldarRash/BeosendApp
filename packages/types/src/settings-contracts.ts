@@ -19,6 +19,22 @@ export const updateManagerContactSchema = z
   .strict();
 export type UpdateManagerContactInput = z.infer<typeof updateManagerContactSchema>;
 
+export const requestLoggingSettingsSchema = z
+  .object({
+    detailed: z.boolean()
+  })
+  .strict();
+export type RequestLoggingSettings = z.infer<typeof requestLoggingSettingsSchema>;
+
+export const updateRequestLoggingSettingsSchema = z
+  .object({
+    detailed: z.boolean()
+  })
+  .strict();
+export type UpdateRequestLoggingSettingsInput = z.infer<
+  typeof updateRequestLoggingSettingsSchema
+>;
+
 /** Build a t.me link only for a valid Telegram username/handle; other contacts stay plain text. */
 export function managerContactTelegramUrl(contact: string): string | null {
   const username = normalizeUsername(contact);

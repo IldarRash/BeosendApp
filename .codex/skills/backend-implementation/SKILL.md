@@ -1,4 +1,4 @@
-﻿---
+---
 name: backend-implementation
 description: Implement an apps/api domain module (controllerв†’serviceв†’repository) plus its Zod contracts and Drizzle schema/migration for a BeoSand feature. Use when adding or changing API behavior, domain logic, or the database schema.
 ---

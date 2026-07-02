@@ -1,4 +1,4 @@
-﻿---
+---
 name: frontend-implementation
 description: Implement an apps/admin screen (React+Vite) вЂ” a typed ApiClient method, a data hook, and components built on the design system вЂ” that calls apps/api and renders validated data. Use when adding or changing what the admin/manager sees on the web.
 ---
