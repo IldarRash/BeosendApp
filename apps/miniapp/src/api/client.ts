@@ -3,6 +3,7 @@ import {
   bookingSchema,
   clientSchema,
   courtAvailabilitySchema,
+  courtClientGridSchema,
   courtRequestPreviewSchema,
   courtRequestSchema,
   createCourtRequestSchema,
@@ -34,6 +35,7 @@ import {
   type Client,
   type ClientTrainingDetail,
   type CourtAvailability,
+  type CourtClientGrid,
   type CourtDurationHours,
   type CourtRequest,
   type CourtRequestPreview,
@@ -71,6 +73,17 @@ const myBookingItemsSchema = z.array(myBookingItemSchema);
 const myCourtRequestItemsSchema = z.array(myCourtRequestItemSchema);
 const myWaitlistItemsSchema = z.array(waitlistAdminItemSchema);
 const groupsSchema = z.array(groupSchema);
+
+/**
+ * Client-facing court availability grid is now shipped from shared contracts.
+ *
+ * Keep this input interface local (small request DTO), while the response shape and
+ * schema are imported from @beosand/types for contract parity with backend and admin.
+ */
+export interface CourtClientGridInput {
+  date: string;
+  durationHours: CourtDurationHours;
+}
 
 /**
  * Thrown when the API rejects the session (401). The ApiClient handles this by
@@ -159,6 +172,20 @@ export class MiniappApiClient {
       });
     this.authInFlight = pending;
     return pending;
+  }
+
+  /**
+   * New flow read: a per-court grid for one date + duration. The backend returns
+   * every 30-min slot in working hours with `free` or non-`free` states, so the
+   * Mini App can render one interactive availability grid without a separate
+   * start-time step.
+   */
+  getCourtClientGrid(input: CourtClientGridInput): Promise<CourtClientGrid> {
+    const qs = new URLSearchParams({
+      date: input.date,
+      durationHours: String(input.durationHours)
+    }).toString();
+    return this.request(`/court-requests/client-grid?${qs}`, courtClientGridSchema);
   }
 
   /** POST the initData to mint a session (no auth header — this is the mint step). */

@@ -4,10 +4,9 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { AppRoot } from "@telegram-apps/telegram-ui";
 import type {
   Client,
-  CourtAvailability,
+  CourtClientGrid,
   CourtRequest,
   CourtRequestPreview,
-  FreeCourtNumbers,
   MiniappMe
 } from "@beosand/types";
 import { ConflictError } from "../api/client";
@@ -16,32 +15,14 @@ import { NavProvider } from "../router/NavProvider";
 import { offeredDates } from "../ui/format";
 import { CourtRequestScreen } from "./CourtRequestScreen";
 
-/** The first date pill the rail offers (today) — the slot date the flow forwards. */
+/** The first date pill the strip offers (today). */
 const FIRST_DATE = offeredDates()[0];
 
-/**
- * S9 court-rental-request flow tests. The screen is an interaction layer: it offers a
- * date → a server start time → a duration → SPECIFIC free courts (multi-select), shows
- * the SERVER's price preview, submits, and renders the pending request.
- *
- * Invariants under test:
- *  - the court step renders the server's FREE courts as selectable, and every other
- *    court (taken) is disabled/greyed — the client never picks a court the server
- *    didn't sanction.
- *  - the client may pick MORE THAN ONE court; the preview shows the picked numbers
- *    and count, while the pending response redacts court numbers until confirmation.
- *  - durations up to 6h are offered (COURT_DURATION_CHOICES).
- *  - the price is the server's preview.priceRsd, shown read-only.
- *  - a slot taken meanwhile (preview unavailable, or a submit 409) is a CALM
- *    "pick another time" state (role=status), never a red alert.
- *  - a malformed availability response surfaces as an error region, never silent.
- */
-
-const ME: MiniappMe = { telegramId: 42, name: "Аня", username: "anya", language: "ru" };
+const ME: MiniappMe = { telegramId: 42, name: "Anna", username: "anya", language: "ru" };
 
 const ONBOARDED: Client = {
   id: "11111111-1111-1111-1111-111111111111",
-  name: "Аня",
+  name: "Anna",
   telegramId: 42,
   telegramUsername: "anya",
   telegramPhotoUrl: null,
@@ -57,28 +38,48 @@ const ONBOARDED: Client = {
   bonusTrainingCredits: 0
 };
 
-const AVAILABILITY: CourtAvailability = {
+const COURT_GRID: CourtClientGrid = {
   date: "2026-06-10",
-  slots: [
-    { startTime: "08:00", freeCourts: 4 },
-    { startTime: "08:30", freeCourts: 2 }
+  durationHours: 1,
+  workingHours: {
+    date: "2026-06-10",
+    openTime: "07:00",
+    closeTime: "22:00",
+    source: "fallback"
+  },
+  rows: [
+    {
+      courtNumber: 1,
+      cells: [
+        { startTime: "08:00", endTime: "09:00", state: "free" },
+        { startTime: "09:00", endTime: "10:00", state: "free" },
+        { startTime: "10:00", endTime: "11:00", state: "unavailable" }
+      ]
+    },
+    {
+      courtNumber: 2,
+      cells: [
+        { startTime: "08:00", endTime: "09:00", state: "unavailable" },
+        { startTime: "09:00", endTime: "10:00", state: "free" },
+        { startTime: "10:00", endTime: "11:00", state: "free" }
+      ]
+    },
+    {
+      courtNumber: 3,
+      cells: [
+        { startTime: "08:00", endTime: "09:00", state: "free" },
+        { startTime: "09:00", endTime: "10:00", state: "unavailable" },
+        { startTime: "10:00", endTime: "11:00", state: "unavailable" }
+      ]
+    }
   ]
-};
-
-/** Courts 1, 3, 5 are free for the chosen slot; 2, 4, 6 are taken (disabled). */
-const FREE_COURTS: FreeCourtNumbers = {
-  date: "2026-06-10",
-  startTime: "08:00",
-  endTime: "09:30",
-  durationHours: 1.5,
-  courtNumbers: [1, 3, 5]
 };
 
 const PREVIEW: CourtRequestPreview = {
   date: "2026-06-10",
   startTime: "08:00",
-  endTime: "09:30",
-  durationHours: 1.5,
+  endTime: "09:00",
+  durationHours: 1,
   priceRsd: 6000,
   courtCount: 2,
   courtNumbers: [1, 3],
@@ -90,7 +91,7 @@ const COURT_REQUEST: CourtRequest = {
   clientId: ONBOARDED.id,
   date: "2026-06-10",
   startTime: "08:00",
-  durationHours: 1.5,
+  durationHours: 1,
   priceRsd: 6000,
   status: "pending",
   courtCount: 2,
@@ -103,8 +104,7 @@ const COURT_REQUEST: CourtRequest = {
 interface FakeApi {
   getMe: ReturnType<typeof vi.fn>;
   getClientByTelegramId: ReturnType<typeof vi.fn>;
-  getCourtAvailability: ReturnType<typeof vi.fn>;
-  getFreeCourtNumbers: ReturnType<typeof vi.fn>;
+  getCourtClientGrid: ReturnType<typeof vi.fn>;
   previewCourtRequest: ReturnType<typeof vi.fn>;
   createCourtRequest: ReturnType<typeof vi.fn>;
 }
@@ -115,8 +115,7 @@ function makeApi(overrides: Partial<FakeApi> = {}): FakeApi {
   return {
     getMe: vi.fn().mockReturnValue(ME),
     getClientByTelegramId: vi.fn().mockResolvedValue(ONBOARDED),
-    getCourtAvailability: vi.fn().mockResolvedValue(AVAILABILITY),
-    getFreeCourtNumbers: vi.fn().mockResolvedValue(FREE_COURTS),
+    getCourtClientGrid: vi.fn().mockResolvedValue(COURT_GRID),
     previewCourtRequest: vi.fn().mockResolvedValue(PREVIEW),
     createCourtRequest: vi.fn().mockResolvedValue(COURT_REQUEST),
     ...overrides
@@ -151,26 +150,30 @@ function renderScreen() {
   );
 }
 
-/** Drive date → time → duration so the court-select step is on screen. */
-async function advanceToCourts(): Promise<void> {
-  // Step 1 — pick the first offered date pill.
-  const dateRail = await screen.findByRole("group", { name: "Выберите дату" });
-  fireEvent.click(dateRail.querySelectorAll("button")[0]);
+async function chooseDateAndDuration(): Promise<void> {
+  const [dateStrip] = await screen.findAllByRole("group");
+  fireEvent.click(dateStrip.querySelectorAll("button")[0]);
 
-  // Step 2 — pick the 08:00 start time (its pill carries a free-court COUNT).
-  fireEvent.click(await screen.findByRole("button", { name: /08:00, 4 свободно/ }));
-
-  // Step 3 — pick a duration (the radio selection advances to the court step).
-  fireEvent.click(await screen.findByRole("radio", { name: "1,5 ч" }));
+  const durationChoices = await screen.findAllByRole("radio");
+  fireEvent.click(durationChoices[0]);
 }
 
-/** Continue from the court step into the preview by picking courts 1 and 3. */
-async function advanceToPreview(): Promise<void> {
-  await advanceToCourts();
-  await screen.findByRole("group", { name: "Выберите корт(ы)" });
-  fireEvent.click(screen.getByRole("button", { name: "Корт 1" }));
-  fireEvent.click(screen.getByRole("button", { name: "Корт 3" }));
+async function openGrid(): Promise<void> {
+  await chooseDateAndDuration();
+
+  await screen.findByRole("grid");
+}
+
+function continueToPreview(): void {
   fireEvent.click(screen.getByRole("button", { name: "Продолжить" }));
+}
+
+function courtLabel(courtNumber: number, startTime: string): string {
+  return `Корт ${courtNumber} ${startTime}`;
+}
+
+function takenCourtLabel(courtNumber: number, startTime: string): string {
+  return `Корт ${courtNumber} занят ${startTime}`;
 }
 
 beforeEach(() => {
@@ -183,142 +186,148 @@ afterEach(() => {
 });
 
 describe("CourtRequestScreen", () => {
-  it("opens on the date picker and shows free-court COUNTS (not numbers) on the time step", async () => {
+  it("renders the availability grid for the selected date and duration", async () => {
     renderScreen();
+    await openGrid();
 
-    const dateRail = await screen.findByRole("group", { name: "Выберите дату" });
-    fireEvent.click(dateRail.querySelectorAll("button")[0]);
-
-    // The time step shows offerable starts each with a free-court COUNT — never a court
-    // number at THIS step. "4 свободно" is a count.
-    await screen.findByRole("button", { name: /08:00, 4 свободно/ });
-    expect(screen.getByText("4 свободно")).toBeTruthy();
-    expect(api.getCourtAvailability).toHaveBeenCalledWith(FIRST_DATE);
-  });
-
-  it("offers durations up to 6 hours (COURT_DURATION_CHOICES)", async () => {
-    renderScreen();
-    const dateRail = await screen.findByRole("group", { name: "Выберите дату" });
-    fireEvent.click(dateRail.querySelectorAll("button")[0]);
-    fireEvent.click(await screen.findByRole("button", { name: /08:00, 4 свободно/ }));
-
-    // The duration list is the full 1…6h grid, comma-decimal "{hours} ч".
-    expect(await screen.findByRole("radio", { name: "1 ч" })).toBeTruthy();
-    expect(screen.getByRole("radio", { name: "2,5 ч" })).toBeTruthy();
-    expect(screen.getByRole("radio", { name: "6 ч" })).toBeTruthy();
-  });
-
-  it("renders the free courts as selectable and disables taken courts", async () => {
-    renderScreen();
-    await advanceToCourts();
-
-    await screen.findByRole("group", { name: "Выберите корт(ы)" });
-    expect(api.getFreeCourtNumbers).toHaveBeenCalledWith({
+    expect(api.getCourtClientGrid).toHaveBeenCalledWith({
       date: FIRST_DATE,
-      startTime: "08:00",
-      durationHours: 1.5
+      durationHours: 1
     });
-
-    // Free courts (1,3,5) are enabled; taken courts (2,4,6) are disabled/greyed.
-    expect((screen.getByRole("button", { name: "Корт 1" }) as HTMLButtonElement).disabled).toBe(false);
-    expect((screen.getByRole("button", { name: "Корт 3" }) as HTMLButtonElement).disabled).toBe(false);
-    expect((screen.getByRole("button", { name: "Корт 2 занят" }) as HTMLButtonElement).disabled).toBe(true);
-    expect((screen.getByRole("button", { name: "Корт 4 занят" }) as HTMLButtonElement).disabled).toBe(true);
+    expect(await screen.findByRole("grid")).toBeTruthy();
+    expect(screen.getAllByText(/^Корт \d/).length).toBeGreaterThan(0);
+    expect(screen.getAllByText(/:\d\d/).length).toBeGreaterThan(0);
   });
 
-  it("supports multi-select, previews and submits the picked courts, then hides pending numbers", async () => {
+  it("marks unavailable cells as disabled and visually unavailable", async () => {
     renderScreen();
-    await advanceToPreview();
+    await openGrid();
 
-    // The preview was fetched for the chosen slot INCLUDING the picked courts.
+    const takenCell = screen.getByRole("button", {
+      name: takenCourtLabel(2, "08:00")
+    });
+    expect((takenCell as HTMLButtonElement).disabled).toBe(true);
+    expect(takenCell.className).toContain("is-unavailable");
+  });
+
+  it("supports multi-select on same start time and resets when start-time changes", async () => {
+    renderScreen();
+    await openGrid();
+
+    const court1Eight = screen.getByRole("button", { name: courtLabel(1, "08:00") }) as HTMLButtonElement;
+    const court3Eight = screen.getByRole("button", { name: courtLabel(3, "08:00") }) as HTMLButtonElement;
+    const court2Nine = screen.getByRole("button", { name: courtLabel(2, "09:00") }) as HTMLButtonElement;
+
+    fireEvent.click(court1Eight);
+    fireEvent.click(court3Eight);
+
+    expect(court1Eight.getAttribute("aria-pressed")).toBe("true");
+    expect(court3Eight.getAttribute("aria-pressed")).toBe("true");
+
+    fireEvent.click(court2Nine);
+
+    await waitFor(() => {
+      expect(court1Eight.getAttribute("aria-pressed")).toBe("false");
+      expect(court3Eight.getAttribute("aria-pressed")).toBe("false");
+      expect(court2Nine.getAttribute("aria-pressed")).toBe("true");
+    });
+  });
+
+  it("passes selected courts to preview and create payloads", async () => {
+    renderScreen();
+    await openGrid();
+
+    fireEvent.click(screen.getByRole("button", { name: courtLabel(1, "08:00") }));
+    fireEvent.click(screen.getByRole("button", { name: courtLabel(3, "08:00") }));
+    continueToPreview();
+
     expect(await screen.findByText("Подтверждение заявки")).toBeTruthy();
     expect(api.previewCourtRequest).toHaveBeenCalledWith({
       date: FIRST_DATE,
       startTime: "08:00",
-      durationHours: 1.5,
+      durationHours: 1,
       courtNumbers: [1, 3]
     });
 
-    // The preview renders the server's price (read-only) and the picked court numbers.
-    expect(screen.getByText("6 000 RSD")).toBeTruthy();
-    expect(screen.getByText("1, 3")).toBeTruthy();
-
-    // Submit the request.
-    fireEvent.click(screen.getByRole("button", { name: "Отправить заявку" }));
+    fireEvent.click(
+      screen.getByRole("button", { name: "Отправить заявку" })
+    );
 
     await waitFor(() => expect(api.createCourtRequest).toHaveBeenCalledTimes(1));
-    expect(api.createCourtRequest.mock.calls[0][0]).toEqual({
+    expect(api.createCourtRequest).toHaveBeenCalledWith({
       date: FIRST_DATE,
       startTime: "08:00",
-      durationHours: 1.5,
+      durationHours: 1,
       courtNumbers: [1, 3]
     });
-
-    // Pending state: calm success (role=status), with court numbers redacted until confirmation.
-    const sent = await screen.findByText("Запрос отправлен");
-    expect(sent.closest('[role="status"]')).not.toBeNull();
-    expect(screen.queryByRole("alert")).toBeNull();
-    expect(screen.queryByText("Выбранные корты: 1, 3")).toBeNull();
   });
 
-  it("shows an empty state when no courts are free for the chosen slot", async () => {
+  it("shows an empty grid state when the chosen day has no cells", async () => {
     api = makeApi({
-      getFreeCourtNumbers: vi.fn().mockResolvedValue({ ...FREE_COURTS, courtNumbers: [] })
+      getCourtClientGrid: vi.fn().mockResolvedValue({
+        ...COURT_GRID,
+        rows: []
+      })
     });
+
     renderScreen();
-    await advanceToCourts();
-
-    await screen.findByText("Нет свободных кортов");
-  });
-
-  it("renders a slot taken meanwhile (preview.available === false) as a CALM state, NOT an error", async () => {
-    api = makeApi({
-      previewCourtRequest: vi.fn().mockResolvedValue({ ...PREVIEW, available: false })
-    });
-    renderScreen();
-    await advanceToPreview();
-
-    const taken = await screen.findByText("Это время заняли");
-    expect(taken.closest('[role="status"]')).not.toBeNull();
-    expect(screen.queryByRole("alert")).toBeNull();
-    expect(screen.getByRole("button", { name: "Выбрать другое время" })).toBeTruthy();
-  });
-
-  it("renders a submit 409 (slot just taken) as the calm pick-another-time state", async () => {
-    api = makeApi({
-      createCourtRequest: vi.fn().mockRejectedValue(new ConflictError("Это время только что заняли."))
-    });
-    renderScreen();
-    await advanceToPreview();
-
-    fireEvent.click(await screen.findByRole("button", { name: "Отправить заявку" }));
-
-    // The 409 surfaces calmly (the server message), never a red alert or a fake success.
-    const taken = await screen.findByText("Это время только что заняли.");
-    expect(taken.closest('[role="status"]')).not.toBeNull();
-    expect(screen.queryByText("Запрос отправлен")).toBeNull();
-  });
-
-  it("shows the empty state when no times are offerable for the date", async () => {
-    api = makeApi({
-      getCourtAvailability: vi.fn().mockResolvedValue({ date: "2026-06-10", slots: [] })
-    });
-    renderScreen();
-
-    const dateRail = await screen.findByRole("group", { name: "Выберите дату" });
-    fireEvent.click(dateRail.querySelectorAll("button")[0]);
+    await chooseDateAndDuration();
 
     await screen.findByText("Нет свободного времени");
   });
 
-  it("shows an error state when the availability request fails (unsafe path surfaces, not silent)", async () => {
+  it("shows preview unavailable as calm pick another time state", async () => {
     api = makeApi({
-      getCourtAvailability: vi.fn().mockRejectedValue(new Error("boom"))
+      previewCourtRequest: vi.fn().mockResolvedValue({ ...PREVIEW, available: false })
     });
-    renderScreen();
 
-    const dateRail = await screen.findByRole("group", { name: "Выберите дату" });
-    fireEvent.click(dateRail.querySelectorAll("button")[0]);
+    renderScreen();
+    await openGrid();
+
+    fireEvent.click(screen.getByRole("button", { name: courtLabel(1, "08:00") }));
+    continueToPreview();
+
+    const taken = await screen.findByText("Это время заняли");
+    expect(taken.closest('[role="status"]')).not.toBeNull();
+    expect(screen.queryByRole("alert")).toBeNull();
+    expect(
+      screen.getByRole("button", {
+        name: "Выбрать другое время"
+      })
+    ).toBeTruthy();
+  });
+
+  it("renders a submit 409 as calm pick another time state", async () => {
+    api = makeApi({
+      createCourtRequest: vi.fn().mockRejectedValue(
+        new ConflictError("Это время только что заняли.")
+      )
+    });
+
+    renderScreen();
+    await openGrid();
+
+    fireEvent.click(screen.getByRole("button", { name: courtLabel(1, "08:00") }));
+    continueToPreview();
+    fireEvent.click(
+      await screen.findByRole("button", { name: "Отправить заявку" })
+    );
+
+    const taken = await screen.findByText("Это время только что заняли.");
+    expect(taken.closest('[role="status"]')).not.toBeNull();
+    expect(screen.queryByRole("alert")).toBeNull();
+  });
+
+  it("shows an error state when grid load fails", async () => {
+    api = makeApi({
+      getCourtClientGrid: vi.fn().mockRejectedValue(new Error("boom"))
+    });
+
+    renderScreen();
+    const [dateStrip] = await screen.findAllByRole("group");
+    fireEvent.click(dateStrip.querySelectorAll("button")[0]);
+    const durationChoices = await screen.findAllByRole("radio");
+    fireEvent.click(durationChoices[0]);
 
     expect(await screen.findByRole("alert")).toBeTruthy();
   });

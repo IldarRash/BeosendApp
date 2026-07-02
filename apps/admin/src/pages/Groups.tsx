@@ -482,6 +482,19 @@ export function Groups(): JSX.Element {
   const [form, setForm] = useState<GroupFormState>(emptyForm);
   const [membersGroup, setMembersGroup] = useState<Group | null>(null);
   const [deleteTarget, setDeleteTarget] = useState<Group | null>(null);
+  const [filterName, setFilterName] = useState("");
+  const [filterWeekday, setFilterWeekday] = useState("");
+  const [filterTrainerId, setFilterTrainerId] = useState("");
+  const [filterCourtId, setFilterCourtId] = useState("");
+  const [filterLevelId, setFilterLevelId] = useState("");
+  const [filterStatus, setFilterStatus] = useState("");
+  const [filterVisibility, setFilterVisibility] = useState("");
+  const [filterCapacityMin, setFilterCapacityMin] = useState<number | null>(null);
+  const [filterCapacityMax, setFilterCapacityMax] = useState<number | null>(null);
+  const [filterSinglePriceMin, setFilterSinglePriceMin] = useState<number | null>(null);
+  const [filterSinglePriceMax, setFilterSinglePriceMax] = useState<number | null>(null);
+  const [filterMonthPriceMin, setFilterMonthPriceMin] = useState<number | null>(null);
+  const [filterMonthPriceMax, setFilterMonthPriceMax] = useState<number | null>(null);
   const { year, month } = useMemo(() => currentYearMonth(), []);
 
   // Presentation-only ordering: first weekday (Mon→Sun = ascending ISO 1..7),
@@ -504,6 +517,92 @@ export function Groups(): JSX.Element {
     () => (trainers.data ?? []).map((trainer) => ({ value: trainer.id, label: trainer.name })),
     [trainers.data]
   );
+  const filterLevelOptions: SelectOption[] = useMemo(
+    () => [{ value: "", label: t("admin.groups.filterAllLevels") }, ...levelOptions],
+    [levelOptions, t]
+  );
+  const filterTrainerOptions: SelectOption[] = useMemo(
+    () => [{ value: "", label: t("admin.groups.filterAllTrainers") }, ...trainerOptions],
+    [trainerOptions, t]
+  );
+  const filterCourtOptions: SelectOption[] = useMemo(
+    () => [
+      { value: "", label: t("admin.groups.filterAllCourts") },
+      { value: "__none", label: t("admin.groups.courtNone") },
+      ...(courts.data ?? []).map((court) => ({
+        value: court.id,
+        label: t("admin.groups.courtLabel", { number: court.number })
+      }))
+    ],
+    [courts.data, t]
+  );
+  const weekdayOptions: SelectOption[] = useMemo(
+    () => [
+      { value: "", label: t("admin.groups.filterAllDays") },
+      ...([1, 2, 3, 4, 5, 6, 7] as DayOfWeek[]).map((day) => ({
+        value: String(day),
+        label: t(`admin.day.full.${day}`)
+      }))
+    ],
+    [t]
+  );
+  const statusOptions: SelectOption[] = useMemo(
+    () => [
+      { value: "", label: t("admin.groups.filterAllStatuses") },
+      { value: "active", label: t("admin.groups.statusActive") },
+      { value: "inactive", label: t("admin.groups.statusInactive") }
+    ],
+    [t]
+  );
+  const visibilityOptions: SelectOption[] = useMemo(
+    () => [
+      { value: "", label: t("admin.groups.filterAllVisibility") },
+      { value: "visible", label: t("admin.groups.visShown") },
+      { value: "hidden", label: t("admin.groups.visHidden") }
+    ],
+    [t]
+  );
+
+  const filteredGroups = useMemo(() => {
+    const needle = filterName.trim().toLocaleLowerCase("ru");
+    return sortedGroups.filter((group) => {
+      if (needle !== "" && !group.name.toLocaleLowerCase("ru").includes(needle)) return false;
+      if (filterWeekday !== "" && !group.daysOfWeek.includes(Number(filterWeekday) as DayOfWeek)) {
+        return false;
+      }
+      if (filterTrainerId !== "" && group.trainerId !== filterTrainerId) return false;
+      if (filterCourtId === "__none" && group.courtId !== null) return false;
+      if (filterCourtId !== "" && filterCourtId !== "__none" && group.courtId !== filterCourtId) {
+        return false;
+      }
+      if (filterLevelId !== "" && group.levelId !== filterLevelId) return false;
+      if (filterStatus !== "" && group.status !== filterStatus) return false;
+      if (filterVisibility === "visible" && group.hidden) return false;
+      if (filterVisibility === "hidden" && !group.hidden) return false;
+      if (filterCapacityMin !== null && group.capacity < filterCapacityMin) return false;
+      if (filterCapacityMax !== null && group.capacity > filterCapacityMax) return false;
+      if (filterSinglePriceMin !== null && group.priceSingleRsd < filterSinglePriceMin) return false;
+      if (filterSinglePriceMax !== null && group.priceSingleRsd > filterSinglePriceMax) return false;
+      if (filterMonthPriceMin !== null && group.priceMonthRsd < filterMonthPriceMin) return false;
+      if (filterMonthPriceMax !== null && group.priceMonthRsd > filterMonthPriceMax) return false;
+      return true;
+    });
+  }, [
+    sortedGroups,
+    filterName,
+    filterWeekday,
+    filterTrainerId,
+    filterCourtId,
+    filterLevelId,
+    filterStatus,
+    filterVisibility,
+    filterCapacityMin,
+    filterCapacityMax,
+    filterSinglePriceMin,
+    filterSinglePriceMax,
+    filterMonthPriceMin,
+    filterMonthPriceMax
+  ]);
 
   const activeMutation = target?.mode === "edit" ? updateGroup : createGroup;
   const submitError = activeMutation.isError ? activeMutation.error.message : undefined;
@@ -659,13 +758,122 @@ export function Groups(): JSX.Element {
           {t("admin.groups.error")}
         </p>
       ) : (
-        <DataTable
-          caption={t("admin.groups.caption")}
-          columns={columns}
-          rows={sortedGroups}
-          rowKey={(group) => group.id}
-          emptyLabel={t("admin.groups.empty")}
-        />
+        <>
+          <form
+            aria-label={t("admin.groups.filterLabel")}
+            onSubmit={(event) => event.preventDefault()}
+            className="filter-toolbar filter-toolbar--groups"
+          >
+            <TextField
+              label={t("admin.groups.filterName")}
+              type="search"
+              value={filterName}
+              onChange={(event) => setFilterName(event.target.value)}
+            />
+            <SelectField
+              label={t("admin.groups.filterWeekday")}
+              options={weekdayOptions}
+              value={filterWeekday}
+              onChange={(event) => setFilterWeekday(event.target.value)}
+            />
+            <SelectField
+              label={t("admin.field.trainer")}
+              options={filterTrainerOptions}
+              value={filterTrainerId}
+              onChange={(event) => setFilterTrainerId(event.target.value)}
+            />
+            <SelectField
+              label={t("admin.field.court")}
+              options={filterCourtOptions}
+              value={filterCourtId}
+              onChange={(event) => setFilterCourtId(event.target.value)}
+            />
+            <SelectField
+              label={t("admin.field.level")}
+              options={filterLevelOptions}
+              value={filterLevelId}
+              onChange={(event) => setFilterLevelId(event.target.value)}
+            />
+            <SelectField
+              label={t("admin.field.status")}
+              options={statusOptions}
+              value={filterStatus}
+              onChange={(event) => setFilterStatus(event.target.value)}
+            />
+            <SelectField
+              label={t("admin.groups.fieldVisibility")}
+              options={visibilityOptions}
+              value={filterVisibility}
+              onChange={(event) => setFilterVisibility(event.target.value)}
+            />
+            <NumberField
+              label={t("admin.groups.capacityFrom")}
+              value={filterCapacityMin}
+              onValueChange={setFilterCapacityMin}
+              min={0}
+            />
+            <NumberField
+              label={t("admin.groups.capacityTo")}
+              value={filterCapacityMax}
+              onValueChange={setFilterCapacityMax}
+              min={0}
+            />
+            <NumberField
+              label={t("admin.groups.priceSingleFrom")}
+              value={filterSinglePriceMin}
+              onValueChange={setFilterSinglePriceMin}
+              min={0}
+            />
+            <NumberField
+              label={t("admin.groups.priceSingleTo")}
+              value={filterSinglePriceMax}
+              onValueChange={setFilterSinglePriceMax}
+              min={0}
+            />
+            <NumberField
+              label={t("admin.groups.priceMonthFrom")}
+              value={filterMonthPriceMin}
+              onValueChange={setFilterMonthPriceMin}
+              min={0}
+            />
+            <NumberField
+              label={t("admin.groups.priceMonthTo")}
+              value={filterMonthPriceMax}
+              onValueChange={setFilterMonthPriceMax}
+              min={0}
+            />
+            <Button
+              type="button"
+              variant="ghost"
+              onClick={() => {
+                setFilterName("");
+                setFilterWeekday("");
+                setFilterTrainerId("");
+                setFilterCourtId("");
+                setFilterLevelId("");
+                setFilterStatus("");
+                setFilterVisibility("");
+                setFilterCapacityMin(null);
+                setFilterCapacityMax(null);
+                setFilterSinglePriceMin(null);
+                setFilterSinglePriceMax(null);
+                setFilterMonthPriceMin(null);
+                setFilterMonthPriceMax(null);
+              }}
+            >
+              {t("admin.filters.reset")}
+            </Button>
+          </form>
+          <DataTable
+            caption={t("admin.groups.caption")}
+            columns={columns}
+            rows={filteredGroups}
+            rowKey={(group) => group.id}
+            emptyLabel={
+              sortedGroups.length === 0 ? t("admin.groups.empty") : t("admin.groups.filteredEmpty")
+            }
+          />
+        </>
       )}
 
       <Modal

@@ -2,6 +2,7 @@ import { ForbiddenException } from "@nestjs/common";
 import { describe, expect, it, vi } from "vitest";
 import type { Env } from "@beosand/config";
 import { COURT_OPEN_HOUR, freeCourtsBySlot, timeOfMinutes } from "@beosand/types";
+import type { SettingsService } from "../settings/settings.service";
 import { CourtsRepository } from "./courts.repository";
 import { CourtsService } from "./courts.service";
 
@@ -13,6 +14,17 @@ function makeRepo(rows: Row[]): CourtsRepository {
   return { findActive: vi.fn().mockResolvedValue(rows) } as unknown as CourtsRepository;
 }
 
+function settings(): SettingsService {
+  return {
+    resolveCourtWorkingHours: vi.fn(async (date: string) => ({
+      date,
+      openTime: "07:00",
+      closeTime: "21:00",
+      source: "fallback"
+    }))
+  } as unknown as SettingsService;
+}
+
 const activeCourt: Row = {
   id: "11111111-1111-1111-1111-111111111111",
   number: 1,
@@ -22,7 +34,7 @@ const activeCourt: Row = {
 describe("CourtsService", () => {
   it("rejects a non-admin caller before any DB read", async () => {
     const repo = makeRepo([activeCourt]);
-    const service = new CourtsService(adminEnv, repo);
+    const service = new CourtsService(adminEnv, repo, settings());
 
     await expect(service.listActiveCourts(999)).rejects.toBeInstanceOf(ForbiddenException);
     expect(repo.findActive).not.toHaveBeenCalled();
@@ -35,7 +47,7 @@ describe("CourtsService", () => {
       status: "active"
     };
     const repo = makeRepo([activeCourt, second]);
-    const service = new CourtsService(adminEnv, repo);
+    const service = new CourtsService(adminEnv, repo, settings());
 
     const courts = await service.listActiveCourts(111);
 
@@ -45,7 +57,7 @@ describe("CourtsService", () => {
 
   it("propagates a parse failure if the repo returns a malformed row", async () => {
     const bad = { id: "not-a-uuid", number: 0, status: "active" } as Row;
-    const service = new CourtsService(adminEnv, makeRepo([bad]));
+    const service = new CourtsService(adminEnv, makeRepo([bad]), settings());
 
     await expect(service.listActiveCourts(111)).rejects.toThrow();
   });
@@ -54,7 +66,7 @@ describe("CourtsService", () => {
     // The repo is the active-only filter; the service must never add courts of
     // its own — the returned set is the single source of the per-hour capacity.
     const repo = makeRepo([activeCourt]);
-    const service = new CourtsService(adminEnv, repo);
+    const service = new CourtsService(adminEnv, repo, settings());
 
     const courts = await service.listActiveCourts(111);
 
@@ -65,7 +77,7 @@ describe("CourtsService", () => {
 
   it("returns an empty list when no courts are active rather than throwing", async () => {
     const repo = makeRepo([]);
-    const service = new CourtsService(adminEnv, repo);
+    const service = new CourtsService(adminEnv, repo, settings());
 
     await expect(service.listActiveCourts(111)).resolves.toEqual([]);
   });
@@ -94,7 +106,7 @@ describe("CourtsService.getLoadGrid", () => {
 
   it("rejects a non-admin caller before any DB read", async () => {
     const repo = makeLoadRepo();
-    const service = new CourtsService(adminEnv, repo);
+    const service = new CourtsService(adminEnv, repo, settings());
 
     await expect(service.getLoadGrid(999, "2026-06-10")).rejects.toBeInstanceOf(ForbiddenException);
     expect(repo.findActive).not.toHaveBeenCalled();
@@ -103,11 +115,17 @@ describe("CourtsService.getLoadGrid", () => {
   });
 
   it("builds the grid across the working window with request/block/free cells", async () => {
-    const service = new CourtsService(adminEnv, makeLoadRepo());
+    const service = new CourtsService(adminEnv, makeLoadRepo(), settings());
 
     const grid = await service.getLoadGrid(111, "2026-06-10");
 
     expect(grid.date).toBe("2026-06-10");
+    expect(grid.workingHours).toEqual({
+      date: "2026-06-10",
+      openTime: "07:00",
+      closeTime: "21:00",
+      source: "fallback"
+    });
     expect(grid.openHour).toBe(COURT_OPEN_HOUR);
     expect(grid.closeHour).toBe(21);
     expect(grid.rows).toHaveLength(2);
@@ -141,7 +159,7 @@ describe("CourtsService.getLoadGrid", () => {
       blocksByCourtForDate: vi.fn().mockResolvedValue([]),
       unassignedTrainingsForDate: vi.fn().mockResolvedValue([])
     } as unknown as CourtsRepository;
-    const service = new CourtsService(adminEnv, repo);
+    const service = new CourtsService(adminEnv, repo, settings());
 
     return service.getLoadGrid(111, "2026-06-10").then((grid) => {
       expect(grid.rows).toHaveLength(2);
@@ -152,7 +170,7 @@ describe("CourtsService.getLoadGrid", () => {
 
   it("reads occupancy for the requested date only (one confirmed + one blocks read)", async () => {
     const repo = makeLoadRepo();
-    const service = new CourtsService(adminEnv, repo);
+    const service = new CourtsService(adminEnv, repo, settings());
 
     await service.getLoadGrid(111, "2026-06-10");
 
@@ -177,7 +195,7 @@ describe("CourtsService.getLoadGrid", () => {
       ]),
       unassignedTrainingsForDate: vi.fn().mockResolvedValue([])
     } as unknown as CourtsRepository;
-    const service = new CourtsService(adminEnv, repo);
+    const service = new CourtsService(adminEnv, repo, settings());
 
     const grid = await service.getLoadGrid(111, "2026-06-10");
 
@@ -217,7 +235,7 @@ describe("CourtsService.getLoadGrid", () => {
       blocksByCourtForDate: vi.fn().mockResolvedValue([]),
       unassignedTrainingsForDate: vi.fn().mockResolvedValue([])
     } as unknown as CourtsRepository;
-    const service = new CourtsService(adminEnv, repo);
+    const service = new CourtsService(adminEnv, repo, settings());
 
     const grid = await service.getLoadGrid(111, "2026-06-10");
 
@@ -250,7 +268,7 @@ describe("CourtsService.getLoadGrid", () => {
         }
       ])
     } as unknown as CourtsRepository;
-    const service = new CourtsService(adminEnv, repo);
+    const service = new CourtsService(adminEnv, repo, settings());
 
     const grid = await service.getLoadGrid(111, "2026-06-10");
 
@@ -270,7 +288,7 @@ describe("CourtsService.getLoadGrid", () => {
     // Invariant: a `free` cell is exactly a court/slot C3 counts as free. The grid
     // and the C3 free-court math must agree by construction for the same occupancy.
     const repo = makeLoadRepo();
-    const service = new CourtsService(adminEnv, repo);
+    const service = new CourtsService(adminEnv, repo, settings());
 
     const grid = await service.getLoadGrid(111, "2026-06-10");
 

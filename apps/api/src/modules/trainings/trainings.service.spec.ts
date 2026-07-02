@@ -27,6 +27,7 @@ import type { ClientsRepository } from "../clients/clients.repository";
 import type { DomainEventsService } from "../connectors/domain-events.service";
 import type { GroupsRepository } from "../groups/groups.repository";
 import type { NotificationsService } from "../notifications/notifications.service";
+import type { SettingsService } from "../settings/settings.service";
 import type { TrainersRepository } from "../trainers/trainers.repository";
 import type { Client, Trainer } from "@beosand/types";
 
@@ -34,6 +35,15 @@ import type { Client, Trainer } from "@beosand/types";
 const fakeDomainEvents = {
   emitTrainingCancelled: (): void => undefined
 } as unknown as DomainEventsService;
+
+const fakeSettings = {
+  resolveCourtWorkingHours: vi.fn(async (date: string) => ({
+    date,
+    openTime: "07:00",
+    closeTime: "21:00",
+    source: "fallback"
+  }))
+} as unknown as SettingsService;
 
 const ADMIN_ID = 111;
 const NON_ADMIN_ID = 999;
@@ -144,9 +154,22 @@ class FakeTrainingsRepository {
     return work({} as Database);
   }
 
-  async listInRange(from: string, to: string, groupId?: string): Promise<Training[]> {
+  async listInRange(
+    from: string,
+    to: string,
+    groupId?: string,
+    trainerId?: string,
+    includeTerminal = false
+  ): Promise<Training[]> {
     return this.rows
-      .filter((r) => r.date >= from && r.date <= to && (!groupId || r.groupId === groupId))
+      .filter(
+        (r) =>
+          r.date >= from &&
+          r.date <= to &&
+          (!groupId || r.groupId === groupId) &&
+          (!trainerId || r.trainerId === trainerId) &&
+          (includeTerminal || (r.status !== "cancelled" && r.status !== "completed"))
+      )
       .sort((a, b) => a.date.localeCompare(b.date) || a.startTime.localeCompare(b.startTime));
   }
 
@@ -844,6 +867,7 @@ describe("TrainingsService", () => {
       courtBlocksRepo as unknown as import("../courts/court-blocks.repository").CourtBlocksRepository,
       bookingsRepo as unknown as import("../bookings/bookings.repository").BookingsRepository,
       fakeDomainEvents,
+      fakeSettings,
       env
     );
   });
@@ -915,17 +939,35 @@ describe("TrainingsService", () => {
     ).rejects.toBeInstanceOf(ForbiddenException);
   });
 
-  it("defaults list calls to hide terminal statuses unless includeTerminal=true", async () => {
+  it("passes group/trainer filters and hides terminal statuses unless includeTerminal=true", async () => {
     const spy = vi.spyOn(trainingsRepo, "listInRange");
-    await service.list(ADMIN_ID, { from: "2026-07-01", to: "2026-07-31", groupId: GROUP_ID });
-    expect(spy).toHaveBeenCalledWith("2026-07-01", "2026-07-31", GROUP_ID, false);
     await service.list(ADMIN_ID, {
       from: "2026-07-01",
       to: "2026-07-31",
       groupId: GROUP_ID,
+      trainerId: baseGroup.trainerId
+    });
+    expect(spy).toHaveBeenCalledWith(
+      "2026-07-01",
+      "2026-07-31",
+      GROUP_ID,
+      baseGroup.trainerId,
+      false
+    );
+    await service.list(ADMIN_ID, {
+      from: "2026-07-01",
+      to: "2026-07-31",
+      groupId: GROUP_ID,
+      trainerId: baseGroup.trainerId,
       includeTerminal: true
     });
-    expect(spy).toHaveBeenCalledWith("2026-07-01", "2026-07-31", GROUP_ID, true);
+    expect(spy).toHaveBeenCalledWith(
+      "2026-07-01",
+      "2026-07-31",
+      GROUP_ID,
+      baseGroup.trainerId,
+      true
+    );
   });
 
   it("list returns generated trainings within the range", async () => {

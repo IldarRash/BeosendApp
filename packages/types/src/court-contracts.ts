@@ -8,6 +8,7 @@ import {
   timeString,
   uuid
 } from "./common";
+import { courtWorkingHoursSchema } from "./settings-contracts";
 
 /** Editions 2: court rental requests. Clients request time only; admin assigns the court. */
 
@@ -232,6 +233,47 @@ export const freeCourtNumbersSchema = z.object({
 export type FreeCourtNumbers = z.infer<typeof freeCourtNumbersSchema>;
 
 /**
+ * Mini App client-facing court booking grid. It exposes only court display
+ * numbers and free/unavailable state for the selected duration; no internal ids,
+ * request ids, block ids, training ids, reasons, or client data.
+ */
+export const courtClientGridQuerySchema = z
+  .object({
+    date: dateString,
+    durationHours: z.coerce
+      .number()
+      .min(COURT_MIN_DURATION_HOURS)
+      .max(COURT_MAX_DURATION_HOURS)
+      .refine((h) => Number.isInteger(h * 2), "duration must be on the 0.5-hour grid")
+  })
+  .strict();
+export type CourtClientGridQuery = z.infer<typeof courtClientGridQuerySchema>;
+
+export const courtClientGridCellState = z.enum(["free", "unavailable"]);
+export type CourtClientGridCellState = z.infer<typeof courtClientGridCellState>;
+
+export const courtClientGridCellSchema = z.object({
+  startTime: timeString,
+  endTime: timeString,
+  state: courtClientGridCellState
+});
+export type CourtClientGridCell = z.infer<typeof courtClientGridCellSchema>;
+
+export const courtClientGridRowSchema = z.object({
+  courtNumber,
+  cells: z.array(courtClientGridCellSchema)
+});
+export type CourtClientGridRow = z.infer<typeof courtClientGridRowSchema>;
+
+export const courtClientGridSchema = z.object({
+  date: dateString,
+  durationHours: courtDurationHours,
+  workingHours: courtWorkingHoursSchema,
+  rows: z.array(courtClientGridRowSchema)
+});
+export type CourtClientGrid = z.infer<typeof courtClientGridSchema>;
+
+/**
  * C4 — admin confirms a pending request onto a final set of courts. `courtIds` length
  * must equal the request's `courtCount`; the admin may keep the client's picked courts
  * or swap them for others (each must be active and free for every covered slot).
@@ -347,7 +389,12 @@ export type UnassignedTraining = z.infer<typeof unassignedTrainingSchema>;
 /** The full grid for a date across the configured court working window. */
 export const courtLoadGridSchema = z.object({
   date: dateString,
+  workingHours: courtWorkingHoursSchema,
+  openTime: timeString,
+  closeTime: timeString,
+  /** Legacy compatibility bridge; prefer workingHours.openTime/openTime in new code. */
   openHour: z.number().int(),
+  /** Legacy compatibility bridge; prefer workingHours.closeTime/closeTime in new code. */
   closeHour: z.number().int(),
   rows: z.array(courtLoadRowSchema),
   /** Trainings on this date with no reserved court (need a manual admin assignment). */

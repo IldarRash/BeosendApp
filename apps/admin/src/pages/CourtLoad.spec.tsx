@@ -13,10 +13,20 @@ import type {
 const useCourtLoad = vi.fn();
 const useAssignCourt = vi.fn();
 const useAutoAssignOrphans = vi.fn();
+const useCourtWorkingHours = vi.fn();
+const useSaveCourtWorkingHoursMonth = vi.fn();
+const useSaveCourtWorkingHoursDay = vi.fn();
+const useDeleteCourtWorkingHoursMonth = vi.fn();
+const useDeleteCourtWorkingHoursDay = vi.fn();
 vi.mock("../hooks/useCourtLoad", () => ({
   useCourtLoad: (...args: unknown[]) => useCourtLoad(...args),
   useAssignCourt: (...args: unknown[]) => useAssignCourt(...args),
-  useAutoAssignOrphans: (...args: unknown[]) => useAutoAssignOrphans(...args)
+  useAutoAssignOrphans: (...args: unknown[]) => useAutoAssignOrphans(...args),
+  useCourtWorkingHours: (...args: unknown[]) => useCourtWorkingHours(...args),
+  useSaveCourtWorkingHoursMonth: (...args: unknown[]) => useSaveCourtWorkingHoursMonth(...args),
+  useSaveCourtWorkingHoursDay: (...args: unknown[]) => useSaveCourtWorkingHoursDay(...args),
+  useDeleteCourtWorkingHoursMonth: (...args: unknown[]) => useDeleteCourtWorkingHoursMonth(...args),
+  useDeleteCourtWorkingHoursDay: (...args: unknown[]) => useDeleteCourtWorkingHoursDay(...args)
 }));
 
 // The shared move-court dialog reaches for the reassign mutation.
@@ -98,6 +108,14 @@ const GRID: CourtLoadGrid = {
   date: "2026-06-10",
   openHour: 8,
   closeHour: 12,
+  openTime: "08:00",
+  closeTime: "12:00",
+  workingHours: {
+    date: "2026-06-10",
+    openTime: "08:00",
+    closeTime: "12:00",
+    source: "fallback"
+  },
   unassignedTrainings: [],
   rows: [
     {
@@ -186,6 +204,22 @@ beforeEach(() => {
   useCourtLoad.mockReturnValue({ isPending: false, isError: false, error: null, data: GRID });
   useAssignCourt.mockReturnValue(mutation());
   useAutoAssignOrphans.mockReturnValue(mutation());
+  useCourtWorkingHours.mockReturnValue({
+    isPending: false,
+    isError: false,
+    error: null,
+    data: {
+      year: 2026,
+      month: 6,
+      fallback: { openTime: "08:00", closeTime: "12:00" },
+      monthDefault: null,
+      dayOverrides: []
+    }
+  });
+  useSaveCourtWorkingHoursMonth.mockReturnValue(mutation());
+  useSaveCourtWorkingHoursDay.mockReturnValue(mutation());
+  useDeleteCourtWorkingHoursMonth.mockReturnValue(mutation());
+  useDeleteCourtWorkingHoursDay.mockReturnValue(mutation());
   useReassignCourtBlock.mockReturnValue(mutation());
   useCourts.mockReturnValue({
     isPending: false,
@@ -210,76 +244,59 @@ beforeEach(() => {
 afterEach(cleanup);
 
 describe("CourtLoad page", () => {
-  it("groups the API's 30-min cells into 2-hour column headers", () => {
+  it("renders a horizontal timeline from the API working hours", () => {
     renderPage();
 
-    const table = screen.getByRole("table", { name: "Загрузка кортов на 2026-06-10" });
-    // 2-hour range headers derived from the cell start times, not hard-coded.
-    expect(within(table).getByRole("columnheader", { name: "08–10" })).toBeTruthy();
-    expect(within(table).getByRole("columnheader", { name: "10–12" })).toBeTruthy();
-    // The 30-min slot labels are no longer column headers (purely sub-segments now).
-    expect(within(table).queryByRole("columnheader", { name: "08:30" })).toBeNull();
-    // One row header per court, by number.
-    expect(within(table).getByRole("rowheader", { name: "№ 1" })).toBeTruthy();
-    expect(within(table).getByRole("rowheader", { name: "№ 2" })).toBeTruthy();
+    const timeline = screen.getByRole("region", { name: "Загрузка кортов на 2026-06-10" });
+    expect(within(timeline).getByText("08:00")).toBeTruthy();
+    expect(within(timeline).getByText("12:00")).toBeTruthy();
+    expect(within(timeline).getByText("№ 1")).toBeTruthy();
+    expect(within(timeline).getByText("№ 2")).toBeTruthy();
+    expect(screen.getByLabelText("Таймлайн корта 1")).toBeTruthy();
+    expect(screen.getByLabelText("Таймлайн корта 2")).toBeTruthy();
   });
 
-  it("tints each 30-min sub-segment by the API's state and names it for screen readers", () => {
+  it("tints each event card by the API's state and names it for screen readers", () => {
     renderPage();
 
-    const request = screen.getByLabelText("Корт 1, 08:00 — Заявка. Открыть детали брони.");
+    const request = screen.getByLabelText("Корт 1, 08:00–09:00 — Заявка");
     expect(request.tagName).toBe("BUTTON");
-    expect(request.className).toContain("load-seg--request");
+    expect(request.className).toContain("court-event--request");
 
-    const free = screen.getByLabelText("Корт 1, 09:30 — Свободно");
-    expect(free.tagName).toBe("SPAN");
-    expect(free.className).toContain("load-seg--free");
+    expect(screen.queryByLabelText(/Корт 1, 09:30/)).toBeNull();
 
-    const block = screen.getByLabelText("Корт 2, 08:00 — Блокировка. Сменить корт.");
+    const block = screen.getByLabelText("Корт 2, 08:00–08:30 — Блокировка");
     expect(block.tagName).toBe("BUTTON");
-    expect(block.className).toContain("load-seg--block");
+    expect(block.className).toContain("court-event--block");
 
-    const training = screen.getByLabelText(
-      "Корт 1, 09:00 — Тренировка. Открыть детали тренировки."
-    );
+    const training = screen.getByLabelText("Корт 1, 09:00–09:30 — Тренировка");
     expect(training.tagName).toBe("BUTTON");
-    expect(training.className).toContain("load-seg--training");
+    expect(training.className).toContain("court-event--training");
   });
 
-  it("connects adjacent cells for the same event and marks same-state event boundaries", () => {
+  it("keeps deterministic event identity and tone per event id", () => {
     renderPage();
 
-    const sameEventStart = screen.getByLabelText(
-      "Корт 1, 08:00 — Заявка. Открыть детали брони."
-    );
-    const sameEventNext = screen.getByLabelText(
-      "Корт 1, 08:30 — Заявка. Открыть детали брони."
-    );
-    expect(sameEventStart.className).toContain("load-seg--connected-next");
-    expect(sameEventNext.className).toContain("load-seg--connected-prev");
-    expect(sameEventStart.className).not.toContain("load-seg--event-boundary-right");
+    const sameRequest = screen.getByLabelText("Корт 1, 08:00–09:00 — Заявка");
+    const repeatedRequest = screen.getByLabelText("Корт 2, 10:00–10:30 — Заявка");
+    const nextRequest = screen.getByLabelText("Корт 2, 10:30–11:00 — Заявка");
 
-    const differentEventStart = screen.getByLabelText(
-      "Корт 2, 10:00 — Заявка. Открыть детали брони."
-    );
-    const differentEventNext = screen.getByLabelText(
-      "Корт 2, 10:30 — Заявка. Открыть детали брони."
-    );
-    expect(differentEventStart.className).toContain("load-seg--event-boundary-right");
-    expect(differentEventNext.className).toContain("load-seg--event-boundary-left");
-    expect(differentEventNext.className).not.toContain("load-seg--connected-prev");
+    expect(sameRequest.getAttribute("data-event-key")).toBe(repeatedRequest.getAttribute("data-event-key"));
+    expect(sameRequest.className).toBe(repeatedRequest.className);
+    expect(nextRequest.getAttribute("data-event-key")).not.toBe(sameRequest.getAttribute("data-event-key"));
+    expect(nextRequest.className).not.toBe(sameRequest.className);
   });
 
   it("renders a hold (pending pick) segment distinctly and opens the request detail", () => {
     renderPage();
 
-    const hold = screen.getByLabelText("Корт 2, 08:30 — Удержание. Открыть детали брони.");
+    const hold = screen.getByLabelText("Корт 2, 08:30–09:00 — Удержание");
     // A hold reads as its own tint/glyph, not the confirmed-request one.
     expect(hold.tagName).toBe("BUTTON");
-    expect(hold.className).toContain("load-seg--hold");
-    expect(hold.textContent).toBe("У");
+    expect(hold.className).toContain("court-event--hold");
+    expect(hold.textContent).toContain("U");
 
-    // A hold cell links to its request like a confirmed-request cell.
+    // A hold event links to its request like a confirmed request.
     fireEvent.click(hold);
     expect(useCourtRequestDetail).toHaveBeenLastCalledWith(REQUEST_ID);
     expect(screen.getByRole("dialog", { name: "Детали брони" })).toBeTruthy();
@@ -293,16 +310,14 @@ describe("CourtLoad page", () => {
 
   it("makes request, training and block segments clickable; free stays inert", () => {
     renderPage();
-    expect(screen.getByLabelText("Корт 1, 09:30 — Свободно").tagName).toBe("SPAN");
-    expect(screen.getByLabelText("Корт 2, 08:00 — Блокировка. Сменить корт.").tagName).toBe(
-      "BUTTON"
-    );
+    expect(screen.queryByLabelText(/Корт 1, 09:30/)).toBeNull();
+    expect(screen.getByLabelText("Корт 2, 08:00–08:30 — Блокировка").tagName).toBe("BUTTON");
   });
 
   it("opens the booking detail with the API-decided values when a request segment is clicked", () => {
     renderPage();
 
-    fireEvent.click(screen.getByLabelText("Корт 1, 08:00 — Заявка. Открыть детали брони."));
+    fireEvent.click(screen.getByLabelText("Корт 1, 08:00–09:00 — Заявка"));
 
     expect(useCourtRequestDetail).toHaveBeenLastCalledWith(REQUEST_ID);
     const dialog = screen.getByRole("dialog", { name: "Детали брони" });
@@ -315,7 +330,7 @@ describe("CourtLoad page", () => {
     renderPage();
 
     fireEvent.click(
-      screen.getByLabelText("Корт 1, 09:00 — Тренировка. Открыть детали тренировки.")
+      screen.getByLabelText("Корт 1, 09:00–09:30 — Тренировка")
     );
 
     // The training-detail hook is asked for exactly the clicked segment's training id.
@@ -360,10 +375,10 @@ describe("CourtLoad page", () => {
     // The training-origin segment carries the training glyph and tint, proving the
     // grid is not misread as empty when a court is held by a training.
     const training = screen.getByLabelText(
-      "Корт 1, 09:00 — Тренировка. Открыть детали тренировки."
+      "Корт 1, 09:00–09:30 — Тренировка"
     );
-    expect(training.className).toContain("load-seg--training");
-    expect(training.textContent).toBe("Т");
+    expect(training.className).toContain("court-event--training");
+    expect(training.textContent).toContain("T");
     // A held grid never shows the "all free" hint.
     expect(screen.queryByText("На выбранную дату все корты свободны.")).toBeNull();
   });
@@ -386,7 +401,7 @@ describe("CourtLoad page", () => {
 
     // The hint is additive — the grid still renders alongside it.
     expect(screen.getByText("На выбранную дату все корты свободны.")).toBeTruthy();
-    expect(screen.getByRole("table")).toBeTruthy();
+    expect(screen.getByRole("region", { name: "Загрузка кортов на 2026-06-10" })).toBeTruthy();
   });
 
   it("hides the unassigned section when the API returns no unassigned trainings", () => {
@@ -407,7 +422,7 @@ describe("CourtLoad page", () => {
     const section = screen.getByRole("region", { name: "Без корта" });
     const row = within(section).getByText("Взрослые 18:00").closest("tr") as HTMLElement;
     const cells = within(row);
-    expect(cells.getByText("18:00–19:30")).toBeTruthy();
+    expect(cells.getByText("18:00-19:30")).toBeTruthy();
     expect(cells.getByText("Продвинутые")).toBeTruthy();
     expect(
       cells.getByRole("button", { name: "Назначить корт тренировке Взрослые 18:00, 18:00–19:30" })
@@ -461,7 +476,7 @@ describe("CourtLoad page", () => {
     useReassignCourtBlock.mockReturnValue(mutation({ mutate }));
     renderPage();
 
-    fireEvent.click(screen.getByLabelText("Корт 2, 08:00 — Блокировка. Сменить корт."));
+    fireEvent.click(screen.getByLabelText("Корт 2, 08:00–08:30 — Блокировка"));
     const dialog = screen.getByRole("dialog", { name: "Сменить корт блокировки" });
     // Court 2 (current) is excluded; court 1 is the only target and is preselected.
     fireEvent.click(within(dialog).getByRole("button", { name: "Сохранить" }));
@@ -476,7 +491,7 @@ describe("CourtLoad page", () => {
     renderPage();
 
     fireEvent.click(
-      screen.getByLabelText("Корт 1, 09:00 — Тренировка. Открыть детали тренировки.")
+      screen.getByLabelText("Корт 1, 09:00–09:30 — Тренировка")
     );
     const detail = screen.getByRole("dialog", { name: "Тренировка" });
     fireEvent.click(within(detail).getByRole("button", { name: "Сменить корт" }));

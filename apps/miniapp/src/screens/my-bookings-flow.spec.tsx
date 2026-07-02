@@ -221,25 +221,26 @@ describe("MyBookingsScreen detail", () => {
   });
 });
 
-describe("MyBookingsScreen monthly export", () => {
-  it("exports the selected month as an ICS download", async () => {
+describe("MyBookingsScreen without monthly export controls", () => {
+  it("renders the bookings list without the removed monthly calendar export UI", async () => {
     renderWithProviders(<MyBookingsScreen onBrowse={() => {}} />);
 
-    fireEvent.click(await screen.findByRole("button", { name: /Google Calendar.*2026/i }));
+    await screen.findByText("Mix");
 
-    await waitFor(() => expect(api.exportMyBookingsCalendar).toHaveBeenCalledWith(2026, 6));
-    expect(window.URL.createObjectURL).toHaveBeenCalledTimes(1);
-    expect(window.URL.revokeObjectURL).toHaveBeenCalledWith("blob:calendar");
+    expect(screen.queryByRole("button", { name: /Google Calendar.*2026/i })).toBeNull();
+    expect(document.querySelector(".cal-nav")).toBeNull();
+    expect(api.exportMyBookingsCalendar).not.toHaveBeenCalled();
   });
 
-  it("uses the shifted month for export", async () => {
+  it("switches booking scopes without exposing calendar export controls", async () => {
     renderWithProviders(<MyBookingsScreen onBrowse={() => {}} />);
 
-    await screen.findByText(/2026/);
-    const monthButtons = Array.from(document.querySelectorAll<HTMLButtonElement>(".cal-nav__btn"));
-    fireEvent.click(monthButtons[monthButtons.length - 1]);
-    fireEvent.click(await screen.findByRole("button", { name: /Google Calendar.*2026/i }));
+    const tabs = await screen.findAllByRole("tab");
+    fireEvent.click(tabs[1]);
 
-    await waitFor(() => expect(api.exportMyBookingsCalendar).toHaveBeenCalledWith(2026, 7));
+    await waitFor(() => expect(api.listMyBookings).toHaveBeenCalledWith(ONBOARDED.id, "past"));
+    expect(screen.queryByRole("button", { name: /Google Calendar/i })).toBeNull();
+    expect(document.querySelector(".cal-nav__btn")).toBeNull();
+    expect(api.exportMyBookingsCalendar).not.toHaveBeenCalled();
   });
 });

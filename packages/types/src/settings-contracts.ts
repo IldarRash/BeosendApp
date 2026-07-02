@@ -1,5 +1,11 @@
 import { z } from "zod";
-import { normalizeUsername } from "./common";
+import {
+  dateString,
+  isSlotAligned,
+  minutesOfDay,
+  normalizeUsername,
+  timeString
+} from "./common";
 
 /** Manager contact shown to clients. Allows handles, phones, or short free text. */
 export const managerContactValueSchema = z.string().trim().min(1).max(120);
@@ -35,6 +41,151 @@ export type UpdateRequestLoggingSettingsInput = z.infer<
   typeof updateRequestLoggingSettingsSchema
 >;
 
+const calendarYear = z.coerce.number().int().min(2000).max(2100);
+const calendarMonth = z.coerce.number().int().min(1).max(12);
+const semanticDateString = dateString.refine(isRealIsoDate, "expected a real YYYY-MM-DD date");
+
+export const courtWorkingHoursSourceSchema = z.enum(["day", "month", "fallback"]);
+export type CourtWorkingHoursSource = z.infer<typeof courtWorkingHoursSourceSchema>;
+
+const courtWorkingHoursWindowShape = {
+  openTime: timeString,
+  closeTime: timeString
+};
+
+export const courtWorkingHoursWindowSchema = z
+  .object({
+    ...courtWorkingHoursWindowShape
+  })
+  .strict()
+  .refine((value) => isSlotAligned(value.openTime) && isSlotAligned(value.closeTime), {
+    message: "Court working hours must use 30-minute aligned HH:mm times."
+  })
+  .refine((value) => minutesOfDay(value.openTime) < minutesOfDay(value.closeTime), {
+    message: "Court working hours openTime must be before closeTime.",
+    path: ["closeTime"]
+  });
+export type CourtWorkingHoursWindow = z.infer<typeof courtWorkingHoursWindowSchema>;
+
+export const courtWorkingHoursSchema = z
+  .object({
+    date: semanticDateString,
+    ...courtWorkingHoursWindowShape,
+    source: courtWorkingHoursSourceSchema
+  })
+  .strict()
+  .refine((value) => isSlotAligned(value.openTime) && isSlotAligned(value.closeTime), {
+    message: "Court working hours must use 30-minute aligned HH:mm times."
+  })
+  .refine((value) => minutesOfDay(value.openTime) < minutesOfDay(value.closeTime), {
+    message: "Court working hours openTime must be before closeTime.",
+    path: ["closeTime"]
+  });
+export type CourtWorkingHours = z.infer<typeof courtWorkingHoursSchema>;
+
+export const courtWorkingHoursMonthQuerySchema = z
+  .object({
+    year: calendarYear,
+    month: calendarMonth
+  })
+  .strict();
+export type CourtWorkingHoursMonthQuery = z.infer<typeof courtWorkingHoursMonthQuerySchema>;
+
+export const updateCourtWorkingHoursMonthSchema = z
+  .object({
+    year: calendarYear,
+    month: calendarMonth,
+    ...courtWorkingHoursWindowShape
+  })
+  .strict()
+  .refine((value) => isSlotAligned(value.openTime) && isSlotAligned(value.closeTime), {
+    message: "Court working hours must use 30-minute aligned HH:mm times."
+  })
+  .refine((value) => minutesOfDay(value.openTime) < minutesOfDay(value.closeTime), {
+    message: "Court working hours openTime must be before closeTime.",
+    path: ["closeTime"]
+  });
+export type UpdateCourtWorkingHoursMonth = z.infer<typeof updateCourtWorkingHoursMonthSchema>;
+
+export const courtWorkingHoursDayQuerySchema = z
+  .object({
+    date: semanticDateString
+  })
+  .strict();
+export type CourtWorkingHoursDayQuery = z.infer<typeof courtWorkingHoursDayQuerySchema>;
+
+export const updateCourtWorkingHoursDaySchema = z
+  .object({
+    date: semanticDateString,
+    ...courtWorkingHoursWindowShape
+  })
+  .strict()
+  .refine((value) => isSlotAligned(value.openTime) && isSlotAligned(value.closeTime), {
+    message: "Court working hours must use 30-minute aligned HH:mm times."
+  })
+  .refine((value) => minutesOfDay(value.openTime) < minutesOfDay(value.closeTime), {
+    message: "Court working hours openTime must be before closeTime.",
+    path: ["closeTime"]
+  });
+export type UpdateCourtWorkingHoursDay = z.infer<typeof updateCourtWorkingHoursDaySchema>;
+
+export const courtWorkingHoursMonthSchema = z
+  .object({
+    year: calendarYear,
+    month: calendarMonth,
+    ...courtWorkingHoursWindowShape,
+    updatedAt: z.string().datetime(),
+    updatedBy: z.number().int().nullable()
+  })
+  .strict()
+  .refine((value) => isSlotAligned(value.openTime) && isSlotAligned(value.closeTime), {
+    message: "Court working hours must use 30-minute aligned HH:mm times."
+  })
+  .refine((value) => minutesOfDay(value.openTime) < minutesOfDay(value.closeTime), {
+    message: "Court working hours openTime must be before closeTime.",
+    path: ["closeTime"]
+  });
+export type CourtWorkingHoursMonth = z.infer<typeof courtWorkingHoursMonthSchema>;
+
+export const courtWorkingHoursDayOverrideSchema = z
+  .object({
+    date: semanticDateString,
+    ...courtWorkingHoursWindowShape,
+    updatedAt: z.string().datetime(),
+    updatedBy: z.number().int().nullable()
+  })
+  .strict()
+  .refine((value) => isSlotAligned(value.openTime) && isSlotAligned(value.closeTime), {
+    message: "Court working hours must use 30-minute aligned HH:mm times."
+  })
+  .refine((value) => minutesOfDay(value.openTime) < minutesOfDay(value.closeTime), {
+    message: "Court working hours openTime must be before closeTime.",
+    path: ["closeTime"]
+  });
+export type CourtWorkingHoursDayOverride = z.infer<typeof courtWorkingHoursDayOverrideSchema>;
+
+export const courtWorkingHoursMonthViewSchema = z
+  .object({
+    year: calendarYear,
+    month: calendarMonth,
+    fallback: courtWorkingHoursWindowSchema,
+    monthDefault: courtWorkingHoursMonthSchema.nullable(),
+    dayOverrides: z.array(courtWorkingHoursDayOverrideSchema)
+  })
+  .strict();
+export type CourtWorkingHoursMonthView = z.infer<typeof courtWorkingHoursMonthViewSchema>;
+
+export const courtWorkingHoursDayViewSchema = z
+  .object({
+    date: semanticDateString,
+    effective: courtWorkingHoursSchema,
+    fallback: courtWorkingHoursWindowSchema,
+    monthDefault: courtWorkingHoursMonthSchema.nullable(),
+    dayOverride: courtWorkingHoursDayOverrideSchema.nullable()
+  })
+  .strict();
+export type CourtWorkingHoursDayView = z.infer<typeof courtWorkingHoursDayViewSchema>;
+
 /** Build a t.me link only for a valid Telegram username/handle; other contacts stay plain text. */
 export function managerContactTelegramUrl(contact: string): string | null {
   const username = normalizeUsername(contact);
@@ -42,4 +193,14 @@ export function managerContactTelegramUrl(contact: string): string | null {
     return null;
   }
   return `https://t.me/${username}`;
+}
+
+function isRealIsoDate(value: string): boolean {
+  const [year, month, day] = value.split("-").map(Number);
+  const date = new Date(Date.UTC(year, month - 1, day));
+  return (
+    date.getUTCFullYear() === year &&
+    date.getUTCMonth() === month - 1 &&
+    date.getUTCDate() === day
+  );
 }

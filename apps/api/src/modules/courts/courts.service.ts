@@ -1,15 +1,15 @@
 import { ForbiddenException, Inject, Injectable, Logger } from "@nestjs/common";
 import { isAdmin, type Env } from "@beosand/config";
 import {
-  COURT_CLOSE_HOUR,
-  COURT_OPEN_HOUR,
   courtLoadGrid,
   courtLoadGridSchema,
   courtSchema,
+  minutesOfDay,
   type Court,
   type CourtLoadGrid
 } from "@beosand/types";
 import { ENV } from "../../config/config.module";
+import { SettingsService } from "../settings/settings.service";
 import { CourtsRepository } from "./courts.repository";
 
 /**
@@ -23,7 +23,8 @@ export class CourtsService {
 
   constructor(
     @Inject(ENV) private readonly env: Env,
-    private readonly repository: CourtsRepository
+    private readonly repository: CourtsRepository,
+    private readonly settings: SettingsService
   ) {}
 
   /** Active courts for an admin caller. Rejects non-admins before any DB read. */
@@ -57,11 +58,12 @@ export class CourtsService {
       this.repository.blocksByCourtForDate(date),
       this.repository.unassignedTrainingsForDate(date)
     ]);
+    const workingHours = await this.settings.resolveCourtWorkingHours(date);
 
     const rows = courtLoadGrid({
       courts: courts.map((court) => ({ id: court.id, number: court.number })),
-      openHour: COURT_OPEN_HOUR,
-      closeHour: COURT_CLOSE_HOUR,
+      openTime: workingHours.openTime,
+      closeTime: workingHours.closeTime,
       confirmed,
       holds,
       blocks
@@ -69,8 +71,11 @@ export class CourtsService {
 
     return courtLoadGridSchema.parse({
       date,
-      openHour: COURT_OPEN_HOUR,
-      closeHour: COURT_CLOSE_HOUR,
+      workingHours,
+      openTime: workingHours.openTime,
+      closeTime: workingHours.closeTime,
+      openHour: Math.floor(minutesOfDay(workingHours.openTime) / 60),
+      closeHour: Math.ceil(minutesOfDay(workingHours.closeTime) / 60),
       rows: rows.map((row) => ({
         courtId: row.courtId,
         courtNumber: row.courtNumber,

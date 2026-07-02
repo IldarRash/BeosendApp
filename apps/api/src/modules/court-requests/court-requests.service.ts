@@ -9,10 +9,9 @@ import {
 } from "@nestjs/common";
 import { isAdmin, type Env } from "@beosand/config";
 import {
-  COURT_CLOSE_HOUR,
   COURT_MIN_DURATION_HOURS,
-  COURT_OPEN_HOUR,
   courtAvailabilitySchema,
+  courtClientGridSchema,
   courtDurationHours,
   courtPriceRsd,
   courtRequestAdminViewSchema,
@@ -32,8 +31,11 @@ import {
   type Court,
   type CourtAvailability,
   type CourtCellOccupant,
+  type CourtClientGrid,
+  type CourtClientGridQuery,
   type CourtDurationHours,
   type CourtFreeCourtsQuery,
+  type CourtWorkingHours,
   type CourtOccupant,
   type CourtRequest,
   type CourtRequestAdminView,
@@ -53,6 +55,7 @@ import {
   renderNotificationTemplate,
   resolveTemplateBody
 } from "../notifications/notification-messages";
+import { SettingsService } from "../settings/settings.service";
 import { NotificationsService } from "../notifications/notifications.service";
 import { NotificationTemplatesRepository } from "../notification-templates/notification-templates.repository";
 import {
@@ -81,7 +84,8 @@ export class CourtRequestsService {
     private readonly dispatcher: ChannelDispatcher,
     private readonly domainEvents: DomainEventsService,
     private readonly notifications: NotificationsService,
-    private readonly templates: NotificationTemplatesRepository
+    private readonly templates: NotificationTemplatesRepository,
+    private readonly settings: SettingsService
   ) {}
 
   /** Offerable 30-min slot starts for a date, with free-court counts per slot. */
@@ -91,19 +95,21 @@ export class CourtRequestsService {
       this.repository.requestHoldSpansForDate(date),
       this.repository.blocksForDate(date)
     ]);
+    const workingHours = await this.settings.resolveCourtWorkingHours(date);
 
     const free = freeCourtsBySlot({
       activeCourtCount,
-      openHour: COURT_OPEN_HOUR,
-      closeHour: COURT_CLOSE_HOUR,
+      openTime: workingHours.openTime,
+      closeTime: workingHours.closeTime,
       confirmed: toOccupants(confirmedRows),
       blocks: toSlotOccupants(blockRows)
     });
 
     const slots: CourtAvailability["slots"] = [];
-    const closeMinutes = COURT_CLOSE_HOUR * 60;
+    const openMinutes = minutesOfDay(workingHours.openTime);
+    const closeMinutes = minutesOfDay(workingHours.closeTime);
     const minDurationMinutes = durationMinutesOf(COURT_MIN_DURATION_HOURS);
-    for (let m = COURT_OPEN_HOUR * 60; m + minDurationMinutes <= closeMinutes; m += 30) {
+    for (let m = openMinutes; m + minDurationMinutes <= closeMinutes; m += 30) {
       const startTime = timeOfMinutes(m);
       const freeCourts = freeForDuration(free, startTime, COURT_MIN_DURATION_HOURS);
       if (freeCourts > 0) {
@@ -115,6 +121,52 @@ export class CourtRequestsService {
   }
 
   /**
+   * Mini App redacted court grid for one date/duration. A cell represents starting
+   * a booking at that 30-minute slot on that court; it is free only when the full
+   * selected duration fits inside resolved working hours and the court has no
+   * pending hold, confirmed request, or block over any covered slot.
+   */
+  async clientGrid(input: CourtClientGridQuery): Promise<CourtClientGrid> {
+    const [courts, confirmed, blocks] = await Promise.all([
+      this.repository.activeCourts(),
+      this.repository.requestHoldCourtOccupancyForDate(input.date),
+      this.repository.blocksByCourtForDate(input.date)
+    ]);
+    const workingHours = await this.settings.resolveCourtWorkingHours(input.date);
+
+    const occupants = toCellOccupants(confirmed, blocks);
+    const openMinutes = minutesOfDay(workingHours.openTime);
+    const closeMinutes = minutesOfDay(workingHours.closeTime);
+    const durationMinutes = durationMinutesOf(input.durationHours);
+    const rows = courts.map((court) => {
+      const cells: CourtClientGrid["rows"][number]["cells"] = [];
+      for (let startMinutes = openMinutes; startMinutes < closeMinutes; startMinutes += 30) {
+        const startTime = timeOfMinutes(startMinutes);
+        const requestedEndMinutes = startMinutes + durationMinutes;
+        const fitsWorkingHours = requestedEndMinutes <= closeMinutes;
+        const slots = fitsWorkingHours ? courtSlotsCovered(startTime, durationMinutes) : [];
+        const state =
+          fitsWorkingHours && courtFreeForSlots(court.id, slots, occupants)
+            ? "free"
+            : "unavailable";
+        cells.push({
+          startTime,
+          endTime: safeGridEndTime(requestedEndMinutes, workingHours.closeTime),
+          state
+        });
+      }
+      return { courtNumber: court.number, cells };
+    });
+
+    return courtClientGridSchema.parse({
+      date: input.date,
+      durationHours: input.durationHours,
+      workingHours,
+      rows
+    });
+  }
+
+  /**
    * C2 — price + availability preview for a desired slot. No write. The price is
    * always computed server-side (courtPriceRsd × picked court count). When the Mini
    * App sends `courtNumbers`, availability requires EVERY picked court to be free for
@@ -122,7 +174,7 @@ export class CourtRequestsService {
    * Working hours are a hard rejection; availability is a flag (re-checked on create).
    */
   async previewRequest(input: PreviewCourtRequest): Promise<CourtRequestPreview> {
-    this.assertWithinWorkingHours(input.startTime, input.durationHours);
+    await this.assertWithinWorkingHours(input.date, input.startTime, input.durationHours);
 
     const courtNumbers = input.courtNumbers ?? [];
     const courtCount = courtNumbers.length > 0 ? courtNumbers.length : 1;
@@ -153,7 +205,7 @@ export class CourtRequestsService {
    * confirm). Rejects out-of-hours slots and conflicts atomically.
    */
   async createRequest(input: CreateCourtRequest): Promise<CourtRequest> {
-    this.assertWithinWorkingHours(input.startTime, input.durationHours);
+    await this.assertWithinWorkingHours(input.date, input.startTime, input.durationHours);
 
     const client = await this.repository.findActiveClientByTelegramId(input.telegramId);
     if (!client) {
@@ -257,7 +309,7 @@ export class CourtRequestsService {
    * so the picker only offers courts the create can hold.
    */
   async freeCourtNumbers(input: CourtFreeCourtsQuery): Promise<FreeCourtNumbers> {
-    this.assertWithinWorkingHours(input.startTime, input.durationHours);
+    await this.assertWithinWorkingHours(input.date, input.startTime, input.durationHours);
 
     const [courts, confirmed, blocks] = await Promise.all([
       this.repository.activeCourts(),
@@ -341,6 +393,7 @@ export class CourtRequestsService {
     }
 
     const duration = parseDuration(request.durationHours);
+    await this.assertWithinWorkingHours(request.date, request.startTime, duration);
     const [courts, confirmed, blocks] = await Promise.all([
       this.repository.activeCourts(),
       this.repository.requestHoldCourtOccupancyForDate(request.date),
@@ -388,6 +441,13 @@ export class CourtRequestsService {
       }
       await tx.lockDate(request.date);
 
+      const duration = parseDuration(request.durationHours);
+      const workingHours = await this.assertWithinWorkingHours(
+        request.date,
+        request.startTime,
+        duration
+      );
+
       if (courtIds.length !== request.courtCount) {
         throw new BadRequestException(
           `This request is for ${request.courtCount} court(s); choose exactly that many.`
@@ -400,7 +460,6 @@ export class CourtRequestsService {
         }
       }
 
-      const duration = parseDuration(request.durationHours);
       const slots = courtSlotsCovered(request.startTime, durationMinutesOf(duration));
       const [activeCourtCount, confirmed, blocks] = await Promise.all([
         tx.countActiveCourts(),
@@ -416,8 +475,8 @@ export class CourtRequestsService {
       // slot, counting the courts about to be assigned.
       const free = freeCourtsBySlot({
         activeCourtCount,
-        openHour: COURT_OPEN_HOUR,
-        closeHour: COURT_CLOSE_HOUR,
+        openTime: workingHours.openTime,
+        closeTime: workingHours.closeTime,
         confirmed: otherConfirmed.map(toOccupant),
         blocks: toSlotOccupantsFromCourtRows(blocks)
       });
@@ -618,17 +677,33 @@ export class CourtRequestsService {
   }
 
   /** Reject a slot off the 30-min grid, before open, or whose end runs past close. */
-  private assertWithinWorkingHours(startTime: string, durationHours: CourtDurationHours): void {
+  private async assertWithinWorkingHours(
+    date: string,
+    startTime: string,
+    durationHours: CourtDurationHours
+  ): Promise<CourtWorkingHours> {
     if (!isSlotAligned(startTime)) {
       throw new BadRequestException("Court bookings start on a 30-minute boundary (HH:00 or HH:30).");
     }
+    const workingHours = await this.settings.resolveCourtWorkingHours(date);
+    this.assertWithinResolvedWorkingHours(startTime, durationHours, workingHours);
+    return workingHours;
+  }
+
+  private assertWithinResolvedWorkingHours(
+    startTime: string,
+    durationHours: CourtDurationHours,
+    workingHours: CourtWorkingHours
+  ): void {
     const startMinutes = minutesOfDay(startTime);
-    if (startMinutes < COURT_OPEN_HOUR * 60) {
-      throw new BadRequestException(`Courts open at ${pad(COURT_OPEN_HOUR)}:00.`);
+    const openMinutes = minutesOfDay(workingHours.openTime);
+    const closeMinutes = minutesOfDay(workingHours.closeTime);
+    if (startMinutes < openMinutes) {
+      throw new BadRequestException(`Courts open at ${workingHours.openTime}.`);
     }
-    if (startMinutes + durationMinutesOf(durationHours) > COURT_CLOSE_HOUR * 60) {
+    if (startMinutes + durationMinutesOf(durationHours) > closeMinutes) {
       throw new BadRequestException(
-        `That time runs past closing (${pad(COURT_CLOSE_HOUR)}:00). Pick an earlier start.`
+        `That time runs past closing (${workingHours.closeTime}). Pick an earlier start.`
       );
     }
   }
@@ -644,11 +719,12 @@ export class CourtRequestsService {
       this.repository.requestHoldSpansForDate(date),
       this.repository.blocksForDate(date)
     ]);
+    const workingHours = await this.settings.resolveCourtWorkingHours(date);
 
     const free = freeCourtsBySlot({
       activeCourtCount,
-      openHour: COURT_OPEN_HOUR,
-      closeHour: COURT_CLOSE_HOUR,
+      openTime: workingHours.openTime,
+      closeTime: workingHours.closeTime,
       confirmed: toOccupants(confirmedRows),
       blocks: toSlotOccupants(blockRows)
     });
@@ -685,8 +761,8 @@ function confirmedCourtNumbers(row: { status: CourtRequestStatus; courtNumbers: 
   return row.status === "confirmed" ? row.courtNumbers : [];
 }
 
-function pad(hour: number): string {
-  return String(hour).padStart(2, "0");
+function safeGridEndTime(requestedEndMinutes: number, closeTime: string): string {
+  return requestedEndMinutes < 24 * 60 ? timeOfMinutes(requestedEndMinutes) : closeTime;
 }
 
 /** Drop duplicate ids preserving order. */

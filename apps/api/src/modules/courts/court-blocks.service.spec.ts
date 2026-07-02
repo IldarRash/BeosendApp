@@ -6,6 +6,7 @@ import {
 } from "@nestjs/common";
 import type { Env } from "@beosand/config";
 import { beforeEach, describe, expect, it, vi } from "vitest";
+import type { SettingsService } from "../settings/settings.service";
 import { CourtBlocksService } from "./court-blocks.service";
 import type { CourtBlocksRepository } from "./court-blocks.repository";
 
@@ -46,6 +47,17 @@ function makeRepo(overrides: Partial<CourtBlocksRepository> = {}): CourtBlocksRe
   } as unknown as CourtBlocksRepository;
 }
 
+function makeSettings(openTime = "07:00", closeTime = "21:00"): SettingsService {
+  return {
+    resolveCourtWorkingHours: vi.fn(async (date: string) => ({
+      date,
+      openTime,
+      closeTime,
+      source: "fallback"
+    }))
+  } as unknown as SettingsService;
+}
+
 const baseInput = {
   courtId: COURT_ID,
   date: "2026-06-10",
@@ -60,7 +72,7 @@ describe("CourtBlocksService", () => {
 
   beforeEach(() => {
     repo = makeRepo();
-    service = new CourtBlocksService(env, repo);
+    service = new CourtBlocksService(env, repo, makeSettings());
   });
 
   describe("admin gate", () => {
@@ -114,6 +126,15 @@ describe("CourtBlocksService", () => {
         service.createBlock(ADMIN, { ...baseInput, startTime: "06:00", endTime: "07:00" })
       ).rejects.toThrow();
     });
+
+    it("rejects ranges outside the resolved date working hours", async () => {
+      service = new CourtBlocksService(env, repo, makeSettings("09:00", "18:00"));
+
+      await expect(
+        service.createBlock(ADMIN, { ...baseInput, startTime: "18:00", endTime: "19:00" })
+      ).rejects.toThrow("Court blocks must be within working hours (09:00-18:00).");
+      expect(repo.insert).not.toHaveBeenCalled();
+    });
   });
 
   describe("overlap guard", () => {
@@ -123,7 +144,7 @@ describe("CourtBlocksService", () => {
           .fn()
           .mockResolvedValue([{ startTime: "19:00", endTime: "20:00" }])
       });
-      service = new CourtBlocksService(env, repo);
+      service = new CourtBlocksService(env, repo, makeSettings());
       await expect(service.createBlock(ADMIN, baseInput)).rejects.toBeInstanceOf(ConflictException);
       expect(repo.insert).not.toHaveBeenCalled();
     });
@@ -135,7 +156,7 @@ describe("CourtBlocksService", () => {
           .fn()
           .mockResolvedValue([{ startTime: "18:00", endTime: "19:00" }])
       });
-      service = new CourtBlocksService(env, repo);
+      service = new CourtBlocksService(env, repo, makeSettings());
       await expect(service.createBlock(ADMIN, baseInput)).rejects.toBeInstanceOf(ConflictException);
       expect(repo.insert).not.toHaveBeenCalled();
     });
@@ -157,7 +178,7 @@ describe("CourtBlocksService", () => {
           .fn()
           .mockResolvedValue([{ startTime: "20:00", endTime: "21:00" }])
       });
-      service = new CourtBlocksService(env, repo);
+      service = new CourtBlocksService(env, repo, makeSettings());
       const block = await service.createBlock(ADMIN, baseInput);
       expect(block.courtId).toBe(COURT_ID);
       expect(repo.insert).toHaveBeenCalledOnce();
@@ -171,7 +192,7 @@ describe("CourtBlocksService", () => {
           .fn()
           .mockResolvedValue([{ startTime: "17:00", endTime: "18:00" }])
       });
-      service = new CourtBlocksService(env, repo);
+      service = new CourtBlocksService(env, repo, makeSettings());
       const block = await service.createBlock(ADMIN, baseInput);
       expect(block.courtId).toBe(COURT_ID);
       expect(repo.insert).toHaveBeenCalledOnce();
@@ -184,7 +205,7 @@ describe("CourtBlocksService", () => {
           .fn()
           .mockResolvedValue([{ startTime: "18:30", endTime: "19:30" }])
       });
-      service = new CourtBlocksService(env, repo);
+      service = new CourtBlocksService(env, repo, makeSettings());
       await expect(service.createBlock(ADMIN, baseInput)).rejects.toBeInstanceOf(ConflictException);
       expect(repo.insert).not.toHaveBeenCalled();
     });
@@ -197,7 +218,7 @@ describe("CourtBlocksService", () => {
           .fn()
           .mockResolvedValue([{ startTime: "19:00", endTime: "20:00" }])
       });
-      service = new CourtBlocksService(env, repo);
+      service = new CourtBlocksService(env, repo, makeSettings());
       const block = await service.createBlock(ADMIN, {
         ...baseInput,
         startTime: "17:30",
@@ -211,7 +232,7 @@ describe("CourtBlocksService", () => {
 
   it("rejects a block on an unknown/inactive court", async () => {
     repo = makeRepo({ isActiveCourt: vi.fn().mockResolvedValue(false) });
-    service = new CourtBlocksService(env, repo);
+    service = new CourtBlocksService(env, repo, makeSettings());
     await expect(service.createBlock(ADMIN, baseInput)).rejects.toBeInstanceOf(NotFoundException);
   });
 
@@ -315,7 +336,7 @@ describe("CourtBlocksService", () => {
             date === "2026-06-03" ? [{ startTime: "18:30", endTime: "19:30" }] : []
           )
       });
-      service = new CourtBlocksService(env, repo);
+      service = new CourtBlocksService(env, repo, makeSettings());
 
       await expect(service.createRecurringBlocks(ADMIN, recurringInput)).rejects.toThrow(
         "2026-06-03 18:30-19:30"
@@ -333,7 +354,7 @@ describe("CourtBlocksService", () => {
               : []
           )
       });
-      service = new CourtBlocksService(env, repo);
+      service = new CourtBlocksService(env, repo, makeSettings());
 
       await expect(service.createRecurringBlocks(ADMIN, recurringInput)).rejects.toThrow(
         "2026-06-07 19:00-20:00"
@@ -344,7 +365,7 @@ describe("CourtBlocksService", () => {
 
   it("throws NotFound deleting a missing block", async () => {
     repo = makeRepo({ deleteById: vi.fn().mockResolvedValue(false) });
-    service = new CourtBlocksService(env, repo);
+    service = new CourtBlocksService(env, repo, makeSettings());
     await expect(service.deleteBlock(ADMIN, "missing")).rejects.toBeInstanceOf(NotFoundException);
   });
 
@@ -359,7 +380,7 @@ describe("CourtBlocksService", () => {
       groupTrainingId: null
     };
     repo = makeRepo({ findById: vi.fn().mockResolvedValue(block) });
-    service = new CourtBlocksService(env, repo);
+    service = new CourtBlocksService(env, repo, makeSettings());
 
     await service.deleteBlock(ADMIN, BLOCK_ID);
 
@@ -388,7 +409,7 @@ describe("CourtBlocksService", () => {
         groupTrainingId: null
       }));
       repo = makeRepo({ findByDateRange: vi.fn().mockResolvedValue(ranged) });
-      service = new CourtBlocksService(env, repo);
+      service = new CourtBlocksService(env, repo, makeSettings());
 
       const blocks = await service.listBlocks(ADMIN, "2026-06-10", "2026-06-12");
 
@@ -421,7 +442,7 @@ describe("CourtBlocksService", () => {
 
     it("rejects a non-admin before any DB read", async () => {
       repo = makeRepo({ findById: vi.fn().mockResolvedValue(existingBlock) });
-      service = new CourtBlocksService(env, repo);
+      service = new CourtBlocksService(env, repo, makeSettings());
       await expect(
         service.reassignCourt(NON_ADMIN, BLOCK_ID, { courtId: TARGET_COURT })
       ).rejects.toBeInstanceOf(ForbiddenException);
@@ -430,7 +451,7 @@ describe("CourtBlocksService", () => {
 
     it("404s a missing block", async () => {
       repo = makeRepo({ findById: vi.fn().mockResolvedValue(null) });
-      service = new CourtBlocksService(env, repo);
+      service = new CourtBlocksService(env, repo, makeSettings());
       await expect(
         service.reassignCourt(ADMIN, BLOCK_ID, { courtId: TARGET_COURT })
       ).rejects.toBeInstanceOf(NotFoundException);
@@ -441,7 +462,7 @@ describe("CourtBlocksService", () => {
         findById: vi.fn().mockResolvedValue(existingBlock),
         isActiveCourt: vi.fn().mockResolvedValue(false)
       });
-      service = new CourtBlocksService(env, repo);
+      service = new CourtBlocksService(env, repo, makeSettings());
       await expect(
         service.reassignCourt(ADMIN, BLOCK_ID, { courtId: TARGET_COURT })
       ).rejects.toBeInstanceOf(BadRequestException);
@@ -449,7 +470,7 @@ describe("CourtBlocksService", () => {
 
     it("moves the block onto a free target court", async () => {
       repo = makeRepo({ findById: vi.fn().mockResolvedValue(existingBlock) });
-      service = new CourtBlocksService(env, repo);
+      service = new CourtBlocksService(env, repo, makeSettings());
       const moved = await service.reassignCourt(ADMIN, BLOCK_ID, { courtId: TARGET_COURT });
       expect(moved.courtId).toBe(TARGET_COURT);
       expect(repo.updateCourt).toHaveBeenCalledWith(BLOCK_ID, TARGET_COURT, expect.anything());
@@ -457,7 +478,7 @@ describe("CourtBlocksService", () => {
 
     it("takes the per-date occupancy lock before reassign overlap reads and update", async () => {
       repo = makeRepo({ findById: vi.fn().mockResolvedValue(existingBlock) });
-      service = new CourtBlocksService(env, repo);
+      service = new CourtBlocksService(env, repo, makeSettings());
 
       await service.reassignCourt(ADMIN, BLOCK_ID, { courtId: TARGET_COURT });
 
@@ -479,7 +500,7 @@ describe("CourtBlocksService", () => {
             { courtId: TARGET_COURT, startTime: "18:30", durationMinutes: 60 }
           ])
       });
-      service = new CourtBlocksService(env, repo);
+      service = new CourtBlocksService(env, repo, makeSettings());
       await expect(
         service.reassignCourt(ADMIN, BLOCK_ID, { courtId: TARGET_COURT })
       ).rejects.toBeInstanceOf(ConflictException);
@@ -497,7 +518,7 @@ describe("CourtBlocksService", () => {
             { courtId: "99999999-9999-4999-8999-999999999999", startTime: "18:00", durationMinutes: 120 }
           ])
       });
-      service = new CourtBlocksService(env, repo);
+      service = new CourtBlocksService(env, repo, makeSettings());
       await expect(
         service.reassignCourt(ADMIN, BLOCK_ID, { courtId: TARGET_COURT })
       ).rejects.toBeInstanceOf(ConflictException);

@@ -10,6 +10,7 @@ import { COURT_CLOSE_HOUR, COURT_OPEN_HOUR, myCourtRequestItemSchema } from "@be
 import type { ChannelDispatcher } from "../connectors/channels/channel-dispatcher.service";
 import type { DomainEventsService } from "../connectors/domain-events.service";
 import type { NotificationsService } from "../notifications/notifications.service";
+import type { SettingsService } from "../settings/settings.service";
 import {
   CourtModerationTx,
   CourtRequestsRepository,
@@ -49,11 +50,23 @@ function makeTemplates(): { findOverride: ReturnType<typeof vi.fn> } {
   return { findOverride: vi.fn().mockResolvedValue(undefined) };
 }
 
+function makeSettings(openTime = "07:00", closeTime = "21:00"): SettingsService {
+  return {
+    resolveCourtWorkingHours: vi.fn(async (inputDate: string) => ({
+      date: inputDate,
+      openTime,
+      closeTime,
+      source: "fallback"
+    }))
+  } as unknown as SettingsService;
+}
+
 function makeService(
   repo: CourtRequestsRepository,
   dispatcher: ChannelDispatcher = makeDispatcher(),
   domainEvents: DomainEventsService = makeDomainEvents(),
-  notifications: NotificationsService = makeNotifications()
+  notifications: NotificationsService = makeNotifications(),
+  settings: SettingsService = makeSettings()
 ) {
   return new CourtRequestsService(
     repo,
@@ -61,7 +74,8 @@ function makeService(
     dispatcher,
     domainEvents,
     notifications,
-    makeTemplates() as never
+    makeTemplates() as never,
+    settings
   );
 }
 
@@ -134,6 +148,20 @@ describe("CourtRequestsService.getAvailability", () => {
     expect(result.slots).toHaveLength(slotCount);
     expect(result.slots[0]).toEqual({ startTime: firstWorkingStart, freeCourts: 6 });
     expect(result.slots.every((s) => s.freeCourts === 6)).toBe(true);
+  });
+
+  it("uses resolved working hours for the offered start window", async () => {
+    const service = makeService(
+      makeRepo({ activeCourtCount: 6 }),
+      makeDispatcher(),
+      makeDomainEvents(),
+      makeNotifications(),
+      makeSettings("09:30", "11:00")
+    );
+
+    const result = await service.getAvailability(date);
+
+    expect(result.slots.map((slot) => slot.startTime)).toEqual(["09:30", "10:00"]);
   });
 
   it("subtracts confirmed/held requests from the slots they cover", async () => {
@@ -317,6 +345,22 @@ describe("CourtRequestsService.previewRequest (C2 price + availability)", () => 
     await expect(
       service.previewRequest({ telegramId: tg, date, startTime: "20:00", durationHours: 2 })
     ).rejects.toBeInstanceOf(BadRequestException);
+  });
+
+  it("rejects a start that overruns the resolved closing time", async () => {
+    const repo = makeRepo({});
+    const service = makeService(
+      repo,
+      makeDispatcher(),
+      makeDomainEvents(),
+      makeNotifications(),
+      makeSettings("09:00", "11:00")
+    );
+
+    await expect(
+      service.previewRequest({ telegramId: tg, date, startTime: "10:30", durationHours: 1 })
+    ).rejects.toBeInstanceOf(BadRequestException);
+    expect(repo.requestHoldSpansForDate).not.toHaveBeenCalled();
   });
 
   it("reports available=false when the count-only slot is full (bot path)", async () => {
@@ -738,6 +782,113 @@ describe("CourtRequestsService.freeCourtNumbers (C3.1 client picker)", () => {
   });
 });
 
+describe("CourtRequestsService.clientGrid (Mini App redacted grid)", () => {
+  function makeGridRepo(input: {
+    activeCourts?: { id: string; number: number }[];
+    confirmed?: CourtOccupancyRow[];
+    blocks?: CourtOccupancyRow[];
+  }): CourtRequestsRepository {
+    return {
+      activeCourts: vi.fn().mockResolvedValue(
+        input.activeCourts ?? [
+          { id: courtIdA, number: 1 },
+          { id: courtIdB, number: 2 }
+        ]
+      ),
+      requestHoldCourtOccupancyForDate: vi.fn().mockResolvedValue(input.confirmed ?? []),
+      blocksByCourtForDate: vi.fn().mockResolvedValue(input.blocks ?? [])
+    } as unknown as CourtRequestsRepository;
+  }
+
+  it("marks cells free only when every covered slot on that court is open", async () => {
+    const service = makeService(
+      makeGridRepo({
+        confirmed: [
+          courtOcc(courtIdA, "09:00", 1, "pending-request"),
+          courtOcc(courtIdA, "10:00", 1, "confirmed-request")
+        ],
+        blocks: [courtBlockOcc(courtIdB, "09:30", 30)]
+      }),
+      makeDispatcher(),
+      makeDomainEvents(),
+      makeNotifications(),
+      makeSettings("09:00", "11:00")
+    );
+
+    const result = await service.clientGrid({ date, durationHours: 1 });
+
+    expect(result.rows).toHaveLength(2);
+    expect(result.rows[0]).toMatchObject({
+      courtNumber: 1,
+      cells: [
+        { startTime: "09:00", endTime: "10:00", state: "unavailable" },
+        { startTime: "09:30", endTime: "10:30", state: "unavailable" },
+        { startTime: "10:00", endTime: "11:00", state: "unavailable" },
+        { startTime: "10:30", endTime: "11:30", state: "unavailable" }
+      ]
+    });
+    expect(result.rows[1]).toMatchObject({
+      courtNumber: 2,
+      cells: [
+        { startTime: "09:00", state: "unavailable" },
+        { startTime: "09:30", state: "unavailable" },
+        { startTime: "10:00", state: "free" },
+        { startTime: "10:30", state: "unavailable" }
+      ]
+    });
+  });
+
+  it("marks near-closing starts unavailable when the selected duration overruns working hours", async () => {
+    const service = makeService(
+      makeGridRepo({}),
+      makeDispatcher(),
+      makeDomainEvents(),
+      makeNotifications(),
+      makeSettings("09:00", "11:00")
+    );
+
+    const result = await service.clientGrid({ date, durationHours: 1.5 });
+    const firstRow = result.rows[0];
+
+    expect(firstRow.cells).toEqual([
+      { startTime: "09:00", endTime: "10:30", state: "free" },
+      { startTime: "09:30", endTime: "11:00", state: "free" },
+      { startTime: "10:00", endTime: "11:30", state: "unavailable" },
+      { startTime: "10:30", endTime: "12:00", state: "unavailable" }
+    ]);
+  });
+
+  it("does not expose court/request/block/training/client identifiers", async () => {
+    const service = makeService(
+      makeGridRepo({
+        confirmed: [courtOcc(courtIdA, "09:00", 1, requestId)],
+        blocks: [courtBlockOcc(courtIdB, "09:30", 30)]
+      }),
+      makeDispatcher(),
+      makeDomainEvents(),
+      makeNotifications(),
+      makeSettings("09:00", "10:30")
+    );
+
+    const result = await service.clientGrid({ date, durationHours: 1 });
+
+    for (const row of result.rows) {
+      expect(Object.keys(row).sort()).toEqual(["cells", "courtNumber"]);
+      for (const cell of row.cells) {
+        expect(Object.keys(cell).sort()).toEqual(["endTime", "startTime", "state"]);
+      }
+    }
+    const serialized = JSON.stringify(result);
+    expect(serialized).not.toContain("courtId");
+    expect(serialized).not.toContain("requestId");
+    expect(serialized).not.toContain("blockId");
+    expect(serialized).not.toContain("trainingId");
+    expect(serialized).not.toContain("client");
+    expect(serialized).not.toContain(courtIdA);
+    expect(serialized).not.toContain(requestId);
+  });
+});
+
 describe("CourtRequestsService.freeCourts (C4 admin)", () => {
   it("rejects a non-admin caller", async () => {
     const service = makeService(makeModerationRepo({}));
@@ -751,6 +902,24 @@ describe("CourtRequestsService.freeCourts (C4 admin)", () => {
     const courts = await service.freeCourts(adminId, requestId);
     expect(courts.map((c) => c.id)).toEqual([courtIdB]);
     expect(courts[0].number).toBe(2);
+  });
+
+  it("rejects a pending request that now runs past resolved closing time", async () => {
+    const repo = makeModerationRepo({
+      findById: makeRow({ startTime: "14:00:00", durationHours: "2.0" })
+    });
+    const service = makeService(
+      repo,
+      makeDispatcher(),
+      makeDomainEvents(),
+      makeNotifications(),
+      makeSettings("07:00", "15:00")
+    );
+
+    await expect(service.freeCourts(adminId, requestId)).rejects.toThrow(
+      "That time runs past closing (15:00). Pick an earlier start."
+    );
+    expect(repo.activeCourts).not.toHaveBeenCalled();
   });
 
   it("EXCLUDES the request's OWN held courts so its current picks stay assignable", async () => {
@@ -779,6 +948,27 @@ describe("CourtRequestsService.confirmRequest (C4 admin)", () => {
       service.confirmRequest(123, { requestId, courtIds: [courtIdA] })
     ).rejects.toBeInstanceOf(ForbiddenException);
     expect(repo.transaction).not.toHaveBeenCalled();
+  });
+
+  it("rejects a pending request that now runs past resolved closing time before assigning", async () => {
+    const { tx, decide } = makeTx({
+      request: makeRow({ startTime: "14:00:00", durationHours: "2.0", courtCount: 1 }),
+      activeCourtIds: [courtIdA, courtIdB]
+    });
+    const service = makeService(
+      makeModerationRepo({ tx }),
+      makeDispatcher(),
+      makeDomainEvents(),
+      makeNotifications(),
+      makeSettings("07:00", "15:00")
+    );
+
+    await expect(
+      service.confirmRequest(adminId, { requestId, courtIds: [courtIdA] })
+    ).rejects.toThrow("That time runs past closing (15:00). Pick an earlier start.");
+    expect(tx.lockDate).toHaveBeenCalledWith(date);
+    expect(tx.isActiveCourt).not.toHaveBeenCalled();
+    expect(decide).not.toHaveBeenCalled();
   });
 
   it("assigns the chosen court, flips to confirmed, stamps decided_*, and notifies with all numbers", async () => {
@@ -1090,7 +1280,8 @@ describe("CourtRequestsService.notifyDecision locale (client's language)", () =>
       dispatcher,
       makeDomainEvents(),
       makeNotifications(),
-      templates as never
+      templates as never,
+      makeSettings()
     );
 
     await service.rejectRequest(adminId, { requestId });

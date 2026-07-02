@@ -496,14 +496,15 @@ export class TrainingsRepository {
   }
 
   /**
-   * Trainings whose date is in [from, to], optionally for one group, with optional
-   * terminal-status visibility: when `includeTerminal` is true, cancelled/completed
-   * are included; otherwise both are hidden from admin list views.
+   * Trainings whose date is in [from, to], optionally for one group and/or trainer,
+   * with optional terminal-status visibility: when `includeTerminal` is true,
+   * cancelled/completed are included; otherwise both are hidden from admin list views.
    */
   async listInRange(
     from: string,
     to: string,
     groupId?: string,
+    trainerId?: string,
     includeTerminal = false
   ): Promise<Training[]> {
     const filters = [gte(tables.trainings.date, from), lte(tables.trainings.date, to)];
@@ -513,6 +514,9 @@ export class TrainingsRepository {
     }
     if (groupId) {
       filters.push(eq(tables.trainings.groupId, groupId));
+    }
+    if (trainerId) {
+      filters.push(eq(tables.trainings.trainerId, trainerId));
     }
     const where = and(...filters);
     const rows = await this.database.db

@@ -278,6 +278,113 @@ describe("ApiClient group-court scheduling (features 2+3)", () => {
   });
 });
 
+describe("ApiClient court working hours", () => {
+  afterEach(() => {
+    vi.unstubAllGlobals();
+  });
+
+  it("reads the month working-hours view with the year/month query and validates it", async () => {
+    const calls = mockFetchOnce({
+      year: 2026,
+      month: 7,
+      fallback: { openTime: "07:00", closeTime: "21:00" },
+      monthDefault: {
+        year: 2026,
+        month: 7,
+        openTime: "08:00",
+        closeTime: "20:00",
+        updatedAt: "2026-07-02T10:00:00.000Z",
+        updatedBy: 111
+      },
+      dayOverrides: []
+    });
+
+    const result = await new ApiClient("http://api.test").courtWorkingHours(2026, 7);
+
+    expect(calls[0]?.url).toBe("http://api.test/settings/court-hours/month?year=2026&month=7");
+    expect(result.monthDefault?.openTime).toBe("08:00");
+  });
+
+  it("upserts a month default through the validated court-hours body", async () => {
+    const calls = mockFetchOnce({
+      year: 2026,
+      month: 7,
+      openTime: "08:30",
+      closeTime: "19:30",
+      updatedAt: "2026-07-02T10:00:00.000Z",
+      updatedBy: 111
+    });
+
+    const result = await new ApiClient("http://api.test").upsertCourtWorkingHoursMonth({
+      year: 2026,
+      month: 7,
+      openTime: "08:30",
+      closeTime: "19:30"
+    });
+
+    expect(calls[0]?.url).toBe("http://api.test/settings/court-hours/month");
+    expect(calls[0]?.init?.method).toBe("PUT");
+    expect(JSON.parse(calls[0]?.init?.body as string)).toEqual({
+      year: 2026,
+      month: 7,
+      openTime: "08:30",
+      closeTime: "19:30"
+    });
+    expect(result.updatedBy).toBe(111);
+  });
+
+  it("reads, upserts and deletes a day override on the day court-hours path", async () => {
+    const dayViewCalls = mockFetchOnce({
+      date: "2026-07-15",
+      effective: {
+        date: "2026-07-15",
+        openTime: "09:00",
+        closeTime: "18:00",
+        source: "day"
+      },
+      fallback: { openTime: "07:00", closeTime: "21:00" },
+      monthDefault: null,
+      dayOverride: {
+        date: "2026-07-15",
+        openTime: "09:00",
+        closeTime: "18:00",
+        updatedAt: "2026-07-02T10:00:00.000Z",
+        updatedBy: 111
+      }
+    });
+    await expect(new ApiClient("http://api.test").courtWorkingHoursDay("2026-07-15")).resolves
+      .toMatchObject({ effective: { source: "day" } });
+    expect(dayViewCalls[0]?.url).toBe(
+      "http://api.test/settings/court-hours/day?date=2026-07-15"
+    );
+
+    const upsertCalls = mockFetchOnce({
+      date: "2026-07-15",
+      openTime: "09:00",
+      closeTime: "18:00",
+      updatedAt: "2026-07-02T10:00:00.000Z",
+      updatedBy: 111
+    });
+    await new ApiClient("http://api.test").upsertCourtWorkingHoursDay({
+      date: "2026-07-15",
+      openTime: "09:00",
+      closeTime: "18:00"
+    });
+    expect(upsertCalls[0]?.url).toBe("http://api.test/settings/court-hours/day");
+    expect(upsertCalls[0]?.init?.method).toBe("PUT");
+    expect(JSON.parse(upsertCalls[0]?.init?.body as string)).toEqual({
+      date: "2026-07-15",
+      openTime: "09:00",
+      closeTime: "18:00"
+    });
+
+    const deleteCalls = mockFetchOnce(undefined);
+    await new ApiClient("http://api.test").deleteCourtWorkingHoursDay("2026-07-15");
+    expect(deleteCalls[0]?.url).toBe("http://api.test/settings/court-hours/day?date=2026-07-15");
+    expect(deleteCalls[0]?.init?.method).toBe("DELETE");
+  });
+});
+
 describe("ApiClient individual trainings & reschedule", () => {
   afterEach(() => {
     vi.unstubAllGlobals();
@@ -728,6 +835,7 @@ describe("ApiClient trainings list (Slice B)", () => {
   const TRAINING_ID = "44444444-4444-4444-4444-444444444444";
   const COURT_ID = "22222222-2222-2222-2222-222222222222";
   const TRAINING_GROUP_ID = "11111111-1111-1111-1111-111111111111";
+  const TRAINER_ID = "55555555-5555-5555-5555-555555555555";
 
   const training = {
     id: TRAINING_ID,
@@ -735,7 +843,7 @@ describe("ApiClient trainings list (Slice B)", () => {
     date: "2026-07-06",
     startTime: "18:00",
     endTime: "19:00",
-    trainerId: "55555555-5555-5555-5555-555555555555",
+    trainerId: TRAINER_ID,
     capacity: 12,
     bookedCount: 4,
     priceSingleRsd: 1500,
@@ -751,6 +859,19 @@ describe("ApiClient trainings list (Slice B)", () => {
       includeTerminal: true
     });
     expect(calls[0]?.url).toBe("http://api.test/trainings?from=2026-07-01&to=2026-07-31&includeTerminal=true");
+  });
+
+  it("serializes groupId and trainerId in trainings list query", async () => {
+    const calls = mockFetchOnce([training]);
+    await new ApiClient("http://api.test").listTrainings({
+      from: "2026-07-01",
+      to: "2026-07-31",
+      groupId: TRAINING_GROUP_ID,
+      trainerId: TRAINER_ID
+    });
+    expect(calls[0]?.url).toBe(
+      `http://api.test/trainings?from=2026-07-01&to=2026-07-31&groupId=${TRAINING_GROUP_ID}&trainerId=${TRAINER_ID}`
+    );
   });
 
   it("changes a training court via PATCH /trainings/:id/court", async () => {

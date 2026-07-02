@@ -136,21 +136,38 @@ export function Trainings(): JSX.Element {
   const [from, setFrom] = useState(() => currentMonthRange().from);
   const [to, setTo] = useState(() => currentMonthRange().to);
   const [filterGroupId, setFilterGroupId] = useState("");
+  const [filterTrainerId, setFilterTrainerId] = useState("");
+  const [filterStatus, setFilterStatus] = useState("");
+  const [filterBookedMin, setFilterBookedMin] = useState<number | null>(null);
+  const [filterBookedMax, setFilterBookedMax] = useState<number | null>(null);
   const [showTerminal, setShowTerminal] = useState(false);
 
   const groups = useGroups();
   const trainers = useTrainers();
   const courts = useCourts();
 
+  const serverGroupId =
+    filterGroupId === TRAINING_GROUP_FILTER_INDIVIDUAL ||
+    filterGroupId === TRAINING_GROUP_FILTER_ONE_OFF
+      ? ""
+      : filterGroupId;
   const query: ListTrainingsQuery | null =
     from && to
-      ? { from, to, ...(filterGroupId ? { groupId: filterGroupId } : {}), ...(showTerminal ? { includeTerminal: true } : {}) }
+      ? {
+          from,
+          to,
+          ...(serverGroupId ? { groupId: serverGroupId } : {}),
+          ...(filterTrainerId ? { trainerId: filterTrainerId } : {}),
+          ...(showTerminal ? { includeTerminal: true } : {})
+        }
       : null;
   const trainings = useTrainings(query);
 
   const groupOptions = useMemo<SelectOption[]>(
     () => [
       { value: "", label: t("admin.trainings.allGroups") },
+      { value: TRAINING_GROUP_FILTER_INDIVIDUAL, label: t("admin.trainings.individual") },
+      { value: TRAINING_GROUP_FILTER_ONE_OFF, label: t("admin.trainings.oneOff") },
       ...(groups.data ?? []).map((g) => ({ value: g.id, label: g.name }))
     ],
     [groups.data, t]
@@ -174,28 +191,44 @@ export function Trainings(): JSX.Element {
     return (id: string): string => map.get(id) ?? "—";
   }, [trainers.data]);
 
-  const tableGroupOptions = useMemo(
+  const trainerOptions = useMemo<SelectOption[]>(
     () => [
-      { value: TRAINING_GROUP_FILTER_INDIVIDUAL, label: t("admin.trainings.individual") },
-      { value: TRAINING_GROUP_FILTER_ONE_OFF, label: t("admin.trainings.oneOff") },
-      ...(groups.data ?? []).map((g) => ({ value: g.id, label: g.name }))
+      { value: "", label: t("admin.trainings.allTrainers") },
+      ...(trainers.data ?? []).map((tr) => ({ value: tr.id, label: tr.name }))
     ],
-    [groups.data, t]
+    [trainers.data, t]
   );
 
-  const tableTrainerOptions = useMemo(
-    () => (trainers.data ?? []).map((tr) => ({ value: tr.id, label: tr.name })),
-    [trainers.data]
-  );
-
-  const tableStatusOptions = useMemo(
+  const statusOptions = useMemo<SelectOption[]>(
     () =>
-      (["open", "full", "cancelled", "completed"] as TrainingStatus[]).map((status) => ({
-        value: status,
-        label: statusLabel(status, t)
-      })),
+      [
+        { value: "", label: t("admin.trainings.allStatuses") },
+        ...(["open", "full", "cancelled", "completed"] as TrainingStatus[]).map((status) => ({
+          value: status,
+          label: statusLabel(status, t)
+        }))
+      ],
     [t]
   );
+
+  const filteredTrainings = useMemo(() => {
+    const rows = trainings.data ?? [];
+    return rows.filter((row) => {
+      if (filterGroupId !== "" && trainingGroupFilterValue(row) !== filterGroupId) return false;
+      if (filterTrainerId !== "" && row.trainerId !== filterTrainerId) return false;
+      if (filterStatus !== "" && row.status !== filterStatus) return false;
+      if (filterBookedMin !== null && row.bookedCount < filterBookedMin) return false;
+      if (filterBookedMax !== null && row.bookedCount > filterBookedMax) return false;
+      return true;
+    });
+  }, [
+    trainings.data,
+    filterGroupId,
+    filterTrainerId,
+    filterStatus,
+    filterBookedMin,
+    filterBookedMax
+  ]);
 
   // ── Generate month ─────────────────────────────────────────────────────
   const [genOpen, setGenOpen] = useState(false);
@@ -245,52 +278,45 @@ export function Trainings(): JSX.Element {
       key: "date",
       header: t("admin.trainings.colDate"),
       render: (row) => row.date,
-      sortValue: (row) => row.date,
-      filter: { kind: "date", value: (row) => row.date }
+      sortValue: (row) => row.date
     },
     {
       key: "time",
       header: t("admin.trainings.colTime"),
       render: (row) => trainingTimeRangeLabel(row),
-      sortValue: (row) => row.startTime,
-      filter: { kind: "text", value: (row) => trainingTimeRangeLabel(row) }
+      sortValue: (row) => row.startTime
     },
     {
       key: "group",
       header: t("admin.trainings.colGroup"),
       render: (row) => groupCell(row),
-      sortValue: (row) => groupCell(row),
-      filter: { kind: "select", value: (row) => trainingGroupFilterValue(row), options: tableGroupOptions }
+      sortValue: (row) => groupCell(row)
     },
     {
       key: "trainer",
       header: t("admin.trainings.colTrainer"),
       render: (row) => trainerName(row.trainerId),
-      sortValue: (row) => trainerName(row.trainerId),
-      filter: { kind: "select", value: (row) => row.trainerId, options: tableTrainerOptions }
+      sortValue: (row) => trainerName(row.trainerId)
     },
     {
       key: "price",
       header: t("admin.trainings.colPrice"),
       numeric: true,
       render: (row) => trainingPriceLabel(row, t),
-      sortValue: (row) => row.priceSingleRsd,
-      filter: { kind: "number", value: (row) => row.priceSingleRsd }
+      sortValue: (row) => row.priceSingleRsd
     },
     {
       key: "occupancy",
       header: t("admin.trainings.colOccupancy"),
       numeric: true,
       render: (row) => `${row.bookedCount} / ${row.capacity}`,
-      sortValue: (row) => row.bookedCount,
-      filter: { kind: "number", value: (row) => row.bookedCount }
+      sortValue: (row) => row.bookedCount
     },
     {
       key: "status",
       header: t("admin.trainings.colStatus"),
       render: (row) => statusLabel(row.status, t),
-      sortValue: (row) => statusLabel(row.status, t),
-      filter: { kind: "select", value: (row) => row.status, options: tableStatusOptions }
+      sortValue: (row) => statusLabel(row.status, t)
     },
     {
       key: "actions",
@@ -413,7 +439,7 @@ export function Trainings(): JSX.Element {
           <form
             aria-label={t("admin.trainings.filterLabel")}
             onSubmit={(e) => e.preventDefault()}
-            style={{ display: "flex", gap: 16, flexWrap: "wrap", alignItems: "flex-end" }}
+            className="filter-toolbar filter-toolbar--schedule"
           >
             <TextField
               label={t("admin.field.fromDate")}
@@ -433,6 +459,30 @@ export function Trainings(): JSX.Element {
               value={filterGroupId}
               onChange={(e) => setFilterGroupId(e.target.value)}
             />
+            <SelectField
+              label={t("admin.field.trainer")}
+              options={trainerOptions}
+              value={filterTrainerId}
+              onChange={(e) => setFilterTrainerId(e.target.value)}
+            />
+            <SelectField
+              label={t("admin.field.status")}
+              options={statusOptions}
+              value={filterStatus}
+              onChange={(e) => setFilterStatus(e.target.value)}
+            />
+            <NumberField
+              label={t("admin.trainings.occupancyFrom")}
+              value={filterBookedMin}
+              onValueChange={setFilterBookedMin}
+              min={0}
+            />
+            <NumberField
+              label={t("admin.trainings.occupancyTo")}
+              value={filterBookedMax}
+              onValueChange={setFilterBookedMax}
+              min={0}
+            />
             <label className="cluster">
               <input
                 type="checkbox"
@@ -441,6 +491,19 @@ export function Trainings(): JSX.Element {
               />
               {t("admin.trainings.showTerminal")}
             </label>
+            <Button
+              type="button"
+              variant="ghost"
+              onClick={() => {
+                setFilterGroupId("");
+                setFilterTrainerId("");
+                setFilterStatus("");
+                setFilterBookedMin(null);
+                setFilterBookedMax(null);
+              }}
+            >
+              {t("admin.filters.reset")}
+            </Button>
           </form>
 
           {query === null ? (
@@ -455,7 +518,7 @@ export function Trainings(): JSX.Element {
             <DataTable
               caption={t("admin.trainings.caption")}
               columns={columns}
-              rows={trainings.data}
+              rows={filteredTrainings}
               rowKey={(row) => row.id}
               emptyLabel={t("admin.trainings.empty")}
             />
