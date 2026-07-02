@@ -392,7 +392,8 @@ describe("courtClientGridSchema (Mini App redacted court grid)", () => {
         courtNumber: 1,
         cells: [
           { startTime: "09:00", endTime: "10:30", state: "free" },
-          { startTime: "09:30", endTime: "11:00", state: "unavailable" }
+          { startTime: "09:30", endTime: "11:00", state: "unavailable" },
+          { startTime: "10:00", endTime: "11:30", state: "overflow" }
         ]
       }
     ]
@@ -421,6 +422,20 @@ describe("courtClientGridSchema (Mini App redacted court grid)", () => {
 
   it("accepts the redacted grid shape", () => {
     expect(courtClientGridSchema.safeParse(validGrid).success).toBe(true);
+  });
+
+  it("accepts an overflow cell whose computed end time passes midnight", () => {
+    expect(
+      courtClientGridSchema.safeParse({
+        ...validGrid,
+        rows: [
+          {
+            courtNumber: 1,
+            cells: [{ startTime: "23:00", endTime: "29:00", state: "overflow" }]
+          }
+        ]
+      }).success
+    ).toBe(true);
   });
 
   it("strips internal ids and client data from parsed grid rows/cells", () => {

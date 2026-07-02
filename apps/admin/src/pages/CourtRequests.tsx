@@ -1,5 +1,6 @@
 import { useState } from "react";
 import type { Court, CourtRequestAdminView, CourtRequestStatus } from "@beosand/types";
+import { useNavigate } from "react-router-dom";
 import { ConflictError } from "../api/client";
 import { AppShell } from "../ui/AppShell";
 import { Button } from "../ui/Button";
@@ -71,6 +72,7 @@ function courtCell(request: CourtRequestAdminView, t: Translate): string {
 export function CourtRequests(): JSX.Element {
   const t = useT();
   const { notify } = useToast();
+  const navigate = useNavigate();
 
   const [status, setStatus] = useState<CourtRequestStatus>("pending");
   const [toConfirm, setToConfirm] = useState<CourtRequestAdminView | null>(null);
@@ -149,6 +151,14 @@ export function CourtRequests(): JSX.Element {
     );
   }
 
+  function showOnCourtLoad(request: CourtRequestAdminView): void {
+    const query = new URLSearchParams({
+      date: request.date,
+      requestId: request.id
+    });
+    navigate({ pathname: "/court-load", search: query.toString() });
+  }
+
   const columns: Column<CourtRequestAdminView>[] = [
     { key: "client", header: t("admin.courtRequests.colClient"), render: (r) => r.clientName },
     {
@@ -175,24 +185,33 @@ export function CourtRequests(): JSX.Element {
     {
       key: "actions",
       header: "",
-      render: (r) =>
-        r.status === "pending" ? (
-          <div className="cluster">
-            <Button
-              variant="primary"
-              onClick={() => openConfirm(r)}
-            >
-              {t("admin.action.confirm")}
-            </Button>
-            <Button
-              variant="danger"
-              disabled={reject.isPending}
-              onClick={() => rejectRequest(r)}
-            >
-              {t("admin.action.reject")}
-            </Button>
-          </div>
-        ) : null
+      render: (r) => (
+        <div className="cluster">
+          <Button
+            variant="ghost"
+            onClick={() => showOnCourtLoad(r)}
+          >
+            {t("admin.courtRequests.showOnLoad")}
+          </Button>
+          {r.status === "pending" ? (
+            <>
+              <Button
+                variant="primary"
+                onClick={() => openConfirm(r)}
+              >
+                {t("admin.action.confirm")}
+              </Button>
+              <Button
+                variant="danger"
+                disabled={reject.isPending}
+                onClick={() => rejectRequest(r)}
+              >
+                {t("admin.action.reject")}
+              </Button>
+            </>
+          ) : null}
+        </div>
+      )
     }
   ];
 

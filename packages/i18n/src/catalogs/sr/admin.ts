@@ -670,6 +670,7 @@ export const adminSr: Record<string, string> = {
   "admin.courtRequests.courtOption": "Teren br. {number}",
   "admin.courtRequests.confirmed": "Zahtev je potvrđen za {client}.",
   "admin.courtRequests.rejected": "Zahtev je odbijen za {client}.",
+  "admin.courtRequests.showOnLoad": "Prikaži u mreži",
   "admin.courtRequests.opFailed": "Neuspešno izvršavanje operacije.",
   "admin.courtRequests.conflict": "Termin je već zauzet ili je zahtev obrađen — lista je osvežena.",
 
@@ -728,6 +729,7 @@ export const adminSr: Record<string, string> = {
   "admin.courtLoad.colCourt": "Teren",
   "admin.courtLoad.noCourts": "Za izabrani datum nema terena.",
   "admin.courtLoad.allFreeHint": "Za izabrani datum svi tereni su slobodni.",
+  "admin.courtLoad.targetNotVisible": "Ovaj zahtev nije vidljiv u izabranoj mreži.",
   "admin.courtLoad.courtNumber": "br. {number}",
   "admin.courtLoad.cellFree": "Slobodno",
   "admin.courtLoad.cellRequest": "Zahtev",

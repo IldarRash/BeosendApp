@@ -1371,6 +1371,11 @@ select.input {
   font-weight: 600;
 }
 
+.court-load-target-note {
+  margin: 0;
+  font-size: 12.5px;
+}
+
 /* ── Login screen ──────────────────────────────────────────────────────── */
 
 .login {
@@ -1972,6 +1977,20 @@ button.court-event:focus-visible {
 .court-event--tone-3 { box-shadow: inset 3px 0 0 #8c5b8f, 0 8px 18px rgba(33, 28, 21, 0.08); }
 .court-event--tone-4 { box-shadow: inset 3px 0 0 #9a6a20, 0 8px 18px rgba(33, 28, 21, 0.08); }
 .court-event--tone-5 { box-shadow: inset 3px 0 0 #4f6f77, 0 8px 18px rgba(33, 28, 21, 0.08); }
+
+.court-event--target {
+  z-index: 2;
+  border-color: var(--focus);
+  box-shadow:
+    0 0 0 2px var(--paper),
+    0 0 0 5px rgba(44, 111, 176, 0.35),
+    inset 3px 0 0 var(--coral),
+    0 12px 24px rgba(33, 28, 21, 0.16);
+}
+
+.court-event--target .court-event__glyph {
+  background: color-mix(in srgb, var(--focus) 18%, var(--paper));
+}
 
 /* ── Detail definition list (booking popup) ────────────────────────────── */
 

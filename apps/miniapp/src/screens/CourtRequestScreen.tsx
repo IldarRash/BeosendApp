@@ -19,15 +19,30 @@ import { FallbackButton } from "../ui/FallbackButton";
 import { Glyph } from "../ui/icons";
 import { EmptyState, ErrorState, LoadingState } from "../ui/StateView";
 import {
+  dayOfMonth,
+  monthWeeks
+} from "../ui/calendar";
+import {
   dayOfWeekFromDate,
   formatDayMonth,
   formatDurationHours,
   formatRsd,
   formatTimeRange,
+  monthKey,
   offeredDates,
-  weekdayFullKey,
-  weekdayShortKey
+  weekdayFullKey
 } from "../ui/format";
+
+/** Monday-first weekday header keys (reusing the short weekday labels). */
+const WEEKDAY_KEYS = [
+  "miniapp.weekday.short.1",
+  "miniapp.weekday.short.2",
+  "miniapp.weekday.short.3",
+  "miniapp.weekday.short.4",
+  "miniapp.weekday.short.5",
+  "miniapp.weekday.short.6",
+  "miniapp.weekday.short.7"
+] as const;
 
 /** Screen sections: choose date, duration, then pick time+courts from one grid. */
 export function CourtRequestScreen(): JSX.Element {
@@ -144,12 +159,8 @@ function CourtSelectionFlow({
         date={date}
         onPick={onDatePick}
       />
-      <div className="tg-sech">{t("miniapp.court.pickDuration")}</div>
-      <div
-        className="seg seg--court-duration"
-        role="radiogroup"
-        aria-label={t("miniapp.court.pickDuration")}
-      >
+      <div className="tg-sech tg-sech--court-duration">{t("miniapp.court.pickDuration")}</div>
+      <div className="court-duration" role="radiogroup" aria-label={t("miniapp.court.pickDuration")}>
         {COURT_DURATION_CHOICES.map((value) => {
           const isOn = durationHours === value;
           return (
@@ -158,7 +169,7 @@ function CourtSelectionFlow({
               type="button"
               role="radio"
               aria-checked={isOn}
-              className={isOn ? "is-on" : undefined}
+              className={isOn ? "court-duration__btn is-on" : "court-duration__btn"}
               onClick={() => onDurationPick(value)}
             >
               {durationLabel(value, t)}
@@ -214,7 +225,7 @@ function CourtSelectionFlow({
   );
 }
 
-/** Date strip step. It stays visible so date can be changed from the same view. */
+/** Compact month step. It stays visible so date changes reset the downstream choices. */
 function DateStep({
   date,
   onPick
@@ -224,27 +235,83 @@ function DateStep({
 }): JSX.Element {
   const t = useT();
   const dates = useMemo(() => offeredDates(), []);
+  const offered = useMemo(() => new Set(dates), [dates]);
+  const activeDate = date ?? dates[0];
+  const availableMonths = useMemo(() => Array.from(new Set(dates.map((d) => d.slice(0, 7)))), [dates]);
+  const activeMonth = activeDate.slice(0, 7);
+  const [cursorMonth, setCursorMonth] = useState(activeMonth);
+  useEffect(() => setCursorMonth(activeMonth), [activeMonth]);
+  const cursorIndex = Math.max(0, availableMonths.indexOf(cursorMonth));
+  const visibleMonth = availableMonths[cursorIndex] ?? activeMonth;
+  const year = Number(visibleMonth.slice(0, 4));
+  const month = Number(visibleMonth.slice(5, 7));
+  const weeks = useMemo(() => monthWeeks(year, month), [year, month]);
+  const monthLabel = `${t(monthKey(month))} ${year}`;
+
   return (
-    <section>
+    <section className="court-calendar" role="group" aria-label={t("miniapp.court.pickDate")}>
       <div className="tg-sech">{t("miniapp.court.pickDate")}</div>
-      <div className="datestrip" role="group" aria-label={t("miniapp.court.pickDate")}>
-        {dates.map((candidate) => {
-          const dayMonth = formatDayMonth(candidate);
-          const dow = dayOfWeekFromDate(candidate);
-          const label = `${t(weekdayFullKey(dow))}, ${dayMonth}`;
-          return (
-            <button
-              key={candidate}
-              type="button"
-              className={`dchip ${date === candidate ? "is-on" : ""}`}
-              onClick={() => onPick(candidate)}
-              aria-label={label}
-            >
-              <div className="dchip__dow">{t(weekdayShortKey(dow))}</div>
-              <div className="dchip__day">{dayMonth.slice(0, 2)}</div>
-            </button>
-          );
-        })}
+      <div className="court-calendar__panel">
+        <div className="court-calendar__nav">
+          <button
+            type="button"
+            className="court-calendar__nav-btn"
+            disabled={cursorIndex <= 0}
+            aria-label={t("miniapp.calendar.prevMonth")}
+            onClick={() => setCursorMonth(availableMonths[Math.max(0, cursorIndex - 1)])}
+          >
+            {"<"}
+          </button>
+          <div className="court-calendar__month">{monthLabel}</div>
+          <button
+            type="button"
+            className="court-calendar__nav-btn"
+            disabled={cursorIndex >= availableMonths.length - 1}
+            aria-label={t("miniapp.calendar.nextMonth")}
+            onClick={() =>
+              setCursorMonth(availableMonths[Math.min(availableMonths.length - 1, cursorIndex + 1)])
+            }
+          >
+            {">"}
+          </button>
+        </div>
+        <div className="court-calendar__weekdays" aria-hidden="true">
+          {WEEKDAY_KEYS.map((key) => (
+            <span key={key}>{t(key)}</span>
+          ))}
+        </div>
+        {weeks.map((week, w) => (
+          <div className="court-calendar__week" key={week.map((d) => d ?? "x").join("|")}>
+            {week.map((candidate, d) => {
+              if (candidate === null) {
+                return <span key={`pad-${w}-${d}`} className="court-calendar__cell is-pad" />;
+              }
+              const dow = dayOfWeekFromDate(candidate);
+              const label = `${t(weekdayFullKey(dow))}, ${formatDayMonth(candidate)}`;
+              const isOffered = offered.has(candidate);
+              const isSelected = date === candidate;
+              return (
+                <button
+                  key={candidate}
+                  type="button"
+                  className={
+                    isSelected
+                      ? "court-calendar__cell is-offered is-selected"
+                      : isOffered
+                        ? "court-calendar__cell is-offered"
+                        : "court-calendar__cell"
+                  }
+                  disabled={!isOffered}
+                  aria-pressed={isOffered ? isSelected : undefined}
+                  aria-label={label}
+                  onClick={() => onPick(candidate)}
+                >
+                  <span className="court-calendar__day">{dayOfMonth(candidate)}</span>
+                </button>
+              );
+            })}
+          </div>
+        ))}
       </div>
     </section>
   );
@@ -281,6 +348,16 @@ function CourtGrid({
     return Array.from(times).sort();
   }, [rows]);
   const selectedSet = useMemo(() => new Set(selectedCourts ?? []), [selectedCourts]);
+  const selectedInterval = useMemo(
+    () =>
+      selectedStart == null
+        ? undefined
+        : {
+            start: toMinutes(selectedStart),
+            end: toMinutes(selectedStart) + durationHours * 60
+          },
+    [durationHours, selectedStart]
+  );
 
   if (rows.length === 0 || startTimes.length === 0) {
     return (
@@ -333,22 +410,33 @@ function CourtGrid({
                 </div>
                 {startTimes.map((startTime) => {
                   const cell = rowCells.get(startTime);
-                  const isFree = cell?.state === "free";
-                  const isSelected = selectedStart === startTime && selectedSet.has(row.courtNumber);
+                  const visualState = courtGridCellVisualState(cell);
+                  const isFree = visualState === "free";
+                  const isOverflow = visualState === "overflow";
+                  const isSelected =
+                    selectedInterval !== undefined &&
+                    selectedSet.has(row.courtNumber) &&
+                    isCellInsideInterval(startTime, selectedInterval.start, selectedInterval.end);
                   const courtLabel = t("miniapp.court.courtN", { n: row.courtNumber });
-                  const takenLabel = t("miniapp.court.courtTaken", { n: row.courtNumber });
-                  const label = `${isFree ? courtLabel : takenLabel} ${startTime}`;
+                  const unavailableLabel = isOverflow
+                    ? t("miniapp.court.courtOverflow", { n: row.courtNumber })
+                    : t("miniapp.court.courtTaken", { n: row.courtNumber });
+                  const label = `${isFree ? courtLabel : unavailableLabel} ${startTime}`;
                   return (
                     <button
                       key={`${row.courtNumber}-${startTime}`}
                       type="button"
                       role="button"
                       className={`court-grid__cell ${
-                        isFree ? "is-free" : "is-unavailable"
-                      } ${isSelected ? "is-selected" : ""}`}
+                        isFree ? "is-free" : isOverflow ? "is-overflow" : "is-unavailable"
+                      } ${isSelected ? "is-selected" : ""} ${
+                        selectedStart === startTime && selectedSet.has(row.courtNumber) ? "is-selected-start" : ""
+                      }`}
                       disabled={!isFree}
                       aria-label={label}
-                      aria-pressed={isFree ? isSelected : undefined}
+                      aria-pressed={
+                        isFree ? selectedStart === startTime && selectedSet.has(row.courtNumber) : undefined
+                      }
                       onClick={() => {
                         if (isFree) {
                           onCellPick(startTime, row.courtNumber);
@@ -576,4 +664,29 @@ function durationLabel(duration: CourtDurationHours, t: TranslateFn): string {
 /** Sorted, comma-joined court numbers for a summary line. */
 function formatCourtNumbers(courtNumbers: number[]): string {
   return [...courtNumbers].sort((a, b) => a - b).join(", ");
+}
+
+function courtGridCellVisualState(
+  cell: CourtClientGrid["rows"][number]["cells"][number] | undefined
+): "free" | "unavailable" | "overflow" {
+  if (cell == null) {
+    return "unavailable";
+  }
+  const state = (cell as { state: string }).state;
+  if (state === "free") {
+    return "free";
+  }
+  if (state === "overflow") {
+    return "overflow";
+  }
+  return "unavailable";
+}
+
+function toMinutes(time: string): number {
+  return Number(time.slice(0, 2)) * 60 + Number(time.slice(3, 5));
+}
+
+function isCellInsideInterval(startTime: string, selectedStart: number, selectedEnd: number): boolean {
+  const cellStart = toMinutes(startTime);
+  return cellStart >= selectedStart && cellStart < selectedEnd;
 }

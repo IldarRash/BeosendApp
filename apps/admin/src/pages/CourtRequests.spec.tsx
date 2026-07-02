@@ -1,6 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { cleanup, fireEvent, render, screen, within } from "@testing-library/react";
 import type { Court, CourtRequestAdminView } from "@beosand/types";
+import { MemoryRouter, useLocation } from "react-router-dom";
 
 // Hooks are mocked so the page can be unit-tested without the ApiClient/network.
 const useCourtRequests = vi.fn();
@@ -80,6 +81,20 @@ function idleMutation(): Record<string, unknown> {
   return { mutate: vi.fn(), reset: vi.fn(), isPending: false, isError: false, error: null };
 }
 
+function LocationProbe(): JSX.Element {
+  const location = useLocation();
+  return <output aria-label="location">{`${location.pathname}${location.search}`}</output>;
+}
+
+function renderPage(): void {
+  render(
+    <MemoryRouter initialEntries={["/court-requests"]}>
+      <CourtRequests />
+      <LocationProbe />
+    </MemoryRouter>
+  );
+}
+
 beforeEach(() => {
   vi.clearAllMocks();
   useCourts.mockReturnValue({ data: FREE_COURTS });
@@ -99,7 +114,7 @@ afterEach(cleanup);
 
 describe("CourtRequests page", () => {
   it("shows the client's requested courts and count on a pending row", () => {
-    render(<CourtRequests />);
+    renderPage();
 
     const table = screen.getByRole("table");
     const row = within(table).getByText("Игорь").closest("tr") as HTMLElement;
@@ -116,7 +131,7 @@ describe("CourtRequests page", () => {
       error: null,
       data: [PENDING_NO_PICK]
     });
-    render(<CourtRequests />);
+    renderPage();
 
     const table = screen.getByRole("table");
     const row = within(table).getByText("Олег").closest("tr") as HTMLElement;
@@ -131,12 +146,25 @@ describe("CourtRequests page", () => {
       error: null,
       data: [CONFIRMED]
     });
-    render(<CourtRequests />);
+    renderPage();
 
     const table = screen.getByRole("table");
     const row = within(table).getByText("Мария").closest("tr") as HTMLElement;
     // Numbers come straight from the request's courtNumbers (server-decided).
     expect(within(row).getByText("№ 3")).toBeTruthy();
+  });
+
+  it("navigates a request row to the court load grid with date and request id", () => {
+    renderPage();
+
+    const table = screen.getByRole("table");
+    const row = within(table).getByText(PENDING.clientName).closest("tr") as HTMLElement;
+
+    fireEvent.click(within(row).getAllByRole("button")[0]);
+
+    expect(screen.getByLabelText("location").textContent).toBe(
+      `/court-load?date=${PENDING.date}&requestId=${PENDING.id}`
+    );
   });
 
   it("multi-selects exactly courtCount courts and confirms with the full courtIds set", () => {
@@ -148,7 +176,7 @@ describe("CourtRequests page", () => {
       error: null,
       data: FREE_COURTS
     });
-    render(<CourtRequests />);
+    renderPage();
 
     fireEvent.click(screen.getByRole("button", { name: "Подтвердить" }));
 
@@ -196,7 +224,7 @@ describe("CourtRequests page", () => {
       error: null,
       data: FREE_COURTS
     });
-    render(<CourtRequests />);
+    renderPage();
 
     fireEvent.click(screen.getByRole("button", { name: "Подтвердить" }));
     const dialog = screen.getByRole("dialog");
@@ -224,7 +252,7 @@ describe("CourtRequests page", () => {
       error: null,
       data: FREE_COURTS
     });
-    render(<CourtRequests />);
+    renderPage();
 
     fireEvent.click(screen.getByRole("button", { name: "Подтвердить" }));
     const dialog = screen.getByRole("dialog");
@@ -246,7 +274,7 @@ describe("CourtRequests page", () => {
       error: null,
       data: FREE_COURTS
     });
-    render(<CourtRequests />);
+    renderPage();
 
     fireEvent.click(screen.getByRole("button", { name: "Подтвердить" }));
     const dialog = screen.getByRole("dialog");
@@ -262,7 +290,7 @@ describe("CourtRequests page", () => {
   it("rejects a pending request by id", () => {
     const mutate = vi.fn();
     useRejectRequest.mockReturnValue({ ...idleMutation(), mutate });
-    render(<CourtRequests />);
+    renderPage();
 
     fireEvent.click(screen.getByRole("button", { name: "Отклонить" }));
 

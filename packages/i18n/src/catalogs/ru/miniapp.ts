@@ -133,7 +133,7 @@ export const miniappRu: Record<string, string> = {
   // Group detail facts.
   "miniapp.group.daysLabel": "Дни",
   "miniapp.group.priceLabel": "Стоимость",
-  // Month picker (exactly two options: текущий и следующий месяц).
+  // Month picker (current/next month only when generated trainings exist).
   "miniapp.group.pickMonth": "Выберите месяц",
   // Confirm + result.
   "miniapp.group.confirm": "Записаться на месяц",
@@ -220,6 +220,7 @@ export const miniappRu: Record<string, string> = {
   "miniapp.court.pickCourtsHint": "Можно выбрать несколько свободных кортов.",
   "miniapp.court.courtN": "Корт {n}",
   "miniapp.court.courtTaken": "Корт {n} занят",
+  "miniapp.court.courtOverflow": "Корт {n}: не помещается в день",
   "miniapp.court.noCourtsTitle": "Нет свободных кортов",
   "miniapp.court.noCourtsBody": "На это время не осталось свободных кортов. Выберите другое время.",
   "miniapp.court.selectedCount": "Выбрано кортов: {count}",
