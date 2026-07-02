@@ -162,12 +162,6 @@ beforeEach(() => {
   vi.useFakeTimers({ shouldAdvanceTime: true });
   vi.setSystemTime(FIXED_NOW);
   api = makeApi();
-  vi.stubGlobal("URL", {
-    ...window.URL,
-    createObjectURL: vi.fn(() => "blob:calendar"),
-    revokeObjectURL: vi.fn()
-  });
-  vi.spyOn(HTMLAnchorElement.prototype, "click").mockImplementation(() => {});
 });
 
 afterEach(() => {
@@ -222,24 +216,21 @@ describe("MyBookingsScreen detail", () => {
 });
 
 describe("MyBookingsScreen monthly export", () => {
-  it("exports the selected month as an ICS download", async () => {
+  it("does not show monthly export controls or call export while switching tabs", async () => {
     renderWithProviders(<MyBookingsScreen onBrowse={() => {}} />);
 
-    fireEvent.click(await screen.findByRole("button", { name: /Google Calendar.*2026/i }));
+    await screen.findByText("Mix");
 
-    await waitFor(() => expect(api.exportMyBookingsCalendar).toHaveBeenCalledWith(2026, 6));
-    expect(window.URL.createObjectURL).toHaveBeenCalledTimes(1);
-    expect(window.URL.revokeObjectURL).toHaveBeenCalledWith("blob:calendar");
-  });
+    expect(screen.queryByRole("button", { name: /Google Calendar.*2026/i })).toBeNull();
+    expect(screen.queryByText(/Google Calendar \(\.ics\)/i)).toBeNull();
+    expect(document.querySelector(".cal-nav")).toBeNull();
+    expect(api.exportMyBookingsCalendar).not.toHaveBeenCalled();
 
-  it("uses the shifted month for export", async () => {
-    renderWithProviders(<MyBookingsScreen onBrowse={() => {}} />);
-
-    await screen.findByText(/2026/);
-    const monthButtons = Array.from(document.querySelectorAll<HTMLButtonElement>(".cal-nav__btn"));
-    fireEvent.click(monthButtons[monthButtons.length - 1]);
-    fireEvent.click(await screen.findByRole("button", { name: /Google Calendar.*2026/i }));
-
-    await waitFor(() => expect(api.exportMyBookingsCalendar).toHaveBeenCalledWith(2026, 7));
+    const tabs = screen.getAllByRole("tab");
+    fireEvent.click(tabs[1]);
+    await waitFor(() => expect(api.listMyBookings).toHaveBeenCalledWith(ONBOARDED.id, "past"));
+    fireEvent.click(tabs[0]);
+    await waitFor(() => expect(api.listMyBookings).toHaveBeenCalledWith(ONBOARDED.id, "upcoming"));
+    expect(api.exportMyBookingsCalendar).not.toHaveBeenCalled();
   });
 });
