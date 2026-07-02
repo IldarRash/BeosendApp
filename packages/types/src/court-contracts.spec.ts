@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
   COURT_COUNT,
+  cancelCourtRequestSchema,
   confirmCourtRequestSchema,
   courtAvailabilityQuerySchema,
   courtAvailabilitySchema,
@@ -646,6 +647,33 @@ describe("rejectCourtRequestSchema (C4 admin reject input)", () => {
       { ...validBody, courtId: uuidB }
     ]) {
       const result = rejectCourtRequestSchema.safeParse(body);
+      expect(result.success).toBe(false);
+      if (!result.success) {
+        expect(result.error.issues[0]?.code).toBe("unrecognized_keys");
+      }
+    }
+  });
+});
+
+describe("cancelCourtRequestSchema (admin cancel confirmed request input)", () => {
+  const validBody = { requestId: uuidA };
+
+  it("accepts a valid cancel body", () => {
+    expect(cancelCourtRequestSchema.safeParse(validBody).success).toBe(true);
+  });
+
+  it("requires a uuid requestId", () => {
+    expect(cancelCourtRequestSchema.safeParse({ requestId: "nope" }).success).toBe(false);
+    expect(cancelCourtRequestSchema.safeParse({}).success).toBe(false);
+  });
+
+  it("rejects spoofed decision and court fields", () => {
+    for (const body of [
+      { ...validBody, decidedBy: 9001 },
+      { ...validBody, courtId: uuidB },
+      { ...validBody, status: "cancelled" }
+    ]) {
+      const result = cancelCourtRequestSchema.safeParse(body);
       expect(result.success).toBe(false);
       if (!result.success) {
         expect(result.error.issues[0]?.code).toBe("unrecognized_keys");

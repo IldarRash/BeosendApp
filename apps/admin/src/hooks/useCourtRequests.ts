@@ -12,6 +12,7 @@ import type {
   CourtRequestStatus
 } from "@beosand/types";
 import { useApiClient } from "../api/ApiProvider";
+import { COURT_LOAD_KEY } from "./useCourtLoad";
 
 const COURT_REQUESTS_KEY = ["court-requests"] as const;
 const FREE_COURTS_KEY = ["free-courts"] as const;
@@ -85,6 +86,14 @@ function invalidateAfterDecision(queryClient: ReturnType<typeof useQueryClient>)
   ]).then(() => undefined);
 }
 
+/** Cancelled confirmed requests release occupancy in the court-load grid. */
+function invalidateAfterCancellation(queryClient: ReturnType<typeof useQueryClient>): Promise<void> {
+  return Promise.all([
+    invalidateAfterDecision(queryClient),
+    queryClient.invalidateQueries({ queryKey: COURT_LOAD_KEY })
+  ]).then(() => undefined);
+}
+
 /**
  * C4 — confirm a request onto a chosen set of courts; refreshes the queues and
  * free-courts reads on success. `input.courtIds.length` must equal the request's
@@ -119,5 +128,21 @@ export function useRejectRequest(): UseMutationResult<
     mutationFn: ({ id }) => api.rejectRequest(id),
     // Refetch on settle (see useConfirmRequest): a 409 still needs the queue refreshed.
     onSettled: () => invalidateAfterDecision(queryClient)
+  });
+}
+
+/** C6 — cancel a confirmed request; refreshes request queues and court load on settle. */
+export function useCancelRequest(): UseMutationResult<
+  CourtRequest,
+  Error,
+  { id: string }
+> {
+  const api = useApiClient();
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: ({ id }) => api.cancelRequest(id),
+    // Refetch on settle (see useConfirmRequest): a 409 still needs stale rows
+    // cleared, and confirmed cancellations release occupancy in the load grid.
+    onSettled: () => invalidateAfterCancellation(queryClient)
   });
 }

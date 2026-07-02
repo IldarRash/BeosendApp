@@ -1,6 +1,6 @@
 import { InlineKeyboard } from "grammy";
 import { monthTrainingDates } from "@beosand/types";
-import type { DayOfWeek, Group, GroupBookingResult } from "@beosand/types";
+import type { BookableMonth, DayOfWeek, Group, GroupBookingResult } from "@beosand/types";
 import type { ApiClient } from "./api-client";
 import { backHomeKeyboard, MENU_ACTIONS, NAV_ACTIONS } from "./menu";
 import { showMainMenu, type MenuReplyCtx } from "./navigation";
@@ -24,12 +24,6 @@ export const GROUP_ACTIONS = {
   monthPrefix: "group:month:",
   confirmPrefix: "group:confirm:"
 } as const;
-
-/** A {year, month} the client can book; offered as buttons on the group card. */
-export interface MonthChoice {
-  year: number;
-  month: number;
-}
 
 export function buildPickData(groupId: string): string {
   return `${GROUP_ACTIONS.pickPrefix}${groupId}`;
@@ -143,18 +137,6 @@ export function groupsKeyboard(catalog: Catalog, groups: Group[]): InlineKeyboar
   return keyboard;
 }
 
-/**
- * Months offered for a group: the current month and the next, derived from the
- * given "now". Calendar-only (which months to show); seat/price decisions stay
- * server-side.
- */
-export function offeredMonths(now: Date): MonthChoice[] {
-  const year = now.getUTCFullYear();
-  const month = now.getUTCMonth() + 1; // 1-based
-  const next = month === 12 ? { year: year + 1, month: 1 } : { year, month: month + 1 };
-  return [{ year, month }, next];
-}
-
 export function renderMonthPickText(catalog: Catalog, group: Group): string {
   return [
     t(catalog, "bot.group.monthPickTitle", { name: group.name }),
@@ -168,7 +150,7 @@ export function renderMonthPickText(catalog: Catalog, group: Group): string {
 export function monthPickKeyboard(
   catalog: Catalog,
   group: Group,
-  months: MonthChoice[]
+  months: BookableMonth[]
 ): InlineKeyboard {
   const keyboard = new InlineKeyboard();
   for (const choice of months) {
@@ -255,8 +237,9 @@ export function successKeyboard(catalog: Catalog): InlineKeyboard {
 
 /** Slice of ApiClient the group-booking handlers need. */
 export type GroupBookingApi = Pick<ApiClient, "listGroups" | "getClientByTelegramId" | "createGroupBooking">;
+export type GroupMonthPickApi = Pick<ApiClient, "listGroups" | "listGroupBookableMonths">;
 
-async function findGroup(api: GroupBookingApi, groupId: string): Promise<Group | null> {
+async function findGroup(api: Pick<ApiClient, "listGroups">, groupId: string): Promise<Group | null> {
   const groups = await api.listGroups();
   return groups.find((g) => g.id === groupId) ?? null;
 }
@@ -276,7 +259,7 @@ export async function handleGroupList(
 /** Group picked → show the month choices. */
 export async function handleGroupPick(
   ctx: MenuReplyCtx,
-  api: GroupBookingApi,
+  api: GroupMonthPickApi,
   catalog: Catalog,
   groupId: string
 ): Promise<void> {
@@ -285,8 +268,15 @@ export async function handleGroupPick(
     await ctx.reply(t(catalog, "bot.group.notFound"), { reply_markup: backHomeKeyboard(catalog) });
     return;
   }
+  const months = await api.listGroupBookableMonths(group.id);
+  if (months.length === 0) {
+    await ctx.reply(t(catalog, "bot.group.monthNotGenerated"), {
+      reply_markup: backHomeKeyboard(catalog)
+    });
+    return;
+  }
   await ctx.reply(renderMonthPickText(catalog, group), {
-    reply_markup: monthPickKeyboard(catalog, group, offeredMonths(new Date()))
+    reply_markup: monthPickKeyboard(catalog, group, months)
   });
 }
 

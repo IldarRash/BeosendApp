@@ -12,6 +12,7 @@ import {
 } from "@nestjs/common";
 import {
   createGroupSchema,
+  type BookableMonth,
   type Group,
   type GroupMembers,
   groupMembersQuerySchema,
@@ -36,6 +37,17 @@ export class GroupsController {
   @Get()
   list(@Headers("x-telegram-id") telegramIdHeader?: string): Promise<Group[]> {
     return this.groups.listActive(parseOptionalTelegramId(telegramIdHeader));
+  }
+
+  /**
+   * Client-safe subscription-month offer read. No auth required: it returns only
+   * `{year, month}` for current+next month candidates with generated future group
+   * trainings, and never exposes members, bookings, courts, or client data.
+   */
+  @Get(":id/bookable-months")
+  bookableMonths(@Param("id") id: string): Promise<BookableMonth[]> {
+    const groupId = validate(uuid, id);
+    return this.groups.listBookableMonths(groupId);
   }
 
   /**

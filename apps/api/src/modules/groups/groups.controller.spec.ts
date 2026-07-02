@@ -195,3 +195,27 @@ describe("GroupsController.members (GET /groups/:id/members)", () => {
     });
   });
 });
+
+describe("GroupsController.bookableMonths (GET /groups/:id/bookable-months)", () => {
+  it("validates the group id and forwards to the service without requiring auth", async () => {
+    const service = {
+      listBookableMonths: vi.fn(async () => [{ year: 2026, month: 6 }])
+    } as unknown as GroupsService;
+    const controller = new GroupsController(service);
+
+    await expect(controller.bookableMonths(intermediate.id)).resolves.toEqual([
+      { year: 2026, month: 6 }
+    ]);
+    expect(service.listBookableMonths).toHaveBeenCalledWith(intermediate.id);
+  });
+
+  it("rejects an invalid group id before calling the service", () => {
+    const service = {
+      listBookableMonths: vi.fn()
+    } as unknown as GroupsService;
+    const controller = new GroupsController(service);
+
+    expect(() => controller.bookableMonths("not-a-uuid")).toThrow(BadRequestException);
+    expect(service.listBookableMonths).not.toHaveBeenCalled();
+  });
+});

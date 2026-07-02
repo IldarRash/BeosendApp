@@ -11,6 +11,7 @@ import {
 } from "@nestjs/common";
 import { z } from "zod";
 import {
+  cancelCourtRequestSchema,
   confirmCourtRequestSchema,
   courtAvailabilityQuerySchema,
   courtClientGridQuerySchema,
@@ -234,6 +235,29 @@ export class CourtRequestsController {
       throw new BadRequestException("Path id and body requestId must match.");
     }
     return this.service.rejectRequest(telegramId, parsed.data);
+  }
+
+  /**
+   * Admin-only cancel for a confirmed request. Pending requests stay reject-only;
+   * cancellation stamps the actor and releases load because occupancy reads only
+   * count pending/confirmed requests.
+   */
+  @Post(":id/cancel")
+  async cancel(
+    @Headers("x-telegram-id") rawTelegramId: string | undefined,
+    @Param("id") rawId: string,
+    @Body() body: unknown
+  ): Promise<CourtRequest> {
+    const telegramId = parseTelegramId(rawTelegramId);
+    const id = parseRequestId(rawId);
+    const parsed = cancelCourtRequestSchema.safeParse(body);
+    if (!parsed.success) {
+      throw new BadRequestException("Invalid cancel body: expected { requestId }.");
+    }
+    if (parsed.data.requestId !== id) {
+      throw new BadRequestException("Path id and body requestId must match.");
+    }
+    return this.service.cancelRequest(telegramId, parsed.data);
   }
 }
 

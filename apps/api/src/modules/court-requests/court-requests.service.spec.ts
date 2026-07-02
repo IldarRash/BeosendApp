@@ -678,6 +678,15 @@ function makeTx(input: {
         decidedAt: new Date("2026-06-03T12:00:00.000Z")
       })
     );
+  const cancelConfirmed = vi.fn(async (args: { id: string; decidedBy: number }) =>
+    makeRow({
+      ...(input.request ?? {}),
+      id: args.id,
+      status: "cancelled",
+      decidedBy: args.decidedBy,
+      decidedAt: new Date("2026-06-03T12:00:00.000Z")
+    })
+  );
   const tx = {
     lockDate: vi.fn().mockResolvedValue(undefined),
     lockRequest: vi.fn().mockResolvedValue(input.request),
@@ -689,7 +698,8 @@ function makeTx(input: {
     countActiveCourts: vi.fn().mockResolvedValue(input.activeCourtCount ?? activeCourtIds.length),
     requestHoldCourtOccupancyForDate: vi.fn().mockResolvedValue(input.confirmed ?? []),
     blocksByCourtForDate: vi.fn().mockResolvedValue(input.blocks ?? []),
-    decide
+    decide,
+    cancelConfirmed
   } as unknown as CourtModerationTx;
   return { tx, decide };
 }
@@ -1199,6 +1209,51 @@ describe("CourtRequestsService.rejectRequest (C4 admin)", () => {
     const service = makeService(makeModerationRepo({ tx }));
     await expect(service.rejectRequest(adminId, { requestId })).rejects.toBeInstanceOf(
       ConflictException
+    );
+  });
+});
+
+describe("CourtRequestsService.cancelRequest (admin confirmed cancellation)", () => {
+  it("rejects a non-admin caller before touching the DB", async () => {
+    const repo = makeModerationRepo({});
+    const service = makeService(repo);
+
+    await expect(service.cancelRequest(123, { requestId })).rejects.toBeInstanceOf(
+      ForbiddenException
+    );
+    expect(repo.transaction).not.toHaveBeenCalled();
+  });
+
+  it("flips a confirmed request to cancelled, stamps the actor, and keeps court history", async () => {
+    const confirmed = makeRow({ status: "confirmed", courtNumbers: [1] });
+    const { tx } = makeTx({ request: confirmed });
+    const service = makeService(makeModerationRepo({ tx }));
+
+    const result = await service.cancelRequest(adminId, { requestId });
+
+    expect(result.status).toBe("cancelled");
+    expect(result.decidedBy).toBe(adminId);
+    expect(result.courtNumbers).toEqual([1]);
+    expect(tx.lockDate).toHaveBeenCalledWith(date);
+    expect(tx.cancelConfirmed).toHaveBeenCalledWith({ id: requestId, decidedBy: adminId });
+  });
+
+  it("rejects a pending request because pending remains reject-only", async () => {
+    const { tx } = makeTx({ request: makeRow({ status: "pending" }) });
+    const service = makeService(makeModerationRepo({ tx }));
+
+    await expect(service.cancelRequest(adminId, { requestId })).rejects.toBeInstanceOf(
+      ConflictException
+    );
+    expect(tx.cancelConfirmed).not.toHaveBeenCalled();
+  });
+
+  it("404s when the request does not exist", async () => {
+    const { tx } = makeTx({ request: null });
+    const service = makeService(makeModerationRepo({ tx }));
+
+    await expect(service.cancelRequest(adminId, { requestId })).rejects.toBeInstanceOf(
+      NotFoundException
     );
   });
 });

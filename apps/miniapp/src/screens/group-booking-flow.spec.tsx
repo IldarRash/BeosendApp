@@ -2,7 +2,14 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { AppRoot } from "@telegram-apps/telegram-ui";
-import type { Booking, Client, Group, GroupBookingResult, MiniappMe } from "@beosand/types";
+import type {
+  BookableMonth,
+  Booking,
+  Client,
+  Group,
+  GroupBookingResult,
+  MiniappMe
+} from "@beosand/types";
 import { LanguageProvider } from "../i18n/LanguageProvider";
 import { NavProvider } from "../router/NavProvider";
 import { GroupBookingScreen } from "./GroupBookingScreen";
@@ -17,8 +24,8 @@ import { GroupBookingScreen } from "./GroupBookingScreen";
  * the server reports them (the Mini App never decides which dates exist or are
  * full). Unsafe path: the clientId sent is the caller's OWN resolved Client id (from
  * the verified session), never a client-asserted value; a malformed groups response
- * is rejected by the contract before render. The two month options are display-only;
- * the server validates.
+ * is rejected by the contract before render. Bookable months are fetched from the
+ * API and rendered verbatim; the Mini App never infers availability from local dates.
  */
 
 const ME: MiniappMe = { telegramId: 42, name: "Аня", username: "anya", language: "ru" };
@@ -63,6 +70,9 @@ const GROUP: Group = {
   hidden: false
 };
 
+const JULY_2026: BookableMonth = { year: 2026, month: 7 };
+const AUGUST_2026: BookableMonth = { year: 2026, month: 8 };
+
 const BOOKING = (id: string): Booking => ({
   id,
   clientId: ONBOARDED.id,
@@ -91,6 +101,7 @@ interface FakeApi {
   getMe: ReturnType<typeof vi.fn>;
   getClientByTelegramId: ReturnType<typeof vi.fn>;
   listGroups: ReturnType<typeof vi.fn>;
+  getGroupBookableMonths: ReturnType<typeof vi.fn>;
   listLevels: ReturnType<typeof vi.fn>;
   createGroupBooking: ReturnType<typeof vi.fn>;
   getGroupMembers: ReturnType<typeof vi.fn>;
@@ -104,6 +115,7 @@ function makeApi(overrides: Partial<FakeApi> = {}): FakeApi {
     getMe: vi.fn().mockReturnValue(ME),
     getClientByTelegramId: vi.fn().mockResolvedValue(ONBOARDED),
     listGroups: vi.fn().mockResolvedValue([GROUP]),
+    getGroupBookableMonths: vi.fn().mockResolvedValue([JULY_2026, AUGUST_2026]),
     listLevels: vi.fn().mockResolvedValue([{ id: LEVEL_ID, name: "Про", status: "active" }]),
     createGroupBooking: vi.fn().mockResolvedValue(RESULT_WITH_SKIPPED),
     getGroupMembers: vi
@@ -202,6 +214,33 @@ describe("GroupBookingScreen", () => {
     expect(note).not.toBeNull();
     expect(note?.textContent).toContain("15.07");
     expect(screen.queryByRole("alert")).toBeNull();
+  });
+
+  it("renders only the bookable months returned by the backend", async () => {
+    api = makeApi({
+      getGroupBookableMonths: vi.fn().mockResolvedValue([JULY_2026])
+    });
+    renderScreen();
+
+    fireEvent.click(await screen.findByRole("button", { name: /Утро Про/ }));
+
+    await screen.findByRole("radio", { name: "Июль 2026" });
+    expect(screen.queryByRole("radio", { name: "Август 2026" })).toBeNull();
+    expect(api.getGroupBookableMonths).toHaveBeenCalledWith(GROUP_ID);
+  });
+
+  it("shows a calm empty state and prevents subscribing when no months are returned", async () => {
+    api = makeApi({
+      getGroupBookableMonths: vi.fn().mockResolvedValue([])
+    });
+    renderScreen();
+
+    fireEvent.click(await screen.findByRole("button", { name: /Утро Про/ }));
+
+    await screen.findByText("Нет доступных месяцев");
+    expect(screen.queryAllByRole("radio")).toHaveLength(0);
+    expect(screen.queryByRole("button", { name: "Записаться на месяц" })).toBeNull();
+    expect(api.createGroupBooking).not.toHaveBeenCalled();
   });
 
   it("shows a 409 server message verbatim and renders no result", async () => {

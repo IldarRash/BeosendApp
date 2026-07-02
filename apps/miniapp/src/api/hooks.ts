@@ -7,6 +7,7 @@ import {
 } from "@tanstack/react-query";
 import type {
   AvailableSlotsQuery,
+  BookableMonth,
   Booking,
   Client,
   ClientTrainingDetail,
@@ -450,6 +451,24 @@ export function useGroups(): UseQueryResult<Group[]> {
   return useQuery<Group[]>({
     queryKey: groupsQueryKey(),
     queryFn: () => client.listGroups()
+  });
+}
+
+/** A stable query key for the months the API says this group can offer. */
+export function groupBookableMonthsQueryKey(groupId: string): readonly [string, string] {
+  return ["group-bookable-months", groupId] as const;
+}
+
+/**
+ * Bookable subscription months for one group (GET /groups/:id/bookable-months).
+ * The server owns availability and generated-training checks; the hook only fetches
+ * the already-validated ApiClient result.
+ */
+export function useGroupBookableMonths(groupId: string): UseQueryResult<BookableMonth[]> {
+  const client = useApiClient();
+  return useQuery<BookableMonth[]>({
+    queryKey: groupBookableMonthsQueryKey(groupId),
+    queryFn: () => client.getGroupBookableMonths(groupId)
   });
 }
 

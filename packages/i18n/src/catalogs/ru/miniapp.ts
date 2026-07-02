@@ -135,6 +135,9 @@ export const miniappRu: Record<string, string> = {
   "miniapp.group.priceLabel": "Стоимость",
   // Month picker (current/next month only when generated trainings exist).
   "miniapp.group.pickMonth": "Выберите месяц",
+  "miniapp.group.noBookableMonths": "Нет доступных месяцев",
+  "miniapp.group.noBookableMonthsBody":
+    "Сейчас у этой группы нет будущих тренировок, доступных для абонемента.",
   // Confirm + result.
   "miniapp.group.confirm": "Записаться на месяц",
   "miniapp.group.back": "Назад",

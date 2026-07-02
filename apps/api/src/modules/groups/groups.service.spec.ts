@@ -1,7 +1,7 @@
 import { ForbiddenException, NotFoundException } from "@nestjs/common";
 import type { Env } from "@beosand/config";
 import type { Client, CreateGroupInput, Group, UpdateGroupInput } from "@beosand/types";
-import { beforeEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { GroupsService } from "./groups.service";
 import type { GroupMemberRow, GroupsRepository } from "./groups.repository";
 import type { ClientsRepository } from "../clients/clients.repository";
@@ -41,6 +41,22 @@ class FakeGroupsRepository {
 
   async findById(id: string): Promise<Group | undefined> {
     return this.rows.get(id);
+  }
+
+  inactiveTrainerGroupIds = new Set<string>();
+  inactiveLevelGroupIds = new Set<string>();
+  async findClientBookableById(id: string): Promise<Group | undefined> {
+    const group = this.rows.get(id);
+    if (
+      !group ||
+      group.status !== "active" ||
+      group.hidden ||
+      this.inactiveTrainerGroupIds.has(id) ||
+      this.inactiveLevelGroupIds.has(id)
+    ) {
+      return undefined;
+    }
+    return group;
   }
 
   async create(input: CreateGroupInput): Promise<Group> {
@@ -93,6 +109,18 @@ class FakeGroupsRepository {
     _to: string
   ): Promise<boolean> {
     return this.subscribedClientIds.has(clientId);
+  }
+
+  /** Future generated, non-terminal training dates returned by the DB layer. */
+  bookableTrainingDates: string[] = [];
+  lastBookableRange: { groupId: string; from: string; to: string } | undefined;
+  async listFutureBookableTrainingDates(
+    groupId: string,
+    from: string,
+    to: string
+  ): Promise<string[]> {
+    this.lastBookableRange = { groupId, from, to };
+    return this.bookableTrainingDates;
   }
 }
 
@@ -461,5 +489,91 @@ describe("GroupsService.listMembers (group monthly roster)", () => {
     await expect(
       service.listMembers(ADMIN_ID, "99999999-9999-4999-8999-999999999999", 2099, 6)
     ).rejects.toBeInstanceOf(NotFoundException);
+  });
+});
+
+describe("GroupsService.listBookableMonths", () => {
+  const GROUP_ID = "00000000-0000-0000-0000-000000000001";
+
+  let repo: FakeGroupsRepository;
+  let clientsRepo: FakeClientsRepository;
+  let courtsRepo: FakeCourtsRepository;
+  let trainingsService: FakeTrainingsService;
+  let service: GroupsService;
+
+  beforeEach(async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date("2026-06-15T12:00:00.000Z"));
+    repo = new FakeGroupsRepository();
+    clientsRepo = new FakeClientsRepository();
+    courtsRepo = new FakeCourtsRepository();
+    trainingsService = new FakeTrainingsService();
+    service = new GroupsService(
+      repo as unknown as GroupsRepository,
+      clientsRepo as unknown as ClientsRepository,
+      courtsRepo as unknown as CourtsRepository,
+      trainingsService as unknown as TrainingsService,
+      env
+    );
+    await repo.create(baseInput);
+  });
+
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
+  it("returns only current and next months that have a future generated open/full training", async () => {
+    repo.bookableTrainingDates = ["2026-06-20", "2026-07-02", "2026-08-01"];
+
+    const result = await service.listBookableMonths(GROUP_ID);
+
+    expect(result).toEqual([
+      { year: 2026, month: 6 },
+      { year: 2026, month: 7 }
+    ]);
+    expect(repo.lastBookableRange).toEqual({
+      groupId: GROUP_ID,
+      from: "2026-06-15",
+      to: "2026-07-31"
+    });
+  });
+
+  it("omits a candidate month with no future generated non-terminal trainings", async () => {
+    repo.bookableTrainingDates = ["2026-07-02"];
+
+    await expect(service.listBookableMonths(GROUP_ID)).resolves.toEqual([
+      { year: 2026, month: 7 }
+    ]);
+  });
+
+  it("returns no months for a hidden group and never reads its generated dates", async () => {
+    await repo.update(GROUP_ID, { hidden: true });
+    repo.bookableTrainingDates = ["2026-06-20", "2026-07-02"];
+
+    await expect(service.listBookableMonths(GROUP_ID)).resolves.toEqual([]);
+    expect(repo.lastBookableRange).toBeUndefined();
+  });
+
+  it("returns no months when the group's trainer is inactive", async () => {
+    repo.inactiveTrainerGroupIds.add(GROUP_ID);
+    repo.bookableTrainingDates = ["2026-06-20", "2026-07-02"];
+
+    await expect(service.listBookableMonths(GROUP_ID)).resolves.toEqual([]);
+    expect(repo.lastBookableRange).toBeUndefined();
+  });
+
+  it("returns no months when the group's level is inactive", async () => {
+    repo.inactiveLevelGroupIds.add(GROUP_ID);
+    repo.bookableTrainingDates = ["2026-06-20", "2026-07-02"];
+
+    await expect(service.listBookableMonths(GROUP_ID)).resolves.toEqual([]);
+    expect(repo.lastBookableRange).toBeUndefined();
+  });
+
+  it("404s a missing group before reading training dates", async () => {
+    await expect(
+      service.listBookableMonths("99999999-9999-4999-8999-999999999999")
+    ).rejects.toBeInstanceOf(NotFoundException);
+    expect(repo.lastBookableRange).toBeUndefined();
   });
 });

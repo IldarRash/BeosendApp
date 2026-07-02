@@ -27,6 +27,7 @@ import {
   isSlotAligned,
   minutesOfDay,
   timeOfMinutes,
+  type CancelCourtRequest,
   type ConfirmCourtRequest,
   type Court,
   type CourtAvailability,
@@ -533,6 +534,35 @@ export class CourtRequestsService {
     });
 
     await this.notifyDecision(updated, "rejected");
+    return this.toEntity(updated);
+  }
+
+  /**
+   * Admin-only cancel for a confirmed request. Pending requests remain reject-only.
+   * The assigned court rows are kept as history, but status `cancelled` removes the
+   * request from all occupancy/load reads because they only count pending/confirmed.
+   */
+  async cancelRequest(
+    callerTelegramId: number,
+    input: CancelCourtRequest
+  ): Promise<CourtRequest> {
+    this.assertAdmin(callerTelegramId, "cancel a court request");
+
+    const updated = await this.repository.transaction(async (tx) => {
+      const request = await tx.lockRequest(input.requestId);
+      if (!request) {
+        throw new NotFoundException("No court request with that id.");
+      }
+      if (request.status !== "confirmed") {
+        throw new ConflictException("Only confirmed court requests can be cancelled.");
+      }
+      await tx.lockDate(request.date);
+      return tx.cancelConfirmed({
+        id: request.id,
+        decidedBy: callerTelegramId
+      });
+    });
+
     return this.toEntity(updated);
   }
 

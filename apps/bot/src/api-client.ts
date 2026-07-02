@@ -1,4 +1,5 @@
 import {
+  bookableMonthsSchema,
   bookingSchema,
   clientSchema,
   groupBookingResultSchema,
@@ -19,6 +20,7 @@ import {
   trainingSchema,
   waitlistEntrySchema,
   type AvailableSlotsQuery,
+  type BookableMonth,
   type Booking,
   type Client,
   type CreateGroupBookingInput,
@@ -211,6 +213,15 @@ export class ApiClient {
    */
   listGroups(): Promise<Group[]> {
     return this.request("/groups", groupsSchema);
+  }
+
+  /**
+   * Months where this group has future generated open/full trainings. The API
+   * owns generated-schedule and availability decisions; the bot only renders the
+   * returned month IDs.
+   */
+  listGroupBookableMonths(groupId: string): Promise<BookableMonth[]> {
+    return this.request(`/groups/${groupId}/bookable-months`, bookableMonthsSchema);
   }
 
   /**

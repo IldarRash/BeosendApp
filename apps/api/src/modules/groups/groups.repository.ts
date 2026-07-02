@@ -67,6 +67,37 @@ export class GroupsRepository {
   }
 
   /**
+   * Public-client group lookup: same visibility predicate as client monthly
+   * booking/listing. No locking here; callers that write must use the bookings
+   * repository's FOR UPDATE variant.
+   */
+  async findClientBookableById(id: string): Promise<Group | undefined> {
+    const [row] = await this.database.db
+      .select({
+        group: tables.groups,
+        trainerName: tables.trainers.name,
+        courtNumber: tables.courts.number
+      })
+      .from(tables.groups)
+      .innerJoin(tables.trainers, eq(tables.groups.trainerId, tables.trainers.id))
+      .innerJoin(tables.levels, eq(tables.groups.levelId, tables.levels.id))
+      .leftJoin(tables.courts, eq(tables.groups.courtId, tables.courts.id))
+      .where(
+        and(
+          eq(tables.groups.id, id),
+          eq(tables.groups.status, "active"),
+          eq(tables.groups.hidden, false),
+          eq(tables.trainers.status, "active"),
+          eq(tables.levels.status, "active")
+        )
+      )
+      .limit(1);
+    return row
+      ? toGroup({ ...row.group, trainerName: row.trainerName, courtNumber: row.courtNumber })
+      : undefined;
+  }
+
+  /**
    * Distinct clients with a `booked` booking on one of the group's trainings whose
    * date falls within [from, to]. Ordered by name; no business rules — the service
    * owns the month range and the role-based field projection.
@@ -122,6 +153,31 @@ export class GroupsRepository {
       )
       .limit(1);
     return row !== undefined;
+  }
+
+  /**
+   * Future generated trainings for a group that can still back a subscription
+   * month. Generated = concrete training row; bookable month ignores terminal
+   * trainings (`cancelled`/`completed`) but allows both `open` and `full`.
+   */
+  async listFutureBookableTrainingDates(
+    groupId: string,
+    from: string,
+    to: string
+  ): Promise<string[]> {
+    const rows = await this.database.db
+      .select({ date: tables.trainings.date })
+      .from(tables.trainings)
+      .where(
+        and(
+          eq(tables.trainings.groupId, groupId),
+          inArray(tables.trainings.status, ["open", "full"]),
+          gte(tables.trainings.date, from),
+          lte(tables.trainings.date, to)
+        )
+      )
+      .orderBy(asc(tables.trainings.date));
+    return rows.map((row) => row.date);
   }
 
   async create(input: CreateGroupInput): Promise<Group> {
