@@ -76,3 +76,100 @@ describe("SettingsService.updateManagerContact", () => {
     expect(settingsRepo.upsertValue).not.toHaveBeenCalled();
   });
 });
+
+describe("SettingsService.requestLoggingSettings", () => {
+  it("defaults to detailed false when the app_settings key is absent", async () => {
+    const settingsRepo = repo(undefined);
+    const service = new SettingsService(settingsRepo, env());
+
+    await expect(service.requestLoggingSettings(ADMIN_ID)).resolves.toEqual({ detailed: false });
+    expect(settingsRepo.findValue).toHaveBeenCalledWith("request_logging_detailed");
+  });
+
+  it("reads true only from the stored string true", async () => {
+    const service = new SettingsService(repo("true"), env());
+
+    await expect(service.requestLoggingSettings(ADMIN_ID)).resolves.toEqual({ detailed: true });
+  });
+
+  it("forbids non-admin reads", async () => {
+    const settingsRepo = repo("true");
+    const service = new SettingsService(settingsRepo, env());
+
+    await expect(service.requestLoggingSettings(NON_ADMIN_ID)).rejects.toBeInstanceOf(
+      ForbiddenException
+    );
+    expect(settingsRepo.findValue).not.toHaveBeenCalled();
+  });
+});
+
+describe("SettingsService.requestLoggingDetailedEnabled", () => {
+  it("reuses the cached detailed flag for repeated request logging checks", async () => {
+    const settingsRepo = repo("true");
+    const service = new SettingsService(settingsRepo, env());
+
+    await expect(service.requestLoggingDetailedEnabled()).resolves.toBe(true);
+    await expect(service.requestLoggingDetailedEnabled()).resolves.toBe(true);
+
+    expect(settingsRepo.findValue).toHaveBeenCalledTimes(1);
+    expect(settingsRepo.findValue).toHaveBeenCalledWith("request_logging_detailed");
+  });
+
+  it("updates the cached detailed flag after an admin write", async () => {
+    const settingsRepo = repo("false");
+    const service = new SettingsService(settingsRepo, env());
+
+    await expect(service.requestLoggingDetailedEnabled()).resolves.toBe(false);
+    await expect(
+      service.updateRequestLoggingSettings(ADMIN_ID, { detailed: true })
+    ).resolves.toEqual({ detailed: true });
+    await expect(service.requestLoggingDetailedEnabled()).resolves.toBe(true);
+
+    expect(settingsRepo.findValue).toHaveBeenCalledTimes(1);
+    expect(settingsRepo.upsertValue).toHaveBeenCalledWith(
+      "request_logging_detailed",
+      "true",
+      ADMIN_ID
+    );
+  });
+});
+
+describe("SettingsService.updateRequestLoggingSettings", () => {
+  it("lets an admin write the detailed flag as strings", async () => {
+    const settingsRepo = repo();
+    const service = new SettingsService(settingsRepo, env());
+
+    await expect(
+      service.updateRequestLoggingSettings(ADMIN_ID, { detailed: true })
+    ).resolves.toEqual({ detailed: true });
+    expect(settingsRepo.upsertValue).toHaveBeenCalledWith(
+      "request_logging_detailed",
+      "true",
+      ADMIN_ID
+    );
+  });
+
+  it("writes false as the string false", async () => {
+    const settingsRepo = repo();
+    const service = new SettingsService(settingsRepo, env());
+
+    await expect(
+      service.updateRequestLoggingSettings(ADMIN_ID, { detailed: false })
+    ).resolves.toEqual({ detailed: false });
+    expect(settingsRepo.upsertValue).toHaveBeenCalledWith(
+      "request_logging_detailed",
+      "false",
+      ADMIN_ID
+    );
+  });
+
+  it("forbids non-admin updates before writing", async () => {
+    const settingsRepo = repo("false");
+    const service = new SettingsService(settingsRepo, env());
+
+    await expect(
+      service.updateRequestLoggingSettings(NON_ADMIN_ID, { detailed: true })
+    ).rejects.toBeInstanceOf(ForbiddenException);
+    expect(settingsRepo.upsertValue).not.toHaveBeenCalled();
+  });
+});

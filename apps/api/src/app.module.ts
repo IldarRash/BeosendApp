@@ -1,5 +1,6 @@
 import { Module } from "@nestjs/common";
 import { EventEmitterModule } from "@nestjs/event-emitter";
+import { APP_INTERCEPTOR } from "@nestjs/core";
 import { ScheduleModule } from "@nestjs/schedule";
 import { ConfigModule } from "./config/config.module";
 import { ConnectorsModule } from "./modules/connectors/connectors.module";
@@ -23,6 +24,7 @@ import { SubscriptionsModule } from "./modules/subscriptions/subscriptions.modul
 import { TrainersModule } from "./modules/trainers/trainers.module";
 import { TrainingsModule } from "./modules/trainings/trainings.module";
 import { WaitlistModule } from "./modules/waitlist/waitlist.module";
+import { RequestLoggingInterceptor } from "./request-logging/request-logging.interceptor";
 
 /**
  * Root module. One module per domain is added under src/modules/* as features
@@ -55,6 +57,12 @@ import { WaitlistModule } from "./modules/waitlist/waitlist.module";
     SubscriptionsModule,
     SettingsModule,
     I18nModule
+  ],
+  providers: [
+    {
+      provide: APP_INTERCEPTOR,
+      useClass: RequestLoggingInterceptor
+    }
   ]
 })
 export class AppModule {}

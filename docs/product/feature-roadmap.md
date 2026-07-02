@@ -1,61 +1,89 @@
 # Feature roadmap
 
-Decomposition of the BeoSand spec (`init`) into implementable subtasks. The training MVP, operations,
-analytics, the manager console (bot), and the full court domain are **shipped** — they now live in the
-code (`apps/api`, `apps/bot`, `packages/*`) and git history rather than in per-feature briefs. The one
-active initiative is the **web admin console** (`docs/product/features/admin-console.md`).
+This file is the current project index. It is based on the code in `apps/*` and `packages/*`, not on
+the original feature briefs alone.
 
-Spec sections are referenced as **ТЗ §n** (technical spec) and **UX §n** (UX scenario).
+Feature briefs under `docs/product/features/` are design and handoff records. A brief is historical
+once the code, contracts, and tests for that slice exist. Keep those files for context, but use this
+roadmap plus the code as the source of truth for current status.
 
-## Shipped
+## Current product surface
 
-The per-feature briefs for the items below were removed once delivered; the behaviour is recorded in
-code + tests. Recent integration commits: `b669375` (training+court integration, waitlist/courts
-migrations), `129f0a4` (admin manager console), `3532692` (advanced filters + segmented broadcasts),
-`79a07da` (analytics reports), `2c8e2ed` (free-slot broadcasts).
+| Surface | Status from code | Main evidence |
+| --- | --- | --- |
+| Telegram bot | Shipped client, trainer, and manager flows | `apps/bot/src/*`, including booking, group booking, individual requests, trainer confirmation, trainer-today, my-bookings, navigation tests |
+| API | Shipped modular Nest API | `apps/api/src/app.module.ts` wires analytics, auth, bookings, broadcasts, clients, connectors, courts, court-requests, groups, i18n, levels, managers, notification templates, notifications, settings, subscriptions, trainers, trainings, waitlist |
+| Admin console | Shipped web admin surface | `apps/admin/src/routes.ts` has all nav routes live: schedule/reference, rosters, courts, broadcasts, analytics, labels, notification templates, connectors |
+| Mini App | Shipped client surface | `apps/miniapp/src/router/routes.ts` exposes home, calendar, my bookings, group, individual, court, profile; screens and flow specs exist under `apps/miniapp/src/screens` |
+| Shared contracts | Shipped and tested | `packages/types/src/*-contracts.ts` plus colocated specs |
+| Database schema | Shipped and broader than the original MVP | `packages/db/src/schema.ts` currently exports 20 tables |
 
-**Foundation (F0).** pnpm + Turborepo workspace, `packages/config` (env), `packages/types`
-(contracts + helpers), `packages/db` (Drizzle schema + migrations + seed + Postgres compose),
-`apps/api` (Nest skeleton), `apps/bot` (grammY `/start` → main menu, typed `ApiClient`).
+## Shipped domains
 
-**Stage 1 — Training MVP (T1).** levels & trainers reference, groups CRUD, month training generation
-(§15.1), bookable slot list + cards (§5), client onboarding (§7), main-menu navigation (§6), single
-booking with capacity recompute (§4.1), monthly group booking batch (§4.2, §15.3), my-bookings,
-booking cancellation (§11).
+**Foundation.** pnpm/Turborepo workspace, shared env/config, Drizzle schema and migrations, Nest API,
+grammY bot, React/Vite admin, React/Vite Telegram Mini App, shared Zod contracts.
 
-**Stage 2 — Operations (T2).** waitlist join + promote-on-cancel (§9), notifications (confirm /
-24h / 3h / cancel / waitlist-slot) (§15.4, §16), trainer-today roster + attendance (§13), free-slot
-broadcasts with inline booking (§12).
+**Training booking.** Levels, trainers, clients, groups, generated trainings, single bookings, monthly
+group subscriptions, my bookings, cancellation, booked-count recompute, trainer confirmations, roster
+and attendance management.
 
-**Stage 3 — Analytics (T3).** analytics reports — popular slots, fill rate, trainer load,
-cancellations/no-shows, client activity, broadcast effectiveness (§17); advanced slot filters +
-segmented broadcasts (§19).
+**Waitlist.** Waitlist join, active waitlist reads, promotion/displacement flows, admin waitlist tools,
+and client-facing waitlist visibility in the Mini App.
 
-**Manager console — bot (A1).** Bot-based manager actions: groups, month generation, trainers,
-capacity change, cancel training, roster, broadcasts, fill overview (§14, §15).
+**Individual training.** Trainers can be hidden from individual pickers via `individualVisible`.
+Client requests are durable rows in `individual_training_requests`; trainer/admin decisions can confirm
+or decline and create the final training/booking on confirmation.
 
-**Court domain — Edition 2 (C1–C6).** 6 courts + blocks schema (C1); client request flow
-date→time→duration→RSD preview→submit (C2); availability math, 6-per-hour limit (C3); admin
-moderation confirm/assign or reject + notify (C4); manual court block (C5); per-day court **load grid**
-API `GET /courts/load` (C6 — backend shipped; the planned bot text-grid view is superseded by the web
-load grid in the admin console).
+**Court rental.** Six-court model, client court requests, availability/price preview, multi-court
+holds via `court_request_courts`, admin confirm/reject, court blocks, court load grid, Mini App court
+request flow, and admin court screens.
 
-## Active
+**Notifications and templates.** Telegram sends, reminder/booking/waitlist/court messages, notification
+send log, editable notification templates, and connector-aware channel dispatch.
 
-| Slug | Summary | Status | Brief |
-| --- | --- | --- | --- |
-| `admin-console` | Web manager console (`apps/admin`): Telegram-Login-Widget auth seam + router/data layer (M0), schedule & reference (M1), rosters & attendance (M2), courts moderation/blocks/load-grid (M3), broadcasts & analytics dashboard (M4) — a pure interaction layer over the already-shipped admin API | M0–M4 implemented on `feature/admin-console`, full static gate green (476 tests); pending live end-to-end verification | `docs/product/features/admin-console.md` |
+**Localization.** RU/SR/EN catalogs in `packages/i18n`, editable UI labels in the API/admin surface,
+and locale-aware bot/admin/Mini App rendering.
 
-## Cross-cutting decisions (settled)
+**Connectors.** Connector registry, status/test-send endpoints, calendar feed links, Google Calendar
+push adapter, CSV/Sheets exports, webhook endpoints, delivery logs, retry scheduler, signed webhook
+payloads, and admin connector UI.
 
-- **Court hours:** open 08:00–21:00, last start 20:00 (1 h) / 19:00 (2 h). Constants in
-  `packages/types/src/court-contracts.ts`.
-- **Payment:** no online payment; the bot/console only display the RSD price; payment is offline.
-- **Roles:** admins/managers via `ADMIN_TELEGRAM_IDS`; trainers via `trainers.telegram_id`. The web
-  console adds a verified browser session (Telegram Login Widget) on top of the same admin set.
-- **Timezone:** Europe/Belgrade for all dates/times.
+**Operations settings.** Manager contact setting and request-logging toggle are represented by
+`app_settings`, `SettingsModule`, `RequestLoggingInterceptor`, admin hooks, and the connectors page
+operational settings panel.
 
-## Other docs
+## Feature briefs by status
 
-- `docs/product/features/local-run.md` — local stack bring-up runbook.
-- `docs/product/features/bot-manual-testing-ru.md` — manual QA walkthrough (RU).
+### Current or recently changed
+
+| Brief | Status |
+| --- | --- |
+| `request-logging-toggle.md` | Present in the working tree with API, settings contracts, interceptor, admin hooks/UI, and specs. Treat as recently changed until the full gate is green. |
+| `admin-training-edit-visibility.md` | Reflected in admin/API code through `includeTerminal` queries and terminal-status toggles. |
+| `roster-avatars-and-confirm-visibility.md` | Reflected in roster contracts/helpers/UI through `telegramPhotoUrl` and client-narrowed roster rows. |
+
+### Implemented historical briefs
+
+| Area | Briefs |
+| --- | --- |
+| Bot flows | `bot-menu-and-individual.md`, `bot-manual-testing-ru.md`, `booking-small-fixes.md`, `no-group-approval.md`, `trainer-first-individual-request-routing.md`, `trainer-individual-visibility.md`, `telegram-client-identity.md` |
+| Admin console | `admin-console.md`, `admin-table-controls.md`, `admin-training-roster-management.md` |
+| Mini App | `miniapp-home-nav.md`, `miniapp-onboarding-identity.md`, `miniapp-calendar-training-context.md`, `miniapp-browse-book.md`, `miniapp-my-bookings.md`, `miniapp-group-booking.md`, `miniapp-individual-request.md`, `miniapp-court-request.md`, `miniapp-waitlist.md` |
+| Courts | `court-30min-granularity.md`, `group-court-scheduling.md`, `recurring-court-blocks.md`, `walkin-manual-booking.md` |
+| Integrations and ops | `connectors.md`, `local-run.md`, `localization.md`, `railway-deploy.md` |
+| Waitlist and individual refinements | `frictionless-waitlist.md`, `individual-confirm-auto-waitlist.md` |
+
+## Cleanup rule
+
+Do not delete a feature brief just because the feature is shipped. If a brief is superseded by code,
+either leave it as historical context or add a short status note to that file. Central status belongs
+here; implementation truth belongs in code and tests.
+
+## Definition of done for future feature cleanup
+
+- The code path exists in the owning app/module.
+- Shared Zod contracts and DB schema match the behavior.
+- There are focused tests for the changed invariant.
+- `pnpm typecheck && pnpm lint && pnpm test && pnpm build` has been run or a precise blocker is
+  documented.
+- The relevant feature brief is either updated with a status note or listed above as historical.

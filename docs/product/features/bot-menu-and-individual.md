@@ -1,5 +1,9 @@
 # Feature: Bot menu reorder + group trainer name + individual-training request (Features 6 + 7 + 7b + 8)
 
+> Status: implemented in the current codebase. Keep this file as historical implementation context;
+> use `apps/bot/src/*`, `apps/api/src/modules/trainers`, `apps/api/src/modules/groups`, and
+> `packages/types/src/training-contracts.ts` as the current source of truth.
+
 ## Goal
 
 Three related bot-side changes plus one small client-facing API addition, delivered as one thin

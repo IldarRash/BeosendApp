@@ -20,9 +20,11 @@ import {
   useCalendarFeedLink,
   useConnectors,
   useCsvDownload,
+  useRequestLoggingSettings,
   useRotateCalendarFeed,
   useSheetsSync,
-  useTestSend
+  useTestSend,
+  useUpdateRequestLoggingSettings
 } from "../hooks/useConnectors";
 import {
   useCreateWebhook,
@@ -63,10 +65,83 @@ export function Connectors(): JSX.Element {
         </div>
       </header>
       <StatusPanel t={t} />
+      <OperationalSettingsPanel t={t} />
       <WebhooksPanel t={t} />
       <ExportsPanel t={t} />
       <CalendarPanel t={t} />
     </AppShell>
+  );
+}
+
+// ── Operational settings ──────────────────────────────────────────────────────
+
+function OperationalSettingsPanel({ t }: { t: Translate }): JSX.Element {
+  const toast = useToast();
+  const requestLogging = useRequestLoggingSettings();
+  const updateRequestLogging = useUpdateRequestLoggingSettings();
+  const detailed = requestLogging.data?.detailed ?? false;
+
+  function handleRequestLoggingChange(event: React.ChangeEvent<HTMLInputElement>): void {
+    const nextDetailed = event.currentTarget.checked;
+    updateRequestLogging.mutate(
+      { detailed: nextDetailed },
+      {
+        onSuccess: (settings) =>
+          toast.notify(
+            settings.detailed
+              ? t("admin.connectors.requestLogging.savedDetailed")
+              : t("admin.connectors.requestLogging.savedOrdinary"),
+            "success"
+          ),
+        onError: (error) => toast.notify(error.message, "error")
+      }
+    );
+  }
+
+  return (
+    <section className="stack" aria-labelledby="connectors-operational-settings">
+      <div>
+        <h2 id="connectors-operational-settings">
+          {t("admin.connectors.operational.title")}
+        </h2>
+        <p className="field__hint">{t("admin.connectors.operational.lead")}</p>
+      </div>
+      {requestLogging.isLoading ? (
+        <p className="state state--loading">{t("admin.connectors.requestLogging.loading")}</p>
+      ) : requestLogging.isError ? (
+        <p className="state state--error" role="alert">
+          {t("admin.connectors.requestLogging.error", {
+            message: requestLogging.error.message
+          })}
+        </p>
+      ) : (
+        <div className="form">
+          <label className="cluster">
+            <input
+              type="checkbox"
+              checked={detailed}
+              disabled={updateRequestLogging.isPending}
+              onChange={handleRequestLoggingChange}
+            />
+            <span className="field__label">
+              {t("admin.connectors.requestLogging.label")}
+            </span>
+          </label>
+          <p className="field__hint">{t("admin.connectors.requestLogging.hint")}</p>
+          <div className="cluster" aria-live="polite">
+            <span>{t("admin.connectors.requestLogging.current")}</span>
+            <span className={detailed ? "tag tag--warn" : "tag tag--muted"}>
+              {detailed
+                ? t("admin.connectors.requestLogging.detailed")
+                : t("admin.connectors.requestLogging.ordinary")}
+            </span>
+            {updateRequestLogging.isPending ? (
+              <span className="state">{t("admin.connectors.requestLogging.saving")}</span>
+            ) : null}
+          </div>
+        </div>
+      )}
+    </section>
   );
 }
 

@@ -943,6 +943,22 @@ export const adminRu: Record<string, string> = {
   "admin.connectors.lead":
     "Внешние интеграции: каналы уведомлений, веб-хуки, экспорт и календарные ленты. Включение и доставка решаются на сервере — консоль только отображает состояние.",
 
+  // Operational settings
+  "admin.connectors.operational.title": "Операционные настройки",
+  "admin.connectors.operational.lead":
+    "Короткие переключатели для диагностики API. Правила логирования и маскирование секретов остаются на сервере.",
+  "admin.connectors.requestLogging.label": "Подробные API-логи",
+  "admin.connectors.requestLogging.hint":
+    "Включайте только на время диагностики. Консоль переключает сохранённый флаг; состав логов решает API.",
+  "admin.connectors.requestLogging.current": "Текущий режим:",
+  "admin.connectors.requestLogging.ordinary": "обычный",
+  "admin.connectors.requestLogging.detailed": "подробный",
+  "admin.connectors.requestLogging.loading": "Загрузка настройки логирования…",
+  "admin.connectors.requestLogging.error": "Не удалось загрузить настройку логирования: {message}",
+  "admin.connectors.requestLogging.saving": "Сохранение…",
+  "admin.connectors.requestLogging.savedDetailed": "Подробные API-логи включены",
+  "admin.connectors.requestLogging.savedOrdinary": "Подробные API-логи выключены",
+
   // Status panel
   "admin.connectors.status.title": "Состояние коннекторов",
   "admin.connectors.status.caption": "Список коннекторов и их состояние",

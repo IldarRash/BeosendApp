@@ -934,6 +934,21 @@ export const adminEn: Record<string, string> = {
   "admin.connectors.lead":
     "External integrations: notification channels, webhooks, exports and calendar feeds. Enablement and delivery are decided server-side — the console only renders the state.",
 
+  "admin.connectors.operational.title": "Operational settings",
+  "admin.connectors.operational.lead":
+    "Short-lived API diagnostics toggles. Logging rules and secret masking stay on the server.",
+  "admin.connectors.requestLogging.label": "Detailed API logs",
+  "admin.connectors.requestLogging.hint":
+    "Enable only for debugging windows. The console toggles the saved flag; the API decides what gets logged.",
+  "admin.connectors.requestLogging.current": "Current mode:",
+  "admin.connectors.requestLogging.ordinary": "ordinary",
+  "admin.connectors.requestLogging.detailed": "detailed",
+  "admin.connectors.requestLogging.loading": "Loading logging setting…",
+  "admin.connectors.requestLogging.error": "Failed to load logging setting: {message}",
+  "admin.connectors.requestLogging.saving": "Saving…",
+  "admin.connectors.requestLogging.savedDetailed": "Detailed API logs enabled",
+  "admin.connectors.requestLogging.savedOrdinary": "Detailed API logs disabled",
+
   "admin.connectors.status.title": "Connector status",
   "admin.connectors.status.caption": "List of connectors and their status",
   "admin.connectors.status.loading": "Loading status…",
