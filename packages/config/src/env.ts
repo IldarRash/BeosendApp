@@ -70,7 +70,7 @@ const envSchema = z.object({
 
   // --- External connectors (all optional: a missing provider is a normal
   // "disabled" state, not a boot failure; but a malformed value still fails
-  // closed at startup). None is ever logged. See docs/product/features/connectors.md §4.
+  // closed at startup). None is ever logged. See docs/product/feature-roadmap.md (Connectors).
 
   // Calendar
   /** HMAC key for signed .ics feed tokens; min length so the signature has entropy. */

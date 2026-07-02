@@ -1,6 +1,6 @@
 # Domain model
 
-This document mirrors the current code. The physical schema lives in
+This document mirrors the current code at a practical level. The physical schema lives in
 `packages/db/src/schema.ts`; contracts and pure helpers live in `packages/types/src`.
 
 ```mermaid
@@ -9,68 +9,60 @@ erDiagram
   LEVEL ||--o{ GROUP : "categorizes"
   TRAINER ||--o{ GROUP : "leads"
   TRAINER ||--o{ TRAINING : "leads"
-  CLIENT ||--o{ TRAINING : "owns individual session"
   GROUP ||--o{ TRAINING : "generates"
+  CLIENT ||--o{ TRAINING : "owns individual"
   TRAINING ||--o{ BOOKING : "has"
   CLIENT ||--o{ BOOKING : "makes"
   TRAINING ||--o{ WAITLIST : "queues"
   CLIENT ||--o{ WAITLIST : "joins"
   CLIENT ||--o{ INDIVIDUAL_TRAINING_REQUEST : "requests"
   TRAINER ||--o{ INDIVIDUAL_TRAINING_REQUEST : "receives"
-  INDIVIDUAL_TRAINING_REQUEST ||--o| TRAINING : "confirmed into"
-  CLIENT ||--o{ COURT_REQUEST : "submits"
-  COURT_REQUEST ||--o{ COURT_REQUEST_COURT : "holds/assigns"
-  COURT ||--o{ COURT_REQUEST_COURT : "selected"
+  INDIVIDUAL_TRAINING_REQUEST ||--o| TRAINING : "confirms into"
   COURT ||--o{ COURT_BLOCK : "reserved"
+  CLIENT ||--o{ COURT_REQUEST : "submits"
+  COURT_REQUEST ||--o{ COURT_REQUEST_COURT : "holds"
+  COURT ||--o{ COURT_REQUEST_COURT : "assigned"
   WEBHOOK_ENDPOINT ||--o{ WEBHOOK_DELIVERY : "logs"
 ```
 
-## Training domain
+## Training and booking
 
-- **Level** - reference data for client/group/training difficulty.
-- **Trainer** - reference and actor data. Carries `telegramId`, `telegramUsername`, `language`,
-  `status`, and `individualVisible`.
-- **Manager** - editable admin/manager records. Authorization is the union of env
-  `ADMIN_TELEGRAM_IDS` and active manager rows with a known `telegramId`.
-- **Client** - Telegram or walk-in user. Identity is numeric `telegramId` when present; username and
-  photo URL are optional display/contact fields.
-- **Group** - recurring training slot: level, weekdays, time range, trainer, home court, capacity,
-  prices, visibility, and status.
-- **Training** - dated instance. Group trainings point to `groupId`; individual sessions point to
-  `clientId` and can carry per-session `priceSingleRsd`. Status is `open|full|cancelled|completed`.
-- **Booking** - a client on a training. Supports `single|group`, `booked|pending|cancelled|attended|
-  no_show|waitlist`, payment status, and optional `groupSubscriptionId`.
-- **Waitlist** - ordered queue per training; used by client booking flows and admin promotion/swap
-  tools.
-- **IndividualTrainingRequest** - durable request for a trainer/date/time. Pending requests are sent
-  to the trainer/admin path; confirmation creates the actual training and booking.
+- **Level** - reference data for client and group difficulty.
+- **Trainer** - staff member with optional Telegram identity, locale, status, individual visibility,
+  and calendar feed version.
+- **Manager** - editable admin record. Admin access is the union of `ADMIN_TELEGRAM_IDS` and active
+  manager rows with a known `telegramId`.
+- **Client** - Telegram or walk-in client. Telegram ID is nullable for walk-ins; username, photo,
+  phone, email, note, language, consent timestamp, and bonus credits are optional/supporting data.
+- **Group** - recurring slot: level, weekdays, time, trainer, home court, capacity, prices, visibility,
+  and status.
+- **Training** - dated group or individual session. Group sessions point to `groupId`; individual
+  sessions point to the owning `clientId` and can carry a per-session price.
+- **Booking** - client participation in a training: single/group type, status, source, payment status,
+  and optional monthly subscription id.
+- **Waitlist** - ordered queue per training, including monthly-subscription entries.
+- **IndividualTrainingRequest** - durable client request for a trainer/date/time. Confirmation creates
+  and links the final training.
 
-## Court domain
+## Courts
 
-- **Court** - one of the physical courts; clients do not choose court ids directly in the booking UI.
-- **CourtBlock** - admin reservation for a court/date/time range.
-- **CourtRequest** - client's court rental request: date, time range, requested court count, price,
+- **Court** - active/inactive physical court number.
+- **CourtBlock** - manual admin block or generated block tied to a group training.
+- **CourtRequest** - client rental request with date/time, duration, requested court count, price,
   status, and decision metadata.
-- **CourtRequestCourt** - join table for held/assigned courts. This is the current model; the older
-  single `court_requests.court_id` shape is superseded.
+- **CourtRequestCourt** - join table for held or assigned courts; this is the source for multi-court
+  request occupancy.
 
-## Communications and operations
+## Communication and operations
 
-- **Notification** - outbound send log for Telegram/channel sends.
-- **NotificationTemplate** - editable localized message templates for supported event keys.
-- **Broadcast** - free-slot or operational broadcast record.
-- **UiLabel** - editable localized UI labels.
-- **AppSetting** - key/value operational settings such as manager contact and detailed request
-  logging.
-- **WebhookEndpoint / WebhookDelivery** - outbound webhook configuration, signed delivery payloads,
-  retry state, and delivery history.
+- **Notification** and **NotificationTemplate** - send log and localized editable message bodies.
+- **Broadcast** - broadcast run record.
+- **UiLabel** - localized UI label override over the static `packages/i18n` catalog.
+- **WebhookEndpoint** and **WebhookDelivery** - signed outbound webhooks, retries, and delivery history.
+- **AppSetting** - operational key/value settings.
 
-## Pure helper rules
+## Helper invariants
 
-Important invariants are implemented and tested in `packages/types/src/helpers.ts`:
-
-- Training status recompute: `open <-> full` by capacity; terminal statuses stay terminal.
-- Bookability and free seats: client-facing booking only sees bookable slots.
-- Month date generation for group schedules.
-- Court price/time coverage and free-court grid math.
-- Narrowed roster/member rows for client-facing participant and waitlist visibility.
+Important pure rules live in `packages/types/src/helpers.ts`: training status recompute, free-seat and
+bookability checks, month date generation, court grid math, price helpers, and narrowed participant
+visibility shapes.

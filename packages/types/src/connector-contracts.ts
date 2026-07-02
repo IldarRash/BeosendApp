@@ -6,7 +6,7 @@ import { rsd, uuid } from "./common";
  * layer turns committed domain state into outbound effects (telegram/email/sms
  * channels, webhooks, calendar feeds, sheets/csv export). Money stays RSD.
  *
- * See docs/product/features/connectors.md §6.
+ * See docs/product/feature-roadmap.md (Connectors).
  */
 
 /** Every connector the registry can report on (channels + outbound connectors). */
