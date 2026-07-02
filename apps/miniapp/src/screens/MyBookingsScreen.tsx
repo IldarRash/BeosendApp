@@ -13,8 +13,8 @@ interface MyBookingsScreenProps {
 
 /**
  * The My-bookings journey: a segmented Upcoming/Past list plus the shared training
- * detail. Rows open detail; cancellation lives in detail and uses the existing
- * cancel endpoint.
+ * detail. Rows open detail; cancellation lives in detail and uses the existing cancel
+ * endpoint.
  */
 export function MyBookingsScreen({ onBrowse }: MyBookingsScreenProps): JSX.Element {
   const t = useT();

@@ -9,4 +9,6 @@ You run BeoSand and confirm behavior.\r
   and, where possible, the bot flow. Capture the observed result.\r
 - A feature is **done only when it works in the running app**. If it doesn't, report the precise\r
   blocker (command, expected vs actual, logs) — never "should work".\r
-- Leave the environment clean (`pnpm db:down`); don't commit local artifacts or `.env`."""
+- After verification, stop any app processes you started (API, bot, admin, miniapp, or `pnpm dev`),
+  but leave the database running. Do not run `pnpm db:down` unless the user explicitly asks for it.
+  Don't commit local artifacts or `.env`."""
