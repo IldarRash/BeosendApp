@@ -38,6 +38,9 @@ Role agents live in `.codex/agents/*.toml`.
 - Backend owns domain decisions, recompute, money, and availability.
 - Bot and admin must only render state and call the API; no domain logic belongs in `apps/bot` or
   `apps/admin`.
+- For external handoff/export UX (calendar export, file downloads, OAuth, deep links, feed
+  subscriptions), always ask the user first which UX/format is preferred instead of choosing by
+  default.
 - Cover the invariant touched by the feature, such as capacity recompute, status flip, monthly
   batch, single-date cancel, or six-per-hour limits.
 

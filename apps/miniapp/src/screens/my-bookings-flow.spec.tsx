@@ -162,12 +162,6 @@ beforeEach(() => {
   vi.useFakeTimers({ shouldAdvanceTime: true });
   vi.setSystemTime(FIXED_NOW);
   api = makeApi();
-  vi.stubGlobal("URL", {
-    ...window.URL,
-    createObjectURL: vi.fn(() => "blob:calendar"),
-    revokeObjectURL: vi.fn()
-  });
-  vi.spyOn(HTMLAnchorElement.prototype, "click").mockImplementation(() => {});
 });
 
 afterEach(() => {
@@ -221,26 +215,22 @@ describe("MyBookingsScreen detail", () => {
   });
 });
 
-describe("MyBookingsScreen without monthly export controls", () => {
-  it("renders the bookings list without the removed monthly calendar export UI", async () => {
+describe("MyBookingsScreen monthly export", () => {
+  it("does not show monthly export controls or call export while switching tabs", async () => {
     renderWithProviders(<MyBookingsScreen onBrowse={() => {}} />);
 
     await screen.findByText("Mix");
 
     expect(screen.queryByRole("button", { name: /Google Calendar.*2026/i })).toBeNull();
+    expect(screen.queryByText(/Google Calendar \(\.ics\)/i)).toBeNull();
     expect(document.querySelector(".cal-nav")).toBeNull();
     expect(api.exportMyBookingsCalendar).not.toHaveBeenCalled();
-  });
 
-  it("switches booking scopes without exposing calendar export controls", async () => {
-    renderWithProviders(<MyBookingsScreen onBrowse={() => {}} />);
-
-    const tabs = await screen.findAllByRole("tab");
+    const tabs = screen.getAllByRole("tab");
     fireEvent.click(tabs[1]);
-
     await waitFor(() => expect(api.listMyBookings).toHaveBeenCalledWith(ONBOARDED.id, "past"));
-    expect(screen.queryByRole("button", { name: /Google Calendar/i })).toBeNull();
-    expect(document.querySelector(".cal-nav__btn")).toBeNull();
+    fireEvent.click(tabs[0]);
+    await waitFor(() => expect(api.listMyBookings).toHaveBeenCalledWith(ONBOARDED.id, "upcoming"));
     expect(api.exportMyBookingsCalendar).not.toHaveBeenCalled();
   });
 });
