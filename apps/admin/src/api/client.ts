@@ -38,6 +38,7 @@ import {
   noShowStatsSchema,
   notificationTemplateSchema,
   popularSlotSchema,
+  requestLoggingSettingsSchema,
   subscriptionSummarySchema,
   trainerLoadSchema,
   trainerSchema,
@@ -46,6 +47,7 @@ import {
   trainingSchema,
   updateIndividualPriceSchema,
   updateManagerContactSchema,
+  updateRequestLoggingSettingsSchema,
   waitlistAdminItemSchema,
   waitlistEntrySchema,
   deleteTrainingSeriesResultSchema,
@@ -118,6 +120,7 @@ import {
   type NotificationTemplateKey,
   type OnboardClientInput,
   type PopularSlot,
+  type RequestLoggingSettings,
   type RescheduleTrainingInput,
   type SendBroadcastInput,
   type SubscriptionSummary,
@@ -135,6 +138,7 @@ import {
   type UpdateGroupInput,
   type UpdateLevelInput,
   type UpdateManagerInput,
+  type UpdateRequestLoggingSettingsInput,
   type UpdateTrainerInput,
   type WaitlistAdminItem,
   type WaitlistEntry,
@@ -548,6 +552,27 @@ export class ApiClient {
     return this.request("/settings/manager-contact", managerContactSchema, {
       method: "PATCH",
       body: JSON.stringify(updateManagerContactSchema.parse(input))
+    });
+  }
+
+  /**
+   * Operational request logging setting (GET /settings/request-logging). Admin-only
+   * server-side; the console renders the validated boolean and owns no logging rules.
+   */
+  getRequestLoggingSettings(): Promise<RequestLoggingSettings> {
+    return this.request("/settings/request-logging", requestLoggingSettingsSchema);
+  }
+
+  /**
+   * Toggle detailed API request logging (PATCH /settings/request-logging). The
+   * shared strict contract validates both the outgoing body and the returned state.
+   */
+  updateRequestLoggingSettings(
+    input: UpdateRequestLoggingSettingsInput
+  ): Promise<RequestLoggingSettings> {
+    return this.request("/settings/request-logging", requestLoggingSettingsSchema, {
+      method: "PATCH",
+      body: JSON.stringify(updateRequestLoggingSettingsSchema.parse(input))
     });
   }
 

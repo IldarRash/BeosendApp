@@ -934,6 +934,21 @@ export const adminSr: Record<string, string> = {
   "admin.connectors.lead":
     "Spoljne integracije: kanali obaveštenja, veb-huk-ovi, izvoz i kalendarski feedovi. Uključivanje i isporuku odlučuje server — konzola samo prikazuje stanje.",
 
+  "admin.connectors.operational.title": "Operativna podešavanja",
+  "admin.connectors.operational.lead":
+    "Kratkotrajni prekidači za API dijagnostiku. Pravila logovanja i maskiranje tajni ostaju na serveru.",
+  "admin.connectors.requestLogging.label": "Detaljni API logovi",
+  "admin.connectors.requestLogging.hint":
+    "Uključujte samo tokom dijagnostike. Konzola menja sačuvani flag; API odlučuje šta se loguje.",
+  "admin.connectors.requestLogging.current": "Trenutni režim:",
+  "admin.connectors.requestLogging.ordinary": "običan",
+  "admin.connectors.requestLogging.detailed": "detaljan",
+  "admin.connectors.requestLogging.loading": "Učitavanje podešavanja logovanja…",
+  "admin.connectors.requestLogging.error": "Učitavanje podešavanja logovanja nije uspelo: {message}",
+  "admin.connectors.requestLogging.saving": "Čuvanje…",
+  "admin.connectors.requestLogging.savedDetailed": "Detaljni API logovi uključeni",
+  "admin.connectors.requestLogging.savedOrdinary": "Detaljni API logovi isključeni",
+
   "admin.connectors.status.title": "Stanje konektora",
   "admin.connectors.status.caption": "Lista konektora i njihovo stanje",
   "admin.connectors.status.loading": "Učitavanje stanja…",

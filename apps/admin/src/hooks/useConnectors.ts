@@ -1,6 +1,7 @@
 import {
   useMutation,
   useQuery,
+  useQueryClient,
   type UseMutationResult,
   type UseQueryResult
 } from "@tanstack/react-query";
@@ -8,17 +9,47 @@ import type {
   CalendarFeedLink,
   CalendarSubject,
   ConnectorStatusList,
+  RequestLoggingSettings,
   TestSendInput,
-  TestSendResult
+  TestSendResult,
+  UpdateRequestLoggingSettingsInput
 } from "@beosand/types";
 import { useApiClient } from "../api/ApiProvider";
 
 const CONNECTORS_KEY = ["connectors"] as const;
+const REQUEST_LOGGING_KEY = ["settings", "request-logging"] as const;
 
 /** Connector status list (GET /connectors), validated by the ApiClient. */
 export function useConnectors(): UseQueryResult<ConnectorStatusList, Error> {
   const api = useApiClient();
   return useQuery({ queryKey: CONNECTORS_KEY, queryFn: () => api.listConnectors() });
+}
+
+/** Current operational API request logging setting. */
+export function useRequestLoggingSettings(): UseQueryResult<RequestLoggingSettings, Error> {
+  const api = useApiClient();
+  return useQuery({
+    queryKey: REQUEST_LOGGING_KEY,
+    queryFn: () => api.getRequestLoggingSettings()
+  });
+}
+
+/** Toggle detailed request logging; cache is updated with the validated response. */
+export function useUpdateRequestLoggingSettings(): UseMutationResult<
+  RequestLoggingSettings,
+  Error,
+  UpdateRequestLoggingSettingsInput
+> {
+  const api = useApiClient();
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (input: UpdateRequestLoggingSettingsInput) =>
+      api.updateRequestLoggingSettings(input),
+    onSuccess: (settings) => {
+      queryClient.setQueryData(REQUEST_LOGGING_KEY, settings);
+      void queryClient.invalidateQueries({ queryKey: REQUEST_LOGGING_KEY });
+    }
+  });
 }
 
 /** Admin test-send over one channel; result/error surfaced by the caller (toast). */

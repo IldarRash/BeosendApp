@@ -27,13 +27,18 @@ const useSheetsSync = vi.fn();
 const useCsvDownload = vi.fn();
 const useCalendarFeedLink = vi.fn();
 const useRotateCalendarFeed = vi.fn();
+const requestLoggingMutate = vi.fn();
+const useRequestLoggingSettings = vi.fn();
+const useUpdateRequestLoggingSettings = vi.fn();
 vi.mock("../hooks/useConnectors", () => ({
   useConnectors: () => useConnectors(),
   useTestSend: () => useTestSend(),
   useSheetsSync: () => useSheetsSync(),
   useCsvDownload: () => useCsvDownload(),
   useCalendarFeedLink: () => useCalendarFeedLink(),
-  useRotateCalendarFeed: () => useRotateCalendarFeed()
+  useRotateCalendarFeed: () => useRotateCalendarFeed(),
+  useRequestLoggingSettings: () => useRequestLoggingSettings(),
+  useUpdateRequestLoggingSettings: () => useUpdateRequestLoggingSettings()
 }));
 
 const useWebhooks = vi.fn();
@@ -85,12 +90,23 @@ beforeEach(() => {
   notify.mockReset();
   testSendMutate.mockReset();
   createWebhookMutate.mockReset();
+  requestLoggingMutate.mockReset();
   useConnectors.mockReturnValue({ isLoading: false, isError: false, data: sampleStatus });
   useTestSend.mockReturnValue({ mutate: testSendMutate, isPending: false, error: null });
   useSheetsSync.mockReturnValue({ mutate: vi.fn(), isPending: false, error: null });
   useCsvDownload.mockReturnValue({ mutate: vi.fn(), isPending: false, error: null });
   useCalendarFeedLink.mockReturnValue({ mutate: vi.fn(), isPending: false, error: null });
   useRotateCalendarFeed.mockReturnValue({ mutate: vi.fn(), isPending: false, error: null });
+  useRequestLoggingSettings.mockReturnValue({
+    isLoading: false,
+    isError: false,
+    data: { detailed: true }
+  });
+  useUpdateRequestLoggingSettings.mockReturnValue({
+    mutate: requestLoggingMutate,
+    isPending: false,
+    error: null
+  });
   useWebhooks.mockReturnValue({ isLoading: false, isError: false, data: [sampleWebhook] });
   useCreateWebhook.mockReturnValue({ mutate: createWebhookMutate, isPending: false, error: null });
   useUpdateWebhook.mockReturnValue({ mutate: vi.fn(), isPending: false, error: null });
@@ -124,6 +140,52 @@ describe("Connectors page", () => {
       channel: "email",
       to: "walk-in@example.test"
     });
+  });
+
+  it("renders the request logging toggle with the current detailed state", () => {
+    renderPage();
+    const toggle = screen.getByLabelText("Подробные API-логи") as HTMLInputElement;
+    expect(toggle.checked).toBe(true);
+    expect(screen.getByText("подробный")).toBeTruthy();
+  });
+
+  it("renders request logging loading and error states", () => {
+    useRequestLoggingSettings.mockReturnValue({
+      isLoading: true,
+      isError: false,
+      data: undefined
+    });
+    const { container, unmount } = render(
+      <MemoryRouter>
+        <Connectors />
+      </MemoryRouter>
+    );
+    expect(container.querySelector(".state--loading")).not.toBeNull();
+    unmount();
+
+    useRequestLoggingSettings.mockReturnValue({
+      isLoading: false,
+      isError: true,
+      error: new Error("settings unavailable"),
+      data: undefined
+    });
+    renderPage();
+    const alert = screen
+      .getAllByRole("alert")
+      .find((element) => element.textContent?.includes("settings unavailable"));
+    expect(alert).toBeTruthy();
+  });
+
+  it("calls the request logging update mutation when the toggle changes", () => {
+    useRequestLoggingSettings.mockReturnValue({
+      isLoading: false,
+      isError: false,
+      data: { detailed: false }
+    });
+    renderPage();
+    fireEvent.click(screen.getByLabelText("Подробные API-логи"));
+    expect(requestLoggingMutate).toHaveBeenCalledTimes(1);
+    expect(requestLoggingMutate.mock.calls[0][0]).toEqual({ detailed: true });
   });
 
   it("surfaces the one-time signing secret in a modal after create", () => {

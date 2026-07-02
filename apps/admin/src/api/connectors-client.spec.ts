@@ -1,6 +1,11 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { ApiClient } from "./client";
 
+interface FetchCall {
+  url: string;
+  init?: RequestInit;
+}
+
 /**
  * ApiClient connector methods: each must validate the JSON response against its
  * `@beosand/types` contract before resolving, and reject a malformed one (the
@@ -8,11 +13,20 @@ import { ApiClient } from "./client";
  * never in the list/get entity.
  */
 
-function mockFetchOnce(body: unknown, ok = true, status = 200): void {
+function mockFetchOnce(body: unknown, ok = true, status = 200): FetchCall[] {
+  const calls: FetchCall[] = [];
   vi.stubGlobal(
     "fetch",
-    vi.fn(async () => Promise.resolve({ ok, status, json: async () => Promise.resolve(body) } as Response))
+    vi.fn(async (url: string, init?: RequestInit) => {
+      calls.push({ url, init });
+      return Promise.resolve({
+        ok,
+        status,
+        json: async () => Promise.resolve(body)
+      } as Response);
+    })
   );
+  return calls;
 }
 
 afterEach(() => {
@@ -33,6 +47,44 @@ describe("ApiClient.listConnectors", () => {
   it("rejects an unknown connector id (contract enforced)", async () => {
     mockFetchOnce([{ id: "carrier-pigeon", enabled: true, configured: true }]);
     await expect(new ApiClient("http://api.test").listConnectors()).rejects.toThrow();
+  });
+});
+
+describe("ApiClient request logging settings", () => {
+  it("parses the current request logging setting", async () => {
+    const calls = mockFetchOnce({ detailed: true });
+    const result = await new ApiClient("http://api.test").getRequestLoggingSettings();
+    expect(calls[0]?.url).toBe("http://api.test/settings/request-logging");
+    expect(result).toEqual({ detailed: true });
+  });
+
+  it("rejects a malformed request logging response (strict contract)", async () => {
+    mockFetchOnce({ detailed: true, leakedRule: "body" });
+    await expect(
+      new ApiClient("http://api.test").getRequestLoggingSettings()
+    ).rejects.toThrow();
+  });
+
+  it("PATCHes the parsed request logging body and validates the response", async () => {
+    const calls = mockFetchOnce({ detailed: false });
+    const result = await new ApiClient("http://api.test").updateRequestLoggingSettings({
+      detailed: false
+    });
+    expect(calls[0]?.url).toBe("http://api.test/settings/request-logging");
+    expect(calls[0]?.init?.method).toBe("PATCH");
+    expect(JSON.parse(calls[0]?.init?.body as string)).toEqual({ detailed: false });
+    expect(result).toEqual({ detailed: false });
+  });
+
+  it("rejects an invalid request logging PATCH input before fetch", () => {
+    const calls = mockFetchOnce({ detailed: true });
+    expect(() =>
+      new ApiClient("http://api.test").updateRequestLoggingSettings({
+        detailed: true,
+        unsafe: "extra"
+      } as never)
+    ).toThrow();
+    expect(calls).toHaveLength(0);
   });
 });
 
