@@ -15,7 +15,7 @@ import type {
   WaitlistEntry
 } from "@beosand/types";
 import type { CalendarExportTrainingRow, MyBookingRow } from "./bookings.repository";
-import { beforeEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { BookingsService } from "./bookings.service";
 import type {
   BookingsRepository,
@@ -686,8 +686,19 @@ class FakeGroupsRepository {
   group: Group | undefined = { ...activeGroup };
   /** When true, the client is treated as already holding an active monthly subscription. */
   subscribed = false;
+  /** Future generated, non-terminal training dates returned by the DB layer. */
+  bookableTrainingDates: string[] = ["2099-06-01"];
+  lastBookableRange: { groupId: string; from: string; to: string } | undefined;
   async findById(id: string): Promise<Group | undefined> {
     return this.group && this.group.id === id ? this.group : undefined;
+  }
+  async listFutureBookableTrainingDates(
+    groupId: string,
+    from: string,
+    to: string
+  ): Promise<string[]> {
+    this.lastBookableRange = { groupId, from, to };
+    return this.bookableTrainingDates;
   }
   async hasActiveSubscription(
     _clientId: string,
@@ -973,6 +984,8 @@ describe("BookingsService.createGroupBooking", () => {
   let service: BookingsService;
 
   beforeEach(() => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date("2099-06-01T12:00:00.000Z"));
     bookingsRepo = new FakeBookingsRepository();
     clientsRepo = new FakeClientsRepository();
     groupsRepo = new FakeGroupsRepository();
@@ -990,6 +1003,10 @@ describe("BookingsService.createGroupBooking", () => {
       fakeDomainEvents,
       env
     );
+  });
+
+  afterEach(() => {
+    vi.useRealTimers();
   });
 
   const input = { clientId: CLIENT_ID, groupId: GROUP_ID, year: FUTURE_YEAR, month: FUTURE_MONTH };
@@ -1045,6 +1062,40 @@ describe("BookingsService.createGroupBooking", () => {
     expect(notifications.calls.pending).toEqual([]);
     expect(notifications.calls.pendingToAdmins).toEqual([]);
     expect(notifications.calls.groupPendingToAdmins).toEqual([]);
+  });
+
+  it("allows a generated next-month offer", async () => {
+    groupsRepo.bookableTrainingDates = ["2099-07-02"];
+    bookingsRepo.monthTrainings = [
+      monthTraining("a1111111-1111-1111-1111-111111111111", "2099-07-02")
+    ];
+
+    const result = await service.createGroupBooking(OWNER_ID, {
+      ...input,
+      year: 2099,
+      month: 7
+    });
+
+    expect(result.created).toHaveLength(1);
+    expect(groupsRepo.lastBookableRange).toEqual({
+      groupId: GROUP_ID,
+      from: "2099-06-01",
+      to: "2099-07-31"
+    });
+  });
+
+  it("rejects a generated future month that is outside the offered current+next list", async () => {
+    groupsRepo.bookableTrainingDates = ["2099-08-01"];
+    bookingsRepo.monthTrainings = [
+      monthTraining("a1111111-1111-1111-1111-111111111111", "2099-08-01")
+    ];
+
+    await expect(
+      service.createGroupBooking(OWNER_ID, { ...input, year: 2099, month: 8 })
+    ).rejects.toBeInstanceOf(BadRequestException);
+
+    expect(bookingsRepo.bookings).toHaveLength(0);
+    expect(waitlist.appended).toHaveLength(0);
   });
 
   it("recomputes count/status per instance and flips an at-capacity slot to full", async () => {
@@ -1305,6 +1356,8 @@ describe("BookingsService confirmation hook is failure-tolerant", () => {
   let service: BookingsService;
 
   beforeEach(() => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date("2099-06-01T12:00:00.000Z"));
     bookingsRepo = new FakeBookingsRepository();
     service = new BookingsService(
       bookingsRepo as unknown as BookingsRepository,
@@ -1316,6 +1369,10 @@ describe("BookingsService confirmation hook is failure-tolerant", () => {
       fakeDomainEvents,
       envNoAdmin
     );
+  });
+
+  afterEach(() => {
+    vi.useRealTimers();
   });
 
   it("returns the persisted single booking even when the confirmation send throws", async () => {

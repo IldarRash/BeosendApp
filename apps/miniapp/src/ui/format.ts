@@ -58,27 +58,6 @@ export function formatTimeRange(startTime: string, endTime: string): string {
   return `${startTime}–${endTime}`;
 }
 
-/** A {year, month} the group-booking month picker offers; month is 1–12. */
-export interface OfferedMonth {
-  year: number;
-  month: number;
-}
-
-/**
- * The two months the group-subscription picker offers: the current calendar month
- * and the next one (December rolls to next January). This is NOT a domain decision
- * — it produces two `{year, month}` ints the user can pick; the SERVER validates the
- * month, computes the training instances/prices, and reports which dates are skipped.
- * The Mini App never decides which dates exist or are bookable. Uses local calendar
- * fields (the school is single-timezone, Europe/Belgrade), never UTC slicing.
- */
-export function offeredMonths(now: Date = new Date()): readonly [OfferedMonth, OfferedMonth] {
-  const year = now.getFullYear();
-  const month = now.getMonth() + 1; // 1–12
-  const next = month === 12 ? { year: year + 1, month: 1 } : { year, month: month + 1 };
-  return [{ year, month }, next];
-}
-
 /** i18n key for a month name, e.g. 6 → `miniapp.month.6` ("Июнь"). Month is 1–12. */
 export function monthKey(month: number): string {
   return `miniapp.month.${month}`;

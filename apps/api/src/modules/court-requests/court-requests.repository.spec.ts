@@ -1,7 +1,7 @@
 import { PgDialect } from "drizzle-orm/pg-core";
 import type { Database } from "@beosand/db";
 import { describe, expect, it } from "vitest";
-import { CourtRequestsRepository } from "./court-requests.repository";
+import { CourtModerationTx, CourtRequestsRepository } from "./court-requests.repository";
 import type { DatabaseService } from "../../db/database.service";
 
 /**
@@ -56,5 +56,56 @@ describe("CourtRequestsRepository.listMineForClient WHERE filter", () => {
     expect(sql).not.toContain("pending");
     expect(sql).not.toContain("confirmed");
     expect(sql).not.toContain("rejected");
+  });
+});
+
+describe("CourtModerationTx.cancelConfirmed", () => {
+  it("updates only the parent request status/decision fields and keeps court rows", async () => {
+    let setValues: unknown;
+    let deleteCalled = false;
+    const requestId = "22222222-2222-4222-8222-222222222222";
+    const builder = {
+      from: () => builder,
+      leftJoin: () => builder,
+      where: () => builder,
+      groupBy: () => builder,
+      limit: async () => [
+        {
+          id: requestId,
+          clientId: "11111111-1111-4111-8111-111111111111",
+          date: "2026-06-10",
+          startTime: "14:00:00",
+          durationHours: "2.0",
+          priceRsd: 4000,
+          status: "cancelled",
+          courtCount: 1,
+          createdAt: new Date("2026-06-01T00:00:00.000Z"),
+          decidedAt: new Date("2026-06-03T12:00:00.000Z"),
+          decidedBy: 9001,
+          courtNumbers: [3]
+        }
+      ]
+    };
+    const db = {
+      update: () => ({
+        set: (values: unknown) => {
+          setValues = values;
+          return { where: async () => [] };
+        }
+      }),
+      delete: () => {
+        deleteCalled = true;
+        return { where: async () => [] };
+      },
+      select: () => builder
+    };
+    const tx = new CourtModerationTx(db as never);
+
+    const result = await tx.cancelConfirmed({ id: requestId, decidedBy: 9001 });
+
+    expect(setValues).toMatchObject({ status: "cancelled", decidedBy: 9001 });
+    expect(deleteCalled).toBe(false);
+    expect(result.status).toBe("cancelled");
+    expect(result.courtNumbers).toEqual([3]);
   });
 });

@@ -5,7 +5,7 @@ import {
 } from "./court-contracts";
 import { SLOT_MINUTES, minutesOfDay, timeOfMinutes } from "./common";
 import type { DayOfWeek, TimeOfDay } from "./common";
-import type { GroupMember, TrainingStatus } from "./training-contracts";
+import type { BookableMonth, GroupMember, TrainingStatus } from "./training-contracts";
 
 /**
  * Re-derive a training's availability status (15.2). Cancelled/completed are
@@ -77,6 +77,40 @@ export function monthBounds(year: number, month: number): [string, string] {
   const first = new Date(Date.UTC(year, month - 1, 1));
   const last = new Date(Date.UTC(year, month, 0));
   return [first.toISOString().slice(0, 10), last.toISOString().slice(0, 10)];
+}
+
+/** Current and next calendar month candidates for client-facing monthly booking offers. */
+export function currentAndNextMonthCandidates(today: string): BookableMonth[] {
+  const year = Number(today.slice(0, 4));
+  const month = Number(today.slice(5, 7));
+  const nextYear = month === 12 ? year + 1 : year;
+  const nextMonth = month === 12 ? 1 : month + 1;
+  return [
+    { year, month },
+    { year: nextYear, month: nextMonth }
+  ];
+}
+
+/**
+ * Offered client subscription months: current+next only, and only when at least
+ * one generated future training date in that month is non-terminal (`open`/`full`
+ * filtering is done by the repository).
+ */
+export function bookableMonthsFromTrainingDates(today: string, dates: readonly string[]): BookableMonth[] {
+  const monthsWithTraining = new Set(dates.map((date) => date.slice(0, 7)));
+  return currentAndNextMonthCandidates(today).filter((candidate) =>
+    monthsWithTraining.has(`${candidate.year}-${String(candidate.month).padStart(2, "0")}`)
+  );
+}
+
+export function isBookableMonthOffered(
+  today: string,
+  dates: readonly string[],
+  requested: BookableMonth
+): boolean {
+  return bookableMonthsFromTrainingDates(today, dates).some(
+    (candidate) => candidate.year === requested.year && candidate.month === requested.month
+  );
 }
 
 // --- Pure month-grid layout (calendar UIs: admin + Mini App) ---

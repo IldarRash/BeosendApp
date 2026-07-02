@@ -856,6 +856,20 @@ export const groupMembersQuerySchema = z
   .strict();
 export type GroupMembersQuery = z.infer<typeof groupMembersQuerySchema>;
 
+/**
+ * One month the selected group can still sell as a subscription. Server-computed
+ * from current+next month candidates and future generated, non-terminal trainings;
+ * client paths must not infer this from local dates.
+ */
+export const bookableMonthSchema = z
+  .object({
+    year: z.number().int().min(2024),
+    month: z.number().int().min(1).max(12)
+  })
+  .strict();
+export const bookableMonthsSchema = z.array(bookableMonthSchema);
+export type BookableMonth = z.infer<typeof bookableMonthSchema>;
+
 // --- Group transfer (admin: move a client between groups) ---
 
 /**

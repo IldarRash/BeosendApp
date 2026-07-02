@@ -6,6 +6,7 @@ import {
   availableSlotsQuerySchema,
   bookingSchema,
   bookingStatus,
+  bookableMonthsSchema,
   calendarExportMonthQuerySchema,
   changeCapacitySchema,
   clientTrainingDetailSchema,
@@ -1001,6 +1002,34 @@ describe("calendarExportMonthQuerySchema", () => {
     );
     expect(
       calendarExportMonthQuerySchema.safeParse({ year: "2026", month: "7", clientId: "x" }).success
+    ).toBe(false);
+  });
+});
+
+describe("bookableMonthsSchema", () => {
+  it("accepts a bare array of year/month pairs", () => {
+    const parsed = bookableMonthsSchema.safeParse([
+      { year: 2026, month: 7 },
+      { year: 2026, month: 8 }
+    ]);
+    expect(parsed.success).toBe(true);
+  });
+
+  it("rejects a wrapped response object", () => {
+    expect(
+      bookableMonthsSchema.safeParse({
+        groupId: "11111111-1111-1111-1111-111111111111",
+        months: [{ year: 2026, month: 7 }]
+      }).success
+    ).toBe(false);
+  });
+
+  it("rejects month bounds, old years, and unknown fields on month rows", () => {
+    expect(bookableMonthsSchema.safeParse([{ year: 2026, month: 0 }]).success).toBe(false);
+    expect(bookableMonthsSchema.safeParse([{ year: 2026, month: 13 }]).success).toBe(false);
+    expect(bookableMonthsSchema.safeParse([{ year: 2023, month: 7 }]).success).toBe(false);
+    expect(
+      bookableMonthsSchema.safeParse([{ year: 2026, month: 7, trainingCount: 4 }]).success
     ).toBe(false);
   });
 });

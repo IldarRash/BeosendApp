@@ -9,12 +9,16 @@ import {
 import type { Env } from "@beosand/config";
 import { isAdmin } from "@beosand/config";
 import {
+  bookableMonthsSchema,
+  bookableMonthsFromTrainingDates,
+  currentAndNextMonthCandidates,
   groupMembersSchema,
   isSlotAligned,
   monthBounds,
   narrowMember
 } from "@beosand/types";
 import type {
+  BookableMonth,
   CreateGroupInput,
   Group,
   GroupMember,
@@ -59,6 +63,29 @@ export class GroupsService {
   async listActive(actorTelegramId?: number): Promise<Group[]> {
     const includeHidden = actorTelegramId !== undefined && isAdmin(this.env, actorTelegramId);
     return this.groups.listActive(includeHidden);
+  }
+
+  /**
+   * Client-safe subscription month offer. The server owns the date source and only
+   * considers current+next calendar months; a month is returned when this group has
+   * at least one generated future training in `open` or `full` status.
+   */
+  async listBookableMonths(groupId: string): Promise<BookableMonth[]> {
+    const group = await this.groups.findClientBookableById(groupId);
+    if (!group) {
+      const existing = await this.groups.findById(groupId);
+      if (!existing) {
+        throw new NotFoundException(`Group ${groupId} not found`);
+      }
+      return [];
+    }
+
+    const today = new Date().toISOString().slice(0, 10);
+    const candidates = currentAndNextMonthCandidates(today);
+    const [, rangeTo] = monthBounds(candidates[1].year, candidates[1].month);
+    const dates = await this.groups.listFutureBookableTrainingDates(groupId, today, rangeTo);
+
+    return bookableMonthsSchema.parse(bookableMonthsFromTrainingDates(today, dates));
   }
 
   /**

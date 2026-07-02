@@ -154,6 +154,9 @@ export const miniappEn: Record<string, string> = {
   "miniapp.group.daysLabel": "Days",
   "miniapp.group.priceLabel": "Price",
   "miniapp.group.pickMonth": "Choose a month",
+  "miniapp.group.noBookableMonths": "No months available",
+  "miniapp.group.noBookableMonthsBody":
+    "This group has no future trainings available for subscription right now.",
   "miniapp.group.confirm": "Subscribe for a month",
   "miniapp.group.back": "Back",
   "miniapp.group.groupLabel": "Group",

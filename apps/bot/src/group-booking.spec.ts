@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import type { Group, GroupBookingResult } from "@beosand/types";
 import {
   GROUP_ACTIONS,
@@ -7,9 +7,9 @@ import {
   buildPickData,
   confirmKeyboard,
   groupsKeyboard,
+  handleGroupPick,
   monthLabel,
   monthPickKeyboard,
-  offeredMonths,
   parseGroupConfirm,
   parseGroupMonth,
   parseGroupPick,
@@ -17,7 +17,9 @@ import {
   renderGroupsText,
   renderSuccessText
 } from "./group-booking";
+import { ApiClient } from "./api-client";
 import { NAV_ACTIONS } from "./menu";
+import type { MenuReplyCtx } from "./navigation";
 import { getStaticCatalog } from "@beosand/i18n";
 
 const ru = getStaticCatalog("ru");
@@ -50,6 +52,23 @@ function callbacksOf(keyboard: { inline_keyboard: unknown[][] }): (string | unde
         ? (b as { callback_data: string }).callback_data
         : undefined
     );
+}
+
+function mockFetch(body: unknown, ok = true, status = 200): ReturnType<typeof vi.fn> {
+  const fetchMock = vi.fn(async () =>
+    Promise.resolve({
+      ok,
+      status,
+      json: async () => body
+    })
+  );
+  vi.stubGlobal("fetch", fetchMock);
+  return fetchMock;
+}
+
+function fakeCtx(): { ctx: MenuReplyCtx; reply: ReturnType<typeof vi.fn> } {
+  const reply = vi.fn().mockResolvedValue(undefined);
+  return { ctx: { reply, from: { id: 999 } }, reply };
 }
 
 describe("callback-data round-trips", () => {
@@ -137,19 +156,61 @@ describe("keyboards", () => {
   });
 });
 
-describe("offeredMonths", () => {
-  it("offers the current month and the next", () => {
-    expect(offeredMonths(new Date("2026-06-03T00:00:00Z"))).toEqual([
-      { year: 2026, month: 6 },
-      { year: 2026, month: 7 }
+describe("ApiClient group bookable months", () => {
+  afterEach(() => {
+    vi.unstubAllGlobals();
+  });
+
+  it("GETs /groups/:id/bookable-months and returns the validated months", async () => {
+    const fetchMock = mockFetch([{ year: 2026, month: 7 }]);
+    const result = await new ApiClient("http://api.test").listGroupBookableMonths(groupId);
+    expect(result).toEqual([{ year: 2026, month: 7 }]);
+    expect(fetchMock.mock.calls[0][0]).toBe(`http://api.test/groups/${groupId}/bookable-months`);
+  });
+
+  it("rejects a response that violates the bookable-month contract", async () => {
+    mockFetch([{ year: 2026, month: 13 }]);
+    await expect(new ApiClient("http://api.test").listGroupBookableMonths(groupId)).rejects.toThrow();
+  });
+});
+
+describe("handleGroupPick", () => {
+  it("renders only the months returned by the API", async () => {
+    const api = {
+      listGroups: vi.fn().mockResolvedValue([group]),
+      listGroupBookableMonths: vi.fn().mockResolvedValue([{ year: 2026, month: 7 }]),
+      getClientByTelegramId: vi.fn(),
+      createGroupBooking: vi.fn()
+    };
+    const { ctx, reply } = fakeCtx();
+
+    await handleGroupPick(ctx, api, ru, groupId);
+
+    expect(api.listGroupBookableMonths).toHaveBeenCalledWith(groupId);
+    const other = reply.mock.calls[0][1] as { reply_markup: { inline_keyboard: unknown[][] } };
+    expect(callbacksOf(other.reply_markup)).toEqual([
+      buildMonthData(groupId, 2026, 7),
+      NAV_ACTIONS.back,
+      NAV_ACTIONS.home
     ]);
   });
 
-  it("rolls over the year in December", () => {
-    expect(offeredMonths(new Date("2026-12-15T00:00:00Z"))).toEqual([
-      { year: 2026, month: 12 },
-      { year: 2027, month: 1 }
-    ]);
+  it("shows the month-not-generated state and no confirm path when the API returns no months", async () => {
+    const api = {
+      listGroups: vi.fn().mockResolvedValue([group]),
+      listGroupBookableMonths: vi.fn().mockResolvedValue([]),
+      getClientByTelegramId: vi.fn(),
+      createGroupBooking: vi.fn()
+    };
+    const { ctx, reply } = fakeCtx();
+
+    await handleGroupPick(ctx, api, ru, groupId);
+
+    expect(reply.mock.calls[0][0]).toBe(ru["bot.group.monthNotGenerated"]);
+    const other = reply.mock.calls[0][1] as { reply_markup: { inline_keyboard: unknown[][] } };
+    const callbacks = callbacksOf(other.reply_markup);
+    expect(callbacks).toEqual([NAV_ACTIONS.back, NAV_ACTIONS.home]);
+    expect(callbacks.some((data) => data?.startsWith(GROUP_ACTIONS.confirmPrefix))).toBe(false);
   });
 });
 

@@ -1,6 +1,7 @@
 import { z } from "zod";
 import {
   bookingSchema,
+  bookableMonthsSchema,
   clientSchema,
   courtAvailabilitySchema,
   courtClientGridSchema,
@@ -31,6 +32,7 @@ import {
   waitlistAdminItemSchema,
   waitlistEntrySchema,
   type AvailableSlotsQuery,
+  type BookableMonth,
   type Booking,
   type Client,
   type ClientTrainingDetail,
@@ -506,6 +508,17 @@ export class MiniappApiClient {
    */
   listGroups(): Promise<Group[]> {
     return this.request("/groups", groupsSchema);
+  }
+
+  /**
+   * Months that may be offered for a group subscription
+   * (GET /groups/:id/bookable-months). The backend returns only current/next
+   * month candidates where this group has at least one future generated open/full
+   * training. The Mini App renders the list verbatim and never infers availability
+   * from local dates.
+   */
+  getGroupBookableMonths(groupId: string): Promise<BookableMonth[]> {
+    return this.request(`/groups/${groupId}/bookable-months`, bookableMonthsSchema);
   }
 
   /**

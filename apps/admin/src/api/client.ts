@@ -24,6 +24,7 @@ import {
   courtBlockSchema,
   createRecurringCourtBlocksSchema,
   courtLoadGridSchema,
+  cancelCourtRequestSchema,
   generateAllResultSchema,
   generateIndividualResultSchema,
   generationStatusItemSchema,
@@ -430,6 +431,19 @@ export class ApiClient {
     return this.request(`/court-requests/${id}/reject`, courtRequestSchema, {
       method: "POST",
       body: JSON.stringify({ requestId: id })
+    });
+  }
+
+  /**
+   * C4/C6 — cancel an already-confirmed request (POST /court-requests/:id/cancel).
+   * Body is strictly { requestId }; the server rejects pending/rejected/cancelled
+   * requests and frees availability by changing the request status. The console
+   * only triggers the action and renders the returned, validated request.
+   */
+  cancelRequest(id: string): Promise<CourtRequest> {
+    return this.request(`/court-requests/${id}/cancel`, courtRequestSchema, {
+      method: "POST",
+      body: JSON.stringify(cancelCourtRequestSchema.parse({ requestId: id }))
     });
   }
 

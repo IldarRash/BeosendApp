@@ -298,6 +298,17 @@ export const rejectCourtRequestSchema = z
   .strict();
 export type RejectCourtRequest = z.infer<typeof rejectCourtRequestSchema>;
 
+/**
+ * Admin-only cancel for an already-confirmed court request. Pending requests stay
+ * reject-only; the path id must match this body id.
+ */
+export const cancelCourtRequestSchema = z
+  .object({
+    requestId: uuid
+  })
+  .strict();
+export type CancelCourtRequest = z.infer<typeof cancelCourtRequestSchema>;
+
 /** C4 — filter for the admin moderation queue read. Defaults to the pending queue. */
 export const courtRequestQueueQuerySchema = z.object({
   status: courtRequestStatus.default("pending")

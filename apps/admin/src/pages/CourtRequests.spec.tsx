@@ -8,13 +8,15 @@ const useCourtRequests = vi.fn();
 const useFreeCourts = vi.fn();
 const useConfirmRequest = vi.fn();
 const useRejectRequest = vi.fn();
+const useCancelRequest = vi.fn();
 const useCourts = vi.fn();
 
 vi.mock("../hooks/useCourtRequests", () => ({
   useCourtRequests: (...args: unknown[]) => useCourtRequests(...args),
   useFreeCourts: (...args: unknown[]) => useFreeCourts(...args),
   useConfirmRequest: () => useConfirmRequest(),
-  useRejectRequest: () => useRejectRequest()
+  useRejectRequest: () => useRejectRequest(),
+  useCancelRequest: () => useCancelRequest()
 }));
 vi.mock("../hooks/useCourts", () => ({ useCourts: () => useCourts() }));
 
@@ -29,7 +31,7 @@ const notify = vi.fn();
 vi.mock("../ui/Toast", () => ({ useToast: () => ({ notify }) }));
 
 import { CourtRequests } from "./CourtRequests";
-import { ConflictError } from "../api/client";
+import { ApiClient, ConflictError } from "../api/client";
 
 // A pending request the client picked two courts for (held, not yet confirmed).
 const PENDING: CourtRequestAdminView = {
@@ -70,6 +72,21 @@ const CONFIRMED: CourtRequestAdminView = {
   decidedBy: 99
 };
 
+const CANCELLED_REQUEST = {
+  id: CONFIRMED.id,
+  clientId: CONFIRMED.clientId,
+  date: CONFIRMED.date,
+  startTime: CONFIRMED.startTime,
+  durationHours: CONFIRMED.durationHours,
+  priceRsd: CONFIRMED.priceRsd,
+  status: "cancelled",
+  courtCount: CONFIRMED.courtCount,
+  courtNumbers: CONFIRMED.courtNumbers,
+  createdAt: CONFIRMED.createdAt,
+  decidedAt: "2026-06-04T10:00:00.000Z",
+  decidedBy: 99
+};
+
 const FREE_COURTS: Court[] = [
   { id: "44444444-4444-4444-4444-444444444444", number: 3, status: "active" },
   { id: "55555555-5555-5555-5555-555555555555", number: 5, status: "active" },
@@ -95,6 +112,26 @@ function renderPage(): void {
   );
 }
 
+interface FetchCall {
+  url: string;
+  init?: RequestInit;
+}
+
+function mockApiFetchOnce(body: unknown, status = 200): FetchCall[] {
+  const calls: FetchCall[] = [];
+  vi.stubGlobal(
+    "fetch",
+    vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      calls.push({ url: String(input), init });
+      return new Response(JSON.stringify(body), {
+        status,
+        headers: { "content-type": "application/json" }
+      });
+    })
+  );
+  return calls;
+}
+
 beforeEach(() => {
   vi.clearAllMocks();
   useCourts.mockReturnValue({ data: FREE_COURTS });
@@ -108,9 +145,13 @@ beforeEach(() => {
   useFreeCourts.mockReturnValue({ isPending: false, isError: false, error: null, data: [] });
   useConfirmRequest.mockReturnValue(idleMutation());
   useRejectRequest.mockReturnValue(idleMutation());
+  useCancelRequest.mockReturnValue(idleMutation());
 });
 
-afterEach(cleanup);
+afterEach(() => {
+  cleanup();
+  vi.unstubAllGlobals();
+});
 
 describe("CourtRequests page", () => {
   it("shows the client's requested courts and count on a pending row", () => {
@@ -152,6 +193,42 @@ describe("CourtRequests page", () => {
     const row = within(table).getByText("Мария").closest("tr") as HTMLElement;
     // Numbers come straight from the request's courtNumbers (server-decided).
     expect(within(row).getByText("№ 3")).toBeTruthy();
+    expect(within(row).getByRole("button", { name: "Отменить заявку" })).toBeTruthy();
+    expect(within(row).queryByRole("button", { name: "Подтвердить" })).toBeNull();
+    expect(within(row).queryByRole("button", { name: "Отклонить" })).toBeNull();
+  });
+
+  it("does not render the cancel action for a pending request", () => {
+    renderPage();
+
+    const table = screen.getByRole("table");
+    const row = within(table).getByText(PENDING.clientName).closest("tr") as HTMLElement;
+    expect(within(row).queryByRole("button", { name: "Отменить заявку" })).toBeNull();
+    expect(within(row).getByRole("button", { name: "Подтвердить" })).toBeTruthy();
+    expect(within(row).getByRole("button", { name: "Отклонить" })).toBeTruthy();
+  });
+
+  it("opens a confirmation modal before cancelling a confirmed request", () => {
+    const mutate = vi.fn();
+    useCancelRequest.mockReturnValue({ ...idleMutation(), mutate });
+    useCourtRequests.mockReturnValue({
+      isPending: false,
+      isError: false,
+      error: null,
+      data: [CONFIRMED]
+    });
+    renderPage();
+
+    fireEvent.click(screen.getByRole("button", { name: "Отменить заявку" }));
+
+    expect(mutate).not.toHaveBeenCalled();
+    const dialog = screen.getByRole("dialog");
+    expect(within(dialog).getByText(/2026-06-10/)).toBeTruthy();
+
+    fireEvent.click(within(dialog).getByRole("button", { name: "Отменить заявку" }));
+
+    expect(mutate).toHaveBeenCalledTimes(1);
+    expect(mutate.mock.calls[0][0]).toEqual({ id: CONFIRMED.id });
   });
 
   it("navigates a request row to the court load grid with date and request id", () => {
@@ -298,5 +375,25 @@ describe("CourtRequests page", () => {
     expect(mutate.mock.calls[0][0]).toEqual({
       id: PENDING.id
     });
+  });
+});
+
+describe("ApiClient court request cancel", () => {
+  it("POSTs the strict cancel body and parses the returned request", async () => {
+    const calls = mockApiFetchOnce(CANCELLED_REQUEST);
+
+    const result = await new ApiClient("http://api.test").cancelRequest(CONFIRMED.id);
+
+    expect(calls[0]?.url).toBe(`http://api.test/court-requests/${CONFIRMED.id}/cancel`);
+    expect(calls[0]?.init?.method).toBe("POST");
+    expect(JSON.parse(calls[0]?.init?.body as string)).toEqual({ requestId: CONFIRMED.id });
+    expect(result.status).toBe("cancelled");
+    expect(result).not.toHaveProperty("clientName");
+  });
+
+  it("rejects a malformed cancel response before rendering can use it", async () => {
+    mockApiFetchOnce({ ...CANCELLED_REQUEST, priceRsd: -1 });
+
+    await expect(new ApiClient("http://api.test").cancelRequest(CONFIRMED.id)).rejects.toThrow();
   });
 });

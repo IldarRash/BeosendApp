@@ -10,6 +10,7 @@ import { useToast } from "../ui/Toast";
 import { useT } from "../i18n/LanguageProvider";
 import { formatRsd } from "../lib/format";
 import {
+  useCancelRequest,
   useConfirmRequest,
   useCourtRequests,
   useFreeCourts,
@@ -76,6 +77,7 @@ export function CourtRequests(): JSX.Element {
 
   const [status, setStatus] = useState<CourtRequestStatus>("pending");
   const [toConfirm, setToConfirm] = useState<CourtRequestAdminView | null>(null);
+  const [toCancel, setToCancel] = useState<CourtRequestAdminView | null>(null);
   // The courts the admin has picked in the confirm dialog. Confirm is enabled only
   // when exactly `toConfirm.courtCount` are selected; the server re-checks freeness.
   const [pickedCourtIds, setPickedCourtIds] = useState<string[]>([]);
@@ -84,6 +86,7 @@ export function CourtRequests(): JSX.Element {
   const freeCourts = useFreeCourts(toConfirm?.id ?? null);
   const confirm = useConfirmRequest();
   const reject = useRejectRequest();
+  const cancel = useCancelRequest();
 
   const required = toConfirm?.courtCount ?? 0;
   const picked = pickedCourtIds.length;
@@ -151,6 +154,24 @@ export function CourtRequests(): JSX.Element {
     );
   }
 
+  function closeCancel(): void {
+    setToCancel(null);
+  }
+
+  function submitCancel(): void {
+    if (!toCancel) return;
+    cancel.mutate(
+      { id: toCancel.id },
+      {
+        onSuccess: () => {
+          notify(t("admin.courtRequests.cancelled", { client: toCancel.clientName }), "success");
+          closeCancel();
+        },
+        onError: (error) => notify(errorText(error, t), "error")
+      }
+    );
+  }
+
   function showOnCourtLoad(request: CourtRequestAdminView): void {
     const query = new URLSearchParams({
       date: request.date,
@@ -209,6 +230,15 @@ export function CourtRequests(): JSX.Element {
                 {t("admin.action.reject")}
               </Button>
             </>
+          ) : null}
+          {r.status === "confirmed" ? (
+            <Button
+              variant="danger"
+              disabled={cancel.isPending}
+              onClick={() => setToCancel(r)}
+            >
+              {t("admin.courtRequests.cancelAction")}
+            </Button>
           ) : null}
         </div>
       )
@@ -345,6 +375,39 @@ export function CourtRequests(): JSX.Element {
               </fieldset>
             )}
           </div>
+        ) : null}
+      </Modal>
+
+      <Modal
+        open={toCancel !== null}
+        onClose={closeCancel}
+        title={
+          toCancel
+            ? t("admin.courtRequests.cancelTitleNamed", { client: toCancel.clientName })
+            : t("admin.courtRequests.cancelTitle")
+        }
+        footer={
+          <div className="cluster">
+            <Button variant="ghost" onClick={closeCancel} disabled={cancel.isPending}>
+              {t("admin.action.cancel")}
+            </Button>
+            <Button variant="danger" disabled={cancel.isPending} onClick={submitCancel}>
+              {t("admin.courtRequests.cancelAction")}
+            </Button>
+          </div>
+        }
+      >
+        {toCancel ? (
+          <p>
+            {t("admin.courtRequests.cancelSummary", {
+              date: toCancel.date,
+              start: toCancel.startTime,
+              end: toCancel.endTime,
+              hours: toCancel.durationHours,
+              count: toCancel.courtCount,
+              price: formatRsd(toCancel.priceRsd)
+            })}
+          </p>
         ) : null}
       </Modal>
     </AppShell>

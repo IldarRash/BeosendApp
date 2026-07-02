@@ -1,9 +1,10 @@
 import { useMemo, useState } from "react";
 import { Placeholder } from "@telegram-apps/telegram-ui";
-import type { Group, GroupBookingResult, WaitlistAdminItem } from "@beosand/types";
+import type { BookableMonth, Group, GroupBookingResult, WaitlistAdminItem } from "@beosand/types";
 import { resolveErrorMessage } from "../api/errors";
 import {
   useCreateGroupBooking,
+  useGroupBookableMonths,
   useGroupMembers,
   useGroups,
   useLevels,
@@ -30,11 +31,11 @@ import {
   formatRsd,
   formatTimeRange,
   monthKey,
-  offeredMonths,
   weekdayFullKey,
-  weekdayShortKey,
-  type OfferedMonth
+  weekdayShortKey
 } from "../ui/format";
+
+const EMPTY_BOOKABLE_MONTHS: ReadonlyArray<BookableMonth> = [];
 
 /**
  * The monthly group-subscription journey (S7). One screen, three local sub-states:
@@ -44,11 +45,12 @@ import {
  *   confirm → review group + month + monthly price, then subscribe
  *   result  → the server's GroupBookingResult (created count + skipped dates)
  *
- * Interaction layer only: every value rendered is the API's. The two month options
- * are display-only ints ({@link offeredMonths}); the SERVER computes the month's
- * training instances, the prices, capacity, and which dates are skipped (full) — the
- * Mini App never computes a price or which dates exist. `clientId` is supplied by the
- * hook from the cached session, never client-asserted.
+ * Interaction layer only: every value rendered is the API's. The month options
+ * are display-only ints returned by GET /groups/:id/bookable-months; the SERVER
+ * computes which months have future generated trainings, the month's training
+ * instances, the prices, capacity, and which dates are skipped (full) — the Mini App
+ * never computes availability, price, or which dates exist. `clientId` is supplied
+ * by the hook from the cached session, never client-asserted.
  *
  * The native BackButton is owned by the shell and pops the whole route; in-screen
  * "back" steps are local state transitions. There is exactly one native MainButton
@@ -228,13 +230,14 @@ function GroupFlow({ group }: { group: Group }): JSX.Element {
   const t = useT();
   const nav = useNav();
   const create = useCreateGroupBooking();
+  const bookableMonths = useGroupBookableMonths(group.id);
 
-  const months = useMemo(() => offeredMonths(), []);
   const [selectedKey, setSelectedKey] = useState<string | undefined>(undefined);
   const [confirming, setConfirming] = useState(false);
 
+  const months = bookableMonths.data ?? EMPTY_BOOKABLE_MONTHS;
   const monthByKey = useMemo(() => {
-    const map = new Map<string, OfferedMonth>();
+    const map = new Map<string, BookableMonth>();
     for (const m of months) {
       map.set(monthValue(m), m);
     }
@@ -250,6 +253,35 @@ function GroupFlow({ group }: { group: Group }): JSX.Element {
         onMyBookings={() => nav.push("my-bookings")}
         onHome={() => nav.pop()}
       />
+    );
+  }
+
+  if (bookableMonths.isLoading) {
+    return (
+      <div className="screen screen__center">
+        <LoadingState />
+      </div>
+    );
+  }
+
+  if (bookableMonths.isError) {
+    return (
+      <div className="screen screen__center">
+        <ErrorState
+          message={bookableMonths.error instanceof Error ? bookableMonths.error.message : undefined}
+        />
+      </div>
+    );
+  }
+
+  if (months.length === 0) {
+    return (
+      <div className="screen screen__center">
+        <EmptyState
+          titleKey="miniapp.group.noBookableMonths"
+          bodyKey="miniapp.group.noBookableMonthsBody"
+        />
+      </div>
     );
   }
 
@@ -293,7 +325,7 @@ function GroupFlow({ group }: { group: Group }): JSX.Element {
   );
 }
 
-/** Detail + two-option month picker. The MainButton advances once a month is chosen. */
+/** Detail + server-defined month picker. The MainButton advances once a month is chosen. */
 function GroupDetail({
   group,
   months,
@@ -302,7 +334,7 @@ function GroupDetail({
   onContinue
 }: {
   group: Group;
-  months: readonly [OfferedMonth, OfferedMonth];
+  months: ReadonlyArray<BookableMonth>;
   selectedKey: string | undefined;
   onSelectMonth: (value: string | undefined) => void;
   onContinue: () => void;
@@ -323,14 +355,15 @@ function GroupDetail({
   }));
 
   // The roster is shown for the month currently previewed: the selected one, or —
-  // before any pick — the first offered month, so "who signed up" is visible up front.
-  const previewMonth = (selectedKey && months.find((m) => monthValue(m) === selectedKey)) || months[0];
+  // before any pick — the first server-returned month, so "who signed up" is visible up front.
+  const previewMonth =
+    (selectedKey && months.find((m) => monthValue(m) === selectedKey)) || months[0];
 
   // The previewed month's roster — both "who signed up" AND whether the caller is
   // ALREADY subscribed for it (`callerSubscribed`), a server-decided flag the Mini App
   // only reflects: it disables a second subscribe before the API rejects it. The
   // server 409 remains the backstop via the confirm step's resolveErrorMessage path.
-  const members = useGroupMembers(group.id, previewMonth.year, previewMonth.month);
+  const members = useGroupMembers(group.id, previewMonth?.year, previewMonth?.month);
   const alreadySubscribed = members.data?.callerSubscribed ?? false;
 
   // The MainButton only appears once a month is chosen — until then there is no
@@ -387,7 +420,9 @@ function GroupDetail({
         />
       )}
 
-      <OwnWaitlistNote group={group} year={previewMonth.year} month={previewMonth.month} />
+      {previewMonth && (
+        <OwnWaitlistNote group={group} year={previewMonth.year} month={previewMonth.month} />
+      )}
 
       {alreadySubscribed && (
         <div className="note" role="status">
@@ -416,7 +451,7 @@ function GroupConfirm({
   onBack
 }: {
   group: Group;
-  month: OfferedMonth;
+  month: BookableMonth;
   submitting: boolean;
   errorMessage?: string;
   onConfirm: () => void;
@@ -605,7 +640,7 @@ function isInMonth(isoDate: string, year: number, month: number): boolean {
 }
 
 /** A stable string key for a month option (year+month), used as the radio value. */
-function monthValue(m: OfferedMonth): string {
+function monthValue(m: BookableMonth): string {
   return `${m.year}-${m.month}`;
 }
 

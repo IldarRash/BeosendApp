@@ -647,6 +647,23 @@ export class CourtModerationTx {
     }
     return updated;
   }
+
+  /** Cancel a confirmed request without deleting its assigned-court history. */
+  async cancelConfirmed(input: { id: string; decidedBy: number }): Promise<CourtRequestRow> {
+    await this.db
+      .update(tables.courtRequests)
+      .set({
+        status: "cancelled",
+        decidedAt: sql`now()`,
+        decidedBy: input.decidedBy
+      })
+      .where(eq(tables.courtRequests.id, input.id));
+    const updated = await this.loadRequest(input.id);
+    if (!updated) {
+      throw new Error(`Cancelled court request ${input.id} vanished within its transaction`);
+    }
+    return updated;
+  }
 }
 
 /** Minutes spanned by a block (e.g. 17:30→19:00 = 90). At least one slot. */

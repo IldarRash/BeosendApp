@@ -63,6 +63,7 @@ function makeService(overrides: Partial<CourtRequestsService> = {}): CourtReques
     createRequest: vi.fn(async () => created),
     confirmRequest: vi.fn(async () => ({ ...created, status: "confirmed", decidedBy: ACTOR_ID })),
     rejectRequest: vi.fn(async () => ({ ...created, status: "rejected", decidedBy: ACTOR_ID })),
+    cancelRequest: vi.fn(async () => ({ ...created, status: "cancelled", decidedBy: ACTOR_ID })),
     ...overrides
   } as unknown as CourtRequestsService;
 }
@@ -265,5 +266,39 @@ describe("CourtRequestsController.reject (POST /court-requests/:id/reject)", () 
       controller.reject(HEADER, REQUEST_ID, { requestId: REQUEST_ID, decidedBy: FOREIGN_ID })
     ).rejects.toBeInstanceOf(BadRequestException);
     expect(service.rejectRequest).not.toHaveBeenCalled();
+  });
+});
+
+describe("CourtRequestsController.cancel (POST /court-requests/:id/cancel)", () => {
+  let service: CourtRequestsService;
+  let controller: CourtRequestsController;
+
+  beforeEach(() => {
+    service = makeService();
+    controller = new CourtRequestsController(service);
+  });
+
+  it("forwards the authenticated admin id and strict body", async () => {
+    const body = { requestId: REQUEST_ID };
+
+    await expect(controller.cancel(HEADER, REQUEST_ID, body)).resolves.toMatchObject({
+      status: "cancelled",
+      decidedBy: ACTOR_ID
+    });
+    expect(service.cancelRequest).toHaveBeenCalledWith(ACTOR_ID, body);
+  });
+
+  it("rejects a path/body mismatch before calling the service", async () => {
+    await expect(
+      controller.cancel(HEADER, REQUEST_ID, { requestId: created.id })
+    ).rejects.toBeInstanceOf(BadRequestException);
+    expect(service.cancelRequest).not.toHaveBeenCalled();
+  });
+
+  it("rejects a spoofed decidedBy before calling the service", async () => {
+    await expect(
+      controller.cancel(HEADER, REQUEST_ID, { requestId: REQUEST_ID, decidedBy: FOREIGN_ID })
+    ).rejects.toBeInstanceOf(BadRequestException);
+    expect(service.cancelRequest).not.toHaveBeenCalled();
   });
 });

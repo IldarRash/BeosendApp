@@ -25,8 +25,10 @@ import type {
 import {
   type BookingSource,
   bookingSchema,
+  currentAndNextMonthCandidates,
   groupBookingResultSchema,
   isBookable,
+  isBookableMonthOffered,
   isoWeekdayOf,
   monthBounds,
   myBookingItemSchema,
@@ -421,6 +423,22 @@ export class BookingsService {
     }
 
     const today = new Date().toISOString().slice(0, 10);
+    const candidates = currentAndNextMonthCandidates(today);
+    const [, offerRangeTo] = monthBounds(candidates[1].year, candidates[1].month);
+    const offeredTrainingDates = await this.groups.listFutureBookableTrainingDates(
+      input.groupId,
+      today,
+      offerRangeTo
+    );
+    if (
+      !isBookableMonthOffered(today, offeredTrainingDates, {
+        year: input.year,
+        month: input.month
+      })
+    ) {
+      throw new BadRequestException("Selected month is not bookable");
+    }
+
     const [from, to] = monthBounds(input.year, input.month);
     // Past dates within the month are never bookable; clamp the lower bound.
     const fromClamped = from > today ? from : today;

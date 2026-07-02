@@ -4,10 +4,12 @@ import { COURT_CLOSE_HOUR, COURT_OPEN_HOUR } from "./court-contracts";
 import {
   averageFillRate,
   avatarInitialOf,
+  bookableMonthsFromTrainingDates,
   courtFreeForSlots,
   courtLoadGrid,
   courtPriceRsd,
   courtSlotsCovered,
+  currentAndNextMonthCandidates,
   dayOfMonth,
   daysInMonth,
   firstNameOf,
@@ -16,6 +18,7 @@ import {
   freeCourtsBySlot,
   freeSeats,
   isBookable,
+  isBookableMonthOffered,
   isoDate,
   isoWeekdayOf,
   matchesSlotFilters,
@@ -131,6 +134,39 @@ describe("monthBounds", () => {
     expect(monthBounds(2026, 2)).toEqual(["2026-02-01", "2026-02-28"]);
     expect(monthBounds(2025, 12)).toEqual(["2025-12-01", "2025-12-31"]);
     expect(monthBounds(2024, 2)).toEqual(["2024-02-01", "2024-02-29"]); // leap year
+  });
+});
+
+describe("client bookable month helpers", () => {
+  it("returns current and next month candidates, including year rollover", () => {
+    expect(currentAndNextMonthCandidates("2026-06-15")).toEqual([
+      { year: 2026, month: 6 },
+      { year: 2026, month: 7 }
+    ]);
+    expect(currentAndNextMonthCandidates("2026-12-31")).toEqual([
+      { year: 2026, month: 12 },
+      { year: 2027, month: 1 }
+    ]);
+  });
+
+  it("keeps only current+next candidates with generated future training dates", () => {
+    expect(
+      bookableMonthsFromTrainingDates("2026-06-15", [
+        "2026-06-20",
+        "2026-07-02",
+        "2026-08-01"
+      ])
+    ).toEqual([
+      { year: 2026, month: 6 },
+      { year: 2026, month: 7 }
+    ]);
+  });
+
+  it("checks whether a requested month is in the offered list", () => {
+    const dates = ["2026-06-20", "2026-07-02", "2026-08-01"];
+
+    expect(isBookableMonthOffered("2026-06-15", dates, { year: 2026, month: 7 })).toBe(true);
+    expect(isBookableMonthOffered("2026-06-15", dates, { year: 2026, month: 8 })).toBe(false);
   });
 });
 

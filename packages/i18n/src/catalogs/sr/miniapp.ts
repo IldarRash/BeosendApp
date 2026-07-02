@@ -154,6 +154,9 @@ export const miniappSr: Record<string, string> = {
   "miniapp.group.daysLabel": "Dani",
   "miniapp.group.priceLabel": "Cena",
   "miniapp.group.pickMonth": "Izaberite mesec",
+  "miniapp.group.noBookableMonths": "Nema dostupnih meseci",
+  "miniapp.group.noBookableMonthsBody":
+    "Ova grupa trenutno nema buduće treninge dostupne za pretplatu.",
   "miniapp.group.confirm": "Prijava na mesec",
   "miniapp.group.back": "Nazad",
   "miniapp.group.groupLabel": "Grupa",
