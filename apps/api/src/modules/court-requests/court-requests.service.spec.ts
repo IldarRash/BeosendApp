@@ -823,8 +823,7 @@ describe("CourtRequestsService.clientGrid (Mini App redacted grid)", () => {
       cells: [
         { startTime: "09:00", endTime: "10:00", state: "unavailable" },
         { startTime: "09:30", endTime: "10:30", state: "unavailable" },
-        { startTime: "10:00", endTime: "11:00", state: "unavailable" },
-        { startTime: "10:30", endTime: "11:30", state: "unavailable" }
+        { startTime: "10:00", endTime: "11:00", state: "unavailable" }
       ]
     });
     expect(result.rows[1]).toMatchObject({
@@ -832,13 +831,12 @@ describe("CourtRequestsService.clientGrid (Mini App redacted grid)", () => {
       cells: [
         { startTime: "09:00", state: "unavailable" },
         { startTime: "09:30", state: "unavailable" },
-        { startTime: "10:00", state: "free" },
-        { startTime: "10:30", state: "unavailable" }
+        { startTime: "10:00", state: "free" }
       ]
     });
   });
 
-  it("marks near-closing starts unavailable when the selected duration overruns working hours", async () => {
+  it("returns only starts whose selected duration fits before closing", async () => {
     const service = makeService(
       makeGridRepo({}),
       makeDispatcher(),
@@ -852,9 +850,7 @@ describe("CourtRequestsService.clientGrid (Mini App redacted grid)", () => {
 
     expect(firstRow.cells).toEqual([
       { startTime: "09:00", endTime: "10:30", state: "free" },
-      { startTime: "09:30", endTime: "11:00", state: "free" },
-      { startTime: "10:00", endTime: "11:30", state: "unavailable" },
-      { startTime: "10:30", endTime: "12:00", state: "unavailable" }
+      { startTime: "09:30", endTime: "11:00", state: "free" }
     ]);
   });
 

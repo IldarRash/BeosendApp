@@ -392,7 +392,7 @@ describe("courtClientGridSchema (Mini App redacted court grid)", () => {
         courtNumber: 1,
         cells: [
           { startTime: "09:00", endTime: "10:30", state: "free" },
-          { startTime: "10:00", endTime: "11:30", state: "unavailable" }
+          { startTime: "09:30", endTime: "11:00", state: "unavailable" }
         ]
       }
     ]

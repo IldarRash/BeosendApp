@@ -122,9 +122,10 @@ export class CourtRequestsService {
 
   /**
    * Mini App redacted court grid for one date/duration. A cell represents starting
-   * a booking at that 30-minute slot on that court; it is free only when the full
-   * selected duration fits inside resolved working hours and the court has no
-   * pending hold, confirmed request, or block over any covered slot.
+   * a booking at that 30-minute slot on that court; only starts where the full
+   * selected duration fits inside resolved working hours are returned, and a cell
+   * is free only when the court has no pending hold, confirmed request, or block
+   * over any covered slot.
    */
   async clientGrid(input: CourtClientGridQuery): Promise<CourtClientGrid> {
     const [courts, confirmed, blocks] = await Promise.all([
@@ -140,18 +141,18 @@ export class CourtRequestsService {
     const durationMinutes = durationMinutesOf(input.durationHours);
     const rows = courts.map((court) => {
       const cells: CourtClientGrid["rows"][number]["cells"] = [];
-      for (let startMinutes = openMinutes; startMinutes < closeMinutes; startMinutes += 30) {
+      for (
+        let startMinutes = openMinutes;
+        startMinutes + durationMinutes <= closeMinutes;
+        startMinutes += 30
+      ) {
         const startTime = timeOfMinutes(startMinutes);
-        const requestedEndMinutes = startMinutes + durationMinutes;
-        const fitsWorkingHours = requestedEndMinutes <= closeMinutes;
-        const slots = fitsWorkingHours ? courtSlotsCovered(startTime, durationMinutes) : [];
-        const state =
-          fitsWorkingHours && courtFreeForSlots(court.id, slots, occupants)
-            ? "free"
-            : "unavailable";
+        const endTime = timeOfMinutes(startMinutes + durationMinutes);
+        const slots = courtSlotsCovered(startTime, durationMinutes);
+        const state = courtFreeForSlots(court.id, slots, occupants) ? "free" : "unavailable";
         cells.push({
           startTime,
-          endTime: safeGridEndTime(requestedEndMinutes, workingHours.closeTime),
+          endTime,
           state
         });
       }
@@ -759,10 +760,6 @@ export class CourtRequestsService {
 
 function confirmedCourtNumbers(row: { status: CourtRequestStatus; courtNumbers: number[] }): number[] {
   return row.status === "confirmed" ? row.courtNumbers : [];
-}
-
-function safeGridEndTime(requestedEndMinutes: number, closeTime: string): string {
-  return requestedEndMinutes < 24 * 60 ? timeOfMinutes(requestedEndMinutes) : closeTime;
 }
 
 /** Drop duplicate ids preserving order. */
