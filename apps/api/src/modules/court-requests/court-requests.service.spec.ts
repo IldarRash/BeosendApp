@@ -687,6 +687,22 @@ function makeTx(input: {
       decidedAt: new Date("2026-06-03T12:00:00.000Z")
     })
   );
+  const reassignCourts = vi.fn(async (args: { id: string; courtIds: string[] }) =>
+    makeRow({
+      ...(input.request ?? {}),
+      id: args.id,
+      status: "confirmed",
+      courtNumbers: args.courtIds.map(
+        (id) =>
+          (
+            input.activeNumbers ?? [
+              { id: courtIdA, number: 1 },
+              { id: courtIdB, number: 2 }
+            ]
+          ).find((c) => c.id === id)?.number ?? 0
+      )
+    })
+  );
   const tx = {
     lockDate: vi.fn().mockResolvedValue(undefined),
     lockRequest: vi.fn().mockResolvedValue(input.request),
@@ -699,7 +715,8 @@ function makeTx(input: {
     requestHoldCourtOccupancyForDate: vi.fn().mockResolvedValue(input.confirmed ?? []),
     blocksByCourtForDate: vi.fn().mockResolvedValue(input.blocks ?? []),
     decide,
-    cancelConfirmed
+    cancelConfirmed,
+    reassignCourts
   } as unknown as CourtModerationTx;
   return { tx, decide };
 }
@@ -1423,5 +1440,134 @@ describe("CourtRequestsService.listMine (client's own requests)", () => {
   it("the client-facing contract carries the client's own court numbers but no court id", () => {
     expect(Object.keys(myCourtRequestItemSchema.shape)).not.toContain("courtId");
     expect(Object.keys(myCourtRequestItemSchema.shape)).toContain("courtNumbers");
+  });
+});
+
+describe("CourtRequestsService.reassignCourts (confirmed request replacement)", () => {
+  const futureDate = "2099-06-10";
+  const confirmedRequest = (overrides: Partial<CourtRequestRow> = {}): CourtRequestRow =>
+    makeRow({
+      date: futureDate,
+      status: "confirmed",
+      courtCount: 1,
+      courtNumbers: [1],
+      ...overrides
+    });
+
+  it("rejects a non-admin caller before touching the DB", async () => {
+    const repo = makeModerationRepo({});
+    const service = makeService(repo);
+
+    await expect(
+      service.reassignCourts(123, requestId, { courtIds: [courtIdA] })
+    ).rejects.toBeInstanceOf(ForbiddenException);
+    expect(repo.transaction).not.toHaveBeenCalled();
+  });
+
+  it("replaces the full court set for a future confirmed request", async () => {
+    const { tx } = makeTx({
+      request: confirmedRequest({ courtCount: 2, courtNumbers: [1, 2] }),
+      activeCourtIds: [courtIdA, courtIdB],
+      activeNumbers: [
+        { id: courtIdA, number: 1 },
+        { id: courtIdB, number: 2 }
+      ]
+    });
+    const repo = makeModerationRepo({
+      tx,
+      withClient: adminRow({
+        date: futureDate,
+        status: "confirmed",
+        courtCount: 2,
+        courtNumbers: [1, 2]
+      })
+    });
+    const service = makeService(repo);
+
+    const result = await service.reassignCourts(adminId, requestId, {
+      courtIds: [courtIdA, courtIdB]
+    });
+
+    expect(result.status).toBe("confirmed");
+    expect(tx.lockDate).toHaveBeenCalledWith(futureDate);
+    expect(tx.reassignCourts).toHaveBeenCalledWith({ id: requestId, courtIds: [courtIdA, courtIdB] });
+  });
+
+  it("rejects wrong status, past date, wrong count, duplicates, inactive courts, and occupied courts without replacing rows", async () => {
+    const pending = makeTx({ request: confirmedRequest({ status: "pending" }) });
+    await expect(
+      makeService(makeModerationRepo({ tx: pending.tx })).reassignCourts(adminId, requestId, {
+        courtIds: [courtIdA]
+      })
+    ).rejects.toBeInstanceOf(ConflictException);
+    expect(pending.tx.reassignCourts).not.toHaveBeenCalled();
+
+    const past = makeTx({ request: confirmedRequest({ date: "2000-06-10" }) });
+    await expect(
+      makeService(makeModerationRepo({ tx: past.tx })).reassignCourts(adminId, requestId, {
+        courtIds: [courtIdA]
+      })
+    ).rejects.toBeInstanceOf(ConflictException);
+    expect(past.tx.reassignCourts).not.toHaveBeenCalled();
+
+    const wrongCount = makeTx({ request: confirmedRequest({ courtCount: 2 }) });
+    await expect(
+      makeService(makeModerationRepo({ tx: wrongCount.tx })).reassignCourts(adminId, requestId, {
+        courtIds: [courtIdA]
+      })
+    ).rejects.toBeInstanceOf(BadRequestException);
+    expect(wrongCount.tx.reassignCourts).not.toHaveBeenCalled();
+
+    const duplicate = makeModerationRepo({});
+    await expect(
+      makeService(duplicate).reassignCourts(adminId, requestId, {
+        courtIds: [courtIdA, courtIdA]
+      })
+    ).rejects.toBeInstanceOf(BadRequestException);
+    expect(duplicate.transaction).not.toHaveBeenCalled();
+
+    const inactive = makeTx({ request: confirmedRequest(), activeCourtIds: [courtIdB] });
+    await expect(
+      makeService(makeModerationRepo({ tx: inactive.tx })).reassignCourts(adminId, requestId, {
+        courtIds: [courtIdA]
+      })
+    ).rejects.toBeInstanceOf(BadRequestException);
+    expect(inactive.tx.reassignCourts).not.toHaveBeenCalled();
+
+    const assigned = [courtIdA];
+    const occupied = makeTx({
+      request: confirmedRequest(),
+      confirmed: [courtOcc(courtIdB, "14:00", 1, "other-request")]
+    });
+    (occupied.tx.reassignCourts as unknown as ReturnType<typeof vi.fn>).mockImplementation(
+      async (args: { courtIds: string[] }) => {
+        assigned.splice(0, assigned.length, ...args.courtIds);
+        return confirmedRequest({ courtNumbers: [2] });
+      }
+    );
+    await expect(
+      makeService(makeModerationRepo({ tx: occupied.tx })).reassignCourts(adminId, requestId, {
+        courtIds: [courtIdB]
+      })
+    ).rejects.toBeInstanceOf(ConflictException);
+    expect(occupied.tx.reassignCourts).not.toHaveBeenCalled();
+    expect(assigned).toEqual([courtIdA]);
+  });
+
+  it("self-excludes the request's own current courts from occupancy checks", async () => {
+    const { tx } = makeTx({
+      request: confirmedRequest({ courtNumbers: [1] }),
+      confirmed: [courtOcc(courtIdA, "14:00", 2, requestId)]
+    });
+    const repo = makeModerationRepo({
+      tx,
+      withClient: adminRow({ date: futureDate, status: "confirmed", courtNumbers: [1] })
+    });
+    const service = makeService(repo);
+
+    await expect(
+      service.reassignCourts(adminId, requestId, { courtIds: [courtIdA] })
+    ).resolves.toMatchObject({ status: "confirmed" });
+    expect(tx.reassignCourts).toHaveBeenCalledWith({ id: requestId, courtIds: [courtIdA] });
   });
 });

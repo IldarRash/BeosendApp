@@ -22,6 +22,17 @@ function mockFetchOnce(body: unknown, ok = true, status = 200): FetchCall[] {
   return calls;
 }
 
+const nullableBookingSnapshot = {
+  priceSnapshotRsd: null,
+  priceSnapshotSource: null,
+  pricingTierId: null,
+  pricingTierLabel: null,
+  pricingTierMinTrainings: null,
+  pricingTierMaxTrainings: null,
+  bookingOrdinalInMonth: null,
+  priceSnapshotAt: null
+};
+
 describe("ApiClient.health", () => {
   afterEach(() => {
     vi.unstubAllGlobals();
@@ -979,6 +990,73 @@ describe("ApiClient error handling & clients", () => {
     });
   });
 
+  it("reassigns a confirmed request with only the replacement courtIds body", async () => {
+    const reassigned = {
+      id: "11111111-1111-1111-1111-111111111111",
+      clientId: "22222222-2222-2222-2222-222222222222",
+      clientName: "Ana",
+      clientTelegramId: 4242,
+      date: "2026-06-10",
+      startTime: "10:00",
+      endTime: "12:00",
+      durationHours: 2,
+      priceRsd: 8000,
+      status: "confirmed",
+      courtCount: 2,
+      courtNumbers: [2, 5],
+      createdAt: "2026-06-04T08:00:00.000Z",
+      decidedAt: "2026-06-04T09:00:00.000Z",
+      decidedBy: 99
+    };
+    const calls = mockFetchOnce(reassigned);
+
+    const result = await new ApiClient("http://api.test").reassignRequestCourts(reassigned.id, {
+      courtIds: [
+        "33333333-3333-3333-3333-333333333333",
+        "44444444-4444-4444-4444-444444444444"
+      ]
+    });
+
+    expect(result.courtNumbers).toEqual([2, 5]);
+    expect(calls[0]?.url).toBe(
+      "http://api.test/court-requests/11111111-1111-1111-1111-111111111111/courts"
+    );
+    expect(calls[0]?.init?.method).toBe("PATCH");
+    expect(JSON.parse(calls[0]?.init?.body as string)).toEqual({
+      courtIds: [
+        "33333333-3333-3333-3333-333333333333",
+        "44444444-4444-4444-4444-444444444444"
+      ]
+    });
+  });
+
+  it("rejects a malformed reassign-request response before the UI can use it", async () => {
+    mockFetchOnce({
+      id: "11111111-1111-1111-1111-111111111111",
+      clientId: "22222222-2222-2222-2222-222222222222",
+      clientName: "Ana",
+      clientTelegramId: 4242,
+      date: "2026-06-10",
+      startTime: "10:00",
+      endTime: "12:00",
+      durationHours: 2,
+      priceRsd: -1,
+      status: "confirmed",
+      courtCount: 2,
+      courtNumbers: [2, 5],
+      createdAt: "2026-06-04T08:00:00.000Z",
+      decidedAt: "2026-06-04T09:00:00.000Z",
+      decidedBy: 99
+    });
+
+    await expect(
+      new ApiClient("http://api.test").reassignRequestCourts(
+        "11111111-1111-1111-1111-111111111111",
+        { courtIds: ["33333333-3333-3333-3333-333333333333"] }
+      )
+    ).rejects.toThrow();
+  });
+
   it("lists clients and encodes the search/status filters into the query", async () => {
     const calls = mockFetchOnce([sampleClient]);
     const result = await new ApiClient("http://api.test").listClients({
@@ -1178,7 +1256,8 @@ describe("ApiClient walk-in & manual booking (Feature 5)", () => {
       source: "walk_in",
       paymentStatus: "unpaid",
       paidAt: null,
-      paidBy: null
+      paidBy: null,
+      ...nullableBookingSnapshot
     };
     const calls = mockFetchOnce(booking);
     const result = await new ApiClient("http://api.test").bookManual({
@@ -1308,7 +1387,35 @@ describe("ApiClient subscription payments", () => {
     paidCount: 3,
     waitlistedCount: 0,
     totalRsd: 12000,
-    paymentState: "partial"
+    paymentState: "partial",
+    pricingScope: "client_calendar_month_all_groups",
+    monthlyPricingCountContext: {
+      clientId: CLIENT_ID,
+      year: 2026,
+      month: 6,
+      pricingCountedBookingCount: 8,
+      excludedBookingCount: 0,
+      countedStatuses: ["booked", "attended"],
+      excludedStatuses: ["cancelled", "no_show", "waitlist", "pending"],
+      paymentStatusAffectsPricing: false
+    },
+    storedBookingPricesRsd: [1500, 1500, 1500, 1400, 1400, 1400, 1400, 1300],
+    pricingBreakdown: [
+      {
+        bookingId: "44444444-4444-4444-8444-444444444444",
+        trainingId: "55555555-5555-4555-8555-555555555555",
+        date: "2026-06-08",
+        status: "booked",
+        priceSnapshotRsd: 1400,
+        priceSnapshotSource: "training_pricing_tier",
+        pricingTierId: "66666666-6666-4666-8666-666666666666",
+        pricingTierLabel: "4-7 trainings",
+        pricingTierMinTrainings: 4,
+        pricingTierMaxTrainings: 7,
+        bookingOrdinalInMonth: 4,
+        priceSnapshotAt: "2026-06-08T18:00:00.000Z"
+      }
+    ]
   };
 
   it("encodes the paymentState and clientId filters into the query", async () => {
@@ -1362,6 +1469,89 @@ describe("ApiClient subscription payments", () => {
     expect(calls[0]?.init?.method).toBe("PATCH");
     expect(JSON.parse(calls[0]?.init?.body as string)).toEqual({ paid: true });
     expect(result.paymentState).toBe("paid");
+  });
+
+  it("lists training pricing tiers and validates the rows", async () => {
+    const calls = mockFetchOnce([
+      {
+        id: "77777777-7777-4777-8777-777777777777",
+        label: "4-7 trainings",
+        minTrainings: 4,
+        maxTrainings: 7,
+        pricePerTrainingRsd: 1400,
+        sortOrder: 1,
+        status: "active",
+        createdAt: "2026-06-01T00:00:00.000Z",
+        updatedAt: "2026-06-01T00:00:00.000Z"
+      }
+    ]);
+
+    const result = await new ApiClient("http://api.test").listTrainingPricingTiers();
+
+    expect(calls[0]?.url).toBe("http://api.test/training-pricing-tiers");
+    expect(result[0].pricePerTrainingRsd).toBe(1400);
+  });
+
+  it("replaces training pricing tiers through the strict payload and parses the response", async () => {
+    const response = [
+      {
+        id: "77777777-7777-4777-8777-777777777777",
+        label: "1+ trainings",
+        minTrainings: 1,
+        maxTrainings: null,
+        pricePerTrainingRsd: 1500,
+        sortOrder: 0,
+        status: "active",
+        createdAt: "2026-06-01T00:00:00.000Z",
+        updatedAt: "2026-06-01T00:00:00.000Z"
+      }
+    ];
+    const calls = mockFetchOnce(response);
+
+    const result = await new ApiClient("http://api.test").replaceTrainingPricingTiers({
+      tiers: [
+        {
+          label: "1+ trainings",
+          minTrainings: 1,
+          maxTrainings: null,
+          pricePerTrainingRsd: 1500,
+          sortOrder: 0
+        }
+      ]
+    });
+
+    expect(calls[0]?.url).toBe("http://api.test/training-pricing-tiers");
+    expect(calls[0]?.init?.method).toBe("PUT");
+    expect(JSON.parse(calls[0]?.init?.body as string)).toEqual({
+      tiers: [
+        {
+          label: "1+ trainings",
+          minTrainings: 1,
+          maxTrainings: null,
+          pricePerTrainingRsd: 1500,
+          sortOrder: 0
+        }
+      ]
+    });
+    expect(result[0].label).toBe("1+ trainings");
+  });
+
+  it("rejects malformed training pricing tier responses", async () => {
+    mockFetchOnce([
+      {
+        id: "77777777-7777-4777-8777-777777777777",
+        label: "bad",
+        minTrainings: 1,
+        maxTrainings: null,
+        pricePerTrainingRsd: 0,
+        sortOrder: 0,
+        status: "active",
+        createdAt: "2026-06-01T00:00:00.000Z",
+        updatedAt: "2026-06-01T00:00:00.000Z"
+      }
+    ]);
+
+    await expect(new ApiClient("http://api.test").listTrainingPricingTiers()).rejects.toThrow();
   });
 });
 
@@ -1572,7 +1762,8 @@ describe("ApiClient training delete & client edit", () => {
       source: "admin",
       paymentStatus: "paid",
       paidAt: "2026-06-01T00:00:00.000Z",
-      paidBy: 42
+      paidBy: 42,
+      ...nullableBookingSnapshot
     };
     const calls = mockFetchOnce(booking);
     await new ApiClient("http://api.test").bookManual({
@@ -1631,7 +1822,8 @@ describe("ApiClient waitlist admin tools", () => {
     source: "admin",
     paymentStatus: "unpaid",
     paidAt: null,
-    paidBy: null
+    paidBy: null,
+    ...nullableBookingSnapshot
   };
 
   it("cancels a roster booking through the existing booking cancel path", async () => {

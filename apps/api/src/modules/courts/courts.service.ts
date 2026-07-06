@@ -68,6 +68,11 @@ export class CourtsService {
       holds,
       blocks
     });
+    const reasonByBlockId = new Map(
+      blocks
+        .filter((block) => block.blockId)
+        .map((block) => [block.blockId as string, block.reason ?? null])
+    );
 
     return courtLoadGridSchema.parse({
       date,
@@ -84,7 +89,11 @@ export class CourtsService {
           state: cell.state,
           requestId: cell.requestId,
           trainingId: cell.trainingId,
-          blockId: cell.blockId
+          blockId: cell.blockId,
+          reason:
+            (cell.state === "block" || cell.state === "training") && cell.blockId
+              ? reasonByBlockId.get(cell.blockId) ?? null
+              : null
         }))
       })),
       unassignedTrainings

@@ -10,6 +10,8 @@ import { type Client, type WaitlistEntry, waitlistAdminItemSchema } from "@beosa
 import { describe, expect, it } from "vitest";
 import type { ClientsRepository } from "../clients/clients.repository";
 import type { NotificationsService } from "../notifications/notifications.service";
+import type { BookingPriceSnapshot } from "../training-pricing/training-pricing.repository";
+import type { TrainingPricingService } from "../training-pricing/training-pricing.service";
 import type {
   TrainingLockRow,
   WaitlistAdminRow,
@@ -69,8 +71,22 @@ class FakeWaitlistRepository {
   }[] = [];
   private seq = 0;
 
-  transaction<T>(work: (tx: Database) => Promise<T>): Promise<T> {
-    return work({} as Database);
+  async transaction<T>(work: (tx: Database) => Promise<T>): Promise<T> {
+    const before = {
+      training: this.training ? { ...this.training } : undefined,
+      entries: this.entries.map((entry) => ({ ...entry })),
+      bookings: this.bookings.map((booking) => ({ ...booking })),
+      seq: this.seq
+    };
+    try {
+      return await work({} as Database);
+    } catch (error) {
+      this.training = before.training;
+      this.entries = before.entries;
+      this.bookings = before.bookings;
+      this.seq = before.seq;
+      throw error;
+    }
   }
 
   async findTrainingForUpdate(
@@ -429,6 +445,44 @@ class FakeNotifications {
   }
 }
 
+class FakePricingService {
+  assigned: Array<{ id: string; clientId: string; date: string }> = [];
+  snapshots = new Map<string, BookingPriceSnapshot>();
+
+  async assignSnapshotsForAcceptedBookings(
+    _tx: Database,
+    bookings: Array<{ id: string; clientId: string; date: string }>
+  ): Promise<Map<string, BookingPriceSnapshot>> {
+    this.assigned.push(...bookings);
+    if (this.snapshots.size === 0) {
+      for (const booking of bookings) {
+        this.snapshots.set(booking.id, {
+          bookingId: booking.id,
+          priceSnapshotRsd: 1400,
+          priceSnapshotSource: "training_pricing_tier" as const,
+          pricingTierId: "77777777-7777-4777-8777-777777777777",
+          pricingTierLabel: "4-7 trainings",
+          pricingTierMinTrainings: 4,
+          pricingTierMaxTrainings: 7,
+          bookingOrdinalInMonth: 4,
+          priceSnapshotAt: new Date("2026-06-01T12:00:00.000Z")
+        });
+      }
+    }
+    return this.snapshots;
+  }
+}
+
+class IncompletePricingService extends FakePricingService {
+  override async assignSnapshotsForAcceptedBookings(
+    _tx: Database,
+    bookings: Array<{ id: string; clientId: string; date: string }>
+  ): Promise<Map<string, BookingPriceSnapshot>> {
+    this.assigned.push(...bookings);
+    return new Map();
+  }
+}
+
 const env = { ADMIN_TELEGRAM_IDS: [] } as unknown as Env;
 // Admin-enabled env for the admin tools (promote/swap/remove + admin lists). The
 // owner stays a plain client under this env (only ADMIN_ID is an admin), so the
@@ -437,7 +491,7 @@ const adminEnv = {
   ADMIN_TELEGRAM_IDS: [String(ADMIN_ID)]
 } as unknown as Env;
 
-function makeService(): {
+function makeService(pricing?: TrainingPricingService): {
   service: WaitlistService;
   repo: FakeWaitlistRepository;
   clients: FakeClientsRepository;
@@ -450,13 +504,14 @@ function makeService(): {
     repo as unknown as WaitlistRepository,
     clients as unknown as ClientsRepository,
     notifications as unknown as NotificationsService,
-    env
+    env,
+    pricing
   );
   return { service, repo, clients, notifications };
 }
 
 /** A service wired to the admin-enabled env for the admin-tool describe blocks. */
-function makeAdminService(): {
+function makeAdminService(pricing?: TrainingPricingService): {
   service: WaitlistService;
   repo: FakeWaitlistRepository;
   clients: FakeClientsRepository;
@@ -469,7 +524,8 @@ function makeAdminService(): {
     repo as unknown as WaitlistRepository,
     clients as unknown as ClientsRepository,
     notifications as unknown as NotificationsService,
-    adminEnv
+    adminEnv,
+    pricing
   );
   return { service, repo, clients, notifications };
 }
@@ -657,6 +713,90 @@ describe("WaitlistService.promoteNext (auto-book + notify)", () => {
     expect(repo.training?.bookedCount).toBe(6);
     expect(repo.training?.status).toBe("full");
     expect(notifications.promoted).toEqual([{ clientId: CLIENT_ID, trainingId: TRAINING_ID }]);
+  });
+
+  it("auto-promotes a subscription-origin entry with a required pricing snapshot", async () => {
+    const pricing = new FakePricingService();
+    const { service, repo, notifications } = makeService(
+      pricing as unknown as TrainingPricingService
+    );
+    repo.training = { ...openGroupTraining(5), date: "2026-06-10" };
+    repo.entries.push({
+      id: "head",
+      clientId: CLIENT_ID,
+      trainingId: TRAINING_ID,
+      position: 1,
+      groupSubscriptionId: SUB_ID,
+      status: "waiting",
+      addedAt: new Date(),
+      notifiedAt: null
+    });
+
+    await service.promoteNext(TRAINING_ID);
+
+    expect(repo.bookings).toHaveLength(1);
+    expect(repo.bookings[0]).toMatchObject({
+      clientId: CLIENT_ID,
+      trainingId: TRAINING_ID,
+      groupSubscriptionId: SUB_ID,
+      status: "booked"
+    });
+    expect(pricing.assigned).toEqual([
+      { id: repo.bookings[0].id, clientId: CLIENT_ID, date: "2026-06-10" }
+    ]);
+    expect(repo.entries.find((entry) => entry.id === "head")?.status).toBe("promoted");
+    expect(repo.training).toMatchObject({ bookedCount: 6, status: "full" });
+    expect(notifications.promoted).toEqual([{ clientId: CLIENT_ID, trainingId: TRAINING_ID }]);
+  });
+
+  it("rolls back subscription-origin auto-promotion when pricing is not configured", async () => {
+    const { service, repo, notifications } = makeService();
+    repo.training = { ...openGroupTraining(5), date: "2026-06-10" };
+    repo.entries.push({
+      id: "head",
+      clientId: CLIENT_ID,
+      trainingId: TRAINING_ID,
+      position: 1,
+      groupSubscriptionId: SUB_ID,
+      status: "waiting",
+      addedAt: new Date(),
+      notifiedAt: null
+    });
+
+    await service.promoteNext(TRAINING_ID);
+
+    expect(repo.bookings).toHaveLength(0);
+    expect(repo.entries.find((entry) => entry.id === "head")?.status).toBe("waiting");
+    expect(repo.training).toMatchObject({ bookedCount: 5, status: "open" });
+    expect(notifications.promoted).toHaveLength(0);
+  });
+
+  it("rolls back subscription-origin auto-promotion when pricing returns no snapshot", async () => {
+    const pricing = new IncompletePricingService();
+    const { service, repo, notifications } = makeService(
+      pricing as unknown as TrainingPricingService
+    );
+    repo.training = { ...openGroupTraining(5), date: "2026-06-10" };
+    repo.entries.push({
+      id: "head",
+      clientId: CLIENT_ID,
+      trainingId: TRAINING_ID,
+      position: 1,
+      groupSubscriptionId: SUB_ID,
+      status: "waiting",
+      addedAt: new Date(),
+      notifiedAt: null
+    });
+
+    await service.promoteNext(TRAINING_ID);
+
+    expect(pricing.assigned).toEqual([
+      { id: "cccccccc-cccc-cccc-cccc-000000000001", clientId: CLIENT_ID, date: "2026-06-10" }
+    ]);
+    expect(repo.bookings).toHaveLength(0);
+    expect(repo.entries.find((entry) => entry.id === "head")?.status).toBe("waiting");
+    expect(repo.training).toMatchObject({ bookedCount: 5, status: "open" });
+    expect(notifications.promoted).toHaveLength(0);
   });
 
   it("is a no-op when there is no waiting head", async () => {
@@ -897,8 +1037,9 @@ describe("WaitlistService.promoteEntry (admin)", () => {
   });
 
   it("rebooks a subscription-origin entry as a group booking carrying its id", async () => {
-    const { service, repo } = makeAdminService();
-    repo.training = openGroupTraining(5);
+    const pricing = new FakePricingService();
+    const { service, repo } = makeAdminService(pricing as unknown as TrainingPricingService);
+    repo.training = { ...openGroupTraining(5), date: "2026-06-10" };
     const id = seedEntry(repo, { groupSubscriptionId: SUB_ID });
 
     const booking = await service.promoteEntry(ADMIN_ID, id);
@@ -917,6 +1058,25 @@ describe("WaitlistService.promoteEntry (admin)", () => {
     expect(repo.training?.bookedCount).toBe(6);
     expect(repo.bookings).toHaveLength(0);
     expect(repo.entries.find((e) => e.id === id)?.status).toBe("waiting");
+  });
+
+  it("charges a subscription waitlist booking when it is promoted to booked", async () => {
+    const pricing = new FakePricingService();
+    const { service, repo } = makeAdminService(pricing as unknown as TrainingPricingService);
+    repo.training = { ...openGroupTraining(5), date: "2026-06-10" };
+    const id = seedEntry(repo, { groupSubscriptionId: SUB_ID });
+
+    const booking = await service.promoteEntry(ADMIN_ID, id);
+
+    expect(pricing.assigned).toEqual([
+      { id: booking.id, clientId: CLIENT_ID, date: "2026-06-10" }
+    ]);
+    expect(booking).toMatchObject({
+      status: "booked",
+      priceSnapshotRsd: 1400,
+      pricingTierLabel: "4-7 trainings",
+      bookingOrdinalInMonth: 4
+    });
   });
 
   it("forbids a non-admin caller (403)", async () => {
@@ -1003,8 +1163,10 @@ describe("WaitlistService.swapEntry (admin)", () => {
   });
 
   it("books the promoted client group when the entry has a subscription id, single otherwise", async () => {
-    const grp = makeAdminService();
+    const pricing = new FakePricingService();
+    const grp = makeAdminService(pricing as unknown as TrainingPricingService);
     seedSwap(grp.repo, { entrySub: SUB_ID });
+    grp.repo.training = { ...fullTraining, date: "2026-06-10" };
     const groupResult = await grp.service.swapEntry(ADMIN_ID, ENTRY_ID, DISPLACED_BOOKING_ID);
     expect(groupResult.promoted.type).toBe("group");
     expect(groupResult.promoted.groupSubscriptionId).toBe(SUB_ID);

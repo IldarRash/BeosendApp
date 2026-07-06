@@ -1,6 +1,7 @@
 import { Injectable } from "@nestjs/common";
 import { type Database, tables } from "@beosand/db";
-import { type SQL, and, count, eq, isNotNull, ne, sql } from "drizzle-orm";
+import type { BookingStatus, PriceSnapshotSource } from "@beosand/types";
+import { type SQL, and, asc, count, eq, gte, inArray, isNotNull, lte, ne, sql } from "drizzle-orm";
 import { DatabaseService } from "../../db/database.service";
 
 /**
@@ -23,6 +24,26 @@ export interface SubscriptionAggregateRow {
   paidCount: number;
   /** Active (`waiting`) waitlist dates queued under this subscription's id. */
   waitlistedCount: number;
+}
+
+export interface SubscriptionPricingBookingRow {
+  bookingId: string;
+  trainingId: string;
+  date: string;
+  status: BookingStatus;
+  priceSnapshotRsd: number | null;
+  priceSnapshotSource: PriceSnapshotSource | null;
+  pricingTierId: string | null;
+  pricingTierLabel: string | null;
+  pricingTierMinTrainings: number | null;
+  pricingTierMaxTrainings: number | null;
+  bookingOrdinalInMonth: number | null;
+  priceSnapshotAt: string | null;
+}
+
+export interface MonthlyPricingCountsRow {
+  pricingCountedBookingCount: number;
+  excludedBookingCount: number;
 }
 
 /** Only place subscriptions DB access lives. Returns typed rows; no business rules. */
@@ -149,6 +170,72 @@ export class SubscriptionsRepository {
       dateCount: Number(row.dateCount),
       paidCount: Number(row.paidCount),
       waitlistedCount: Number(row.waitlistedCount)
+    };
+  }
+
+  async listPricingBreakdown(
+    groupSubscriptionId: string,
+    tx?: Database
+  ): Promise<SubscriptionPricingBookingRow[]> {
+    const db = tx ?? this.database.db;
+    const rows = await db
+      .select({
+        bookingId: tables.bookings.id,
+        trainingId: tables.bookings.trainingId,
+        date: tables.trainings.date,
+        status: tables.bookings.status,
+        priceSnapshotRsd: tables.bookings.priceSnapshotRsd,
+        priceSnapshotSource: tables.bookings.priceSnapshotSource,
+        pricingTierId: tables.bookings.pricingTierId,
+        pricingTierLabel: tables.bookings.pricingTierLabel,
+        pricingTierMinTrainings: tables.bookings.pricingTierMinTrainings,
+        pricingTierMaxTrainings: tables.bookings.pricingTierMaxTrainings,
+        bookingOrdinalInMonth: tables.bookings.bookingOrdinalInMonth,
+        priceSnapshotAt: tables.bookings.priceSnapshotAt
+      })
+      .from(tables.bookings)
+      .innerJoin(tables.trainings, eq(tables.bookings.trainingId, tables.trainings.id))
+      .where(eq(tables.bookings.groupSubscriptionId, groupSubscriptionId))
+      .orderBy(asc(tables.trainings.date), asc(tables.trainings.startTime), asc(tables.bookings.id));
+
+    return rows.map((row) => ({
+      ...row,
+      priceSnapshotAt: row.priceSnapshotAt?.toISOString() ?? null
+    }));
+  }
+
+  async monthlyPricingCounts(
+    clientId: string,
+    from: string,
+    to: string,
+    tx?: Database
+  ): Promise<MonthlyPricingCountsRow> {
+    const db = tx ?? this.database.db;
+    const [row] = await db
+      .select({
+        counted: count(
+          sql`case when ${tables.bookings.status} in ('booked', 'attended') then 1 end`
+        ),
+        excluded: count(
+          sql`case when ${tables.bookings.status} in ('cancelled', 'no_show', 'waitlist', 'pending') then 1 end`
+        )
+      })
+      .from(tables.bookings)
+      .innerJoin(tables.trainings, eq(tables.bookings.trainingId, tables.trainings.id))
+      .where(
+        and(
+          eq(tables.bookings.clientId, clientId),
+          isNotNull(tables.bookings.groupSubscriptionId),
+          isNotNull(tables.trainings.groupId),
+          inArray(tables.bookings.status, ["booked", "attended", "cancelled", "no_show", "waitlist", "pending"]),
+          gte(tables.trainings.date, from),
+          lte(tables.trainings.date, to)
+        )
+      );
+
+    return {
+      pricingCountedBookingCount: Number(row?.counted ?? 0),
+      excludedBookingCount: Number(row?.excluded ?? 0)
     };
   }
 

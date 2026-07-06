@@ -94,6 +94,11 @@ function invalidateAfterCancellation(queryClient: ReturnType<typeof useQueryClie
   ]).then(() => undefined);
 }
 
+/** Reassigned confirmed requests change both request rows and the load grid. */
+function invalidateAfterReassign(queryClient: ReturnType<typeof useQueryClient>): Promise<void> {
+  return invalidateAfterCancellation(queryClient);
+}
+
 /**
  * C4 — confirm a request onto a chosen set of courts; refreshes the queues and
  * free-courts reads on success. `input.courtIds.length` must equal the request's
@@ -144,5 +149,19 @@ export function useCancelRequest(): UseMutationResult<
     // Refetch on settle (see useConfirmRequest): a 409 still needs stale rows
     // cleared, and confirmed cancellations release occupancy in the load grid.
     onSettled: () => invalidateAfterCancellation(queryClient)
+  });
+}
+
+/** C4/C6 — reassign a confirmed request's courts; refresh queues and court load on settle. */
+export function useReassignRequestCourts(): UseMutationResult<
+  CourtRequestAdminView,
+  Error,
+  { id: string; input: { courtIds: string[] } }
+> {
+  const api = useApiClient();
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: ({ id, input }) => api.reassignRequestCourts(id, input),
+    onSettled: () => invalidateAfterReassign(queryClient)
   });
 }

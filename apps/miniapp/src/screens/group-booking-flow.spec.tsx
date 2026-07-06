@@ -73,7 +73,7 @@ const GROUP: Group = {
 const JULY_2026: BookableMonth = { year: 2026, month: 7 };
 const AUGUST_2026: BookableMonth = { year: 2026, month: 8 };
 
-const BOOKING = (id: string): Booking => ({
+const BOOKING = (id: string, bookingOrdinalInMonth: number): Booking => ({
   id,
   clientId: ONBOARDED.id,
   trainingId: "99999999-9999-9999-9999-999999999999",
@@ -84,14 +84,22 @@ const BOOKING = (id: string): Booking => ({
   source: "telegram",
   paymentStatus: "unpaid",
   paidAt: null,
-  paidBy: null
+  paidBy: null,
+  priceSnapshotRsd: 1200,
+  priceSnapshotSource: "training_pricing_tier",
+  pricingTierId: "99999999-9999-9999-9999-999999999998",
+  pricingTierLabel: "8 trainings",
+  pricingTierMinTrainings: 8,
+  pricingTierMaxTrainings: 8,
+  bookingOrdinalInMonth,
+  priceSnapshotAt: "2026-07-01T08:00:00.000Z"
 });
 
 const RESULT_WITH_SKIPPED: GroupBookingResult = {
   groupSubscriptionId: "88888888-8888-8888-8888-888888888888",
   created: [
-    BOOKING("55555555-5555-5555-5555-555555555555"),
-    BOOKING("66666666-6666-6666-6666-666666666666")
+    BOOKING("55555555-5555-5555-5555-555555555555", 1),
+    BOOKING("66666666-6666-6666-6666-666666666666", 2)
   ],
   waitlisted: [],
   skipped: ["2026-07-15"]

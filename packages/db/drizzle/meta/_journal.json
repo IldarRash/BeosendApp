@@ -169,6 +169,13 @@
       "when": 1782899444317,
       "tag": "0023_colossal_marrow",
       "breakpoints": true
+    },
+    {
+      "idx": 24,
+      "version": "7",
+      "when": 1783325557779,
+      "tag": "0024_chemical_terror",
+      "breakpoints": true
     }
   ]
 }

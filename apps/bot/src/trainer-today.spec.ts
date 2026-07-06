@@ -81,7 +81,15 @@ const booking: Booking = {
   source: "telegram",
   paymentStatus: "unpaid",
   paidAt: null,
-  paidBy: null
+  paidBy: null,
+  priceSnapshotRsd: null,
+  priceSnapshotSource: null,
+  pricingTierId: null,
+  pricingTierLabel: null,
+  pricingTierMinTrainings: null,
+  pricingTierMaxTrainings: null,
+  bookingOrdinalInMonth: null,
+  priceSnapshotAt: null
 };
 
 function callbacksOf(keyboard: { inline_keyboard: unknown[][] }): (string | undefined)[] {

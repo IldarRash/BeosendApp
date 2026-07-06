@@ -128,7 +128,15 @@ function ownerBooking(trainingId = "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa"): Book
     source: "telegram",
     paymentStatus: "unpaid",
     paidAt: null,
-    paidBy: null
+    paidBy: null,
+    priceSnapshotRsd: null,
+    priceSnapshotSource: null,
+    pricingTierId: null,
+    pricingTierLabel: null,
+    pricingTierMinTrainings: null,
+    pricingTierMaxTrainings: null,
+    bookingOrdinalInMonth: null,
+    priceSnapshotAt: null
   };
 }
 

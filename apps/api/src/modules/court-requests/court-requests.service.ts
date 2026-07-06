@@ -47,6 +47,7 @@ import {
   type FreeCourtNumbers,
   type MyCourtRequestItem,
   type PreviewCourtRequest,
+  type ReassignCourtRequest,
   type RejectCourtRequest
 } from "@beosand/types";
 import { ENV } from "../../config/config.module";
@@ -390,8 +391,11 @@ export class CourtRequestsService {
     if (!request) {
       throw new NotFoundException("No court request with that id.");
     }
-    if (request.status !== "pending") {
-      throw new ConflictException("This request has already been decided.");
+    if (request.status !== "pending" && request.status !== "confirmed") {
+      throw new ConflictException("Only pending or confirmed court requests can choose courts.");
+    }
+    if (request.status === "confirmed") {
+      this.assertFutureRequest(request);
     }
 
     const duration = parseDuration(request.durationHours);
@@ -408,6 +412,89 @@ export class CourtRequestsService {
     return free.map((court) =>
       courtSchema.parse({ id: court.id, number: court.number, status: "active" })
     );
+  }
+
+  /**
+   * Admin-only reassignment for a FUTURE confirmed court request. It replaces the
+   * full court set atomically after the same lock + availability re-check as
+   * confirmation, but sends no notification/webhook in this slice.
+   */
+  async reassignCourts(
+    callerTelegramId: number,
+    requestId: string,
+    input: ReassignCourtRequest
+  ): Promise<CourtRequestAdminView> {
+    this.assertAdmin(callerTelegramId, "reassign a court request");
+
+    const courtIds = dedupe(input.courtIds);
+    if (courtIds.length !== input.courtIds.length) {
+      throw new BadRequestException("Duplicate court ids in the reassignment.");
+    }
+
+    const updated = await this.repository.transaction(async (tx) => {
+      const request = await tx.lockRequest(requestId);
+      if (!request) {
+        throw new NotFoundException("No court request with that id.");
+      }
+      if (request.status !== "confirmed") {
+        throw new ConflictException("Only confirmed court requests can be reassigned.");
+      }
+      await tx.lockDate(request.date);
+      this.assertFutureRequest(request);
+
+      const duration = parseDuration(request.durationHours);
+      const workingHours = await this.assertWithinWorkingHours(
+        request.date,
+        request.startTime,
+        duration
+      );
+
+      if (courtIds.length !== request.courtCount) {
+        throw new BadRequestException(
+          `This request is for ${request.courtCount} court(s); choose exactly that many.`
+        );
+      }
+
+      for (const courtId of courtIds) {
+        if (!(await tx.isActiveCourt(courtId))) {
+          throw new BadRequestException("No active court with that id.");
+        }
+      }
+
+      const slots = courtSlotsCovered(request.startTime, durationMinutesOf(duration));
+      const [activeCourtCount, occupied, blocks] = await Promise.all([
+        tx.countActiveCourts(),
+        tx.requestHoldCourtOccupancyForDate(request.date),
+        tx.blocksByCourtForDate(request.date)
+      ]);
+      const otherOccupied = excludeRequest(occupied, request.id);
+
+      const free = freeCourtsBySlot({
+        activeCourtCount,
+        openTime: workingHours.openTime,
+        closeTime: workingHours.closeTime,
+        confirmed: otherOccupied.map(toOccupant),
+        blocks: toSlotOccupantsFromCourtRows(blocks)
+      });
+      if (freeForDuration(free, request.startTime, duration) < courtIds.length) {
+        throw new ConflictException("That time is fully booked. Choose another court set.");
+      }
+
+      const occupants = toCellOccupants(otherOccupied, blocks);
+      for (const courtId of courtIds) {
+        if (!courtFreeForSlots(courtId, slots, occupants)) {
+          throw new ConflictException("That court is already taken for this time.");
+        }
+      }
+
+      return tx.reassignCourts({ id: request.id, courtIds });
+    });
+
+    const withClient = await this.repository.findWithClientById(updated.id);
+    if (!withClient) {
+      throw new NotFoundException("No court request with that id.");
+    }
+    return this.toAdminView(withClient);
   }
 
   /**
@@ -739,6 +826,13 @@ export class CourtRequestsService {
     }
   }
 
+  /** A confirmed court request can be reassigned only before its local start time. */
+  private assertFutureRequest(request: Pick<CourtRequestRow, "date" | "startTime">): void {
+    if (requestStarted(request.date, request.startTime)) {
+      throw new ConflictException("Past court requests cannot be reassigned.");
+    }
+  }
+
   /** True when every 30-min slot the booking covers still has a free court (the C3 rule). */
   private async isSlotAvailable(
     date: string,
@@ -790,6 +884,17 @@ export class CourtRequestsService {
 
 function confirmedCourtNumbers(row: { status: CourtRequestStatus; courtNumbers: number[] }): number[] {
   return row.status === "confirmed" ? row.courtNumbers : [];
+}
+
+function requestStarted(date: string, startTime: string, now = new Date()): boolean {
+  const today = [
+    now.getFullYear(),
+    String(now.getMonth() + 1).padStart(2, "0"),
+    String(now.getDate()).padStart(2, "0")
+  ].join("-");
+  if (date < today) return true;
+  if (date > today) return false;
+  return minutesOfDay(startTime.slice(0, 5)) <= now.getHours() * 60 + now.getMinutes();
 }
 
 /** Drop duplicate ids preserving order. */

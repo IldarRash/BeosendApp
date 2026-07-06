@@ -5,11 +5,17 @@ import {
   type UseMutationResult,
   type UseQueryResult
 } from "@tanstack/react-query";
-import type { ListSubscriptionsQuery, SubscriptionSummary } from "@beosand/types";
+import type {
+  ListSubscriptionsQuery,
+  ReplaceTrainingPricingTiersInput,
+  SubscriptionSummary,
+  TrainingPricingTier
+} from "@beosand/types";
 import { useApiClient } from "../api/ApiProvider";
 
 const SUBSCRIPTIONS_KEY = ["subscriptions"] as const;
 const SUBSCRIPTIONS_LIST_KEY = [...SUBSCRIPTIONS_KEY, "list"] as const;
+const TRAINING_PRICING_TIERS_KEY = ["training-pricing-tiers"] as const;
 
 /** Stable cache key for one subscriptions-list filter combination. */
 function listKey(filters: ListSubscriptionsQuery): readonly unknown[] {
@@ -49,5 +55,32 @@ export function useMarkSubscriptionPaid(): UseMutationResult<
     onSuccess: () => {
       void queryClient.invalidateQueries({ queryKey: SUBSCRIPTIONS_LIST_KEY });
     }
+  });
+}
+
+/** Current monthly training pricing tiers. The API owns ordering and validation. */
+export function useTrainingPricingTiers(): UseQueryResult<TrainingPricingTier[], Error> {
+  const api = useApiClient();
+  return useQuery({
+    queryKey: TRAINING_PRICING_TIERS_KEY,
+    queryFn: () => api.listTrainingPricingTiers()
+  });
+}
+
+/** Replace the active tier table; refresh tiers and subscription summaries after settle. */
+export function useReplaceTrainingPricingTiers(): UseMutationResult<
+  TrainingPricingTier[],
+  Error,
+  ReplaceTrainingPricingTiersInput
+> {
+  const api = useApiClient();
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (input) => api.replaceTrainingPricingTiers(input),
+    onSettled: () =>
+      Promise.all([
+        queryClient.invalidateQueries({ queryKey: TRAINING_PRICING_TIERS_KEY }),
+        queryClient.invalidateQueries({ queryKey: SUBSCRIPTIONS_LIST_KEY })
+      ]).then(() => undefined)
   });
 }

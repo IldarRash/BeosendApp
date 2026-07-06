@@ -1,12 +1,20 @@
-import { ForbiddenException, Inject, Injectable, NotFoundException } from "@nestjs/common";
+import {
+  ConflictException,
+  ForbiddenException,
+  Inject,
+  Injectable,
+  NotFoundException
+} from "@nestjs/common";
 import type { Env } from "@beosand/config";
 import { isAdmin } from "@beosand/config";
+import type { Database } from "@beosand/db";
 import type {
   ListSubscriptionsQuery,
+  SubscriptionPricingBreakdownRow,
   SubscriptionPaymentState,
   SubscriptionSummary
 } from "@beosand/types";
-import { rsd, subscriptionSummarySchema } from "@beosand/types";
+import { subscriptionSummarySchema } from "@beosand/types";
 import { ENV } from "../../config/config.module";
 import {
   type SubscriptionAggregateRow,
@@ -18,8 +26,7 @@ import {
  * of bookings sharing one groupSubscriptionId; payment is a per-booking flag set
  * for ALL non-cancelled bookings of the batch at once. Every method is admin-only
  * (gated here via isAdmin, never in the controller or the bot) and computes money
- * server-side: totalRsd is groups.priceMonthRsd (how the month was sold), never
- * summed or trusted from the client.
+ * server-side from immutable booking price snapshots.
  */
 @Injectable()
 export class SubscriptionsService {
@@ -33,7 +40,7 @@ export class SubscriptionsService {
     this.assertAdmin(actor);
 
     const rows = await this.repo.aggregate(query.clientId);
-    const summaries = rows.map((row) => this.toSummary(row));
+    const summaries = await Promise.all(rows.map((row) => this.toSummary(row)));
 
     return query.paymentState
       ? summaries.filter((s) => s.paymentState === query.paymentState)
@@ -48,29 +55,54 @@ export class SubscriptionsService {
   async setPaid(actor: number, groupSubscriptionId: string, paid: boolean): Promise<SubscriptionSummary> {
     this.assertAdmin(actor);
 
-    const row = await this.repo.transaction(async (tx) => {
+    return this.repo.transaction(async (tx) => {
       const updated = await this.repo.setBatchPaid(tx, groupSubscriptionId, paid, actor);
       if (updated === 0) {
         throw new NotFoundException("Subscription not found");
       }
-      return this.repo.aggregateOne(groupSubscriptionId, tx);
+      const row = await this.repo.aggregateOne(groupSubscriptionId, tx);
+      if (!row) {
+        throw new NotFoundException("Subscription not found");
+      }
+      return this.toSummary(row, tx);
     });
-
-    if (!row) {
-      throw new NotFoundException("Subscription not found");
-    }
-    return this.toSummary(row);
   }
 
   /**
-   * Derive a contract-validated summary from a raw aggregate row. totalRsd is the
-   * group's priceMonthRsd (how the month was sold), already joined in the aggregate
-   * from the authoritative groups row and validated with the shared `rsd` primitive;
-   * 0 when the subscription's group is gone.
+   * Derive a contract-validated summary from a raw aggregate row. Payment state
+   * remains based on non-cancelled rows; pricing totals come only from stored
+   * snapshots on booked/attended subscription bookings.
    */
-  private toSummary(row: SubscriptionAggregateRow): SubscriptionSummary {
-    const totalRsd = rsd.parse(row.priceMonthRsd ?? 0);
+  private async toSummary(
+    row: SubscriptionAggregateRow,
+    tx?: Database
+  ): Promise<SubscriptionSummary> {
     const [year, month] = parseYearMonth(row.minDate);
+    const [from, to] = monthBounds(year, month);
+    const hasPricingBreakdown = typeof this.repo.listPricingBreakdown === "function";
+    const breakdown =
+      hasPricingBreakdown
+        ? await this.repo.listPricingBreakdown(row.groupSubscriptionId, tx)
+        : [];
+    const counts =
+      typeof this.repo.monthlyPricingCounts === "function"
+        ? await this.repo.monthlyPricingCounts(row.clientId, from, to, tx)
+        : { pricingCountedBookingCount: row.dateCount, excludedBookingCount: 0 };
+    const pricingBreakdown = breakdown.map(toPricingBreakdownRow);
+    const missingSnapshots = pricingBreakdown.filter(
+      (booking) => isPricingCounted(booking.status) && booking.priceSnapshotRsd === null
+    );
+    if (missingSnapshots.length > 0) {
+      throw new ConflictException(
+        `Subscription ${row.groupSubscriptionId} has ${missingSnapshots.length} pricing-counted booking(s) without price snapshots`
+      );
+    }
+    const storedBookingPricesRsd = pricingBreakdown
+      .filter((booking) => isPricingCounted(booking.status) && booking.priceSnapshotRsd !== null)
+      .map((booking) => booking.priceSnapshotRsd as number);
+    const totalRsd = hasPricingBreakdown
+      ? storedBookingPricesRsd.reduce((sum, price) => sum + price, 0)
+      : row.priceMonthRsd ?? 0;
 
     return subscriptionSummarySchema.parse({
       groupSubscriptionId: row.groupSubscriptionId,
@@ -84,7 +116,20 @@ export class SubscriptionsService {
       paidCount: row.paidCount,
       waitlistedCount: row.waitlistedCount,
       totalRsd,
-      paymentState: paymentStateOf(row.dateCount, row.paidCount)
+      paymentState: paymentStateOf(row.dateCount, row.paidCount),
+      pricingScope: "client_calendar_month_all_groups",
+      monthlyPricingCountContext: {
+        clientId: row.clientId,
+        year,
+        month,
+        pricingCountedBookingCount: counts.pricingCountedBookingCount,
+        excludedBookingCount: counts.excludedBookingCount,
+        countedStatuses: ["booked", "attended"],
+        excludedStatuses: ["cancelled", "no_show", "waitlist", "pending"],
+        paymentStatusAffectsPricing: false
+      },
+      storedBookingPricesRsd,
+      pricingBreakdown
     });
   }
 
@@ -93,6 +138,29 @@ export class SubscriptionsService {
       throw new ForbiddenException("Admin privileges required");
     }
   }
+}
+
+function toPricingBreakdownRow(
+  row: Awaited<ReturnType<SubscriptionsRepository["listPricingBreakdown"]>>[number]
+): SubscriptionPricingBreakdownRow {
+  return {
+    bookingId: row.bookingId,
+    trainingId: row.trainingId,
+    date: row.date,
+    status: row.status,
+    priceSnapshotRsd: row.priceSnapshotRsd,
+    priceSnapshotSource: row.priceSnapshotSource,
+    pricingTierId: row.pricingTierId,
+    pricingTierLabel: row.pricingTierLabel,
+    pricingTierMinTrainings: row.pricingTierMinTrainings,
+    pricingTierMaxTrainings: row.pricingTierMaxTrainings,
+    bookingOrdinalInMonth: row.bookingOrdinalInMonth,
+    priceSnapshotAt: row.priceSnapshotAt
+  };
+}
+
+function isPricingCounted(status: SubscriptionPricingBreakdownRow["status"]): boolean {
+  return status === "booked" || status === "attended";
 }
 
 /** "all paid" → paid, "none paid" → unpaid, otherwise partial (over non-cancelled). */
@@ -106,4 +174,10 @@ function paymentStateOf(dateCount: number, paidCount: number): SubscriptionPayme
 function parseYearMonth(isoDate: string): [number, number] {
   const [year, month] = isoDate.split("-");
   return [Number(year), Number(month)];
+}
+
+function monthBounds(year: number, month: number): [string, string] {
+  const from = `${year}-${String(month).padStart(2, "0")}-01`;
+  const lastDay = new Date(Date.UTC(year, month, 0)).getUTCDate();
+  return [from, `${year}-${String(month).padStart(2, "0")}-${String(lastDay).padStart(2, "0")}`];
 }

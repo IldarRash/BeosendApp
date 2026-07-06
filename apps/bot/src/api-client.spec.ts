@@ -14,6 +14,17 @@ import { ApiClient } from "./api-client";
 const CLIENT_ID = "22222222-2222-2222-2222-222222222222";
 const TRAINING_ID = "11111111-1111-1111-1111-111111111111";
 
+const nullBookingPricingSnapshot = {
+  priceSnapshotRsd: null,
+  priceSnapshotSource: null,
+  pricingTierId: null,
+  pricingTierLabel: null,
+  pricingTierMinTrainings: null,
+  pricingTierMaxTrainings: null,
+  bookingOrdinalInMonth: null,
+  priceSnapshotAt: null
+};
+
 const booking: Booking = {
   id: "33333333-3333-3333-3333-333333333333",
   clientId: CLIENT_ID,
@@ -25,7 +36,8 @@ const booking: Booking = {
   source: "telegram",
   paymentStatus: "unpaid",
   paidAt: null,
-  paidBy: null
+  paidBy: null,
+  ...nullBookingPricingSnapshot
 };
 
 const card: SlotCard = {

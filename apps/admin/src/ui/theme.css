@@ -1475,6 +1475,35 @@ legend {
   color: var(--ink-700);
 }
 
+.court-picker {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(132px, 1fr));
+  gap: 8px;
+}
+
+.court-picker__tile {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  min-height: 38px;
+  padding: 8px 10px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--paper);
+  color: var(--ink-800);
+  font-size: 13px;
+}
+
+.court-picker__tile:has(input:checked) {
+  border-color: var(--teal);
+  background: var(--teal-soft);
+}
+
+.court-picker__tile:has(input:focus-visible) {
+  box-shadow: var(--focus-ring);
+}
+
 /* ── Status tag ────────────────────────────────────────────────────────── */
 
 .tag {
@@ -1525,6 +1554,12 @@ legend {
 
 .tag--info .dot {
   background: var(--ink-500);
+}
+
+.btn--compact {
+  min-height: 28px;
+  padding: 5px 9px;
+  font-size: 12px;
 }
 
 .tag--coral {
@@ -2022,6 +2057,56 @@ button.court-event:focus-visible {
   margin: 0;
   font-weight: 600;
   text-align: right;
+}
+
+.subscription-pricing {
+  display: grid;
+  gap: 4px;
+  min-width: 180px;
+  font-size: 12.5px;
+  color: var(--ink-700);
+}
+
+.subscription-pricing span:nth-child(2) {
+  color: var(--ink-500);
+  font-family: var(--font-mono);
+}
+
+.pricing-editor {
+  display: grid;
+  gap: 12px;
+  padding: 14px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--paper);
+  box-shadow: var(--shadow-sm);
+}
+
+.pricing-editor h2 {
+  margin: 0 0 4px;
+  font-size: 15px;
+}
+
+.pricing-editor p {
+  margin: 0;
+  color: var(--ink-600);
+  font-size: 13px;
+}
+
+.pricing-editor__rows {
+  display: grid;
+  gap: 8px;
+}
+
+.pricing-editor__row {
+  display: grid;
+  grid-template-columns: minmax(140px, 1.4fr) repeat(3, minmax(86px, 0.8fr)) auto;
+  align-items: end;
+  gap: 8px;
+}
+
+.pricing-editor__remove {
+  min-height: 38px;
 }
 
 /* ── View toggle (table | calendar) ────────────────────────────────────── */

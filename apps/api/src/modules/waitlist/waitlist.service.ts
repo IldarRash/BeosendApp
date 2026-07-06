@@ -5,7 +5,8 @@ import {
   Inject,
   Injectable,
   Logger,
-  NotFoundException
+  NotFoundException,
+  Optional
 } from "@nestjs/common";
 import type { Env } from "@beosand/config";
 import { isAdmin } from "@beosand/config";
@@ -21,6 +22,8 @@ import {
 import { ENV } from "../../config/config.module";
 import { ClientsRepository } from "../clients/clients.repository";
 import { NotificationsService } from "../notifications/notifications.service";
+import type { BookingPriceSnapshot } from "../training-pricing/training-pricing.repository";
+import { TrainingPricingService } from "../training-pricing/training-pricing.service";
 import {
   type TrainingLockRow,
   WaitlistRepository,
@@ -66,7 +69,8 @@ export class WaitlistService {
     private readonly waitlist: WaitlistRepository,
     private readonly clients: ClientsRepository,
     private readonly notifications: NotificationsService,
-    @Inject(ENV) private readonly env: Env
+    @Inject(ENV) private readonly env: Env,
+    @Optional() private readonly pricing?: TrainingPricingService
   ) {}
 
   /**
@@ -520,7 +524,7 @@ export class WaitlistService {
       throw new ConflictException("Client already booked this training");
     }
     const isSubscription = values.groupSubscriptionId !== null;
-    return this.waitlist.insertBooking(tx, {
+    const created = await this.waitlist.insertBooking(tx, {
       clientId: values.clientId,
       trainingId: values.trainingId,
       type: isSubscription ? "group" : "single",
@@ -528,6 +532,34 @@ export class WaitlistService {
       status: "booked",
       source: values.source
     });
+    if (isSubscription) {
+      const training = await this.waitlist.findTrainingForUpdate(tx, values.trainingId);
+      if (!training?.date) {
+        throw new ConflictException("Training date is required for pricing snapshot");
+      }
+      const snapshot = await this.assignRequiredSnapshotForAcceptedBooking(tx, {
+        id: created.id,
+        clientId: created.clientId,
+        date: training.date
+      });
+      return applySnapshot(created, snapshot);
+    }
+    return created;
+  }
+
+  private async assignRequiredSnapshotForAcceptedBooking(
+    tx: Database,
+    booking: { id: string; clientId: string; date: string }
+  ): Promise<BookingPriceSnapshot> {
+    if (!this.pricing) {
+      throw new ConflictException("Training pricing is not configured");
+    }
+    const snapshots = await this.pricing.assignSnapshotsForAcceptedBookings(tx, [booking]);
+    const snapshot = snapshots.get(booking.id);
+    if (snapshots.size !== 1 || !snapshot) {
+      throw new ConflictException("Pricing snapshot was not assigned for accepted booking");
+    }
+    return snapshot;
   }
 
   /** Authorize an admin-only write/read. Enforced here, never in the controller or bot. */
@@ -669,8 +701,30 @@ function toBooking(row: BookingRow): Booking {
     source: row.source,
     paymentStatus: row.paymentStatus,
     paidAt: row.paidAt?.toISOString() ?? null,
-    paidBy: row.paidBy ?? null
+    paidBy: row.paidBy ?? null,
+    priceSnapshotRsd: row.priceSnapshotRsd ?? null,
+    priceSnapshotSource: row.priceSnapshotSource ?? null,
+    pricingTierId: row.pricingTierId ?? null,
+    pricingTierLabel: row.pricingTierLabel ?? null,
+    pricingTierMinTrainings: row.pricingTierMinTrainings ?? null,
+    pricingTierMaxTrainings: row.pricingTierMaxTrainings ?? null,
+    bookingOrdinalInMonth: row.bookingOrdinalInMonth ?? null,
+    priceSnapshotAt: row.priceSnapshotAt?.toISOString() ?? null
   });
+}
+
+function applySnapshot(row: BookingRow, snapshot: BookingPriceSnapshot): BookingRow {
+  return {
+    ...row,
+    priceSnapshotRsd: snapshot.priceSnapshotRsd,
+    priceSnapshotSource: snapshot.priceSnapshotSource,
+    pricingTierId: snapshot.pricingTierId,
+    pricingTierLabel: snapshot.pricingTierLabel,
+    pricingTierMinTrainings: snapshot.pricingTierMinTrainings,
+    pricingTierMaxTrainings: snapshot.pricingTierMaxTrainings,
+    bookingOrdinalInMonth: snapshot.bookingOrdinalInMonth,
+    priceSnapshotAt: snapshot.priceSnapshotAt
+  };
 }
 
 /**

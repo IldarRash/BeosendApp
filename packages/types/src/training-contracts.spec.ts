@@ -40,9 +40,11 @@ import {
   markAttendanceSchema,
   myBookingItemSchema,
   myBookingsQuerySchema,
+  replaceTrainingPricingTiersSchema,
   rosterParticipantSchema,
   trainerTodayItemSchema,
   trainerTodayQuerySchema,
+  trainingPricingTierSchema,
   trainingRosterSchema,
   trainingScheduleSlotSchema,
   updateGroupSchema,
@@ -62,6 +64,17 @@ const valid = {
   capacity: 12,
   priceSingleRsd: 1500,
   priceMonthRsd: 10000
+};
+
+const nullBookingPricingSnapshot = {
+  priceSnapshotRsd: null,
+  priceSnapshotSource: null,
+  pricingTierId: null,
+  pricingTierLabel: null,
+  pricingTierMinTrainings: null,
+  pricingTierMaxTrainings: null,
+  bookingOrdinalInMonth: null,
+  priceSnapshotAt: null
 };
 
 describe("changeCapacitySchema", () => {
@@ -281,7 +294,8 @@ describe("individualTrainingRequestSchema / individualRequestDecisionResultSchem
     source: "telegram",
     paymentStatus: "unpaid",
     paidAt: null,
-    paidBy: null
+    paidBy: null,
+    ...nullBookingPricingSnapshot
   };
 
   it("round-trips a pending durable request", () => {
@@ -830,7 +844,8 @@ describe("singleBookingResultSchema", () => {
     source: "telegram",
     paymentStatus: "unpaid",
     paidAt: null,
-    paidBy: null
+    paidBy: null,
+    ...nullBookingPricingSnapshot
   };
 
   const waitlistEntry = {
@@ -923,7 +938,8 @@ describe("groupBookingResultSchema", () => {
     source: "telegram",
     paymentStatus: "unpaid",
     paidAt: null,
-    paidBy: null
+    paidBy: null,
+    ...nullBookingPricingSnapshot
   };
 
   it("accepts a result with created bookings and skipped dates", () => {
@@ -1070,6 +1086,110 @@ describe("trainingScheduleSlotSchema", () => {
   });
 });
 
+describe("training pricing tier contracts", () => {
+  const defaultTiers = [
+    { label: "1-3 trainings", minTrainings: 1, maxTrainings: 3, pricePerTrainingRsd: 1500, sortOrder: 0 },
+    { label: "4-7 trainings", minTrainings: 4, maxTrainings: 7, pricePerTrainingRsd: 1400, sortOrder: 1 },
+    { label: "8-11 trainings", minTrainings: 8, maxTrainings: 11, pricePerTrainingRsd: 1300, sortOrder: 2 },
+    { label: "12+ trainings", minTrainings: 12, maxTrainings: null, pricePerTrainingRsd: 1200, sortOrder: 3 }
+  ];
+
+  it("accepts an active tier entity with timestamps", () => {
+    expect(
+      trainingPricingTierSchema.safeParse({
+        id: "11111111-1111-4111-8111-111111111111",
+        ...defaultTiers[0],
+        status: "active",
+        createdAt: "2099-06-08T18:00:00.000Z",
+        updatedAt: "2099-06-08T18:00:00.000Z"
+      }).success
+    ).toBe(true);
+  });
+
+  it("accepts the default replacement tier set", () => {
+    expect(replaceTrainingPricingTiersSchema.safeParse({ tiers: defaultTiers }).success).toBe(true);
+  });
+
+  it("rejects gaps, overlaps, missing open tier, and open tier before the final row", () => {
+    expect(
+      replaceTrainingPricingTiersSchema.safeParse({
+        tiers: [
+          { ...defaultTiers[0], maxTrainings: 2 },
+          defaultTiers[1],
+          defaultTiers[2],
+          defaultTiers[3]
+        ]
+      }).success
+    ).toBe(false);
+    expect(
+      replaceTrainingPricingTiersSchema.safeParse({
+        tiers: [
+          defaultTiers[0],
+          { ...defaultTiers[1], minTrainings: 3 },
+          defaultTiers[2],
+          defaultTiers[3]
+        ]
+      }).success
+    ).toBe(false);
+    expect(
+      replaceTrainingPricingTiersSchema.safeParse({
+        tiers: defaultTiers.map((tier) => ({ ...tier, maxTrainings: tier.maxTrainings ?? 20 }))
+      }).success
+    ).toBe(false);
+    expect(
+      replaceTrainingPricingTiersSchema.safeParse({
+        tiers: [
+          { ...defaultTiers[0], maxTrainings: null },
+          { ...defaultTiers[1], minTrainings: 4 },
+          defaultTiers[2],
+          defaultTiers[3]
+        ]
+      }).success
+    ).toBe(false);
+  });
+
+  it("rejects invalid prices, ranges, and unknown fields", () => {
+    expect(
+      replaceTrainingPricingTiersSchema.safeParse({
+        tiers: [{ ...defaultTiers[0], pricePerTrainingRsd: 0 }]
+      }).success
+    ).toBe(false);
+    expect(
+      replaceTrainingPricingTiersSchema.safeParse({
+        tiers: [{ ...defaultTiers[0], maxTrainings: 0 }]
+      }).success
+    ).toBe(false);
+    expect(
+      replaceTrainingPricingTiersSchema.safeParse({
+        tiers: [{ ...defaultTiers[0], id: "11111111-1111-4111-8111-111111111111" }]
+      }).success
+    ).toBe(false);
+    expect(
+      replaceTrainingPricingTiersSchema.safeParse({
+        tiers: [{ ...defaultTiers[0], minTrainings: 1.5 }]
+      }).success
+    ).toBe(false);
+    expect(
+      replaceTrainingPricingTiersSchema.safeParse({
+        tiers: [{ ...defaultTiers[0], maxTrainings: 2, pricePerTrainingRsd: 1500.5 }]
+      }).success
+    ).toBe(false);
+    expect(
+      replaceTrainingPricingTiersSchema.safeParse({
+        tiers: [{ ...defaultTiers[0], minTrainings: 2, maxTrainings: null }]
+      }).success
+    ).toBe(false);
+    expect(
+      replaceTrainingPricingTiersSchema.safeParse({
+        tiers: [
+          { ...defaultTiers[0], maxTrainings: null },
+          { ...defaultTiers[1], maxTrainings: null }
+        ]
+      }).success
+    ).toBe(false);
+  });
+});
+
 describe("myBookingItemSchema", () => {
   const validItem = {
     bookingId: "11111111-1111-1111-1111-111111111111",
@@ -1150,7 +1270,8 @@ describe("bookingStatus (trainer-confirmation)", () => {
       source: "telegram",
       paymentStatus: "unpaid",
       paidAt: null,
-      paidBy: null
+      paidBy: null,
+      ...nullBookingPricingSnapshot
     };
     expect(bookingSchema.safeParse(pendingBooking).success).toBe(true);
   });
@@ -1454,7 +1575,15 @@ describe("bookingSchema (subscription payment fields)", () => {
     source: "telegram",
     paymentStatus: "paid",
     paidAt: "2099-06-09T10:00:00.000Z",
-    paidBy: 4242
+    paidBy: 4242,
+    priceSnapshotRsd: 1400,
+    priceSnapshotSource: "training_pricing_tier",
+    pricingTierId: "55555555-5555-4555-8555-555555555555",
+    pricingTierLabel: "4-7 trainings",
+    pricingTierMinTrainings: 4,
+    pricingTierMaxTrainings: 7,
+    bookingOrdinalInMonth: 4,
+    priceSnapshotAt: "2099-06-08T18:00:00.000Z"
   };
 
   it("accepts a paid booking carrying paidAt + paidBy", () => {
@@ -1483,6 +1612,21 @@ describe("bookingSchema (subscription payment fields)", () => {
     expect(bookingSchema.safeParse({ ...paidBooking, paidBy: 4242.5 }).success).toBe(false);
   });
 
+  it("rejects malformed pricing snapshot fields", () => {
+    expect(bookingSchema.safeParse({ ...paidBooking, priceSnapshotRsd: 1400.5 }).success).toBe(
+      false
+    );
+    expect(bookingSchema.safeParse({ ...paidBooking, priceSnapshotSource: "current-tier" }).success).toBe(
+      false
+    );
+    expect(bookingSchema.safeParse({ ...paidBooking, bookingOrdinalInMonth: 0 }).success).toBe(
+      false
+    );
+    expect(bookingSchema.safeParse({ ...paidBooking, priceSnapshotAt: "2099-06-09" }).success).toBe(
+      false
+    );
+  });
+
   it("rejects a booking missing the payment fields entirely", () => {
     const { paymentStatus: _ps, paidAt: _pa, paidBy: _pb, ...withoutPayment } = paidBooking;
     expect(bookingSchema.safeParse(withoutPayment).success).toBe(false);
@@ -1502,7 +1646,49 @@ describe("subscriptionSummarySchema (admin payments view)", () => {
     paidCount: 3,
     waitlistedCount: 2,
     totalRsd: 12000,
-    paymentState: "partial"
+    paymentState: "partial",
+    pricingScope: "client_calendar_month_all_groups",
+    monthlyPricingCountContext: {
+      clientId: "22222222-2222-2222-2222-222222222222",
+      year: 2026,
+      month: 6,
+      pricingCountedBookingCount: 8,
+      excludedBookingCount: 2,
+      countedStatuses: ["booked", "attended"],
+      excludedStatuses: ["cancelled", "no_show", "waitlist", "pending"],
+      paymentStatusAffectsPricing: false
+    },
+    storedBookingPricesRsd: [1500, 1500, 1500, 1400, 1400, 1400, 1400, 1300],
+    pricingBreakdown: [
+      {
+        bookingId: "44444444-4444-4444-8444-444444444444",
+        trainingId: "55555555-5555-4555-8555-555555555555",
+        date: "2026-06-08",
+        status: "booked",
+        priceSnapshotRsd: 1400,
+        priceSnapshotSource: "training_pricing_tier",
+        pricingTierId: "66666666-6666-4666-8666-666666666666",
+        pricingTierLabel: "4-7 trainings",
+        pricingTierMinTrainings: 4,
+        pricingTierMaxTrainings: 7,
+        bookingOrdinalInMonth: 4,
+        priceSnapshotAt: "2026-06-08T18:00:00.000Z"
+      },
+      {
+        bookingId: "77777777-7777-4777-8777-777777777777",
+        trainingId: "88888888-8888-4888-8888-888888888888",
+        date: "2026-06-10",
+        status: "waitlist",
+        priceSnapshotRsd: null,
+        priceSnapshotSource: null,
+        pricingTierId: null,
+        pricingTierLabel: null,
+        pricingTierMinTrainings: null,
+        pricingTierMaxTrainings: null,
+        bookingOrdinalInMonth: null,
+        priceSnapshotAt: null
+      }
+    ]
   };
 
   it("round-trips a structurally valid summary", () => {
@@ -1526,6 +1712,42 @@ describe("subscriptionSummarySchema (admin payments view)", () => {
     expect(subscriptionSummarySchema.safeParse({ ...summary, paymentState: "overdue" }).success).toBe(
       false
     );
+  });
+
+  it("rejects an unknown pricing scope or payment-status pricing dependency", () => {
+    expect(subscriptionSummarySchema.safeParse({ ...summary, pricingScope: "group_month" }).success).toBe(
+      false
+    );
+    expect(
+      subscriptionSummarySchema.safeParse({
+        ...summary,
+        monthlyPricingCountContext: {
+          ...summary.monthlyPricingCountContext,
+          paymentStatusAffectsPricing: true
+        }
+      }).success
+    ).toBe(false);
+  });
+
+  it("rejects pending or waitlist as pricing-counted statuses", () => {
+    expect(
+      subscriptionSummarySchema.safeParse({
+        ...summary,
+        monthlyPricingCountContext: {
+          ...summary.monthlyPricingCountContext,
+          countedStatuses: ["booked", "pending"]
+        }
+      }).success
+    ).toBe(false);
+    expect(
+      subscriptionSummarySchema.safeParse({
+        ...summary,
+        monthlyPricingCountContext: {
+          ...summary.monthlyPricingCountContext,
+          countedStatuses: ["booked", "waitlist"]
+        }
+      }).success
+    ).toBe(false);
   });
 
   it("rejects a fractional/negative count or out-of-range month", () => {

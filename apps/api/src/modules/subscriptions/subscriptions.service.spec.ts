@@ -1,6 +1,7 @@
-import { ForbiddenException, NotFoundException } from "@nestjs/common";
+import { ConflictException, ForbiddenException, NotFoundException } from "@nestjs/common";
 import type { Env } from "@beosand/config";
 import type { Database } from "@beosand/db";
+import type { BookingStatus, PriceSnapshotSource } from "@beosand/types";
 import { beforeEach, describe, expect, it } from "vitest";
 import { SubscriptionsService } from "./subscriptions.service";
 import type { SubscriptionAggregateRow, SubscriptionsRepository } from "./subscriptions.repository";
@@ -16,17 +17,27 @@ const env = { ADMIN_TELEGRAM_IDS: [String(ADMIN_ID)] } as unknown as Env;
 
 /** One non-cancelled booking belonging to a subscription, for the fake to aggregate. */
 interface FakeBooking {
+  id: string;
   groupSubscriptionId: string;
   clientId: string;
   clientName: string;
   groupId: string | null;
   groupName: string | null;
   priceMonthRsd: number | null;
+  trainingId: string;
   date: string;
-  status: "booked" | "cancelled" | "attended";
+  status: BookingStatus;
   paymentStatus: "paid" | "unpaid";
   paidAt: Date | null;
   paidBy: number | null;
+  priceSnapshotRsd: number | null;
+  priceSnapshotSource: PriceSnapshotSource | null;
+  pricingTierId: string | null;
+  pricingTierLabel: string | null;
+  pricingTierMinTrainings: number | null;
+  pricingTierMaxTrainings: number | null;
+  bookingOrdinalInMonth: number | null;
+  priceSnapshotAt: string | null;
 }
 
 /**
@@ -96,21 +107,85 @@ class FakeSubscriptionsRepository {
     }
     return targets.length;
   }
+
+  async listPricingBreakdown(groupSubscriptionId: string): Promise<
+    Array<{
+      bookingId: string;
+      trainingId: string;
+      date: string;
+      status: BookingStatus;
+      priceSnapshotRsd: number | null;
+      priceSnapshotSource: PriceSnapshotSource | null;
+      pricingTierId: string | null;
+      pricingTierLabel: string | null;
+      pricingTierMinTrainings: number | null;
+      pricingTierMaxTrainings: number | null;
+      bookingOrdinalInMonth: number | null;
+      priceSnapshotAt: string | null;
+    }>
+  > {
+    return this.bookings
+      .filter((b) => b.groupSubscriptionId === groupSubscriptionId)
+      .sort((a, b) => a.date.localeCompare(b.date) || a.id.localeCompare(b.id))
+      .map((b) => ({
+        bookingId: b.id,
+        trainingId: b.trainingId,
+        date: b.date,
+        status: b.status,
+        priceSnapshotRsd: b.priceSnapshotRsd,
+        priceSnapshotSource: b.priceSnapshotSource,
+        pricingTierId: b.pricingTierId,
+        pricingTierLabel: b.pricingTierLabel,
+        pricingTierMinTrainings: b.pricingTierMinTrainings,
+        pricingTierMaxTrainings: b.pricingTierMaxTrainings,
+        bookingOrdinalInMonth: b.bookingOrdinalInMonth,
+        priceSnapshotAt: b.priceSnapshotAt
+      }));
+  }
+
+  async monthlyPricingCounts(
+    clientId: string,
+    from: string,
+    to: string
+  ): Promise<{ pricingCountedBookingCount: number; excludedBookingCount: number }> {
+    const monthRows = this.bookings.filter(
+      (b) => b.clientId === clientId && b.groupId !== null && b.date >= from && b.date <= to
+    );
+    return {
+      pricingCountedBookingCount: monthRows.filter(
+        (b) => b.status === "booked" || b.status === "attended"
+      ).length,
+      excludedBookingCount: monthRows.filter((b) =>
+        ["cancelled", "no_show", "waitlist", "pending"].includes(b.status)
+      ).length
+    };
+  }
 }
 
 function makeBooking(overrides: Partial<FakeBooking> = {}): FakeBooking {
+  const day = (overrides.date ?? "2026-06-03").slice(-2);
   return {
+    id: `44444444-4444-4444-8444-0000000000${day}`,
     groupSubscriptionId: SUB_ID,
     clientId: CLIENT_ID,
     clientName: "Ана",
     groupId: GROUP_ID,
     groupName: "Утренняя",
     priceMonthRsd: 10000,
+    trainingId: `66666666-6666-4666-8666-0000000000${day}`,
     date: "2026-06-03",
     status: "booked",
     paymentStatus: "unpaid",
     paidAt: null,
     paidBy: null,
+    priceSnapshotRsd: 1500,
+    priceSnapshotSource: "training_pricing_tier",
+    pricingTierId: "77777777-7777-4777-8777-777777777777",
+    pricingTierLabel: "1-3 trainings",
+    pricingTierMinTrainings: 1,
+    pricingTierMaxTrainings: 3,
+    bookingOrdinalInMonth: 1,
+    priceSnapshotAt: "2026-06-01T12:00:00.000Z",
     ...overrides
   };
 }
@@ -177,22 +252,54 @@ describe("SubscriptionsService.list — payment-state derivation", () => {
     expect(summary.month).toBe(6);
   });
 
-  it("sources totalRsd from the group's priceMonthRsd (server-side), never summed", async () => {
+  it("sums stored booking snapshots, not groups.priceMonthRsd", async () => {
     repo.bookings = [
-      makeBooking({ priceMonthRsd: 14000 }),
-      makeBooking({ date: "2026-06-10", priceMonthRsd: 14000 })
+      makeBooking({ priceMonthRsd: 14000, priceSnapshotRsd: 1500 }),
+      makeBooking({ date: "2026-06-10", priceMonthRsd: 14000, priceSnapshotRsd: 1400 })
     ];
     const [summary] = await service.list(ADMIN_ID, {});
-    // Two bookings but the total is the month price, not a per-booking sum.
-    expect(summary.totalRsd).toBe(14000);
+    expect(summary.totalRsd).toBe(2900);
+    expect(summary.storedBookingPricesRsd).toEqual([1500, 1400]);
   });
 
-  it("falls back to totalRsd 0 when the subscription's group is gone", async () => {
+  it("keeps using stored snapshots when the subscription's group is gone", async () => {
     repo.bookings = [makeBooking({ groupId: null, groupName: null, priceMonthRsd: null })];
     const [summary] = await service.list(ADMIN_ID, {});
-    expect(summary.totalRsd).toBe(0);
+    expect(summary.totalRsd).toBe(1500);
     expect(summary.groupId).toBeNull();
   });
+
+  it("counts and sums only booked/attended rows even if excluded statuses carry old snapshots", async () => {
+    repo.bookings = [
+      makeBooking({ id: "44444444-4444-4444-8444-000000000001", date: "2026-06-01", status: "booked", priceSnapshotRsd: 1500 }),
+      makeBooking({ id: "44444444-4444-4444-8444-000000000002", date: "2026-06-02", status: "attended", priceSnapshotRsd: 1400 }),
+      makeBooking({ id: "44444444-4444-4444-8444-000000000003", date: "2026-06-03", status: "cancelled", priceSnapshotRsd: 9999 }),
+      makeBooking({ id: "44444444-4444-4444-8444-000000000004", date: "2026-06-04", status: "no_show", priceSnapshotRsd: 9999 }),
+      makeBooking({ id: "44444444-4444-4444-8444-000000000005", date: "2026-06-05", status: "waitlist", priceSnapshotRsd: 9999 }),
+      makeBooking({ id: "44444444-4444-4444-8444-000000000006", date: "2026-06-06", status: "pending", priceSnapshotRsd: 9999 })
+    ];
+
+    const [summary] = await service.list(ADMIN_ID, {});
+
+    expect(summary.totalRsd).toBe(2900);
+    expect(summary.storedBookingPricesRsd).toEqual([1500, 1400]);
+    expect(summary.monthlyPricingCountContext).toMatchObject({
+      pricingCountedBookingCount: 2,
+      excludedBookingCount: 4,
+      countedStatuses: ["booked", "attended"],
+      excludedStatuses: ["cancelled", "no_show", "waitlist", "pending"],
+      paymentStatusAffectsPricing: false
+    });
+  });
+
+  it.each(["booked", "attended"] as const)(
+    "rejects a %s subscription row missing its pricing snapshot",
+    async (status) => {
+      repo.bookings = [makeBooking({ status, priceSnapshotRsd: null })];
+
+      await expect(service.list(ADMIN_ID, {})).rejects.toBeInstanceOf(ConflictException);
+    }
+  );
 
   it("applies the paymentState filter in the service", async () => {
     repo.bookings = [
@@ -248,6 +355,36 @@ describe("SubscriptionsService.setPaid", () => {
     expect(summary.paymentState).toBe("unpaid");
     expect(repo.bookings[0].paidAt).toBeNull();
     expect(repo.bookings[0].paidBy).toBeNull();
+  });
+
+  it("does not change stored pricing snapshots, totals, or ordinals when paymentStatus changes", async () => {
+    repo.bookings = [
+      makeBooking({
+        date: "2026-06-03",
+        paymentStatus: "unpaid",
+        priceSnapshotRsd: 1500,
+        bookingOrdinalInMonth: 3
+      }),
+      makeBooking({
+        date: "2026-06-10",
+        paymentStatus: "unpaid",
+        priceSnapshotRsd: 1400,
+        pricingTierLabel: "4-7 trainings",
+        pricingTierMinTrainings: 4,
+        pricingTierMaxTrainings: 7,
+        bookingOrdinalInMonth: 4
+      })
+    ];
+
+    const paid = await service.setPaid(ADMIN_ID, SUB_ID, true);
+    const unpaid = await service.setPaid(ADMIN_ID, SUB_ID, false);
+
+    expect(paid.totalRsd).toBe(2900);
+    expect(unpaid.totalRsd).toBe(2900);
+    expect(paid.storedBookingPricesRsd).toEqual([1500, 1400]);
+    expect(unpaid.storedBookingPricesRsd).toEqual([1500, 1400]);
+    expect(unpaid.pricingBreakdown.map((row) => row.bookingOrdinalInMonth)).toEqual([3, 4]);
+    expect(unpaid.monthlyPricingCountContext.paymentStatusAffectsPricing).toBe(false);
   });
 
   it("a fresh unpaid booking added after a paid batch makes the subscription 'partial'", async () => {

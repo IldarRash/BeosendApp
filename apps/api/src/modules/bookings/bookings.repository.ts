@@ -27,11 +27,14 @@ export interface ClientVisibleTrainingLockRow extends TrainingLockRow {
   date: string;
 }
 
-/** A booking row locked FOR UPDATE, carrying just what the cancel write needs. */
+/** A booking row locked FOR UPDATE, carrying decision and pricing-snapshot inputs. */
 export interface BookingLockRow {
   id: string;
   clientId: string;
   trainingId: string;
+  groupSubscriptionId: string | null;
+  trainingDate: string;
+  trainingGroupId: string | null;
   status: BookingStatus;
 }
 
@@ -65,6 +68,7 @@ export interface SubscriptionRow {
   id: string;
   clientId: string;
   trainingId: string;
+  date?: string;
   trainerId: string;
   status: BookingStatus;
 }
@@ -455,9 +459,8 @@ export class BookingsRepository {
   }
 
   /**
-   * The booking row selected FOR UPDATE so the cancel write and the training's
-   * capacity/status recompute happen against a row no concurrent cancel can also
-   * be mutating. Caller must hold a tx. Returns only the fields the cancel needs.
+   * The booking row selected FOR UPDATE so status writes and related pricing
+   * decisions happen against a row no concurrent decision can also mutate.
    */
   async findBookingForUpdate(
     tx: Database,
@@ -468,12 +471,16 @@ export class BookingsRepository {
         id: tables.bookings.id,
         clientId: tables.bookings.clientId,
         trainingId: tables.bookings.trainingId,
+        groupSubscriptionId: tables.bookings.groupSubscriptionId,
+        trainingDate: tables.trainings.date,
+        trainingGroupId: tables.trainings.groupId,
         status: tables.bookings.status
       })
       .from(tables.bookings)
+      .innerJoin(tables.trainings, eq(tables.bookings.trainingId, tables.trainings.id))
       .where(eq(tables.bookings.id, bookingId))
       .limit(1)
-      .for("update");
+      .for("update", { of: tables.bookings });
     return row;
   }
 
@@ -532,6 +539,7 @@ export class BookingsRepository {
         id: tables.bookings.id,
         clientId: tables.bookings.clientId,
         trainingId: tables.bookings.trainingId,
+        date: tables.trainings.date,
         trainerId: tables.trainings.trainerId,
         status: tables.bookings.status
       })
@@ -645,7 +653,15 @@ function toBooking(row: BookingRow): Booking {
     source: bookingSourceOf(row.source),
     paymentStatus: row.paymentStatus,
     paidAt: row.paidAt?.toISOString() ?? null,
-    paidBy: row.paidBy ?? null
+    paidBy: row.paidBy ?? null,
+    priceSnapshotRsd: row.priceSnapshotRsd ?? null,
+    priceSnapshotSource: row.priceSnapshotSource ?? null,
+    pricingTierId: row.pricingTierId ?? null,
+    pricingTierLabel: row.pricingTierLabel ?? null,
+    pricingTierMinTrainings: row.pricingTierMinTrainings ?? null,
+    pricingTierMaxTrainings: row.pricingTierMaxTrainings ?? null,
+    bookingOrdinalInMonth: row.bookingOrdinalInMonth ?? null,
+    priceSnapshotAt: row.priceSnapshotAt?.toISOString() ?? null
   };
 }
 

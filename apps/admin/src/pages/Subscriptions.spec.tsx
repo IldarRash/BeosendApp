@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { cleanup, fireEvent, render, screen } from "@testing-library/react";
+import { cleanup, fireEvent, render, screen, within } from "@testing-library/react";
 import type { SubscriptionSummary } from "@beosand/types";
 import { MemoryRouter } from "react-router-dom";
 
@@ -19,9 +19,13 @@ vi.mock("../i18n/LanguageProvider", async () => import("../i18n/test-utils"));
 const useSubscriptions = vi.fn();
 const markMutate = vi.fn();
 const useMarkSubscriptionPaid = vi.fn();
+const useTrainingPricingTiers = vi.fn();
+const useReplaceTrainingPricingTiers = vi.fn();
 vi.mock("../hooks/useSubscriptions", () => ({
   useSubscriptions: (filters: unknown) => useSubscriptions(filters),
-  useMarkSubscriptionPaid: () => useMarkSubscriptionPaid()
+  useMarkSubscriptionPaid: () => useMarkSubscriptionPaid(),
+  useTrainingPricingTiers: () => useTrainingPricingTiers(),
+  useReplaceTrainingPricingTiers: () => useReplaceTrainingPricingTiers()
 }));
 
 import { Subscriptions } from "./Subscriptions";
@@ -46,7 +50,32 @@ const partial: SubscriptionSummary = {
   paidCount: 3,
   waitlistedCount: 0,
   totalRsd: 12000,
-  paymentState: "partial"
+  paymentState: "partial",
+  pricingScope: "client_calendar_month_all_groups",
+  monthlyPricingCountContext: {
+    clientId: "22222222-2222-2222-2222-222222222222",
+    year: 2026,
+    month: 6,
+    pricingCountedBookingCount: 8,
+    excludedBookingCount: 0,
+    countedStatuses: ["booked", "attended"],
+    excludedStatuses: ["cancelled", "no_show", "waitlist", "pending"],
+    paymentStatusAffectsPricing: false
+  },
+  storedBookingPricesRsd: [1500, 1500, 1500, 1400, 1400, 1400, 1400, 1300],
+  pricingBreakdown: []
+};
+
+const tier = {
+  id: "77777777-7777-4777-8777-777777777777",
+  label: "4-7 trainings",
+  minTrainings: 4,
+  maxTrainings: 7,
+  pricePerTrainingRsd: 1400,
+  sortOrder: 1,
+  status: "active" as const,
+  createdAt: "2026-06-01T00:00:00.000Z",
+  updatedAt: "2026-06-01T00:00:00.000Z"
 };
 
 const listQuery = (data: SubscriptionSummary[]) => ({
@@ -62,6 +91,10 @@ beforeEach(() => {
   useSubscriptions.mockReset();
   useSubscriptions.mockReturnValue(listQuery([]));
   useMarkSubscriptionPaid.mockReturnValue({ mutate: markMutate, isPending: false, error: null });
+  useTrainingPricingTiers.mockReset();
+  useTrainingPricingTiers.mockReturnValue({ isPending: false, isError: false, error: null, data: [] });
+  useReplaceTrainingPricingTiers.mockReset();
+  useReplaceTrainingPricingTiers.mockReturnValue({ mutate: vi.fn(), isPending: false, error: null });
 });
 
 afterEach(cleanup);
@@ -162,5 +195,95 @@ describe("Subscriptions page", () => {
       id: paid.groupSubscriptionId,
       paid: false
     });
+  });
+
+  it("renders the pricing tier editor and submits the typed replacement payload", () => {
+    const saveMutate = vi.fn();
+    useTrainingPricingTiers.mockReturnValue({
+      isPending: false,
+      isError: false,
+      error: null,
+      data: [tier]
+    });
+    useReplaceTrainingPricingTiers.mockReturnValue({
+      mutate: saveMutate,
+      isPending: false,
+      error: null
+    });
+    renderPage();
+
+    expect(screen.getByText("Цены по количеству тренировок")).toBeTruthy();
+    fireEvent.change(screen.getByLabelText("RSD/трен."), {
+      target: { value: "1350" }
+    });
+    fireEvent.click(screen.getByRole("button", { name: "Сохранить" }));
+
+    expect(saveMutate).toHaveBeenCalledWith(
+      {
+        tiers: [
+          {
+            label: "4-7 trainings",
+            minTrainings: 4,
+            maxTrainings: 7,
+            pricePerTrainingRsd: 1350,
+            sortOrder: 0
+          }
+        ]
+      },
+      expect.objectContaining({ onSuccess: expect.any(Function), onError: expect.any(Function) })
+    );
+  });
+
+  it("shows API validation errors from the pricing tier replacement", () => {
+    const saveMutate = vi.fn((_input, opts) => opts?.onError?.(new Error("tiers must be contiguous")));
+    useTrainingPricingTiers.mockReturnValue({
+      isPending: false,
+      isError: false,
+      error: null,
+      data: [tier]
+    });
+    useReplaceTrainingPricingTiers.mockReturnValue({
+      mutate: saveMutate,
+      isPending: false,
+      error: null
+    });
+    renderPage();
+
+    fireEvent.click(screen.getByRole("button", { name: "Сохранить" }));
+
+    expect(screen.getByRole("alert").textContent).toContain("tiers must be contiguous");
+  });
+
+  it("renders stored price snapshots and the detailed pricing breakdown", () => {
+    const withBreakdown: SubscriptionSummary = {
+      ...partial,
+      pricingBreakdown: [
+        {
+          bookingId: "44444444-4444-4444-8444-444444444444",
+          trainingId: "55555555-5555-4555-8555-555555555555",
+          date: "2026-06-08",
+          status: "booked",
+          priceSnapshotRsd: 1400,
+          priceSnapshotSource: "training_pricing_tier",
+          pricingTierId: "66666666-6666-4666-8666-666666666666",
+          pricingTierLabel: "4-7 trainings",
+          pricingTierMinTrainings: 4,
+          pricingTierMaxTrainings: 7,
+          bookingOrdinalInMonth: 4,
+          priceSnapshotAt: "2026-06-08T18:00:00.000Z"
+        }
+      ]
+    };
+    useSubscriptions.mockReturnValue(listQuery([withBreakdown]));
+    renderPage();
+
+    expect(screen.getByText("Считается: 8, исключено: 0")).toBeTruthy();
+    expect(screen.getByText(/1\s500 RSD, 1\s500 RSD, 1\s500 RSD, 1\s400 RSD/)).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: "Разбор" }));
+
+    const dialog = screen.getByRole("dialog", { name: "Разбор цены" });
+    expect(within(dialog).getByText("4-7 trainings (4-7)")).toBeTruthy();
+    expect(within(dialog).getAllByText(/1\s400 RSD/).length).toBeGreaterThanOrEqual(1);
+    expect(within(dialog).getByText("Оплата влияет только на учёт долга, не на ценовой счётчик.")).toBeTruthy();
   });
 });
