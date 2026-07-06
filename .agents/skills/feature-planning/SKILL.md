@@ -13,16 +13,16 @@ Produce a brief precise enough that backend/bot/test work can proceed without fu
    relevant `docs/architecture/*`.
 2. Identify the **smallest correct slice** that delivers user value end to end.
 3. Write/replace `docs/product/features/<slug>.md` with:
-   - **Goal** — one or two sentences.
-   - **Spec refs** — which sections of the ТЗ/UX it implements.
-   - **Contracts & tables** — schemas in `packages/types` and tables in `packages/db` touched.
-   - **API** — endpoints (method, path, request/response contract).
-   - **Bot flow** — screens, buttons, the 2–3 tap path.
-   - **Invariants** — which product invariants apply and how they're enforced.
-   - **Acceptance criteria** — observable, testable bullet points.
-   - **Tests** — the cases to cover (incl. the unsafe/forbidden path).
-   - **Dependencies** — other features that must land first.
-   - **Open questions** — each with a chosen default.
+   - **Goal** - one or two sentences.
+   - **Spec refs** - which product/UX sections it implements.
+   - **Contracts & tables** - schemas in `packages/types` and tables in `packages/db` touched.
+   - **API** - endpoints (method, path, request/response contract).
+   - **Bot flow** - screens, buttons, the 2-3 tap path.
+   - **Invariants** - which product invariants apply and how they're enforced.
+   - **Acceptance criteria** - observable, testable bullet points.
+   - **Tests** - the cases to cover, including the unsafe/forbidden path.
+   - **Dependencies** - other features that must land first.
+   - **Open questions** - each with a chosen default.
 4. Resolve open questions with the user when they change the design; otherwise pick a sensible default
    and record it.
 

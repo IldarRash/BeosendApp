@@ -4,9 +4,13 @@ This repository inherits the global Codex multi-agent workflow from
 `C:\Users\ilsac\.codex\AGENTS.md`. Keep this file focused on BeoSand-specific conventions and
 overrides.
 
-BeoSand ships its Codex operating layer under `.codex/`. Older mirrors may still exist, but Codex
-should prefer `.codex/agents`, `.codex/skills`, and `.codex/rules` whenever multiple versions are
-present.
+BeoSand follows the current Codex layout:
+
+- repo-scoped skills live in `.agents/skills`;
+- project subagents live in `.codex/agents`;
+- project rules and configuration live in `.codex/rules` and `.codex/config.toml`.
+
+Do not keep duplicate skills under `.codex/skills`; `.agents/skills` is the canonical location.
 
 ## Project roles
 
