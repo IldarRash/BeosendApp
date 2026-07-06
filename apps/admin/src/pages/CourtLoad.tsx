@@ -38,6 +38,7 @@ interface TrainingTarget {
   trainingId: string;
   blockId: string | null;
   courtId: string;
+  reason: string | null;
 }
 
 interface MoveTarget {
@@ -59,6 +60,7 @@ interface TimelineEvent {
   requestId: string | null;
   trainingId: string | null;
   blockId: string | null;
+  reason: string | null;
 }
 
 type Translate = (key: string, params?: Record<string, string | number>) => string;
@@ -185,7 +187,8 @@ function buildEvents(row: CourtLoadRow): TimelineEvent[] {
       endTime: nextSlotEnd(row.cells, index),
       requestId: cell.requestId,
       trainingId: cell.trainingId,
-      blockId: cell.blockId
+      blockId: cell.blockId,
+      reason: cell.reason
     };
     events.push(current);
   });
@@ -521,6 +524,11 @@ function CourtEventCard({
     end: event.endTime,
     state: cellStateLabel(event.state, t)
   });
+  const reasonText = event.reason?.trim() ? event.reason : "—";
+  const title =
+    event.state === "block" || event.state === "training"
+      ? `${label}. ${t("admin.courtLoad.reason")}: ${reasonText}`
+      : label;
   const style = { left: `${left}%`, width: `${width}%` };
   const content = (
     <>
@@ -542,6 +550,7 @@ function CourtEventCard({
         data-event-key={event.key}
         aria-current={isTarget ? "true" : undefined}
         aria-label={label}
+        title={title}
         onClick={() => onOpenRequest(event.requestId as string)}
       >
         {content}
@@ -558,11 +567,13 @@ function CourtEventCard({
         data-event-key={event.key}
         aria-current={isTarget ? "true" : undefined}
         aria-label={label}
+        title={title}
         onClick={() =>
           onOpenTraining({
             trainingId: event.trainingId as string,
             blockId: event.blockId,
-            courtId: row.courtId
+            courtId: row.courtId,
+            reason: event.reason
           })
         }
       >
@@ -580,6 +591,7 @@ function CourtEventCard({
         data-event-key={event.key}
         aria-current={isTarget ? "true" : undefined}
         aria-label={label}
+        title={title}
         onClick={() => onMoveBlock({ blockId: event.blockId as string, currentCourtId: row.courtId })}
       >
         {content}
@@ -594,6 +606,7 @@ function CourtEventCard({
       data-event-key={event.key}
       aria-current={isTarget ? "true" : undefined}
       aria-label={label}
+      title={title}
     >
       {content}
     </span>
@@ -790,7 +803,15 @@ function TrainingDetailModal({
           {detail.error instanceof Error ? detail.error.message : t("admin.trainings.opFailed")}
         </p>
       ) : detail.data ? (
-        <TrainingDetailBody item={detail.data} t={t} />
+        <div className="stack">
+          <dl className="detail-list">
+            <div className="detail-list__row">
+              <dt>{t("admin.courtLoad.reason")}</dt>
+              <dd>{target?.reason?.trim() ? target.reason : "—"}</dd>
+            </div>
+          </dl>
+          <TrainingDetailBody item={detail.data} t={t} />
+        </div>
       ) : null}
     </Modal>
   );

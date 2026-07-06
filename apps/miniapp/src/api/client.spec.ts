@@ -539,6 +539,29 @@ describe("MiniappApiClient.requestIndividualSession", () => {
   });
 });
 
+type BookingPricingSnapshot = Pick<
+  Booking,
+  | "priceSnapshotRsd"
+  | "priceSnapshotSource"
+  | "pricingTierId"
+  | "pricingTierLabel"
+  | "pricingTierMinTrainings"
+  | "pricingTierMaxTrainings"
+  | "bookingOrdinalInMonth"
+  | "priceSnapshotAt"
+>;
+
+const NULL_BOOKING_PRICING_SNAPSHOT: BookingPricingSnapshot = {
+  priceSnapshotRsd: null,
+  priceSnapshotSource: null,
+  pricingTierId: null,
+  pricingTierLabel: null,
+  pricingTierMinTrainings: null,
+  pricingTierMaxTrainings: null,
+  bookingOrdinalInMonth: null,
+  priceSnapshotAt: null
+};
+
 const BOOKING: Booking = {
   id: "55555555-5555-5555-5555-555555555555",
   clientId: CLIENT.id,
@@ -550,7 +573,8 @@ const BOOKING: Booking = {
   source: "telegram",
   paymentStatus: "unpaid",
   paidAt: null,
-  paidBy: null
+  paidBy: null,
+  ...NULL_BOOKING_PRICING_SNAPSHOT
 };
 
 const WAITLIST_ENTRY: WaitlistEntry = {
@@ -993,11 +1017,45 @@ describe("MiniappApiClient.listGroups", () => {
   });
 });
 
+const GROUP_SUBSCRIPTION_ID = "88888888-8888-8888-8888-888888888888";
+const GROUP_BOOKING_PRICING_SNAPSHOT = {
+  priceSnapshotRsd: 1200,
+  priceSnapshotSource: "training_pricing_tier",
+  pricingTierId: "99999999-9999-9999-9999-999999999998",
+  pricingTierLabel: "8 trainings",
+  pricingTierMinTrainings: 8,
+  pricingTierMaxTrainings: 8,
+  priceSnapshotAt: "2026-07-01T08:00:00.000Z"
+} satisfies Pick<
+  Booking,
+  | "priceSnapshotRsd"
+  | "priceSnapshotSource"
+  | "pricingTierId"
+  | "pricingTierLabel"
+  | "pricingTierMinTrainings"
+  | "pricingTierMaxTrainings"
+  | "priceSnapshotAt"
+>;
+
 const GROUP_BOOKING_RESULT: GroupBookingResult = {
-  groupSubscriptionId: "88888888-8888-8888-8888-888888888888",
+  groupSubscriptionId: GROUP_SUBSCRIPTION_ID,
   created: [
-    { ...BOOKING, id: "aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa", type: "group" },
-    { ...BOOKING, id: "bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb", type: "group" }
+    {
+      ...BOOKING,
+      ...GROUP_BOOKING_PRICING_SNAPSHOT,
+      id: "aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa",
+      type: "group",
+      groupSubscriptionId: GROUP_SUBSCRIPTION_ID,
+      bookingOrdinalInMonth: 1
+    },
+    {
+      ...BOOKING,
+      ...GROUP_BOOKING_PRICING_SNAPSHOT,
+      id: "bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb",
+      type: "group",
+      groupSubscriptionId: GROUP_SUBSCRIPTION_ID,
+      bookingOrdinalInMonth: 2
+    }
   ],
   waitlisted: [],
   skipped: ["2026-07-15"]

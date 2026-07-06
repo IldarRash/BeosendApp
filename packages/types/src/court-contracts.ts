@@ -290,6 +290,17 @@ export const confirmCourtRequestSchema = z
   .strict();
 export type ConfirmCourtRequest = z.infer<typeof confirmCourtRequestSchema>;
 
+/**
+ * Admin-only reassignment for an already-confirmed court rental request. The
+ * request id is the path param; the body carries the full replacement court set.
+ */
+export const reassignCourtRequestSchema = z
+  .object({
+    courtIds: z.array(uuid).min(1).max(COURT_COUNT)
+  })
+  .strict();
+export type ReassignCourtRequest = z.infer<typeof reassignCourtRequestSchema>;
+
 /** C4 — admin rejects a pending request. Stamps decided_*; notifies the client. */
 export const rejectCourtRequestSchema = z
   .object({
@@ -373,7 +384,8 @@ export const courtLoadCellSchema = z.object({
   state: courtLoadCellState,
   requestId: uuid.nullable(),
   trainingId: uuid.nullable(),
-  blockId: uuid.nullable()
+  blockId: uuid.nullable(),
+  reason: z.string().nullable()
 });
 export type CourtLoadCell = z.infer<typeof courtLoadCellSchema>;
 

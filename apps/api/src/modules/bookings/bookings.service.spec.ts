@@ -27,6 +27,8 @@ import type { ClientsRepository } from "../clients/clients.repository";
 import type { DomainEventsService } from "../connectors/domain-events.service";
 import type { GroupsRepository } from "../groups/groups.repository";
 import type { NotificationsService } from "../notifications/notifications.service";
+import type { BookingPriceSnapshot } from "../training-pricing/training-pricing.repository";
+import type { TrainingPricingService } from "../training-pricing/training-pricing.service";
 import type { TrainersRepository } from "../trainers/trainers.repository";
 import type { WaitlistService } from "../waitlist/waitlist.service";
 
@@ -125,6 +127,41 @@ const fakeDomainEvents = {
   emitBookingCreated: (): void => undefined,
   emitBookingDeclined: (): void => undefined
 } as unknown as DomainEventsService;
+
+const nullableBookingSnapshot = {
+  priceSnapshotRsd: null,
+  priceSnapshotSource: null,
+  pricingTierId: null,
+  pricingTierLabel: null,
+  pricingTierMinTrainings: null,
+  pricingTierMaxTrainings: null,
+  bookingOrdinalInMonth: null,
+  priceSnapshotAt: null
+};
+
+const fakePricing = {
+  async assignSnapshotsForAcceptedBookings(
+    _tx: Database,
+    bookings: Array<{ id: string; clientId: string; date: string }>
+  ): Promise<Map<string, BookingPriceSnapshot>> {
+    return new Map(
+      bookings.map((booking, index) => [
+        booking.id,
+        {
+          bookingId: booking.id,
+          priceSnapshotRsd: 1500,
+          priceSnapshotSource: "training_pricing_tier",
+          pricingTierId: "77777777-7777-4777-8777-777777777777",
+          pricingTierLabel: "1-3 trainings",
+          pricingTierMinTrainings: 1,
+          pricingTierMaxTrainings: 3,
+          bookingOrdinalInMonth: index + 1,
+          priceSnapshotAt: new Date("2099-06-01T12:00:00.000Z")
+        }
+      ])
+    );
+  }
+} as unknown as TrainingPricingService;
 
 function expectBooked(result: SingleBookingResult): Booking {
   if (result.status === "waitlisted") {
@@ -462,7 +499,8 @@ class FakeBookingsRepository {
       // mirroring the repo's toBooking mapping (paidAt → ISO string or null).
       paymentStatus: values.paymentStatus ?? "unpaid",
       paidAt: values.paidAt ? values.paidAt.toISOString() : null,
-      paidBy: values.paidBy ?? null
+      paidBy: values.paidBy ?? null,
+      ...nullableBookingSnapshot
     };
     this.bookings.push(booking);
     return booking;
@@ -478,7 +516,14 @@ class FakeBookingsRepository {
     _tx: Database,
     groupSubscriptionId: string
   ): Promise<
-    { id: string; clientId: string; trainingId: string; trainerId: string; status: Booking["status"] }[]
+    {
+      id: string;
+      clientId: string;
+      trainingId: string;
+      date?: string;
+      trainerId: string;
+      status: Booking["status"];
+    }[]
   > {
     return this.bookings
       .filter((b) => b.groupSubscriptionId === groupSubscriptionId)
@@ -486,6 +531,11 @@ class FakeBookingsRepository {
         id: b.id,
         clientId: b.clientId,
         trainingId: b.trainingId,
+        date:
+          this.bookingTrainingDates[b.trainingId] ??
+          this.trainingsById[b.trainingId]?.date ??
+          this.training?.date ??
+          "2099-06-08",
         trainerId: this.trainingsById[b.trainingId]?.trainerId ?? this.training?.trainerId ?? TRAINER_ID,
         status: b.status
       }));
@@ -495,7 +545,16 @@ class FakeBookingsRepository {
     _tx: Database,
     bookingId: string
   ): Promise<
-    { id: string; clientId: string; trainingId: string; status: Booking["status"] } | undefined
+    | {
+        id: string;
+        clientId: string;
+        trainingId: string;
+        groupSubscriptionId: string | null;
+        trainingDate: string;
+        trainingGroupId: string | null;
+        status: Booking["status"];
+      }
+    | undefined
   > {
     const booking = this.bookings.find((b) => b.id === bookingId);
     return booking
@@ -503,6 +562,17 @@ class FakeBookingsRepository {
           id: booking.id,
           clientId: booking.clientId,
           trainingId: booking.trainingId,
+          groupSubscriptionId: booking.groupSubscriptionId,
+          trainingDate:
+            this.bookingTrainingDates[booking.trainingId] ??
+            this.trainingsById[booking.trainingId]?.date ??
+            this.training?.date ??
+            "2099-06-08",
+          trainingGroupId:
+            this.bookingGroupIds[booking.trainingId] ??
+            this.trainingsById[booking.trainingId]?.groupId ??
+            this.training?.groupId ??
+            null,
           status: booking.status
         }
       : undefined;
@@ -735,7 +805,8 @@ describe("BookingsService.createSingle", () => {
       waitlist as unknown as WaitlistService,
       new FakeTrainersRepository() as unknown as TrainersRepository,
       fakeDomainEvents,
-      env
+      env,
+      fakePricing
     );
   });
 
@@ -1001,7 +1072,8 @@ describe("BookingsService.createGroupBooking", () => {
       waitlist as unknown as WaitlistService,
       new FakeTrainersRepository() as unknown as TrainersRepository,
       fakeDomainEvents,
-      env
+      env,
+      fakePricing
     );
   });
 
@@ -1218,7 +1290,8 @@ describe("BookingsService.createGroupBooking", () => {
         source: "telegram",
         paymentStatus: "unpaid",
         paidAt: null,
-        paidBy: null
+        paidBy: null,
+        ...nullableBookingSnapshot
       }
     ];
 
@@ -1367,7 +1440,8 @@ describe("BookingsService confirmation hook is failure-tolerant", () => {
       fakeWaitlist,
       new FakeTrainersRepository() as unknown as TrainersRepository,
       fakeDomainEvents,
-      envNoAdmin
+      envNoAdmin,
+      fakePricing
     );
   });
 
@@ -1435,7 +1509,8 @@ describe("BookingsService.listMine", () => {
       fakeWaitlist,
       new FakeTrainersRepository() as unknown as TrainersRepository,
       fakeDomainEvents,
-      env
+      env,
+      fakePricing
     );
   });
 
@@ -1457,7 +1532,8 @@ describe("BookingsService.listMine", () => {
     trainingClientId: null,
     bookingStatus: "booked",
     trainingStatus: "open",
-    ...over
+    ...over,
+    ...nullableBookingSnapshot
   });
 
   it("marks a future, booked item on a non-terminal training cancellable", async () => {
@@ -1568,7 +1644,8 @@ describe("BookingsService.calendarExportMine", () => {
       fakeWaitlist,
       new FakeTrainersRepository() as unknown as TrainersRepository,
       fakeDomainEvents,
-      env
+      env,
+      fakePricing
     );
   });
 
@@ -1638,7 +1715,8 @@ describe("BookingsService.cancelBooking", () => {
       waitlist,
       new FakeTrainersRepository() as unknown as TrainersRepository,
       fakeDomainEvents,
-      env
+      env,
+      fakePricing
     );
   });
 
@@ -1654,7 +1732,8 @@ describe("BookingsService.cancelBooking", () => {
     paymentStatus: "unpaid",
     paidAt: null,
     paidBy: null,
-    ...over
+    ...over,
+    ...nullableBookingSnapshot
   });
 
   it("frees exactly one seat and flips a full training back to open", async () => {
@@ -1823,7 +1902,8 @@ describe("BookingsService.markAttendance (T2.3)", () => {
     paymentStatus: "unpaid",
     paidAt: null,
     paidBy: null,
-    ...over
+    ...over,
+    ...nullableBookingSnapshot
   });
 
   beforeEach(() => {
@@ -1841,7 +1921,8 @@ describe("BookingsService.markAttendance (T2.3)", () => {
       fakeWaitlist,
       trainersRepo as unknown as TrainersRepository,
       fakeDomainEvents,
-      env
+      env,
+      fakePricing
     );
     bookingsRepo.trainingMeta[TRAINING_ID] = { trainerId: TRAINER_ID, date: yesterday };
   });
@@ -1976,7 +2057,8 @@ describe("BookingsService.createManual (Feature 5 — admin/trainer manual booki
       fakeWaitlist,
       trainersRepo as unknown as TrainersRepository,
       fakeDomainEvents,
-      env
+      env,
+      fakePricing
     );
     bookingsRepo.training = {
       id: TRAINING_ID,
@@ -2027,7 +2109,8 @@ describe("BookingsService.createManual (Feature 5 — admin/trainer manual booki
       fakeWaitlist,
       trainersRepo as unknown as TrainersRepository,
       fakeDomainEvents,
-      env
+      env,
+      fakePricing
     );
 
     const booking = await service.createManual(ADMIN_ID, {
@@ -2241,7 +2324,8 @@ describe("BookingsService.createManual — bonus-credit redemption (Slice 3, adm
       fakeWaitlist,
       trainersRepo as unknown as TrainersRepository,
       fakeDomainEvents,
-      env
+      env,
+      fakePricing
     );
     bookingsRepo.training = {
       id: TRAINING_ID,
@@ -2385,7 +2469,8 @@ describe("BookingsService.transferGroup (Item C — admin group transfer)", () =
       waitlist as unknown as WaitlistService,
       new FakeTrainersRepository() as unknown as TrainersRepository,
       fakeDomainEvents,
-      env
+      env,
+      fakePricing
     );
   });
 
@@ -2420,7 +2505,8 @@ describe("BookingsService.transferGroup (Item C — admin group transfer)", () =
         source: "telegram",
         paymentStatus: "unpaid",
         paidAt: null,
-        paidBy: null
+        paidBy: null,
+        ...nullableBookingSnapshot
       },
       {
         id: "b0000000-0000-4000-8000-000000000002",
@@ -2433,7 +2519,8 @@ describe("BookingsService.transferGroup (Item C — admin group transfer)", () =
         source: "telegram",
         paymentStatus: "unpaid",
         paidAt: null,
-        paidBy: null
+        paidBy: null,
+        ...nullableBookingSnapshot
       }
     ];
     bookingsRepo.bookingTrainingDates = {
@@ -2537,7 +2624,8 @@ describe("BookingsService.transferGroup (Item C — admin group transfer)", () =
         source: "telegram",
         paymentStatus: "unpaid",
         paidAt: null,
-        paidBy: null
+        paidBy: null,
+        ...nullableBookingSnapshot
       },
       {
         id: "b0000000-0000-4000-8000-000000000001",
@@ -2550,7 +2638,8 @@ describe("BookingsService.transferGroup (Item C — admin group transfer)", () =
         source: "telegram",
         paymentStatus: "unpaid",
         paidAt: null,
-        paidBy: null
+        paidBy: null,
+        ...nullableBookingSnapshot
       }
     ];
     // Past date precedes the clamped lower bound (the future month's first day).
@@ -2665,7 +2754,8 @@ describe("BookingsService.createSingle - client auto-confirm (admin configured)"
       fakeWaitlist,
       trainersRepo as unknown as TrainersRepository,
       fakeDomainEvents,
-      env
+      env,
+      fakePricing
     );
     bookingsRepo.training = {
       id: TRAINING_ID,
@@ -2716,7 +2806,8 @@ describe("BookingsService.createSingle - client auto-confirm (admin configured)"
       fakeWaitlist,
       trainersRepo as unknown as TrainersRepository,
       fakeDomainEvents,
-      envNoAdmin
+      envNoAdmin,
+      fakePricing
     );
 
     const booking = expectBooked(await noAdminService.createSingle(OWNER_ID, input));
@@ -2757,7 +2848,8 @@ describe("BookingsService.confirmBooking (trainer-confirmation)", () => {
     paymentStatus: "unpaid",
     paidAt: null,
     paidBy: null,
-    ...over
+    ...over,
+    ...nullableBookingSnapshot
   });
 
   beforeEach(() => {
@@ -2785,7 +2877,8 @@ describe("BookingsService.confirmBooking (trainer-confirmation)", () => {
       fakeWaitlist,
       trainersRepo as unknown as TrainersRepository,
       fakeDomainEvents,
-      env
+      env,
+      fakePricing
     );
     bookingsRepo.training = {
       id: TRAINING_ID,
@@ -2806,6 +2899,31 @@ describe("BookingsService.confirmBooking (trainer-confirmation)", () => {
     expect(bookingsRepo.training?.bookedCount).toBe(3);
     expect(bookingsRepo.training?.status).toBe("open");
     expect(notifications.calls.confirmation).toEqual([CLIENT_ID]);
+  });
+
+  it("assigns and returns a pricing snapshot when confirming one group subscription booking", async () => {
+    bookingsRepo.bookings = [
+      pendingBooking({
+        type: "group",
+        groupSubscriptionId: "ffffffff-ffff-ffff-ffff-ffffffffffff"
+      })
+    ];
+    bookingsRepo.bookingTrainingDates[TRAINING_ID] = "2099-06-08";
+    bookingsRepo.bookingGroupIds[TRAINING_ID] = GROUP_ID;
+
+    const result = await service.confirmBooking(TRAINER_ID_TG, BOOKING_ID);
+
+    expect(result).toMatchObject({
+      status: "booked",
+      priceSnapshotRsd: 1500,
+      priceSnapshotSource: "training_pricing_tier",
+      pricingTierId: "77777777-7777-4777-8777-777777777777",
+      pricingTierLabel: "1-3 trainings",
+      pricingTierMinTrainings: 1,
+      pricingTierMaxTrainings: 3,
+      bookingOrdinalInMonth: 1,
+      priceSnapshotAt: "2099-06-01T12:00:00.000Z"
+    });
   });
 
   it("lets the owning admin confirm", async () => {
@@ -2875,7 +2993,8 @@ describe("BookingsService.declineBooking (trainer-confirmation)", () => {
     paymentStatus: "unpaid",
     paidAt: null,
     paidBy: null,
-    ...over
+    ...over,
+    ...nullableBookingSnapshot
   });
 
   beforeEach(() => {
@@ -2909,7 +3028,8 @@ describe("BookingsService.declineBooking (trainer-confirmation)", () => {
       waitlist,
       trainersRepo as unknown as TrainersRepository,
       fakeDomainEvents,
-      env
+      env,
+      fakePricing
     );
   });
 
@@ -3026,7 +3146,8 @@ describe("BookingsService.confirm/declineSubscription (trainer-confirmation, mon
     source: "telegram",
     paymentStatus: "unpaid",
     paidAt: null,
-    paidBy: null
+    paidBy: null,
+    ...nullableBookingSnapshot
   });
 
   beforeEach(() => {
@@ -3060,7 +3181,8 @@ describe("BookingsService.confirm/declineSubscription (trainer-confirmation, mon
       waitlist,
       trainersRepo as unknown as TrainersRepository,
       fakeDomainEvents,
-      env
+      env,
+      fakePricing
     );
     bookingsRepo.trainingsById = {
       [T1]: { id: T1, capacity: 6, bookedCount: 4, status: "open", trainerId: TRAINER_ID },

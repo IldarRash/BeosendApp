@@ -22,6 +22,7 @@ import { NotificationTemplatesModule } from "./modules/notification-templates/no
 import { SettingsModule } from "./modules/settings/settings.module";
 import { SubscriptionsModule } from "./modules/subscriptions/subscriptions.module";
 import { TrainersModule } from "./modules/trainers/trainers.module";
+import { TrainingPricingModule } from "./modules/training-pricing/training-pricing.module";
 import { TrainingsModule } from "./modules/trainings/trainings.module";
 import { WaitlistModule } from "./modules/waitlist/waitlist.module";
 import { RequestLoggingInterceptor } from "./request-logging/request-logging.interceptor";
@@ -42,6 +43,7 @@ import { RequestLoggingInterceptor } from "./request-logging/request-logging.int
     AuthModule,
     LevelsModule,
     TrainersModule,
+    TrainingPricingModule,
     ManagersModule,
     GroupsModule,
     TrainingsModule,

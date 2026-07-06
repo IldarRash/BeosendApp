@@ -12,6 +12,7 @@ export interface TrainingLockRow {
   id: string;
   /** null for an individual training; set for a group training. Waitlist is group-only. */
   groupId: string | null;
+  date?: string;
   capacity: number;
   bookedCount: number;
   status: TrainingStatus;
@@ -91,6 +92,7 @@ export class WaitlistRepository {
       .select({
         id: tables.trainings.id,
         groupId: tables.trainings.groupId,
+        date: tables.trainings.date,
         capacity: tables.trainings.capacity,
         bookedCount: tables.trainings.bookedCount,
         status: tables.trainings.status

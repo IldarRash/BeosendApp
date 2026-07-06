@@ -6,6 +6,7 @@ import {
   Get,
   Headers,
   Param,
+  Patch,
   Post,
   Query
 } from "@nestjs/common";
@@ -19,6 +20,7 @@ import {
   courtRequestQueueQuerySchema,
   createCourtRequestSchema,
   previewCourtRequestSchema,
+  reassignCourtRequestSchema,
   rejectCourtRequestSchema,
   uuid,
   type Court,
@@ -216,6 +218,25 @@ export class CourtRequestsController {
       throw new BadRequestException("Path id and body requestId must match.");
     }
     return this.service.confirmRequest(telegramId, parsed.data);
+  }
+
+  /**
+   * Admin-only reassignment for a future confirmed request. The body carries the
+   * full replacement court set; service owns status/time/availability checks.
+   */
+  @Patch(":id/courts")
+  async reassignCourts(
+    @Headers("x-telegram-id") rawTelegramId: string | undefined,
+    @Param("id") rawId: string,
+    @Body() body: unknown
+  ): Promise<CourtRequestAdminView> {
+    const telegramId = parseTelegramId(rawTelegramId);
+    const id = parseRequestId(rawId);
+    const parsed = reassignCourtRequestSchema.safeParse(body);
+    if (!parsed.success) {
+      throw new BadRequestException("Invalid reassign body: expected { courtIds: string[] }.");
+    }
+    return this.service.reassignCourts(telegramId, id, parsed.data);
   }
 
   /** C4 — reject a pending request. Admin-only; notifies the client to retry. */

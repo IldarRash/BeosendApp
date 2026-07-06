@@ -6,7 +6,8 @@ import {
   Inject,
   Injectable,
   Logger,
-  NotFoundException
+  NotFoundException,
+  Optional
 } from "@nestjs/common";
 import type { Env } from "@beosand/config";
 import { isAdmin } from "@beosand/config";
@@ -43,6 +44,8 @@ import { renderTrainingIcs } from "../connectors/calendar/calendar-ics";
 import { DomainEventsService } from "../connectors/domain-events.service";
 import { GroupsRepository } from "../groups/groups.repository";
 import { NotificationsService } from "../notifications/notifications.service";
+import { type BookingPriceSnapshot } from "../training-pricing/training-pricing.repository";
+import { TrainingPricingService } from "../training-pricing/training-pricing.service";
 import { TrainersRepository } from "../trainers/trainers.repository";
 import { WaitlistService } from "../waitlist/waitlist.service";
 import { BookingsRepository, type TrainingLockRow } from "./bookings.repository";
@@ -101,7 +104,8 @@ export class BookingsService {
     private readonly waitlist: WaitlistService,
     private readonly trainers: TrainersRepository,
     private readonly domainEvents: DomainEventsService,
-    @Inject(ENV) private readonly env: Env
+    @Inject(ENV) private readonly env: Env,
+    @Optional() private readonly pricing?: TrainingPricingService
   ) {}
 
   async createSingle(
@@ -187,7 +191,7 @@ export class BookingsService {
       { id: result.id, clientId: result.clientId, trainingId: result.trainingId, type: "single" }
     ]);
 
-    return singleBookingResultSchema.parse(result);
+    return singleBookingResultSchema.parse(withNullableSnapshotFields(result));
   }
 
   /**
@@ -285,7 +289,7 @@ export class BookingsService {
       { id: booking.id, clientId: booking.clientId, trainingId: booking.trainingId, type: "single" }
     ]);
 
-    return bookingSchema.parse(booking);
+    return bookingSchema.parse(withNullableSnapshotFields(booking));
   }
 
   private async expandIndividualTrainingForManualSecondParticipant(
@@ -505,7 +509,10 @@ export class BookingsService {
       );
     }
 
-    return groupBookingResultSchema.parse(result);
+    return groupBookingResultSchema.parse({
+      ...result,
+      created: result.created.map(withNullableSnapshotFields)
+    });
   }
 
   /**
@@ -632,6 +639,23 @@ export class BookingsService {
       await this.bookings.updateTrainingCount(tx, training.id, newCount, newStatus);
 
       created.push({ booking, date: training.date });
+    }
+
+    if (created.length > 0) {
+      const snapshots = await this.assignRequiredSnapshotsForAcceptedBookings(
+        tx,
+        created.map((row) => ({
+          id: row.booking.id,
+          clientId: row.booking.clientId,
+          date: row.date
+        }))
+      );
+      for (const row of created) {
+        const snapshot = snapshots.get(row.booking.id);
+        if (snapshot) {
+          row.booking = applySnapshot(row.booking, snapshot);
+        }
+      }
     }
 
     // Grant the bonus-training make-good once: +1 credit per waitlisted date, in
@@ -894,7 +918,7 @@ export class BookingsService {
     // failure never undoes the committed cancellation.
     await this.promoteWaitlistSafely(cancelled.trainingId);
 
-    return bookingSchema.parse(cancelled);
+    return bookingSchema.parse(withNullableSnapshotFields(cancelled));
   }
 
   /**
@@ -941,7 +965,7 @@ export class BookingsService {
       return result;
     });
 
-    return bookingSchema.parse(updated);
+    return bookingSchema.parse(withNullableSnapshotFields(updated));
   }
 
   /** Authorize an admin-only write (the group transfer). Enforced here, never in the bot. */
@@ -976,7 +1000,21 @@ export class BookingsService {
         throw new ConflictException(`Booking is not pending (status ${booking.status})`);
       }
 
-      const updated = await this.bookings.updateBookingStatus(tx, bookingId, "booked");
+      let updated = await this.bookings.updateBookingStatus(tx, bookingId, "booked");
+      if (booking.groupSubscriptionId != null && booking.trainingGroupId != null) {
+        const snapshots = await this.assignRequiredSnapshotsForAcceptedBookings(tx, [
+          {
+            id: updated.id,
+            clientId: updated.clientId,
+            date: booking.trainingDate
+          }
+        ]);
+        const snapshot = snapshots.get(updated.id);
+        if (!snapshot) {
+          throw new ConflictException("Pricing snapshot was not assigned");
+        }
+        updated = applySnapshot(updated, snapshot);
+      }
       this.logger.log(`Confirmed booking ${bookingId} on training ${booking.trainingId}`);
       return { updated, clientId: booking.clientId, trainingId: booking.trainingId };
     });
@@ -995,7 +1033,7 @@ export class BookingsService {
       }
     ]);
 
-    return bookingSchema.parse(result.updated);
+    return bookingSchema.parse(withNullableSnapshotFields(result.updated));
   }
 
   /**
@@ -1047,7 +1085,7 @@ export class BookingsService {
     ]);
     await this.promoteWaitlistSafely(result.trainingId);
 
-    return bookingSchema.parse(result.updated);
+    return bookingSchema.parse(withNullableSnapshotFields(result.updated));
   }
 
   /**
@@ -1073,6 +1111,16 @@ export class BookingsService {
       for (const row of pending) {
         await this.bookings.updateBookingStatus(tx, row.id, "booked");
       }
+      await this.assignRequiredSnapshotsForAcceptedBookings(
+        tx,
+        pending
+          .filter((row) => row.date !== undefined)
+          .map((row) => ({
+            id: row.id,
+            clientId: row.clientId,
+            date: row.date as string
+          }))
+      );
       this.logger.log(
         `Confirmed subscription ${groupSubscriptionId}: ${pending.length} bookings → booked`
       );
@@ -1187,7 +1235,7 @@ export class BookingsService {
     tx: Database,
     actorTelegramId: number,
     groupSubscriptionId: string
-  ): Promise<{ id: string; clientId: string; trainingId: string }[]> {
+  ): Promise<{ id: string; clientId: string; trainingId: string; date?: string }[]> {
     const batch = await this.bookings.findBySubscriptionForUpdate(tx, groupSubscriptionId);
     if (batch.length === 0) {
       throw new NotFoundException(`Subscription ${groupSubscriptionId} not found`);
@@ -1201,8 +1249,26 @@ export class BookingsService {
     return pending.map((row) => ({
       id: row.id,
       clientId: row.clientId,
-      trainingId: row.trainingId
+      trainingId: row.trainingId,
+      date: row.date
     }));
+  }
+
+  private async assignRequiredSnapshotsForAcceptedBookings(
+    tx: Database,
+    bookings: Array<{ id: string; clientId: string; date: string }>
+  ): Promise<Map<string, BookingPriceSnapshot>> {
+    if (bookings.length === 0) {
+      return new Map();
+    }
+    if (!this.pricing) {
+      throw new ConflictException("Training pricing is not configured");
+    }
+    const snapshots = await this.pricing.assignSnapshotsForAcceptedBookings(tx, bookings);
+    if (snapshots.size !== bookings.length) {
+      throw new ConflictException("Pricing snapshots were not assigned for every accepted booking");
+    }
+    return snapshots;
   }
 
   /**
@@ -1355,6 +1421,34 @@ export class BookingsService {
       throw new ForbiddenException("Cannot book on behalf of another client");
     }
   }
+}
+
+function applySnapshot(booking: Booking, snapshot: BookingPriceSnapshot): Booking {
+  return {
+    ...booking,
+    priceSnapshotRsd: snapshot.priceSnapshotRsd,
+    priceSnapshotSource: snapshot.priceSnapshotSource,
+    pricingTierId: snapshot.pricingTierId,
+    pricingTierLabel: snapshot.pricingTierLabel,
+    pricingTierMinTrainings: snapshot.pricingTierMinTrainings,
+    pricingTierMaxTrainings: snapshot.pricingTierMaxTrainings,
+    bookingOrdinalInMonth: snapshot.bookingOrdinalInMonth,
+    priceSnapshotAt: snapshot.priceSnapshotAt.toISOString()
+  };
+}
+
+function withNullableSnapshotFields<T extends Partial<Booking>>(booking: T): T {
+  return {
+    ...booking,
+    priceSnapshotRsd: booking.priceSnapshotRsd ?? null,
+    priceSnapshotSource: booking.priceSnapshotSource ?? null,
+    pricingTierId: booking.pricingTierId ?? null,
+    pricingTierLabel: booking.pricingTierLabel ?? null,
+    pricingTierMinTrainings: booking.pricingTierMinTrainings ?? null,
+    pricingTierMaxTrainings: booking.pricingTierMaxTrainings ?? null,
+    bookingOrdinalInMonth: booking.bookingOrdinalInMonth ?? null,
+    priceSnapshotAt: booking.priceSnapshotAt ?? null
+  };
 }
 
 function calendarExportUidSuffix(actorTelegramId: number, monthLabel: string): string {

@@ -27,7 +27,14 @@ const grid: CourtLoadGrid = {
       courtId: "11111111-1111-1111-1111-111111111111",
       courtNumber: 1,
       cells: [
-        { startTime: "08:00", state: "free", requestId: null, trainingId: null, blockId: null }
+        {
+          startTime: "08:00",
+          state: "free",
+          requestId: null,
+          trainingId: null,
+          blockId: null,
+          reason: null
+        }
       ]
     }
   ],
