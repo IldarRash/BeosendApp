@@ -8,6 +8,16 @@ const OWNER_ID = 4242;
 const HEADER = String(OWNER_ID);
 const CLIENT_ID = "11111111-1111-1111-1111-111111111111";
 const OTHER_CLIENT_ID = "22222222-2222-2222-2222-222222222222";
+const nullableBookingSnapshot = {
+  priceSnapshotRsd: null,
+  priceSnapshotSource: null,
+  pricingTierId: null,
+  pricingTierLabel: null,
+  pricingTierMinTrainings: null,
+  pricingTierMaxTrainings: null,
+  bookingOrdinalInMonth: null,
+  priceSnapshotAt: null
+};
 
 const item: MyBookingItem = {
   bookingId: "33333333-3333-3333-3333-333333333333",
@@ -36,7 +46,8 @@ const cancelledBooking: Booking = {
   source: "telegram",
   paymentStatus: "unpaid",
   paidAt: null,
-  paidBy: null
+  paidBy: null,
+  ...nullableBookingSnapshot
 };
 
 const attendedBooking: Booking = {
@@ -50,7 +61,8 @@ const attendedBooking: Booking = {
   source: "telegram",
   paymentStatus: "unpaid",
   paidAt: null,
-  paidBy: null
+  paidBy: null,
+  ...nullableBookingSnapshot
 };
 
 function makeService(overrides: Partial<BookingsService> = {}): BookingsService {

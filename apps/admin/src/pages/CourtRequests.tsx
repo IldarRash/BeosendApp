@@ -14,7 +14,8 @@ import {
   useConfirmRequest,
   useCourtRequests,
   useFreeCourts,
-  useRejectRequest
+  useRejectRequest,
+  useReassignRequestCourts
 } from "../hooks/useCourtRequests";
 
 type Translate = (key: string, params?: Record<string, string | number>) => string;
@@ -61,6 +62,14 @@ function courtCell(request: CourtRequestAdminView, t: Translate): string {
   return t("admin.courtRequests.courtUnassigned");
 }
 
+function todayIso(): string {
+  return new Date().toISOString().slice(0, 10);
+}
+
+function canReassign(request: CourtRequestAdminView): boolean {
+  return request.status === "confirmed" && request.date >= todayIso();
+}
+
 /**
  * M3 — Заявки на корты. The admin moderation queue across the four request
  * statuses (pending / confirmed / rejected / cancelled). A pending request can be
@@ -77,20 +86,28 @@ export function CourtRequests(): JSX.Element {
 
   const [status, setStatus] = useState<CourtRequestStatus>("pending");
   const [toConfirm, setToConfirm] = useState<CourtRequestAdminView | null>(null);
+  const [toReassign, setToReassign] = useState<CourtRequestAdminView | null>(null);
   const [toCancel, setToCancel] = useState<CourtRequestAdminView | null>(null);
+  const [pickerError, setPickerError] = useState<string | null>(null);
   // The courts the admin has picked in the confirm dialog. Confirm is enabled only
   // when exactly `toConfirm.courtCount` are selected; the server re-checks freeness.
   const [pickedCourtIds, setPickedCourtIds] = useState<string[]>([]);
 
   const requests = useCourtRequests(status);
-  const freeCourts = useFreeCourts(toConfirm?.id ?? null);
+  const pickerRequest = toConfirm ?? toReassign;
+  const freeCourts = useFreeCourts(pickerRequest?.id ?? null);
   const confirm = useConfirmRequest();
   const reject = useRejectRequest();
   const cancel = useCancelRequest();
+  const reassign = useReassignRequestCourts();
 
-  const required = toConfirm?.courtCount ?? 0;
+  const required = pickerRequest?.courtCount ?? 0;
   const picked = pickedCourtIds.length;
-  const pickComplete = toConfirm !== null && picked === required;
+  const pickComplete = pickerRequest !== null && picked === required;
+  const pickCountError =
+    pickerRequest !== null && picked !== required
+      ? t("admin.courtRequests.pickExactError", { picked, count: required })
+      : null;
 
   function toggleCourt(courtId: string): void {
     setPickedCourtIds((prev) =>
@@ -100,6 +117,8 @@ export function CourtRequests(): JSX.Element {
 
   function openConfirm(request: CourtRequestAdminView): void {
     setToConfirm(request);
+    setToReassign(null);
+    setPickerError(null);
     // Pre-check the client's currently-held courts when they appear in the free
     // list; resolved once the free-courts read settles (see preselect effect below).
     setPickedCourtIds([]);
@@ -108,26 +127,41 @@ export function CourtRequests(): JSX.Element {
   function closeConfirm(): void {
     setToConfirm(null);
     setPickedCourtIds([]);
+    setPickerError(null);
+  }
+
+  function openReassign(request: CourtRequestAdminView): void {
+    setToReassign(request);
+    setToConfirm(null);
+    setPickerError(null);
+    setPickedCourtIds([]);
+  }
+
+  function closeReassign(): void {
+    setToReassign(null);
+    setPickedCourtIds([]);
+    setPickerError(null);
   }
 
   // Pre-check the client's held courts (matched by number) once the free-courts
   // read for the opened request settles. Runs render-phase, guarded so it sets the
   // selection exactly once per opened request (and only while nothing is picked yet).
   const [preselectedFor, setPreselectedFor] = useState<string | null>(null);
-  if (toConfirm !== null && preselectedFor !== toConfirm.id && freeCourts.data !== undefined) {
-    setPreselectedFor(toConfirm.id);
-    const held = new Set(toConfirm.courtNumbers);
+  if (pickerRequest !== null && preselectedFor !== pickerRequest.id && freeCourts.data !== undefined) {
+    setPreselectedFor(pickerRequest.id);
+    const held = new Set(pickerRequest.courtNumbers);
     const preselect = freeCourts.data.filter((c) => held.has(c.number)).map((c) => c.id);
     if (preselect.length > 0) {
       setPickedCourtIds(preselect);
     }
   }
-  if (toConfirm === null && preselectedFor !== null) {
+  if (pickerRequest === null && preselectedFor !== null) {
     setPreselectedFor(null);
   }
 
   function submitConfirm(): void {
     if (!toConfirm || !pickComplete) return;
+    setPickerError(null);
     confirm.mutate(
       { id: toConfirm.id, input: { courtIds: pickedCourtIds } },
       {
@@ -138,7 +172,26 @@ export function CourtRequests(): JSX.Element {
         // A 409 (slot filled meanwhile, or request already decided) arrives as a
         // ConflictError; show the localized line and let the onSettled invalidation
         // refetch the queue + free-court picker so a taken court drops off here.
-        onError: (error) => notify(errorText(error, t), "error")
+        onError: (error) => {
+          const message = errorText(error, t);
+          setPickerError(message);
+          notify(message, "error");
+        }
+      }
+    );
+  }
+
+  function submitReassign(): void {
+    if (!toReassign || !pickComplete) return;
+    setPickerError(null);
+    reassign.mutate(
+      { id: toReassign.id, input: { courtIds: pickedCourtIds } },
+      {
+        onSuccess: () => {
+          notify(t("admin.courtRequests.reassigned", { client: toReassign.clientName }), "success");
+          closeReassign();
+        },
+        onError: (error) => setPickerError(errorText(error, t))
       }
     );
   }
@@ -232,13 +285,20 @@ export function CourtRequests(): JSX.Element {
             </>
           ) : null}
           {r.status === "confirmed" ? (
-            <Button
-              variant="danger"
-              disabled={cancel.isPending}
-              onClick={() => setToCancel(r)}
-            >
-              {t("admin.courtRequests.cancelAction")}
-            </Button>
+            <>
+              {canReassign(r) ? (
+                <Button variant="ghost" onClick={() => openReassign(r)}>
+                  {t("admin.courtRequests.reassignAction")}
+                </Button>
+              ) : null}
+              <Button
+                variant="danger"
+                disabled={cancel.isPending}
+                onClick={() => setToCancel(r)}
+              >
+                {t("admin.courtRequests.cancelAction")}
+              </Button>
+            </>
           ) : null}
         </div>
       )
@@ -353,13 +413,25 @@ export function CourtRequests(): JSX.Element {
                 <p className="state" role="status" aria-live="polite">
                   {t("admin.courtRequests.pickProgress", { picked, count: required })}
                 </p>
-                {freeCourts.data.map((court: Court) => {
+                {pickCountError ? (
+                  <p className="field__error" role="alert">
+                    {pickCountError}
+                  </p>
+                ) : null}
+                {pickerError ? (
+                  <p className="state state--error" role="alert">
+                    {pickerError}
+                  </p>
+                ) : null}
+                <div className="court-picker">
+                  {freeCourts.data.map((court: Court) => {
                   const checked = pickedCourtIds.includes(court.id);
                   // Block over-selection: once `count` are picked, the rest disable
                   // (the server would reject a longer set anyway).
                   const atLimit = !checked && pickComplete;
+                  const current = toConfirm.courtNumbers.includes(court.number);
                   return (
-                    <label key={court.id} className="cluster">
+                    <label key={court.id} className="court-picker__tile">
                       <input
                         type="checkbox"
                         name="court-pick"
@@ -368,10 +440,106 @@ export function CourtRequests(): JSX.Element {
                         disabled={atLimit}
                         onChange={() => toggleCourt(court.id)}
                       />
-                      {t("admin.courtRequests.courtOption", { number: court.number })}
+                      <span>{t("admin.courtRequests.courtOption", { number: court.number })}</span>
+                      {current ? <span className="tag tag--info">{t("admin.courtRequests.currentCourtTag")}</span> : null}
                     </label>
                   );
                 })}
+                </div>
+              </fieldset>
+            )}
+          </div>
+        ) : null}
+      </Modal>
+
+      <Modal
+        open={toReassign !== null}
+        onClose={closeReassign}
+        title={
+          toReassign
+            ? t("admin.courtRequests.reassignTitleNamed", { client: toReassign.clientName })
+            : t("admin.courtRequests.reassignTitle")
+        }
+        footer={
+          <div className="cluster">
+            <Button variant="ghost" onClick={closeReassign} disabled={reassign.isPending}>
+              {t("admin.action.cancel")}
+            </Button>
+            <Button
+              variant="primary"
+              disabled={!pickComplete || reassign.isPending}
+              onClick={submitReassign}
+            >
+              {reassign.isPending
+                ? t("admin.action.saving")
+                : t("admin.courtRequests.reassignSubmit")}
+            </Button>
+          </div>
+        }
+      >
+        {toReassign ? (
+          <div className="stack">
+            <p>
+              {t("admin.courtRequests.reassignSummary", {
+                date: toReassign.date,
+                start: toReassign.startTime,
+                end: toReassign.endTime,
+                hours: toReassign.durationHours,
+                count: toReassign.courtCount,
+                price: formatRsd(toReassign.priceRsd)
+              })}
+            </p>
+            {freeCourts.isPending ? (
+              <p className="state">{t("admin.courtRequests.freeLoading")}</p>
+            ) : freeCourts.isError ? (
+              <p className="state state--error" role="alert">
+                {errorText(freeCourts.error, t)}
+              </p>
+            ) : freeCourts.data.length === 0 ? (
+              <p className="state" role="status">
+                {t("admin.courtRequests.noFreeCourts")}
+              </p>
+            ) : (
+              <fieldset className="stack">
+                <legend>{t("admin.courtRequests.pickCourts", { count: required })}</legend>
+                <p className="state" role="status" aria-live="polite">
+                  {t("admin.courtRequests.pickProgress", { picked, count: required })}
+                </p>
+                {pickCountError ? (
+                  <p className="field__error" role="alert">
+                    {pickCountError}
+                  </p>
+                ) : null}
+                {pickerError ? (
+                  <p className="state state--error" role="alert">
+                    {pickerError}
+                  </p>
+                ) : null}
+                <div className="court-picker">
+                  {freeCourts.data.map((court: Court) => {
+                    const checked = pickedCourtIds.includes(court.id);
+                    const atLimit = !checked && pickComplete;
+                    const current = toReassign.courtNumbers.includes(court.number);
+                    return (
+                      <label key={court.id} className="court-picker__tile">
+                        <input
+                          type="checkbox"
+                          name="court-reassign-pick"
+                          value={court.id}
+                          checked={checked}
+                          disabled={atLimit || reassign.isPending}
+                          onChange={() => toggleCourt(court.id)}
+                        />
+                        <span>{t("admin.courtRequests.courtOption", { number: court.number })}</span>
+                        {current ? (
+                          <span className="tag tag--info">
+                            {t("admin.courtRequests.currentCourtTag")}
+                          </span>
+                        ) : null}
+                      </label>
+                    );
+                  })}
+                </div>
               </fieldset>
             )}
           </div>

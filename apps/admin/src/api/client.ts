@@ -25,6 +25,7 @@ import {
   createRecurringCourtBlocksSchema,
   courtLoadGridSchema,
   cancelCourtRequestSchema,
+  reassignCourtRequestSchema,
   generateAllResultSchema,
   generateIndividualResultSchema,
   generationStatusItemSchema,
@@ -41,6 +42,8 @@ import {
   popularSlotSchema,
   requestLoggingSettingsSchema,
   subscriptionSummarySchema,
+  trainingPricingTiersSchema,
+  replaceTrainingPricingTiersSchema,
   courtWorkingHoursDayOverrideSchema,
   courtWorkingHoursDayViewSchema,
   courtWorkingHoursMonthSchema,
@@ -136,12 +139,14 @@ import {
   type RequestLoggingSettings,
   type RescheduleTrainingInput,
   type SendBroadcastInput,
+  type ReplaceTrainingPricingTiersInput,
   type SubscriptionSummary,
   type TelegramLoginPayload,
   type Trainer,
   type TrainerLoad,
   type Training,
   type TrainingCalendarItem,
+  type TrainingPricingTier,
   type TrainingRoster,
   type UpdateTrainingScheduleCourtInput,
   type TransferGroupInput,
@@ -175,6 +180,7 @@ const popularSlotsSchema = z.array(popularSlotSchema);
 const trainerLoadListSchema = z.array(trainerLoadSchema);
 const generationStatusSchema = z.array(generationStatusItemSchema);
 const subscriptionsSchema = z.array(subscriptionSummarySchema);
+const trainingPricingListSchema = trainingPricingTiersSchema;
 const notificationTemplatesSchema = z.array(notificationTemplateSchema);
 const managersSchema = z.array(managerSchema);
 const waitlistAdminItemsSchema = z.array(waitlistAdminItemSchema);
@@ -419,6 +425,18 @@ export class ApiClient {
     return this.request(`/court-requests/${id}/confirm`, courtRequestSchema, {
       method: "POST",
       body: JSON.stringify({ requestId: id, courtIds: input.courtIds })
+    });
+  }
+
+  /**
+   * Reassign an already-confirmed request to a replacement court set (PATCH
+   * /court-requests/:id/courts). The server owns status scope, exact-count,
+   * active-court, and availability checks; the console only sends the chosen ids.
+   */
+  reassignRequestCourts(id: string, input: { courtIds: string[] }): Promise<CourtRequestAdminView> {
+    return this.request(`/court-requests/${id}/courts`, courtRequestAdminViewSchema, {
+      method: "PATCH",
+      body: JSON.stringify(reassignCourtRequestSchema.parse({ courtIds: input.courtIds }))
     });
   }
 
@@ -1139,6 +1157,24 @@ export class ApiClient {
     return this.request(`/subscriptions/${id}/paid`, subscriptionSummarySchema, {
       method: "PATCH",
       body: JSON.stringify({ paid })
+    });
+  }
+
+  /** Admin read of the current monthly training pricing tiers. */
+  listTrainingPricingTiers(): Promise<TrainingPricingTier[]> {
+    return this.request("/training-pricing-tiers", trainingPricingListSchema);
+  }
+
+  /**
+   * Full replacement for monthly training pricing tiers. The client does only
+   * obvious form validation; the shared contract and API enforce the tier rules.
+   */
+  replaceTrainingPricingTiers(
+    input: ReplaceTrainingPricingTiersInput
+  ): Promise<TrainingPricingTier[]> {
+    return this.request("/training-pricing-tiers", trainingPricingListSchema, {
+      method: "PUT",
+      body: JSON.stringify(replaceTrainingPricingTiersSchema.parse(input))
     });
   }
 

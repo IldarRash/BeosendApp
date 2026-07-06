@@ -330,7 +330,15 @@ function toBooking(row: BookingRow): Booking {
     source: bookingSourceOf(row.source),
     paymentStatus: row.paymentStatus,
     paidAt: row.paidAt?.toISOString() ?? null,
-    paidBy: row.paidBy ?? null
+    paidBy: row.paidBy ?? null,
+    priceSnapshotRsd: row.priceSnapshotRsd ?? null,
+    priceSnapshotSource: row.priceSnapshotSource ?? null,
+    pricingTierId: row.pricingTierId ?? null,
+    pricingTierLabel: row.pricingTierLabel ?? null,
+    pricingTierMinTrainings: row.pricingTierMinTrainings ?? null,
+    pricingTierMaxTrainings: row.pricingTierMaxTrainings ?? null,
+    bookingOrdinalInMonth: row.bookingOrdinalInMonth ?? null,
+    priceSnapshotAt: row.priceSnapshotAt?.toISOString() ?? null
   };
 }
 

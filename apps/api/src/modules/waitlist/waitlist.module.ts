@@ -1,6 +1,7 @@
 import { Module } from "@nestjs/common";
 import { ClientsRepository } from "../clients/clients.repository";
 import { NotificationsModule } from "../notifications/notifications.module";
+import { TrainingPricingModule } from "../training-pricing/training-pricing.module";
 import { WaitlistController } from "./waitlist.controller";
 import { WaitlistRepository } from "./waitlist.repository";
 import { WaitlistScheduler } from "./waitlist.scheduler";
@@ -12,7 +13,7 @@ import { WaitlistService } from "./waitlist.service";
  * module import (BookingsModule imports WaitlistModule, not vice versa).
  */
 @Module({
-  imports: [NotificationsModule],
+  imports: [NotificationsModule, TrainingPricingModule],
   controllers: [WaitlistController],
   providers: [WaitlistService, WaitlistRepository, ClientsRepository, WaitlistScheduler],
   exports: [WaitlistService]

@@ -20,6 +20,7 @@ import {
   createRecurringCourtBlocksSchema,
   previewCourtRequestSchema,
   reassignCourtBlockSchema,
+  reassignCourtRequestSchema,
   rejectCourtRequestSchema,
   slotAvailabilitySchema
 } from "./court-contracts";
@@ -168,8 +169,14 @@ describe("reassignCourtBlockSchema (T10)", () => {
   });
 });
 
-describe("courtLoadCellSchema (carries the block id for move actions)", () => {
-  const base = { startTime: "08:00", state: "free", requestId: null, trainingId: null };
+describe("courtLoadCellSchema (carries the block id and optional reason for admin detail)", () => {
+  const base = {
+    startTime: "08:00",
+    state: "free",
+    requestId: null,
+    trainingId: null,
+    reason: null
+  };
 
   it("accepts a free cell with a null blockId", () => {
     expect(courtLoadCellSchema.safeParse({ ...base, blockId: null }).success).toBe(true);
@@ -182,7 +189,8 @@ describe("courtLoadCellSchema (carries the block id for move actions)", () => {
         state: "hold",
         requestId: "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb",
         trainingId: null,
-        blockId: null
+        blockId: null,
+        reason: null
       }).success
     ).toBe(true);
   });
@@ -194,13 +202,19 @@ describe("courtLoadCellSchema (carries the block id for move actions)", () => {
         state: "training",
         requestId: null,
         trainingId: "66666666-6666-4666-8666-666666666666",
-        blockId: "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa"
+        blockId: "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa",
+        reason: "Group training"
       }).success
     ).toBe(true);
   });
 
   it("requires the blockId key (no silent omission)", () => {
     expect(courtLoadCellSchema.safeParse(base).success).toBe(false);
+  });
+
+  it("requires the reason key (nullable for free/request cells)", () => {
+    const { reason: _reason, ...withoutReason } = { ...base, blockId: null };
+    expect(courtLoadCellSchema.safeParse(withoutReason).success).toBe(false);
   });
 
   it("rejects a non-uuid blockId", () => {
@@ -626,6 +640,35 @@ describe("confirmCourtRequestSchema (C4 admin confirm input)", () => {
     if (!result.success) {
       expect(result.error.issues[0]?.code).toBe("unrecognized_keys");
     }
+  });
+});
+
+describe("reassignCourtRequestSchema (admin confirmed-request court replacement)", () => {
+  const sixCourtIds = [
+    "11111111-1111-4111-8111-111111111111",
+    "22222222-2222-4222-8222-222222222222",
+    "33333333-3333-4333-8333-333333333333",
+    "44444444-4444-4444-8444-444444444444",
+    "55555555-5555-4555-8555-555555555555",
+    "66666666-6666-4666-8666-666666666666"
+  ];
+
+  it("accepts one or more court ids up to the configured court count", () => {
+    expect(reassignCourtRequestSchema.safeParse({ courtIds: [uuidA] }).success).toBe(true);
+    expect(reassignCourtRequestSchema.safeParse({ courtIds: sixCourtIds }).success).toBe(true);
+  });
+
+  it("rejects empty, oversized, malformed, and extra-field bodies", () => {
+    expect(reassignCourtRequestSchema.safeParse({ courtIds: [] }).success).toBe(false);
+    expect(
+      reassignCourtRequestSchema.safeParse({
+        courtIds: Array.from({ length: COURT_COUNT + 1 }, () => uuidA)
+      }).success
+    ).toBe(false);
+    expect(reassignCourtRequestSchema.safeParse({ courtIds: ["court-1"] }).success).toBe(false);
+    expect(reassignCourtRequestSchema.safeParse({ courtIds: [uuidA], requestId: uuidB }).success).toBe(
+      false
+    );
   });
 });
 

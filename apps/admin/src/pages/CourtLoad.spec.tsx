@@ -71,14 +71,15 @@ const MANUAL_BLOCK_ID = "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb";
 function cell(
   startTime: string,
   state: CourtLoadGrid["rows"][number]["cells"][number]["state"],
-  links: { requestId?: string; trainingId?: string; blockId?: string } = {}
+  links: { requestId?: string; trainingId?: string; blockId?: string; reason?: string | null } = {}
 ): CourtLoadGrid["rows"][number]["cells"][number] {
   return {
     startTime,
     state,
     requestId: links.requestId ?? null,
     trainingId: links.trainingId ?? null,
-    blockId: links.blockId ?? null
+    blockId: links.blockId ?? null,
+    reason: links.reason ?? null
   };
 }
 
@@ -126,7 +127,11 @@ const GRID: CourtLoadGrid = {
       cells: [
         cell("08:00", "request", { requestId: REQUEST_ID }),
         cell("08:30", "request", { requestId: REQUEST_ID }),
-        cell("09:00", "training", { trainingId: TRAINING_ID, blockId: TRAINING_BLOCK_ID }),
+        cell("09:00", "training", {
+          trainingId: TRAINING_ID,
+          blockId: TRAINING_BLOCK_ID,
+          reason: "Generated group training"
+        }),
         cell("09:30", "free"),
         cell("10:00", "free"),
         cell("10:30", "free"),
@@ -138,7 +143,7 @@ const GRID: CourtLoadGrid = {
       courtId: "22222222-2222-2222-2222-222222222222",
       courtNumber: 2,
       cells: [
-        cell("08:00", "block", { blockId: MANUAL_BLOCK_ID }),
+        cell("08:00", "block", { blockId: MANUAL_BLOCK_ID, reason: "Maintenance" }),
         cell("08:30", "hold", { requestId: REQUEST_ID }),
         cell("09:00", "free"),
         cell("09:30", "free"),
@@ -347,6 +352,16 @@ describe("CourtLoad page", () => {
     expect(training.className).toContain("court-event--training");
   });
 
+  it("exposes block and training reasons in admin event detail affordances", () => {
+    renderPage();
+
+    const block = screen.getByLabelText("Корт 2, 08:00–08:30 — Блокировка");
+    const training = screen.getByLabelText("Корт 1, 09:00–09:30 — Тренировка");
+
+    expect(block.getAttribute("title")).toContain("Maintenance");
+    expect(training.getAttribute("title")).toContain("Generated group training");
+  });
+
   it("keeps deterministic event identity and tone per event id", () => {
     renderPage();
 
@@ -409,6 +424,7 @@ describe("CourtLoad page", () => {
     // The training-detail hook is asked for exactly the clicked segment's training id.
     expect(useTrainingDetail).toHaveBeenLastCalledWith(TRAINING_ID);
     const dialog = screen.getByRole("dialog", { name: "Тренировка" });
+    expect(within(dialog).getByText("Generated group training")).toBeTruthy();
     expect(within(dialog).getByText("Дети 10:00")).toBeTruthy();
     expect(within(dialog).getByText("Иван Тренеров")).toBeTruthy();
   });

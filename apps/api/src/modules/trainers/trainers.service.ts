@@ -10,6 +10,7 @@ import {
 import type { Env } from "@beosand/config";
 import { adminTelegramIds, isAdmin } from "@beosand/config";
 import type {
+  Booking,
   CreateTrainerInput,
   IndividualRequestDecisionResult,
   IndividualRequestInput,
@@ -208,7 +209,10 @@ export class TrainersService {
       this.notifications.sendBookingConfirmation(result.booking.clientId, result.booking.trainingId)
     );
 
-    return individualRequestDecisionResultSchema.parse(result);
+    return individualRequestDecisionResultSchema.parse({
+      ...result,
+      booking: withNullableSnapshotFields(result.booking)
+    });
   }
 
   /**
@@ -294,4 +298,18 @@ export class TrainersService {
       throw new ForbiddenException("Admin privileges required");
     }
   }
+}
+
+function withNullableSnapshotFields<T extends Partial<Booking>>(booking: T): T {
+  return {
+    ...booking,
+    priceSnapshotRsd: booking.priceSnapshotRsd ?? null,
+    priceSnapshotSource: booking.priceSnapshotSource ?? null,
+    pricingTierId: booking.pricingTierId ?? null,
+    pricingTierLabel: booking.pricingTierLabel ?? null,
+    pricingTierMinTrainings: booking.pricingTierMinTrainings ?? null,
+    pricingTierMaxTrainings: booking.pricingTierMaxTrainings ?? null,
+    bookingOrdinalInMonth: booking.bookingOrdinalInMonth ?? null,
+    priceSnapshotAt: booking.priceSnapshotAt ?? null
+  };
 }

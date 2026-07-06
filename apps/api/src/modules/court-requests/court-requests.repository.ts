@@ -664,6 +664,21 @@ export class CourtModerationTx {
     }
     return updated;
   }
+
+  /** Replace only the assigned courts for an already-confirmed request. */
+  async reassignCourts(input: { id: string; courtIds: string[] }): Promise<CourtRequestRow> {
+    await this.db
+      .delete(tables.courtRequestCourts)
+      .where(eq(tables.courtRequestCourts.requestId, input.id));
+    await this.db
+      .insert(tables.courtRequestCourts)
+      .values(input.courtIds.map((courtId) => ({ requestId: input.id, courtId })));
+    const updated = await this.loadRequest(input.id);
+    if (!updated) {
+      throw new Error(`Reassigned court request ${input.id} vanished within its transaction`);
+    }
+    return updated;
+  }
 }
 
 /** Minutes spanned by a block (e.g. 17:30→19:00 = 90). At least one slot. */

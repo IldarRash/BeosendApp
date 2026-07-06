@@ -477,6 +477,90 @@ export const trainingScheduleSlotSchema = slotCardSchema.extend({
 });
 export type TrainingScheduleSlot = z.infer<typeof trainingScheduleSlotSchema>;
 
+// --- Training pricing tiers (admin-owned monthly pricing) ---
+export const trainingPricingTierStatus = entityStatus;
+export type TrainingPricingTierStatus = z.infer<typeof trainingPricingTierStatus>;
+
+const positiveRsd = z.number().int().positive();
+const positiveTrainingOrdinal = z.number().int().positive();
+
+export const trainingPricingTierSchema = z.object({
+  id: uuid,
+  label: z.string().min(1),
+  minTrainings: positiveTrainingOrdinal,
+  maxTrainings: positiveTrainingOrdinal.nullable(),
+  pricePerTrainingRsd: positiveRsd,
+  sortOrder: z.number().int().nonnegative(),
+  status: trainingPricingTierStatus,
+  createdAt: z.string().datetime(),
+  updatedAt: z.string().datetime()
+});
+export type TrainingPricingTier = z.infer<typeof trainingPricingTierSchema>;
+
+const replaceTrainingPricingTierRowSchema = z
+  .object({
+    label: z.string().min(1),
+    minTrainings: positiveTrainingOrdinal,
+    maxTrainings: positiveTrainingOrdinal.nullable(),
+    pricePerTrainingRsd: positiveRsd,
+    sortOrder: z.number().int().nonnegative()
+  })
+  .strict();
+export type ReplaceTrainingPricingTierRow = z.infer<typeof replaceTrainingPricingTierRowSchema>;
+
+export const replaceTrainingPricingTiersSchema = z
+  .object({
+    tiers: z.array(replaceTrainingPricingTierRowSchema).min(1)
+  })
+  .strict()
+  .superRefine((value, ctx) => {
+    let expectedMin = 1;
+    let openEndedCount = 0;
+
+    value.tiers.forEach((tier, index) => {
+      if (tier.minTrainings !== expectedMin) {
+        ctx.addIssue({
+          code: z.ZodIssueCode.custom,
+          message: index === 0 ? "first tier must start at 1" : "tiers must be contiguous",
+          path: ["tiers", index, "minTrainings"]
+        });
+      }
+
+      if (tier.maxTrainings !== null && tier.maxTrainings < tier.minTrainings) {
+        ctx.addIssue({
+          code: z.ZodIssueCode.custom,
+          message: "maxTrainings must be greater than or equal to minTrainings",
+          path: ["tiers", index, "maxTrainings"]
+        });
+      }
+
+      if (tier.maxTrainings === null) {
+        openEndedCount += 1;
+        if (index !== value.tiers.length - 1) {
+          ctx.addIssue({
+            code: z.ZodIssueCode.custom,
+            message: "only the final tier may be open-ended",
+            path: ["tiers", index, "maxTrainings"]
+          });
+        }
+      } else {
+        expectedMin = tier.maxTrainings + 1;
+      }
+    });
+
+    if (openEndedCount !== 1) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: "exactly one open-ended tier is required",
+        path: ["tiers"]
+      });
+    }
+  });
+export type ReplaceTrainingPricingTiersInput = z.infer<typeof replaceTrainingPricingTiersSchema>;
+
+export const trainingPricingTiersSchema = z.array(trainingPricingTierSchema);
+export type TrainingPricingTiers = z.infer<typeof trainingPricingTiersSchema>;
+
 // --- Bookings (3.6) ---
 export const bookingType = z.enum(["single", "group"]);
 export type BookingType = z.infer<typeof bookingType>;
@@ -492,6 +576,11 @@ export type BookingStatus = z.infer<typeof bookingStatus>;
 /** Per-booking subscription payment flag (mirrors the DB payment_status enum). */
 export const paymentStatus = z.enum(["unpaid", "paid"]);
 export type PaymentStatus = z.infer<typeof paymentStatus>;
+export const priceSnapshotSource = z.enum([
+  "training_pricing_tier",
+  "legacy_group_month_price"
+]);
+export type PriceSnapshotSource = z.infer<typeof priceSnapshotSource>;
 export const bookingSchema = z.object({
   id: uuid,
   clientId: uuid,
@@ -503,7 +592,15 @@ export const bookingSchema = z.object({
   source: bookingSource,
   paymentStatus,
   paidAt: z.string().datetime().nullable(),
-  paidBy: z.number().int().nullable()
+  paidBy: z.number().int().nullable(),
+  priceSnapshotRsd: positiveRsd.nullable(),
+  priceSnapshotSource: priceSnapshotSource.nullable(),
+  pricingTierId: uuid.nullable(),
+  pricingTierLabel: z.string().nullable(),
+  pricingTierMinTrainings: positiveTrainingOrdinal.nullable(),
+  pricingTierMaxTrainings: positiveTrainingOrdinal.nullable(),
+  bookingOrdinalInMonth: positiveTrainingOrdinal.nullable(),
+  priceSnapshotAt: z.string().datetime().nullable()
 });
 export type Booking = z.infer<typeof bookingSchema>;
 
@@ -581,17 +678,67 @@ export type GroupBookingResult = z.infer<typeof groupBookingResultSchema>;
 
 /**
  * Aggregate payment state of a monthly subscription (the set of bookings sharing
- * one groupSubscriptionId). Computed server-side over non-cancelled bookings:
- * "paid" = all paid, "unpaid" = none paid, "partial" = some paid and some not.
+ * one groupSubscriptionId). Computed server-side for payment tracking only;
+ * pricing snapshots/totals below use only booked-or-attended bookings.
  */
 export const subscriptionPaymentState = z.enum(["unpaid", "partial", "paid"]);
 export type SubscriptionPaymentState = z.infer<typeof subscriptionPaymentState>;
+export const pricingScope = z.literal("client_calendar_month_all_groups");
+export type PricingScope = z.infer<typeof pricingScope>;
+
+export const pricingCountedBookingStatus = z.enum(["booked", "attended"]);
+export type PricingCountedBookingStatus = z.infer<typeof pricingCountedBookingStatus>;
+export const pricingExcludedBookingStatus = z.enum([
+  "cancelled",
+  "no_show",
+  "waitlist",
+  "pending"
+]);
+export type PricingExcludedBookingStatus = z.infer<typeof pricingExcludedBookingStatus>;
+
+export const monthlyPricingCountContextSchema = z
+  .object({
+    clientId: uuid,
+    year: z.number().int(),
+    month: z.number().int().min(1).max(12),
+    pricingCountedBookingCount: z.number().int().nonnegative(),
+    excludedBookingCount: z.number().int().nonnegative(),
+    countedStatuses: z.tuple([z.literal("booked"), z.literal("attended")]),
+    excludedStatuses: z.tuple([
+      z.literal("cancelled"),
+      z.literal("no_show"),
+      z.literal("waitlist"),
+      z.literal("pending")
+    ]),
+    paymentStatusAffectsPricing: z.literal(false)
+  })
+  .strict();
+export type MonthlyPricingCountContext = z.infer<typeof monthlyPricingCountContextSchema>;
+
+export const subscriptionPricingBreakdownRowSchema = z
+  .object({
+    bookingId: uuid,
+    trainingId: uuid,
+    date: dateString,
+    status: bookingStatus,
+    priceSnapshotRsd: positiveRsd.nullable(),
+    priceSnapshotSource: priceSnapshotSource.nullable(),
+    pricingTierId: uuid.nullable(),
+    pricingTierLabel: z.string().nullable(),
+    pricingTierMinTrainings: positiveTrainingOrdinal.nullable(),
+    pricingTierMaxTrainings: positiveTrainingOrdinal.nullable(),
+    bookingOrdinalInMonth: positiveTrainingOrdinal.nullable(),
+    priceSnapshotAt: z.string().datetime().nullable()
+  })
+  .strict();
+export type SubscriptionPricingBreakdownRow = z.infer<
+  typeof subscriptionPricingBreakdownRowSchema
+>;
 
 /**
  * One subscription row in the admin payments view. Counts and totals are
- * server-computed over non-cancelled bookings only; `totalRsd` comes from
- * groups.priceMonthRsd (how the month was sold) and is never summed/trusted
- * client-side. group fields are null when the subscription's group is gone.
+ * server-computed from stored per-booking price snapshots for pricing-counted
+ * bookings only. Payment status affects debt tracking, never pricing ordinals.
  */
 export const subscriptionSummarySchema = z.object({
   groupSubscriptionId: uuid,
@@ -606,7 +753,11 @@ export const subscriptionSummarySchema = z.object({
   /** Active (`waiting`) waitlist dates in this batch — shown alongside the booked dates. */
   waitlistedCount: z.number().int().nonnegative(),
   totalRsd: rsd,
-  paymentState: subscriptionPaymentState
+  paymentState: subscriptionPaymentState,
+  pricingScope,
+  monthlyPricingCountContext: monthlyPricingCountContextSchema,
+  storedBookingPricesRsd: z.array(positiveRsd),
+  pricingBreakdown: z.array(subscriptionPricingBreakdownRowSchema)
 });
 export type SubscriptionSummary = z.infer<typeof subscriptionSummarySchema>;
 
@@ -618,9 +769,10 @@ export const listSubscriptionsQuerySchema = z.object({
 export type ListSubscriptionsQuery = z.infer<typeof listSubscriptionsQuerySchema>;
 
 /**
- * Body for PATCH /subscriptions/:id/paid (admin). Sets every non-cancelled
- * booking of the batch paid/unpaid in one transaction; the subscription id is the
- * path param and the acting admin (paidBy) comes from the x-telegram-id header.
+ * Body for PATCH /subscriptions/:id/paid (admin). Sets the batch payment flag in
+ * one transaction; paymentStatus does not affect pricing snapshots, ordinals, or
+ * totals. The subscription id is the path param and the acting admin (paidBy)
+ * comes from the x-telegram-id header.
  */
 export const markSubscriptionPaidSchema = z.object({ paid: z.boolean() }).strict();
 export type MarkSubscriptionPaidInput = z.infer<typeof markSubscriptionPaidSchema>;

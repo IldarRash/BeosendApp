@@ -33,6 +33,10 @@ export const bookingStatus = pgEnum("booking_status", [
   "waitlist"
 ]);
 export const paymentStatus = pgEnum("payment_status", ["unpaid", "paid"]);
+export const priceSnapshotSource = pgEnum("price_snapshot_source", [
+  "training_pricing_tier",
+  "legacy_group_month_price"
+]);
 export const waitlistStatus = pgEnum("waitlist_status", [
   "waiting",
   "notified",
@@ -235,6 +239,26 @@ export const groups = pgTable("groups", {
   status: entityStatus("status").notNull().default("active")
 });
 
+export const trainingPricingTiers = pgTable(
+  "training_pricing_tiers",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    label: text("label").notNull(),
+    minTrainings: integer("min_trainings").notNull(),
+    maxTrainings: integer("max_trainings"),
+    pricePerTrainingRsd: integer("price_per_training_rsd").notNull(),
+    sortOrder: integer("sort_order").notNull(),
+    status: entityStatus("status").notNull().default("active"),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow()
+  },
+  (table) => ({
+    minTrainingsIdx: uniqueIndex("training_pricing_tiers_min_trainings_idx").on(
+      table.minTrainings
+    )
+  })
+);
+
 export const trainings = pgTable("trainings", {
   id: uuid("id").primaryKey().defaultRandom(),
   groupId: uuid("group_id").references(() => groups.id),
@@ -297,7 +321,17 @@ export const bookings = pgTable("bookings", {
    */
   paymentStatus: paymentStatus("payment_status").notNull().default("unpaid"),
   paidAt: timestamp("paid_at", { withTimezone: true }),
-  paidBy: bigint("paid_by", { mode: "number" })
+  paidBy: bigint("paid_by", { mode: "number" }),
+  // Immutable per-booking monthly pricing snapshot. Nullable for old rows and for
+  // statuses that are not pricing-counted until accepted as booked.
+  priceSnapshotRsd: integer("price_snapshot_rsd"),
+  priceSnapshotSource: priceSnapshotSource("price_snapshot_source"),
+  pricingTierId: uuid("pricing_tier_id").references(() => trainingPricingTiers.id),
+  pricingTierLabel: text("pricing_tier_label"),
+  pricingTierMinTrainings: integer("pricing_tier_min_trainings"),
+  pricingTierMaxTrainings: integer("pricing_tier_max_trainings"),
+  bookingOrdinalInMonth: integer("booking_ordinal_in_month"),
+  priceSnapshotAt: timestamp("price_snapshot_at", { withTimezone: true })
 });
 
 export const waitlist = pgTable("waitlist", {
@@ -526,6 +560,7 @@ export const schema = {
   managers,
   clients,
   groups,
+  trainingPricingTiers,
   trainings,
   individualTrainingRequests,
   bookings,

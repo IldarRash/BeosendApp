@@ -9,6 +9,7 @@ const useFreeCourts = vi.fn();
 const useConfirmRequest = vi.fn();
 const useRejectRequest = vi.fn();
 const useCancelRequest = vi.fn();
+const useReassignRequestCourts = vi.fn();
 const useCourts = vi.fn();
 
 vi.mock("../hooks/useCourtRequests", () => ({
@@ -16,7 +17,8 @@ vi.mock("../hooks/useCourtRequests", () => ({
   useFreeCourts: (...args: unknown[]) => useFreeCourts(...args),
   useConfirmRequest: () => useConfirmRequest(),
   useRejectRequest: () => useRejectRequest(),
-  useCancelRequest: () => useCancelRequest()
+  useCancelRequest: () => useCancelRequest(),
+  useReassignRequestCourts: () => useReassignRequestCourts()
 }));
 vi.mock("../hooks/useCourts", () => ({ useCourts: () => useCourts() }));
 
@@ -146,6 +148,7 @@ beforeEach(() => {
   useConfirmRequest.mockReturnValue(idleMutation());
   useRejectRequest.mockReturnValue(idleMutation());
   useCancelRequest.mockReturnValue(idleMutation());
+  useReassignRequestCourts.mockReturnValue(idleMutation());
 });
 
 afterEach(() => {
@@ -264,14 +267,23 @@ describe("CourtRequests page", () => {
     expect(within(dialog).getByText("Корт № 6")).toBeTruthy();
 
     // The client's held courts (3, 5) are pre-checked from the free list.
-    expect((within(dialog).getByLabelText("Корт № 3") as HTMLInputElement).checked).toBe(true);
-    expect((within(dialog).getByLabelText("Корт № 5") as HTMLInputElement).checked).toBe(true);
+    const court3 = within(dialog).getByDisplayValue(
+      "44444444-4444-4444-4444-444444444444"
+    ) as HTMLInputElement;
+    const court5 = within(dialog).getByDisplayValue(
+      "55555555-5555-5555-5555-555555555555"
+    ) as HTMLInputElement;
+    const court6 = within(dialog).getByDisplayValue(
+      "77777777-7777-4777-8777-777777777777"
+    ) as HTMLInputElement;
+    expect(court3.checked).toBe(true);
+    expect(court5.checked).toBe(true);
     // Already at the count of 2 → a third option is disabled (no over-selection).
-    expect((within(dialog).getByLabelText("Корт № 6") as HTMLInputElement).disabled).toBe(true);
+    expect(court6.disabled).toBe(true);
 
     // Swap court 5 for court 6: uncheck 5 (frees a slot), then check 6.
-    fireEvent.click(within(dialog).getByLabelText("Корт № 5"));
-    fireEvent.click(within(dialog).getByLabelText("Корт № 6"));
+    fireEvent.click(court5);
+    fireEvent.click(court6);
     fireEvent.click(within(dialog).getByRole("button", { name: "Подтвердить" }));
 
     expect(mutate).toHaveBeenCalledTimes(1);
@@ -316,6 +328,82 @@ describe("CourtRequests page", () => {
     // Two of two → enabled.
     fireEvent.click(within(dialog).getByLabelText("Корт № 5"));
     expect(confirmBtn).toHaveProperty("disabled", false);
+  });
+
+  it("opens change-courts for a future confirmed request, preselects current courts, and submits the replacement set", () => {
+    const mutate = vi.fn();
+    const futureConfirmed = { ...CONFIRMED, date: "2099-06-10" };
+    useReassignRequestCourts.mockReturnValue({ ...idleMutation(), mutate });
+    useCourtRequests.mockReturnValue({
+      isPending: false,
+      isError: false,
+      error: null,
+      data: [futureConfirmed]
+    });
+    useFreeCourts.mockReturnValue({
+      isPending: false,
+      isError: false,
+      error: null,
+      data: FREE_COURTS
+    });
+    renderPage();
+
+    fireEvent.click(screen.getByRole("button", { name: "Сменить корты" }));
+
+    const dialog = screen.getByRole("dialog", { name: /Сменить корты/ });
+    const currentCourt = within(dialog).getByDisplayValue(
+      "44444444-4444-4444-4444-444444444444"
+    ) as HTMLInputElement;
+    const newCourt = within(dialog).getByDisplayValue(
+      "55555555-5555-5555-5555-555555555555"
+    ) as HTMLInputElement;
+    expect(currentCourt.checked).toBe(true);
+    expect(within(dialog).getByText("сейчас")).toBeTruthy();
+    expect(newCourt.disabled).toBe(true);
+
+    fireEvent.click(currentCourt);
+    expect(within(dialog).getByText("Выбрано 0 из 1; нужно ровно 1.")).toBeTruthy();
+    expect(within(dialog).getByRole("button", { name: "Сохранить корты" })).toHaveProperty(
+      "disabled",
+      true
+    );
+
+    fireEvent.click(newCourt);
+    fireEvent.click(within(dialog).getByRole("button", { name: "Сохранить корты" }));
+
+    expect(mutate).toHaveBeenCalledTimes(1);
+    expect(mutate.mock.calls[0][0]).toEqual({
+      id: futureConfirmed.id,
+      input: { courtIds: ["55555555-5555-5555-5555-555555555555"] }
+    });
+  });
+
+  it("shows a change-courts API error inside the dialog", () => {
+    const mutate = vi.fn((_vars, opts: { onError?: (e: Error) => void }) => {
+      opts.onError?.(new Error("That court is already taken for this time."));
+    });
+    useReassignRequestCourts.mockReturnValue({ ...idleMutation(), mutate });
+    useCourtRequests.mockReturnValue({
+      isPending: false,
+      isError: false,
+      error: null,
+      data: [{ ...CONFIRMED, date: "2099-06-10" }]
+    });
+    useFreeCourts.mockReturnValue({
+      isPending: false,
+      isError: false,
+      error: null,
+      data: FREE_COURTS
+    });
+    renderPage();
+
+    fireEvent.click(screen.getByRole("button", { name: "Сменить корты" }));
+    const dialog = screen.getByRole("dialog", { name: /Сменить корты/ });
+    fireEvent.click(within(dialog).getByRole("button", { name: "Сохранить корты" }));
+
+    expect(within(dialog).getByRole("alert").textContent).toContain(
+      "That court is already taken for this time."
+    );
   });
 
   it("surfaces a confirm conflict (409 slot filled) from the server as an error toast", () => {

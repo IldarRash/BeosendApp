@@ -13,6 +13,8 @@ export interface CourtOccupancyRow {
   trainingId?: string;
   /** Covering court-block's id, so a `training`/`block` cell can be moved to another court. */
   blockId?: string;
+  /** Stored court-block reason for admin-only load details. */
+  reason?: string;
 }
 
 /** A training on a date with no auto-block (no court reserved), joined to group/level names. */
@@ -99,6 +101,7 @@ export class CourtsRepository {
         courtId: tables.courtBlocks.courtId,
         startTime: tables.courtBlocks.startTime,
         endTime: tables.courtBlocks.endTime,
+        reason: tables.courtBlocks.reason,
         groupTrainingId: tables.courtBlocks.groupTrainingId
       })
       .from(tables.courtBlocks)
@@ -108,7 +111,8 @@ export class CourtsRepository {
       startTime: row.startTime.slice(0, 5),
       durationMinutes: minuteSpan(row.startTime, row.endTime),
       trainingId: row.groupTrainingId ?? undefined,
-      blockId: row.id
+      blockId: row.id,
+      reason: row.reason
     }));
   }
 

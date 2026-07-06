@@ -219,6 +219,66 @@ describe("CourtsService.getLoadGrid", () => {
     expect(free?.trainingId).toBeNull();
   });
 
+  it("adds stored reasons to admin block/training cells and null elsewhere", async () => {
+    const trainingId = "33333333-3333-4333-8333-333333333333";
+    const trainingBlockId = "44444444-4444-4444-8444-444444444444";
+    const manualBlockId = "55555555-5555-4555-8555-555555555555";
+    const requestId = "66666666-6666-4666-8666-666666666666";
+    const repo = {
+      findActive: vi.fn().mockResolvedValue([
+        { id: courtA, number: 1, status: "active" },
+        { id: courtB, number: 2, status: "active" }
+      ]),
+      confirmedCourtOccupancyForDate: vi
+        .fn()
+        .mockResolvedValue([{ courtId: courtA, startTime: "08:00", durationMinutes: 30, requestId }]),
+      heldCourtOccupancyForDate: vi.fn().mockResolvedValue([]),
+      blocksByCourtForDate: vi.fn().mockResolvedValue([
+        {
+          courtId: courtA,
+          startTime: "10:00",
+          durationMinutes: 60,
+          trainingId,
+          blockId: trainingBlockId,
+          reason: "Generated group block"
+        },
+        {
+          courtId: courtB,
+          startTime: "11:00",
+          durationMinutes: 30,
+          blockId: manualBlockId,
+          reason: "Maintenance"
+        }
+      ]),
+      unassignedTrainingsForDate: vi.fn().mockResolvedValue([])
+    } as unknown as CourtsRepository;
+    const service = new CourtsService(adminEnv, repo, settings());
+
+    const grid = await service.getLoadGrid(111, "2026-06-10");
+    const rowA = grid.rows.find((r) => r.courtId === courtA);
+    const rowB = grid.rows.find((r) => r.courtId === courtB);
+
+    expect(rowA?.cells.find((c) => c.startTime === "10:00")).toMatchObject({
+      state: "training",
+      blockId: trainingBlockId,
+      reason: "Generated group block"
+    });
+    expect(rowB?.cells.find((c) => c.startTime === "11:00")).toMatchObject({
+      state: "block",
+      blockId: manualBlockId,
+      reason: "Maintenance"
+    });
+    expect(rowA?.cells.find((c) => c.startTime === "08:00")).toMatchObject({
+      state: "request",
+      requestId,
+      reason: null
+    });
+    expect(rowA?.cells.find((c) => c.startTime === "12:00")).toMatchObject({
+      state: "free",
+      reason: null
+    });
+  });
+
   it("maps a still-pending hold (client picked the court) to a `hold` cell carrying its requestId", async () => {
     const heldRequestId = "55555555-5555-4555-8555-555555555555";
     const repo = {
