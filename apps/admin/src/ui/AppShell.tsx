@@ -35,6 +35,7 @@ export function AppShell({ children }: AppShellProps): JSX.Element {
   const location = useLocation();
   const [navOpen, setNavOpen] = useState(false);
   const burgerRef = useRef<HTMLButtonElement>(null);
+  const currentItem = findCurrentNavItem(location.pathname);
 
   // Pending court-requests count for the nav badge. Reuses the moderation queue
   // read (server owns the list); the badge only renders once a count is in hand.
@@ -84,6 +85,14 @@ export function AppShell({ children }: AppShellProps): JSX.Element {
         <span className="brand__mark">
           Beo<em>Sand</em>
         </span>
+        {pendingCount !== null && pendingCount > 0 ? (
+          <span
+            className="topbar__badge"
+            aria-label={t("admin.shell.pendingCourtRequestsBadge", { count: pendingCount })}
+          >
+            {pendingCount}
+          </span>
+        ) : null}
       </header>
       <button
         type="button"
@@ -99,6 +108,11 @@ export function AppShell({ children }: AppShellProps): JSX.Element {
           </span>
         </div>
         <span className="brand__sub">{t("admin.brand.sub")}</span>
+        <div className="sidebar__status" aria-label={t("admin.shell.statusLabel")}>
+          <span className="dot dot--ok" aria-hidden="true" />
+          <span>{t("admin.shell.statusText")}</span>
+          {pendingCount !== null && pendingCount > 0 ? <strong>{pendingCount}</strong> : null}
+        </div>
         <nav className="nav" aria-label={t("admin.nav.sectionsLabel")}>
           {NAV_GROUPS.map(({ group, labelKey }) => (
             <NavSection
@@ -133,8 +147,25 @@ export function AppShell({ children }: AppShellProps): JSX.Element {
           </Button>
         </div>
       </aside>
-      <main className="main">{children}</main>
+      <main className="main">
+        <div className="shell-topline" aria-label={t("admin.shell.currentSectionLabel")}>
+          <span className="shell-topline__label">{t("admin.shell.workspaceLabel")}</span>
+          <strong>{currentItem ? t(currentItem.labelKey) : t("admin.nav.overview")}</strong>
+          {pendingCount !== null && pendingCount > 0 ? (
+            <span className="shell-topline__badge">
+              {t("admin.shell.pendingCourtRequestsBadge", { count: pendingCount })}
+            </span>
+          ) : null}
+        </div>
+        {children}
+      </main>
     </div>
+  );
+}
+
+function findCurrentNavItem(pathname: string): NavItem | undefined {
+  return NAV_ITEMS.find((item) =>
+    item.path === "/" ? pathname === "/" : pathname === item.path || pathname.startsWith(`${item.path}/`)
   );
 }
 

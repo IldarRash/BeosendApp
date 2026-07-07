@@ -34,9 +34,11 @@ export function Levels(): JSX.Element {
       key: "actions",
       header: t("admin.levels.colActions"),
       render: (row) => (
-        <Button variant="ghost" onClick={() => setEditor({ mode: "edit", level: row })}>
-          {t("admin.action.edit")}
-        </Button>
+        <div className="row-actions">
+          <Button variant="ghost" onClick={() => setEditor({ mode: "edit", level: row })}>
+            {t("admin.action.edit")}
+          </Button>
+        </div>
       )
     }
   ];
@@ -51,21 +53,28 @@ export function Levels(): JSX.Element {
         <Button onClick={() => setEditor({ mode: "create" })}>{t("admin.levels.new")}</Button>
       </header>
 
-      {levels.isLoading ? (
-        <p className="state state--loading">{t("admin.state.loading")}</p>
-      ) : levels.isError ? (
-        <p className="state state--error" role="alert">
-          {t("admin.levels.loadError", { message: levels.error.message })}
-        </p>
-      ) : (
-        <DataTable
-          caption={t("admin.levels.caption")}
-          columns={columns}
-          rows={levels.data ?? []}
-          rowKey={(row) => row.id}
-          emptyLabel={t("admin.levels.empty")}
-        />
-      )}
+      <div className="workspace">
+        <div className="workspace__bar">
+          <span className="card__label">{t("admin.levels.caption")}</span>
+        </div>
+        <div className="workspace__body">
+          {levels.isLoading ? (
+            <p className="state state--loading">{t("admin.state.loading")}</p>
+          ) : levels.isError ? (
+            <p className="state state--error" role="alert">
+              {t("admin.levels.loadError", { message: levels.error.message })}
+            </p>
+          ) : (
+            <DataTable
+              caption={t("admin.levels.caption")}
+              columns={columns}
+              rows={levels.data ?? []}
+              rowKey={(row) => row.id}
+              emptyLabel={t("admin.levels.empty")}
+            />
+          )}
+        </div>
+      </div>
 
       {editor ? <LevelEditor state={editor} onClose={() => setEditor(null)} /> : null}
     </AppShell>

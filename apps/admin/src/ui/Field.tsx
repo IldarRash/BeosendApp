@@ -16,7 +16,7 @@ function FieldShell({ label, htmlFor, error, hint, children }: FieldShellProps):
       ? `${htmlFor}-hint`
       : undefined;
   return (
-    <div className="field">
+    <div className={error ? "field field--error" : "field"}>
       <label className="field__label" htmlFor={htmlFor}>
         {label}
       </label>

@@ -77,15 +77,39 @@ export function Login(): JSX.Element {
 
   return (
     <div className="login">
-      <div className="login__card">
+      <section className="login__rail" aria-label={t("admin.login.railLabel")}>
         <div className="brand">
           <span className="brand__mark">
             Beo<em>Sand</em>
           </span>
         </div>
         <span className="brand__sub">{t("admin.brand.sub")}</span>
-        <h1 className="login__title">{t("admin.login.title")}</h1>
-        <p className="login__lead">{t("admin.login.lead")}</p>
+        <div className="login__rail-copy">
+          <span className="login__kicker">{t("admin.login.railKicker")}</span>
+          <h1 className="login__title">{t("admin.login.title")}</h1>
+          <p className="login__lead">{t("admin.login.lead")}</p>
+        </div>
+        <dl className="login__facts">
+          <div>
+            <dt>{t("admin.login.factApiTitle")}</dt>
+            <dd>{t("admin.login.factApiBody")}</dd>
+          </div>
+          <div>
+            <dt>{t("admin.login.factGateTitle")}</dt>
+            <dd>{t("admin.login.factGateBody")}</dd>
+          </div>
+          <div>
+            <dt>{t("admin.login.factUiTitle")}</dt>
+            <dd>{t("admin.login.factUiBody")}</dd>
+          </div>
+        </dl>
+      </section>
+      <section className="login__panel" aria-labelledby="login-panel-title">
+        <div className="login__panel-head">
+          <span className="login__kicker">{t("admin.login.panelKicker")}</span>
+          <h2 id="login-panel-title">{t("admin.login.panelTitle")}</h2>
+          <p>{t("admin.login.panelLead")}</p>
+        </div>
         {botUsername ? (
           <div
             className="login__widget"
@@ -98,7 +122,7 @@ export function Login(): JSX.Element {
           </p>
         )}
         {login.isPending ? <p className="login__status">{t("admin.login.checking")}</p> : null}
-      </div>
+      </section>
     </div>
   );
 }

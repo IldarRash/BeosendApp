@@ -73,9 +73,11 @@ export function Managers(): JSX.Element {
       key: "actions",
       header: t("admin.managers.colActions"),
       render: (row) => (
-        <Button variant="ghost" onClick={() => setEditor({ mode: "edit", manager: row })}>
-          {t("admin.action.edit")}
-        </Button>
+        <div className="row-actions">
+          <Button variant="ghost" onClick={() => setEditor({ mode: "edit", manager: row })}>
+            {t("admin.action.edit")}
+          </Button>
+        </div>
       )
     }
   ];
@@ -92,21 +94,28 @@ export function Managers(): JSX.Element {
 
       <ManagerContactPanel />
 
-      {managers.isLoading ? (
-        <p className="state state--loading">{t("admin.managers.loading")}</p>
-      ) : managers.isError ? (
-        <p className="state state--error" role="alert">
-          {t("admin.managers.loadError", { message: managers.error.message })}
-        </p>
-      ) : (
-        <DataTable
-          caption={t("admin.managers.caption")}
-          columns={columns}
-          rows={managers.data ?? []}
-          rowKey={(row) => row.id}
-          emptyLabel={t("admin.managers.empty")}
-        />
-      )}
+      <div className="workspace">
+        <div className="workspace__bar">
+          <span className="card__label">{t("admin.managers.caption")}</span>
+        </div>
+        <div className="workspace__body">
+          {managers.isLoading ? (
+            <p className="state state--loading">{t("admin.managers.loading")}</p>
+          ) : managers.isError ? (
+            <p className="state state--error" role="alert">
+              {t("admin.managers.loadError", { message: managers.error.message })}
+            </p>
+          ) : (
+            <DataTable
+              caption={t("admin.managers.caption")}
+              columns={columns}
+              rows={managers.data ?? []}
+              rowKey={(row) => row.id}
+              emptyLabel={t("admin.managers.empty")}
+            />
+          )}
+        </div>
+      </div>
 
       {editor ? <ManagerEditor state={editor} onClose={() => setEditor(null)} /> : null}
     </AppShell>
@@ -150,8 +159,8 @@ function ManagerContactPanel(): JSX.Element {
   const error = validationError ?? (update.error instanceof Error ? update.error.message : null);
 
   return (
-    <section className="stack" aria-labelledby="manager-contact-title">
-      <div className="section-head">
+    <section className="workspace" aria-labelledby="manager-contact-title">
+      <div className="workspace__bar">
         <div>
           <h2 id="manager-contact-title">{t("admin.managerContact.title")}</h2>
           <p className="field__hint">{t("admin.managerContact.lead")}</p>
@@ -163,49 +172,51 @@ function ManagerContactPanel(): JSX.Element {
         ) : null}
       </div>
 
-      {contact.isLoading ? (
-        <p className="state state--loading">{t("admin.managerContact.loading")}</p>
-      ) : contact.isError ? (
-        <p className="state state--error" role="alert">
-          {t("admin.managerContact.loadError", { message: contact.error.message })}
-        </p>
-      ) : (
-        <form className="form" onSubmit={handleSubmit} aria-label={t("admin.managerContact.title")}>
-          <TextField
-            label={t("admin.managerContact.contactLabel")}
-            value={draft}
-            onChange={(event) => {
-              setDraft(event.target.value);
-              setValidationError(null);
-              setSaved(false);
-            }}
-            autoComplete="off"
-            required
-            maxLength={120}
-            hint={t("admin.managerContact.contactHint")}
-          />
-          <div className="cluster">
-            <Button type="submit" disabled={update.isPending}>
-              {update.isPending ? t("admin.action.saving") : t("admin.action.save")}
-            </Button>
-            {contact.data?.url ? (
-              <span className="tag tag--info">{t("admin.managerContact.linkReady")}</span>
-            ) : (
-              <span className="tag tag--muted">{t("admin.managerContact.plainText")}</span>
-            )}
-          </div>
-          {saved ? (
-            <p className="state" role="status">
-              {t("admin.managerContact.savedInline")}
-            </p>
-          ) : null}
-          {error ? (
-            <p className="state state--error" role="alert">
-              {error}
-            </p>
-          ) : null}
-        </form>
-      )}
+      <div className="workspace__body">
+        {contact.isLoading ? (
+          <p className="state state--loading">{t("admin.managerContact.loading")}</p>
+        ) : contact.isError ? (
+          <p className="state state--error" role="alert">
+            {t("admin.managerContact.loadError", { message: contact.error.message })}
+          </p>
+        ) : (
+          <form className="form" onSubmit={handleSubmit} aria-label={t("admin.managerContact.title")}>
+            <TextField
+              label={t("admin.managerContact.contactLabel")}
+              value={draft}
+              onChange={(event) => {
+                setDraft(event.target.value);
+                setValidationError(null);
+                setSaved(false);
+              }}
+              autoComplete="off"
+              required
+              maxLength={120}
+              hint={t("admin.managerContact.contactHint")}
+            />
+            <div className="cluster">
+              <Button type="submit" disabled={update.isPending}>
+                {update.isPending ? t("admin.action.saving") : t("admin.action.save")}
+              </Button>
+              {contact.data?.url ? (
+                <span className="tag tag--info">{t("admin.managerContact.linkReady")}</span>
+              ) : (
+                <span className="tag tag--muted">{t("admin.managerContact.plainText")}</span>
+              )}
+            </div>
+            {saved ? (
+              <p className="state" role="status">
+                {t("admin.managerContact.savedInline")}
+              </p>
+            ) : null}
+            {error ? (
+              <p className="state state--error" role="alert">
+                {error}
+              </p>
+            ) : null}
+          </form>
+        )}
+      </div>
     </section>
   );
 }

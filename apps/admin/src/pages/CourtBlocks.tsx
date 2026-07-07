@@ -152,7 +152,7 @@ export function CourtBlocks(): JSX.Element {
       key: "actions",
       header: t("admin.courtBlocks.colActions"),
       render: (b) => (
-        <div style={{ display: "flex", gap: 8 }}>
+        <div className="row-actions">
           {b.groupTrainingId ? (
             <Button variant="ghost" onClick={() => setReassignTarget(b)}>
               {t("admin.courtBlocks.changeCourt")}
@@ -178,69 +178,76 @@ export function CourtBlocks(): JSX.Element {
         </Button>
       </header>
 
-      <div className="stack">
-        <form
-          aria-label={t("admin.courtBlocks.rangeLabel")}
-          onSubmit={(e) => e.preventDefault()}
-          className="cluster"
-        >
-          <TextField
-            label={t("admin.courtBlocks.startDate")}
-            type="date"
-            value={startDate}
-            onChange={(e) => setStartDate(e.target.value)}
-          />
-          <div className="field">
-            <span className="field__label" id="court-blocks-range">
-              {t("admin.courtBlocks.rangeLabel")}
-            </span>
-            <div className="day-picker" role="group" aria-labelledby="court-blocks-range">
-              {RANGE_PRESETS.map((days) => {
-                const isOn = preset === days;
-                return (
-                  <button
-                    key={days}
-                    type="button"
-                    className={
-                      isOn
-                        ? "day-picker__day day-picker__day--wide day-picker__day--on"
-                        : "day-picker__day day-picker__day--wide"
-                    }
-                    aria-pressed={isOn}
-                    onClick={() => setPreset(days)}
-                  >
-                    {t(`admin.courtBlocks.rangeDays.${days}`)}
-                  </button>
-                );
-              })}
+      <div className="workspace">
+        <div className="workspace__bar">
+          <span className="card__label">{t("admin.courtBlocks.rangeLabel")}</span>
+        </div>
+        <div className="workspace__body">
+          <form
+            aria-label={t("admin.courtBlocks.rangeLabel")}
+            onSubmit={(e) => e.preventDefault()}
+            className="filter-toolbar"
+          >
+            <TextField
+              label={t("admin.courtBlocks.startDate")}
+              type="date"
+              value={startDate}
+              onChange={(e) => setStartDate(e.target.value)}
+            />
+            <div className="field">
+              <span className="field__label" id="court-blocks-range">
+                {t("admin.courtBlocks.rangeLabel")}
+              </span>
+              <div className="day-picker" role="group" aria-labelledby="court-blocks-range">
+                {RANGE_PRESETS.map((days) => {
+                  const isOn = preset === days;
+                  return (
+                    <button
+                      key={days}
+                      type="button"
+                      className={
+                        isOn
+                          ? "day-picker__day day-picker__day--wide day-picker__day--on"
+                          : "day-picker__day day-picker__day--wide"
+                      }
+                      aria-pressed={isOn}
+                      onClick={() => setPreset(days)}
+                    >
+                      {t(`admin.courtBlocks.rangeDays.${days}`)}
+                    </button>
+                  );
+                })}
+              </div>
             </div>
-          </div>
-        </form>
+          </form>
 
-        {startDate === "" || range === null ? (
-          <p className="state">{t("admin.courtBlocks.pickDate")}</p>
-        ) : blocks.isPending ? (
-          <p className="state">{t("admin.courtBlocks.loading")}</p>
-        ) : blocks.isError ? (
-          <p className="state state--error" role="alert">
-            {errorText(blocks.error, t)}
-          </p>
-        ) : grouped.length === 0 ? (
-          <p className="state">{t("admin.courtBlocks.emptyRange")}</p>
-        ) : (
-          grouped.map((day) => (
-            <section key={day.date} className="stack" aria-label={day.date}>
-              <h2 className="section-head">{formatDayMonth(day.date)}</h2>
-              <DataTable
-                caption={t("admin.courtBlocks.captionDay", { date: formatDayMonth(day.date) })}
-                columns={columns}
-                rows={day.rows}
-                rowKey={(b) => b.id}
-                emptyLabel={t("admin.courtBlocks.empty")}
-              />
-            </section>
-          ))
-        )}
+          {startDate === "" || range === null ? (
+            <p className="state">{t("admin.courtBlocks.pickDate")}</p>
+          ) : blocks.isPending ? (
+            <p className="state">{t("admin.courtBlocks.loading")}</p>
+          ) : blocks.isError ? (
+            <p className="state state--error" role="alert">
+              {errorText(blocks.error, t)}
+            </p>
+          ) : grouped.length === 0 ? (
+            <p className="state">{t("admin.courtBlocks.emptyRange")}</p>
+          ) : (
+            <div className="stack">
+              {grouped.map((day) => (
+                <section key={day.date} className="stack" aria-label={day.date}>
+                  <h2 className="section-head">{formatDayMonth(day.date)}</h2>
+                  <DataTable
+                    caption={t("admin.courtBlocks.captionDay", { date: formatDayMonth(day.date) })}
+                    columns={columns}
+                    rows={day.rows}
+                    rowKey={(b) => b.id}
+                    emptyLabel={t("admin.courtBlocks.empty")}
+                  />
+                </section>
+              ))}
+            </div>
+          )}
+        </div>
       </div>
 
       {creating ? (

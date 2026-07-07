@@ -141,7 +141,7 @@ export function Clients(): JSX.Element {
       key: "actions",
       header: "",
       render: (c) => (
-        <div style={{ display: "flex", gap: "8px", justifyContent: "flex-end" }}>
+        <div className="row-actions">
           <Button
             variant="ghost"
             onClick={() => setBonusClient(c)}
@@ -177,7 +177,8 @@ export function Clients(): JSX.Element {
       </header>
 
       <div className="stack">
-        <section className="stack" aria-labelledby="clients-list-heading">
+        <section className="workspace" aria-labelledby="clients-list-heading">
+          <div className="workspace__bar">
           <h2 id="clients-list-heading">{t("admin.clients.listHeading")}</h2>
           <div className="cluster">
             <TextField
@@ -195,7 +196,9 @@ export function Clients(): JSX.Element {
               options={statusOptions}
             />
           </div>
+          </div>
 
+          <div className="workspace__body">
           {clients.isPending ? (
             <p className="state state--loading">{t("admin.clients.loading")}</p>
           ) : clients.isError ? (
@@ -211,6 +214,7 @@ export function Clients(): JSX.Element {
               emptyLabel={t("admin.clients.empty")}
             />
           )}
+          </div>
         </section>
 
         <OnboardForm levels={levels.data ?? []} levelsLoading={levels.isLoading} />
@@ -398,9 +402,12 @@ function OnboardForm({ levels, levelsLoading }: OnboardFormProps): JSX.Element {
   }
 
   return (
-    <section className="stack" aria-labelledby="onboard-heading">
+    <section className="workspace" aria-labelledby="onboard-heading">
+      <div className="workspace__bar">
       <h2 id="onboard-heading">{t("admin.clients.onboardHeading")}</h2>
       <p className="state state--loading">{t("admin.clients.onboardLead")}</p>
+      </div>
+      <div className="workspace__body">
       <form className="form" onSubmit={handleSubmit}>
         <NumberField
           label={t("admin.field.telegramId")}
@@ -441,6 +448,7 @@ function OnboardForm({ levels, levelsLoading }: OnboardFormProps): JSX.Element {
           </Button>
         </div>
       </form>
+      </div>
     </section>
   );
 }

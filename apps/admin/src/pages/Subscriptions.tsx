@@ -170,7 +170,7 @@ export function Subscriptions(): JSX.Element {
       header: t("admin.subscriptions.colDates"),
       numeric: true,
       render: (s) => (
-        <span className="cluster" style={{ justifyContent: "flex-end", gap: 8 }}>
+        <span className="row-actions">
           {`${s.paidCount}/${s.dateCount}`}
           {s.waitlistedCount > 0 ? (
             <span className="tag tag--info">
@@ -213,6 +213,7 @@ export function Subscriptions(): JSX.Element {
       key: "actions",
       header: t("admin.subscriptions.colActions"),
       render: (s) => (
+        <div className="row-actions">
         <Button
           variant={s.paymentState === "paid" ? "ghost" : "primary"}
           onClick={() => setPending(s)}
@@ -221,6 +222,7 @@ export function Subscriptions(): JSX.Element {
             ? t("admin.subscriptions.markUnpaid")
             : t("admin.subscriptions.markPaid")}
         </Button>
+        </div>
       )
     }
   ];
@@ -234,8 +236,8 @@ export function Subscriptions(): JSX.Element {
         </div>
       </header>
 
-      <div className="stack">
-        <div className="cluster">
+      <section className="workspace" aria-label={t("admin.subscriptions.title")}>
+        <div className="workspace__bar">
           <SelectField
             label={t("admin.subscriptions.filterLabel")}
             value={stateFilter}
@@ -244,6 +246,7 @@ export function Subscriptions(): JSX.Element {
           />
         </div>
 
+        <div className="workspace__body stack">
         <PricingTierEditor
           tiers={pricingTiers.data}
           loading={pricingTiers.isPending}
@@ -267,7 +270,8 @@ export function Subscriptions(): JSX.Element {
             emptyLabel={t("admin.subscriptions.empty")}
           />
         )}
-      </div>
+        </div>
+      </section>
 
       <Modal
         open={pending !== null}

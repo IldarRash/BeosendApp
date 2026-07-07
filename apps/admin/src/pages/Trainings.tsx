@@ -324,7 +324,7 @@ export function Trainings(): JSX.Element {
       render: (row) => {
         const individual = isIndividualTraining(row);
         return (
-          <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+          <div className="row-actions">
             <Button variant="ghost" onClick={() => setRosterTarget(row)}>
               {t("admin.roster.open")}
             </Button>
@@ -403,7 +403,7 @@ export function Trainings(): JSX.Element {
           <h1>{t("admin.trainings.title")}</h1>
           <p>{t("admin.trainings.lead")}</p>
         </div>
-        <div style={{ display: "flex", gap: 8 }}>
+        <div className="row-actions row-actions--wrap">
           <div className="view-toggle" role="group" aria-label={t("admin.trainings.viewLabel")}>
             <button
               type="button"
@@ -435,7 +435,8 @@ export function Trainings(): JSX.Element {
       {view === "calendar" ? (
         <TrainingsCalendar />
       ) : (
-        <>
+        <section className="workspace" aria-label={t("admin.trainings.filterLabel")}>
+          <div className="workspace__bar">
           <form
             aria-label={t("admin.trainings.filterLabel")}
             onSubmit={(e) => e.preventDefault()}
@@ -501,11 +502,13 @@ export function Trainings(): JSX.Element {
                 setFilterBookedMin(null);
                 setFilterBookedMax(null);
               }}
-            >
-              {t("admin.filters.reset")}
-            </Button>
+          >
+            {t("admin.filters.reset")}
+          </Button>
           </form>
+          </div>
 
+          <div className="workspace__body">
           {query === null ? (
             <p className="state">{t("admin.trainings.pickRange")}</p>
           ) : trainings.isPending ? (
@@ -523,7 +526,8 @@ export function Trainings(): JSX.Element {
               emptyLabel={t("admin.trainings.empty")}
             />
           )}
-        </>
+          </div>
+        </section>
       )}
 
       <GenerateMonthModal

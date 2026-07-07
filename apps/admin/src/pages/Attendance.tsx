@@ -122,96 +122,108 @@ export function Attendance(): JSX.Element {
         </div>
       </header>
 
-      <div className="stack">
-        <form
-          aria-label={t("admin.attendance.filterLabel")}
-          onSubmit={(e) => e.preventDefault()}
-          className="cluster"
-        >
-          <TextField
-            label={t("admin.field.fromDate")}
-            type="date"
-            value={from}
-            onChange={(e) => setFrom(e.target.value)}
-          />
-          <TextField
-            label={t("admin.field.toDate")}
-            type="date"
-            value={to}
-            onChange={(e) => setTo(e.target.value)}
-          />
-        </form>
-
-        {query === null ? (
-          <p className="state">{t("admin.attendance.pickRange")}</p>
-        ) : trainings.isPending ? (
-          <p className="state">{t("admin.attendance.loading")}</p>
-        ) : trainings.isError ? (
-          <p className="state state--error" role="alert">
-            {errorText(trainings.error, t)}
-          </p>
-        ) : (
-          <DataTable
-            caption={t("admin.attendance.caption")}
-            columns={trainingColumns}
-            rows={trainings.data}
-            rowKey={(row) => row.id}
-            emptyLabel={t("admin.attendance.empty")}
-          />
-        )}
-
-        {selectedId === null ? (
-          <p className="state">{t("admin.attendance.pickTraining")}</p>
-        ) : roster.isPending ? (
-          <p className="state">{t("admin.attendance.rosterLoading")}</p>
-        ) : roster.isError ? (
-          <p className="state state--error" role="alert">
-            {errorText(roster.error, t)}
-          </p>
-        ) : (
-          <section className="stack" aria-label={t("admin.attendance.rosterLabel")}>
-            <h2>
-              {t("admin.attendance.rosterHeading", {
-                date: roster.data.date,
-                start: roster.data.startTime,
-                end: roster.data.endTime,
-                level: roster.data.levelName
-              })}
-            </h2>
-            {isFuture ? (
-              <p className="state" role="note">
-                {t("admin.attendance.futureNote")}
-              </p>
-            ) : null}
-            <RosterList
-              participants={roster.data.participants}
-              t={t}
-              caption={t("admin.attendance.rosterCaption")}
-              emptyLabel={t("admin.attendance.rosterEmpty")}
-              actions={{
-                header: t("admin.attendance.colMark"),
-                render: (p) => (
-                  <div className="cluster">
-                    <Button
-                      variant="ghost"
-                      disabled={isFuture || mark.isPending || p.bookingStatus === "attended"}
-                      onClick={() => markBooking(p, "attended")}
-                    >
-                      {t("admin.attendance.markAttended")}
-                    </Button>
-                    <Button
-                      variant="ghost"
-                      disabled={isFuture || mark.isPending || p.bookingStatus === "no_show"}
-                      onClick={() => markBooking(p, "no_show")}
-                    >
-                      {t("admin.attendance.markNoShow")}
-                    </Button>
-                  </div>
-                )
-              }}
+      <div className="workspace">
+        <div className="workspace__bar">
+          <span className="card__label">{t("admin.attendance.caption")}</span>
+        </div>
+        <div className="workspace__body">
+          <form
+            aria-label={t("admin.attendance.filterLabel")}
+            onSubmit={(e) => e.preventDefault()}
+            className="filter-toolbar"
+          >
+            <TextField
+              label={t("admin.field.fromDate")}
+              type="date"
+              value={from}
+              onChange={(e) => setFrom(e.target.value)}
             />
-          </section>
-        )}
+            <TextField
+              label={t("admin.field.toDate")}
+              type="date"
+              value={to}
+              onChange={(e) => setTo(e.target.value)}
+            />
+          </form>
+
+          {query === null ? (
+            <p className="state">{t("admin.attendance.pickRange")}</p>
+          ) : trainings.isPending ? (
+            <p className="state">{t("admin.attendance.loading")}</p>
+          ) : trainings.isError ? (
+            <p className="state state--error" role="alert">
+              {errorText(trainings.error, t)}
+            </p>
+          ) : (
+            <DataTable
+              caption={t("admin.attendance.caption")}
+              columns={trainingColumns}
+              rows={trainings.data}
+              rowKey={(row) => row.id}
+              emptyLabel={t("admin.attendance.empty")}
+            />
+          )}
+        </div>
+      </div>
+
+      <div className="workspace">
+        <div className="workspace__bar">
+          <span className="card__label">{t("admin.attendance.rosterLabel")}</span>
+        </div>
+        <div className="workspace__body">
+          {selectedId === null ? (
+            <p className="state">{t("admin.attendance.pickTraining")}</p>
+          ) : roster.isPending ? (
+            <p className="state">{t("admin.attendance.rosterLoading")}</p>
+          ) : roster.isError ? (
+            <p className="state state--error" role="alert">
+              {errorText(roster.error, t)}
+            </p>
+          ) : (
+            <section className="stack" aria-label={t("admin.attendance.rosterLabel")}>
+              <h2>
+                {t("admin.attendance.rosterHeading", {
+                  date: roster.data.date,
+                  start: roster.data.startTime,
+                  end: roster.data.endTime,
+                  level: roster.data.levelName
+                })}
+              </h2>
+              {isFuture ? (
+                <p className="state" role="note">
+                  {t("admin.attendance.futureNote")}
+                </p>
+              ) : null}
+              <RosterList
+                participants={roster.data.participants}
+                t={t}
+                caption={t("admin.attendance.rosterCaption")}
+                emptyLabel={t("admin.attendance.rosterEmpty")}
+                actions={{
+                  header: t("admin.attendance.colMark"),
+                  render: (p) => (
+                    <div className="row-actions">
+                      <Button
+                        variant="ghost"
+                        disabled={isFuture || mark.isPending || p.bookingStatus === "attended"}
+                        onClick={() => markBooking(p, "attended")}
+                      >
+                        {t("admin.attendance.markAttended")}
+                      </Button>
+                      <Button
+                        variant="ghost"
+                        disabled={isFuture || mark.isPending || p.bookingStatus === "no_show"}
+                        onClick={() => markBooking(p, "no_show")}
+                      >
+                        {t("admin.attendance.markNoShow")}
+                      </Button>
+                    </div>
+                  )
+                }}
+              />
+            </section>
+          )}
+        </div>
       </div>
     </AppShell>
   );

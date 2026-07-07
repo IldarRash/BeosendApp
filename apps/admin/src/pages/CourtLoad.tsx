@@ -278,7 +278,8 @@ export function CourtLoad(): JSX.Element {
         </div>
       </header>
 
-      <div className="stack">
+      <section className="workspace" aria-label={t("admin.courtLoad.toolbarLabel")}>
+        <div className="workspace__bar">
         <div className="toolbar" role="group" aria-label={t("admin.courtLoad.toolbarLabel")}>
           <form
             aria-label={t("admin.courtLoad.dateLabel")}
@@ -302,7 +303,9 @@ export function CourtLoad(): JSX.Element {
             ))}
           </ul>
         </div>
+        </div>
 
+        <div className="workspace__body stack">
         <WorkingHoursPanel
           date={date}
           year={year}
@@ -359,7 +362,8 @@ export function CourtLoad(): JSX.Element {
             t={t}
           />
         ) : null}
-      </div>
+        </div>
+      </section>
 
       <RequestDetailModal requestId={openRequestId} onClose={() => setOpenRequestId(null)} t={t} />
 

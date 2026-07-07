@@ -40,32 +40,39 @@ export function NotificationTemplates(): JSX.Element {
         </div>
       </header>
 
-      <div className="stack">
-        <div
-          role="tablist"
-          aria-label={t("admin.notificationTemplates.localeLabel")}
-          className="tabs"
-        >
-          {LOCALES.map((value) => {
-            const selected = value === locale;
-            return (
-              <button
-                key={value}
-                type="button"
-                role="tab"
-                id={`tpl-locale-${value}`}
-                aria-selected={selected}
-                aria-controls="tpl-panel"
-                className={selected ? "tab tab--active" : "tab"}
-                onClick={() => setLocale(value)}
-              >
-                {localeLabel[value]}
-              </button>
-            );
-          })}
+      <div className="workspace">
+        <div className="workspace__bar">
+          <div
+            role="tablist"
+            aria-label={t("admin.notificationTemplates.localeLabel")}
+            className="tabs"
+          >
+            {LOCALES.map((value) => {
+              const selected = value === locale;
+              return (
+                <button
+                  key={value}
+                  type="button"
+                  role="tab"
+                  id={`tpl-locale-${value}`}
+                  aria-selected={selected}
+                  aria-controls="tpl-panel"
+                  className={selected ? "tab tab--active" : "tab"}
+                  onClick={() => setLocale(value)}
+                >
+                  {localeLabel[value]}
+                </button>
+              );
+            })}
+          </div>
         </div>
 
-        <div id="tpl-panel" role="tabpanel" aria-labelledby={`tpl-locale-${locale}`}>
+        <div
+          id="tpl-panel"
+          role="tabpanel"
+          aria-labelledby={`tpl-locale-${locale}`}
+          className="workspace__body"
+        >
           {templates.isLoading ? (
             <p className="state state--loading">{t("admin.notificationTemplates.loading")}</p>
           ) : templates.isError ? (
@@ -282,7 +289,7 @@ function TemplateCard({ template, locale }: TemplateCardProps): JSX.Element {
         </p>
       ) : null}
 
-      <div className="tpl-card__actions">
+      <div className="row-actions">
         {template.isOverridden ? (
           <Button
             variant="ghost"

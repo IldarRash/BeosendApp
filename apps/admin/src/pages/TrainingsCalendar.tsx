@@ -175,7 +175,8 @@ export function TrainingsCalendar(): JSX.Element {
   const monthName = t(`admin.trainings.month.${month}`);
 
   return (
-    <div className="stack">
+    <section className="workspace" aria-label={t("admin.calendar.gridLabel", { month: monthName, year })}>
+      <div className="workspace__bar">
       <div className="toolbar" role="group" aria-label={t("admin.calendar.toolbarLabel")}>
         <div className="cal-nav">
           <Button
@@ -232,7 +233,9 @@ export function TrainingsCalendar(): JSX.Element {
           </label>
         </div>
       </div>
+      </div>
 
+      <div className="workspace__body stack">
       {calendar.isError ? (
         <p className="state state--error" role="alert">
           {errorText(calendar.error, t)}
@@ -297,7 +300,8 @@ export function TrainingsCalendar(): JSX.Element {
       {calendar.isPending ? <p className="state">{t("admin.trainings.loading")}</p> : null}
 
       <TrainingDetailModal id={openId} onClose={() => setOpenId(null)} t={t} />
-    </div>
+      </div>
+    </section>
   );
 }
 

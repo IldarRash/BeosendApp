@@ -33,6 +33,11 @@ export const adminEn: Record<string, string> = {
   // ── Brand / shell ───────────────────────────────────────────────────────
   "admin.brand.sub": "Admin console",
   "admin.shell.logout": "Log out",
+  "admin.shell.statusLabel": "Workspace status",
+  "admin.shell.statusText": "API gate",
+  "admin.shell.currentSectionLabel": "Current section",
+  "admin.shell.workspaceLabel": "Workspace",
+  "admin.shell.pendingCourtRequestsBadge": "Court requests: {count}",
 
   // ── Language switch ───────────────────────────────────────────────────────
   "admin.lang.label": "Interface language",
@@ -63,6 +68,17 @@ export const adminEn: Record<string, string> = {
   // ── Login ─────────────────────────────────────────────────────────────────
   "admin.login.title": "Administrator sign-in",
   "admin.login.lead": "Sign in via Telegram. Only school administrators have access to the console.",
+  "admin.login.railLabel": "BeoSand admin",
+  "admin.login.railKicker": "Dispatch desk",
+  "admin.login.factApiTitle": "API",
+  "admin.login.factApiBody": "Telegram HMAC is verified by the server",
+  "admin.login.factGateTitle": "Gate",
+  "admin.login.factGateBody": "Access is only for the admin role",
+  "admin.login.factUiTitle": "UI",
+  "admin.login.factUiBody": "The console does not compute prices or seats",
+  "admin.login.panelKicker": "Telegram sign-in",
+  "admin.login.panelTitle": "Open workspace",
+  "admin.login.panelLead": "The widget passes the payload to the API; the console opens only after server verification.",
   "admin.login.widgetLabel": "Telegram sign-in button",
   "admin.login.noBotUsername": "VITE_TELEGRAM_BOT_USERNAME is not set — the sign-in button is unavailable.",
   "admin.login.checking": "Checking access…",

@@ -127,7 +127,8 @@ export function Broadcasts(): JSX.Element {
         </div>
       </header>
 
-      <div className="stack">
+      <section className="workspace" aria-label={t("admin.broadcasts.paramsLabel")}>
+        <div className="workspace__bar">
         <form className="form" aria-label={t("admin.broadcasts.paramsLabel")}>
           <SelectField
             label={t("admin.broadcasts.fieldType")}
@@ -182,7 +183,9 @@ export function Broadcasts(): JSX.Element {
             ) : null}
           </div>
         </form>
+        </div>
 
+        <div className="workspace__body stack">
         <BroadcastPreviewPanel
           isLoading={preview.isLoading}
           isError={preview.isError}
@@ -204,7 +207,8 @@ export function Broadcasts(): JSX.Element {
             <span className="field__hint">{t("admin.broadcasts.previewFirst")}</span>
           ) : null}
         </div>
-      </div>
+        </div>
+      </section>
     </AppShell>
   );
 }
@@ -294,7 +298,7 @@ function BroadcastPreviewPanel({
 
   return (
     <section className="stack" aria-label={t("admin.broadcasts.previewLabel")}>
-      <div className="grid">
+      <div className="metric-strip">
         <StatCard
           label={t("admin.broadcasts.cardRecipients")}
           value={preview.recipientsCount.toLocaleString("ru-RU")}

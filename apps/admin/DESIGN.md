@@ -252,3 +252,63 @@ The admin uses tonal layering plus restrained structural shadows. Surfaces are m
 - **Don't** use bounce, elastic, or overshooting cubic-bezier motion. Motion is short, state-driven, and reduced-motion aware.
 - **Don't** use gradient text, glassmorphism, decorative grid/stripe backgrounds, oversized cards, nested cards, or marketing hero sections.
 - **Don't** hide critical action text behind icons unless the icon is familiar and has an accessible label or tooltip.
+
+## Corrective Runtime Redesign Brief
+
+This pass is a visible runtime correction, not another token-only polish. The prior direction is valid, but the
+first viewport at `/login` and the authenticated shell must change enough that an operator can tell the console
+has been redesigned before reading any page copy.
+
+### Visual Thesis
+
+**BeoSand Dispatch Desk.** Keep the warm, precise product register, but make the console feel more like a
+purpose-built operations desk: an ink-led brand rail, paper work surface, compact control bars, denser tables, and
+status-first rows. The visible delta should come from structure and contrast, not decoration.
+
+- Login becomes a split operational sign-in surface: left brand rail with BeoSand identity, API/admin trust facts,
+  and support/status microcopy; right Telegram sign-in panel. No hero, no card grid.
+- Authenticated pages use a stronger shell: ink or deep-sand sidebar, lighter paper main surface, sticky top context
+  bar on desktop/mobile, and active nav as a filled row with icon and count.
+- Page bodies move from loose `stack` sections toward workspaces: toolbar/header strip, primary table/calendar/timeline,
+  and optional inspector/editor panel. Cards are reserved for metrics, template rows, and real framed tools.
+- Mono figures become more prominent in counts, dates, RSD, IDs, times, table headers, and filter bars.
+- Coral remains the primary-action/selection accent only. Teal, amber, indigo are state labels and event colors,
+  always paired with text/glyphs.
+
+### Component Vocabulary To Apply
+
+Use the existing runtime classes first: `.login`, `.login__card`, `.brand__mark`, `.brand__sub`, `.app`, `.sidebar`,
+`.topbar`, `.nav__item`, `.main`, `.page-head`, `.toolbar`, `.filter-toolbar`, `.datatable__surface`, `.datatable`,
+`.tabs`, `.tab`, `.card`, `.tag`, `.state`, `.modal`, `.toast`, `.calendar`, `.cal-event`, `.court-timeline`,
+`.court-event`, `.pricing-editor`, `.tpl-card`, `.tpl-preview`, `.court-picker`, `.admin-person`, `.admin-avatar`.
+
+Add shared classes only when they remove repeated inline styles or establish a visible layout pattern:
+`.login__rail`, `.login__panel`, `.login__facts`, `.shell-topline`, `.workspace`, `.workspace__bar`,
+`.workspace__body`, `.workspace__inspector`, `.row-actions`, `.metric-strip`, `.provenance-list`.
+
+### Page Priorities
+
+1. **Login first.** It is the unauthenticated proof point. Make `/login` unmistakably different without requiring
+   API data: dispatch-desk split layout, strong BeoSand wordmark, Telegram widget panel, explicit admin-gate copy,
+   and robust missing-bot/error/loading states.
+2. **App shell second.** Redesign sidebar, mobile drawer, topbar, language/user/logout footer, active nav, badges,
+   and focus states. Every authenticated page inherits the visible change from this step.
+3. **Shared primitives third.** Tighten `Button`, `Field`, `DataTable`, `Modal`, `Toast`, `StatCard`, tags, tabs,
+   toolbars, filter bars, and row actions so the redesign is consistent across dense pages.
+4. **Dense operational pages fourth.** Apply workspace framing to `Dashboard`, `Trainings`, `TrainingsCalendar`,
+   `CourtLoad`, `CourtRequests`, `Clients`, `Subscriptions`, `Broadcasts`, and `Analytics`.
+5. **Management pages fifth.** Carry the same treatment to groups, trainers, managers, levels, labels, notification
+   templates, court blocks, attendance, and connectors/settings-like pages so the console does not split into old
+   and new visual systems.
+
+### Runtime Acceptance Checks
+
+- `/login` at 1440px and 390px is visibly redesigned before auth and contains no generic hero/card-grid pattern.
+- Active navigation, current counts, pending queue badge, focus rings, and mobile drawer states are visually obvious.
+- Dense pages show a stable workspace structure: toolbar/filters, primary table/calendar/timeline, explicit state
+  messages, and action areas with no layout shift.
+- Tables remain readable at narrow widths through horizontal scrolling; columns are not crushed.
+- No React page computes domain facts. Money, availability, capacity, payment state, court assignment, and pricing
+  provenance remain API-rendered values.
+- No side-stripe accents greater than 1px, gradient text, decorative grid/stripe backgrounds, glass default, bounce,
+  elastic motion, or nested decorative cards.

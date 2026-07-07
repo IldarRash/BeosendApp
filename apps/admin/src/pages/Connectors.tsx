@@ -99,48 +99,52 @@ function OperationalSettingsPanel({ t }: { t: Translate }): JSX.Element {
   }
 
   return (
-    <section className="stack" aria-labelledby="connectors-operational-settings">
-      <div>
-        <h2 id="connectors-operational-settings">
-          {t("admin.connectors.operational.title")}
-        </h2>
-        <p className="field__hint">{t("admin.connectors.operational.lead")}</p>
-      </div>
-      {requestLogging.isLoading ? (
-        <p className="state state--loading">{t("admin.connectors.requestLogging.loading")}</p>
-      ) : requestLogging.isError ? (
-        <p className="state state--error" role="alert">
-          {t("admin.connectors.requestLogging.error", {
-            message: requestLogging.error.message
-          })}
-        </p>
-      ) : (
-        <div className="form">
-          <label className="cluster">
-            <input
-              type="checkbox"
-              checked={detailed}
-              disabled={updateRequestLogging.isPending}
-              onChange={handleRequestLoggingChange}
-            />
-            <span className="field__label">
-              {t("admin.connectors.requestLogging.label")}
-            </span>
-          </label>
-          <p className="field__hint">{t("admin.connectors.requestLogging.hint")}</p>
-          <div className="cluster" aria-live="polite">
-            <span>{t("admin.connectors.requestLogging.current")}</span>
-            <span className={detailed ? "tag tag--warn" : "tag tag--muted"}>
-              {detailed
-                ? t("admin.connectors.requestLogging.detailed")
-                : t("admin.connectors.requestLogging.ordinary")}
-            </span>
-            {updateRequestLogging.isPending ? (
-              <span className="state">{t("admin.connectors.requestLogging.saving")}</span>
-            ) : null}
-          </div>
+    <section className="workspace" aria-labelledby="connectors-operational-settings">
+      <div className="workspace__bar">
+        <div>
+          <h2 id="connectors-operational-settings">
+            {t("admin.connectors.operational.title")}
+          </h2>
+          <p className="field__hint">{t("admin.connectors.operational.lead")}</p>
         </div>
-      )}
+      </div>
+      <div className="workspace__body">
+        {requestLogging.isLoading ? (
+          <p className="state state--loading">{t("admin.connectors.requestLogging.loading")}</p>
+        ) : requestLogging.isError ? (
+          <p className="state state--error" role="alert">
+            {t("admin.connectors.requestLogging.error", {
+              message: requestLogging.error.message
+            })}
+          </p>
+        ) : (
+          <div className="form">
+            <label className="cluster">
+              <input
+                type="checkbox"
+                checked={detailed}
+                disabled={updateRequestLogging.isPending}
+                onChange={handleRequestLoggingChange}
+              />
+              <span className="field__label">
+                {t("admin.connectors.requestLogging.label")}
+              </span>
+            </label>
+            <p className="field__hint">{t("admin.connectors.requestLogging.hint")}</p>
+            <div className="cluster" aria-live="polite">
+              <span>{t("admin.connectors.requestLogging.current")}</span>
+              <span className={detailed ? "tag tag--warn" : "tag tag--muted"}>
+                {detailed
+                  ? t("admin.connectors.requestLogging.detailed")
+                  : t("admin.connectors.requestLogging.ordinary")}
+              </span>
+              {updateRequestLogging.isPending ? (
+                <span className="state">{t("admin.connectors.requestLogging.saving")}</span>
+              ) : null}
+            </div>
+          </div>
+        )}
+      </div>
     </section>
   );
 }
@@ -151,24 +155,28 @@ function StatusPanel({ t }: { t: Translate }): JSX.Element {
   const connectors = useConnectors();
 
   return (
-    <section className="stack" aria-labelledby="connectors-status">
-      <h2 id="connectors-status">{t("admin.connectors.status.title")}</h2>
-      {connectors.isLoading ? (
-        <p className="state state--loading">{t("admin.connectors.status.loading")}</p>
-      ) : connectors.isError ? (
-        <p className="state state--error" role="alert">
-          {t("admin.connectors.status.error", { message: connectors.error.message })}
-        </p>
-      ) : (
-        <DataTable
-          caption={t("admin.connectors.status.caption")}
-          columns={statusColumns(t)}
-          rows={connectors.data ?? []}
-          rowKey={(row) => row.id}
-          emptyLabel={t("admin.connectors.status.empty")}
-        />
-      )}
-      <TestSendForm t={t} />
+    <section className="workspace" aria-labelledby="connectors-status">
+      <div className="workspace__bar">
+        <h2 id="connectors-status">{t("admin.connectors.status.title")}</h2>
+      </div>
+      <div className="workspace__body stack">
+        {connectors.isLoading ? (
+          <p className="state state--loading">{t("admin.connectors.status.loading")}</p>
+        ) : connectors.isError ? (
+          <p className="state state--error" role="alert">
+            {t("admin.connectors.status.error", { message: connectors.error.message })}
+          </p>
+        ) : (
+          <DataTable
+            caption={t("admin.connectors.status.caption")}
+            columns={statusColumns(t)}
+            rows={connectors.data ?? []}
+            rowKey={(row) => row.id}
+            emptyLabel={t("admin.connectors.status.empty")}
+          />
+        )}
+        <TestSendForm t={t} />
+      </div>
     </section>
   );
 }
@@ -254,7 +262,7 @@ function TestSendForm({ t }: { t: Translate }): JSX.Element {
         autoComplete="off"
         hint={t("admin.connectors.testSend.toHint")}
       />
-      <div className="cluster">
+      <div className="row-actions">
         <Button type="submit" disabled={testSend.isPending || to.trim().length === 0}>
           {testSend.isPending
             ? t("admin.connectors.testSend.sending")
@@ -299,7 +307,7 @@ function WebhooksPanel({ t }: { t: Translate }): JSX.Element {
       key: "actions",
       header: t("admin.connectors.webhooks.colActions"),
       render: (row) => (
-        <div className="cluster">
+        <div className="row-actions">
           <Button variant="ghost" onClick={() => setEditor({ mode: "edit", endpoint: row })}>
             {t("admin.action.edit")}
           </Button>
@@ -316,30 +324,32 @@ function WebhooksPanel({ t }: { t: Translate }): JSX.Element {
   ];
 
   return (
-    <section className="stack" aria-labelledby="connectors-webhooks">
-      <div className="section-head">
+    <section className="workspace" aria-labelledby="connectors-webhooks">
+      <div className="workspace__bar">
         <h2 id="connectors-webhooks">{t("admin.connectors.webhooks.title")}</h2>
         <Button onClick={() => setEditor({ mode: "create" })}>
           {t("admin.connectors.webhooks.new")}
         </Button>
       </div>
-      {webhooks.isLoading ? (
-        <p className="state state--loading">{t("admin.connectors.webhooks.loading")}</p>
-      ) : webhooks.isError ? (
-        <p className="state state--error" role="alert">
-          {t("admin.connectors.webhooks.error", { message: webhooks.error.message })}
-        </p>
-      ) : (
-        <DataTable
-          caption={t("admin.connectors.webhooks.caption")}
-          columns={columns}
-          rows={webhooks.data ?? []}
-          rowKey={(row) => row.id}
-          emptyLabel={t("admin.connectors.webhooks.empty")}
-        />
-      )}
+      <div className="workspace__body stack">
+        {webhooks.isLoading ? (
+          <p className="state state--loading">{t("admin.connectors.webhooks.loading")}</p>
+        ) : webhooks.isError ? (
+          <p className="state state--error" role="alert">
+            {t("admin.connectors.webhooks.error", { message: webhooks.error.message })}
+          </p>
+        ) : (
+          <DataTable
+            caption={t("admin.connectors.webhooks.caption")}
+            columns={columns}
+            rows={webhooks.data ?? []}
+            rowKey={(row) => row.id}
+            emptyLabel={t("admin.connectors.webhooks.empty")}
+          />
+        )}
 
-      {openLog ? <DeliveryLog t={t} endpointId={openLog} /> : null}
+        {openLog ? <DeliveryLog t={t} endpointId={openLog} /> : null}
+      </div>
 
       {editor ? (
         <WebhookEditorModal
@@ -393,24 +403,26 @@ function DeliveryLog({ t, endpointId }: { t: Translate; endpointId: string }): J
       key: "actions",
       header: t("admin.connectors.deliveries.colActions"),
       render: (row) => (
-        <Button
-          variant="ghost"
-          disabled={retry.isPending}
-          onClick={() =>
-            retry.mutate(row.id, {
-              onSuccess: () => toast.notify(t("admin.connectors.deliveries.retried"), "success"),
-              onError: (error) => toast.notify(error.message, "error")
-            })
-          }
-        >
-          {t("admin.connectors.deliveries.retry")}
-        </Button>
+        <div className="row-actions">
+          <Button
+            variant="ghost"
+            disabled={retry.isPending}
+            onClick={() =>
+              retry.mutate(row.id, {
+                onSuccess: () => toast.notify(t("admin.connectors.deliveries.retried"), "success"),
+                onError: (error) => toast.notify(error.message, "error")
+              })
+            }
+          >
+            {t("admin.connectors.deliveries.retry")}
+          </Button>
+        </div>
       )
     }
   ];
 
   return (
-    <div className="card stack" aria-label={t("admin.connectors.deliveries.title")}>
+    <div className="workspace__inspector stack" aria-label={t("admin.connectors.deliveries.title")}>
       <h3>{t("admin.connectors.deliveries.title")}</h3>
       {deliveries.isLoading ? (
         <p className="state state--loading">{t("admin.connectors.deliveries.loading")}</p>
@@ -602,7 +614,7 @@ function SecretModal({
           {t("admin.connectors.secret.warning")}
         </p>
         <code className="mono">{endpoint.secret}</code>
-        <div className="cluster">
+        <div className="row-actions">
           <Button variant="ghost" onClick={() => void copy()}>
             {t("admin.connectors.secret.copy")}
           </Button>
@@ -637,23 +649,29 @@ function ExportsPanel({ t }: { t: Translate }): JSX.Element {
   }
 
   return (
-    <section className="stack" aria-labelledby="connectors-exports">
-      <h2 id="connectors-exports">{t("admin.connectors.exports.title")}</h2>
-      <p className="field__hint">{t("admin.connectors.exports.lead")}</p>
-      <div className="cluster">
-        <Button variant="ghost" disabled={csv.isPending} onClick={() => download("clients")}>
-          {t("admin.connectors.exports.clients")}
-        </Button>
-        <Button variant="ghost" disabled={csv.isPending} onClick={() => download("bookings")}>
-          {t("admin.connectors.exports.bookings")}
-        </Button>
-        <span title={sheetsConfigured ? undefined : t("admin.connectors.exports.sheetsDisabled")}>
-          <Button disabled={!sheetsConfigured || sheets.isPending} onClick={sync}>
-            {sheets.isPending
-              ? t("admin.connectors.exports.syncing")
-              : t("admin.connectors.exports.sheets")}
+    <section className="workspace" aria-labelledby="connectors-exports">
+      <div className="workspace__bar">
+        <div>
+          <h2 id="connectors-exports">{t("admin.connectors.exports.title")}</h2>
+          <p className="field__hint">{t("admin.connectors.exports.lead")}</p>
+        </div>
+      </div>
+      <div className="workspace__body">
+        <div className="row-actions">
+          <Button variant="ghost" disabled={csv.isPending} onClick={() => download("clients")}>
+            {t("admin.connectors.exports.clients")}
           </Button>
-        </span>
+          <Button variant="ghost" disabled={csv.isPending} onClick={() => download("bookings")}>
+            {t("admin.connectors.exports.bookings")}
+          </Button>
+          <span title={sheetsConfigured ? undefined : t("admin.connectors.exports.sheetsDisabled")}>
+            <Button disabled={!sheetsConfigured || sheets.isPending} onClick={sync}>
+              {sheets.isPending
+                ? t("admin.connectors.exports.syncing")
+                : t("admin.connectors.exports.sheets")}
+            </Button>
+          </span>
+        </div>
       </div>
     </section>
   );
@@ -713,48 +731,54 @@ function CalendarPanel({ t }: { t: Translate }): JSX.Element {
   }
 
   return (
-    <section className="stack" aria-labelledby="connectors-calendar">
-      <h2 id="connectors-calendar">{t("admin.connectors.calendar.title")}</h2>
-      <p className="field__hint">{t("admin.connectors.calendar.lead")}</p>
-      <div className="form">
-        <SelectField
-          label={t("admin.connectors.calendar.subjectLabel")}
-          value={subject}
-          onChange={(event) => setSubject(event.target.value as CalendarSubject)}
-          options={[
-            { value: "trainer", label: t("admin.connectors.calendar.subject.trainer") },
-            { value: "client", label: t("admin.connectors.calendar.subject.client") }
-          ]}
-        />
-        <TextField
-          label={t("admin.connectors.calendar.idLabel")}
-          value={id}
-          onChange={(event) => setId(event.target.value)}
-          autoComplete="off"
-          hint={t("admin.connectors.calendar.idHint")}
-        />
-        <div className="cluster">
-          <Button disabled={getLink.isPending || id.trim().length === 0} onClick={fetchLink}>
-            {t("admin.connectors.calendar.get")}
-          </Button>
-          <Button
-            variant="ghost"
-            disabled={rotate.isPending || id.trim().length === 0}
-            onClick={rotateLink}
-          >
-            {t("admin.connectors.calendar.rotate")}
-          </Button>
+    <section className="workspace" aria-labelledby="connectors-calendar">
+      <div className="workspace__bar">
+        <div>
+          <h2 id="connectors-calendar">{t("admin.connectors.calendar.title")}</h2>
+          <p className="field__hint">{t("admin.connectors.calendar.lead")}</p>
         </div>
-        {url !== null ? (
-          <div className="stack">
-            <code className="mono">{url}</code>
-            <div className="cluster">
-              <Button variant="ghost" onClick={() => void copy()}>
-                {t("admin.connectors.calendar.copy")}
-              </Button>
-            </div>
+      </div>
+      <div className="workspace__body">
+        <div className="form">
+          <SelectField
+            label={t("admin.connectors.calendar.subjectLabel")}
+            value={subject}
+            onChange={(event) => setSubject(event.target.value as CalendarSubject)}
+            options={[
+              { value: "trainer", label: t("admin.connectors.calendar.subject.trainer") },
+              { value: "client", label: t("admin.connectors.calendar.subject.client") }
+            ]}
+          />
+          <TextField
+            label={t("admin.connectors.calendar.idLabel")}
+            value={id}
+            onChange={(event) => setId(event.target.value)}
+            autoComplete="off"
+            hint={t("admin.connectors.calendar.idHint")}
+          />
+          <div className="row-actions">
+            <Button disabled={getLink.isPending || id.trim().length === 0} onClick={fetchLink}>
+              {t("admin.connectors.calendar.get")}
+            </Button>
+            <Button
+              variant="ghost"
+              disabled={rotate.isPending || id.trim().length === 0}
+              onClick={rotateLink}
+            >
+              {t("admin.connectors.calendar.rotate")}
+            </Button>
           </div>
-        ) : null}
+          {url !== null ? (
+            <div className="workspace__inspector stack">
+              <code className="mono">{url}</code>
+              <div className="row-actions">
+                <Button variant="ghost" onClick={() => void copy()}>
+                  {t("admin.connectors.calendar.copy")}
+                </Button>
+              </div>
+            </div>
+          ) : null}
+        </div>
       </div>
     </section>
   );

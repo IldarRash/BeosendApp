@@ -39,6 +39,11 @@ export const adminRu: Record<string, string> = {
   // ── Brand / shell ───────────────────────────────────────────────────────
   "admin.brand.sub": "Admin console",
   "admin.shell.logout": "Выйти",
+  "admin.shell.statusLabel": "Статус рабочего места",
+  "admin.shell.statusText": "API-доступ",
+  "admin.shell.currentSectionLabel": "Текущий раздел",
+  "admin.shell.workspaceLabel": "Рабочее место",
+  "admin.shell.pendingCourtRequestsBadge": "Заявки на корты: {count}",
 
   // ── Language switch ───────────────────────────────────────────────────────
   "admin.lang.label": "Язык интерфейса",
@@ -69,6 +74,17 @@ export const adminRu: Record<string, string> = {
   // ── Login ─────────────────────────────────────────────────────────────────
   "admin.login.title": "Вход для администратора",
   "admin.login.lead": "Войдите через Telegram. Доступ к консоли есть только у администраторов школы.",
+  "admin.login.railLabel": "BeoSand admin",
+  "admin.login.railKicker": "Рабочее место",
+  "admin.login.factApiTitle": "API",
+  "admin.login.factApiBody": "Telegram HMAC проверяет сервер",
+  "admin.login.factGateTitle": "Доступ",
+  "admin.login.factGateBody": "Доступ только для admin роли",
+  "admin.login.factUiTitle": "Интерфейс",
+  "admin.login.factUiBody": "Консоль не вычисляет цены и места",
+  "admin.login.panelKicker": "Вход через Telegram",
+  "admin.login.panelTitle": "Открыть рабочее место",
+  "admin.login.panelLead": "Виджет передает payload в API; консоль открывается только после серверной проверки.",
   "admin.login.widgetLabel": "Кнопка входа через Telegram",
   "admin.login.noBotUsername": "Не задан VITE_TELEGRAM_BOT_USERNAME — кнопка входа недоступна.",
   "admin.login.checking": "Проверяем доступ…",

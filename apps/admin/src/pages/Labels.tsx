@@ -56,9 +56,11 @@ export function Labels(): JSX.Element {
       key: "actions",
       header: t("admin.labels.colActions"),
       render: (row) => (
-        <Button variant="ghost" onClick={() => setEditing(row)}>
-          {t("admin.action.edit")}
-        </Button>
+        <div className="row-actions">
+          <Button variant="ghost" onClick={() => setEditing(row)}>
+            {t("admin.action.edit")}
+          </Button>
+        </div>
       )
     }
   ];
@@ -72,43 +74,48 @@ export function Labels(): JSX.Element {
         </div>
       </header>
 
-      <div className="stack">
-        <form
-          className="cluster"
-          aria-label={t("admin.labels.title")}
-          onSubmit={(event) => event.preventDefault()}
-        >
-          <SelectField
-            label={t("admin.labels.localeLabel")}
-            value={locale}
-            onChange={(event) => setLocale(event.target.value as Locale)}
-            options={localeOptions}
-          />
-          <TextField
-            label={t("admin.labels.searchLabel")}
-            type="search"
-            value={search}
-            onChange={(event) => setSearch(event.target.value)}
-            placeholder={t("admin.labels.searchPlaceholder")}
-            autoComplete="off"
-          />
-        </form>
+      <div className="workspace">
+        <div className="workspace__bar">
+          <span className="card__label">{t("admin.labels.caption")}</span>
+        </div>
+        <div className="workspace__body">
+          <form
+            className="filter-toolbar"
+            aria-label={t("admin.labels.title")}
+            onSubmit={(event) => event.preventDefault()}
+          >
+            <SelectField
+              label={t("admin.labels.localeLabel")}
+              value={locale}
+              onChange={(event) => setLocale(event.target.value as Locale)}
+              options={localeOptions}
+            />
+            <TextField
+              label={t("admin.labels.searchLabel")}
+              type="search"
+              value={search}
+              onChange={(event) => setSearch(event.target.value)}
+              placeholder={t("admin.labels.searchPlaceholder")}
+              autoComplete="off"
+            />
+          </form>
 
-        {labels.isLoading ? (
-          <p className="state state--loading">{t("admin.labels.loading")}</p>
-        ) : labels.isError ? (
-          <p className="state state--error" role="alert">
-            {t("admin.labels.error", { message: labels.error.message })}
-          </p>
-        ) : (
-          <DataTable
-            caption={t("admin.labels.caption")}
-            columns={columns}
-            rows={filtered}
-            rowKey={(row) => row.key}
-            emptyLabel={t("admin.labels.empty")}
-          />
-        )}
+          {labels.isLoading ? (
+            <p className="state state--loading">{t("admin.labels.loading")}</p>
+          ) : labels.isError ? (
+            <p className="state state--error" role="alert">
+              {t("admin.labels.error", { message: labels.error.message })}
+            </p>
+          ) : (
+            <DataTable
+              caption={t("admin.labels.caption")}
+              columns={columns}
+              rows={filtered}
+              rowKey={(row) => row.key}
+              emptyLabel={t("admin.labels.empty")}
+            />
+          )}
+        </div>
       </div>
 
       {editing ? (

@@ -33,6 +33,11 @@ export const adminSr: Record<string, string> = {
   // ── Brand / shell ───────────────────────────────────────────────────────
   "admin.brand.sub": "Admin konzola",
   "admin.shell.logout": "Odjava",
+  "admin.shell.statusLabel": "Status radnog prostora",
+  "admin.shell.statusText": "API pristup",
+  "admin.shell.currentSectionLabel": "Trenutna sekcija",
+  "admin.shell.workspaceLabel": "Radni prostor",
+  "admin.shell.pendingCourtRequestsBadge": "Zahtevi za terene: {count}",
 
   // ── Language switch ───────────────────────────────────────────────────────
   "admin.lang.label": "Jezik interfejsa",
@@ -63,6 +68,17 @@ export const adminSr: Record<string, string> = {
   // ── Login ─────────────────────────────────────────────────────────────────
   "admin.login.title": "Prijava za administratora",
   "admin.login.lead": "Prijavite se preko Telegrama. Pristup konzoli imaju samo administratori škole.",
+  "admin.login.railLabel": "BeoSand admin",
+  "admin.login.railKicker": "Operativni pult",
+  "admin.login.factApiTitle": "API",
+  "admin.login.factApiBody": "Server proverava Telegram HMAC",
+  "admin.login.factGateTitle": "Pristup",
+  "admin.login.factGateBody": "Pristup je samo za admin ulogu",
+  "admin.login.factUiTitle": "Interfejs",
+  "admin.login.factUiBody": "Konzola ne obračunava cene ni mesta",
+  "admin.login.panelKicker": "Telegram prijava",
+  "admin.login.panelTitle": "Otvori radni prostor",
+  "admin.login.panelLead": "Vidžet šalje payload u API; konzola se otvara tek posle serverske provere.",
   "admin.login.widgetLabel": "Dugme za prijavu preko Telegrama",
   "admin.login.noBotUsername": "Nije podešen VITE_TELEGRAM_BOT_USERNAME — dugme za prijavu nije dostupno.",
   "admin.login.checking": "Proveravamo pristup…",

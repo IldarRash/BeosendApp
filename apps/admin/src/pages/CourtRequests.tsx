@@ -260,7 +260,7 @@ export function CourtRequests(): JSX.Element {
       key: "actions",
       header: "",
       render: (r) => (
-        <div className="cluster">
+        <div className="row-actions">
           <Button
             variant="ghost"
             onClick={() => showOnCourtLoad(r)}
@@ -314,7 +314,8 @@ export function CourtRequests(): JSX.Element {
         </div>
       </header>
 
-      <div className="stack">
+      <section className="workspace" aria-label={t("admin.courtRequests.tabsLabel")}>
+        <div className="workspace__bar">
         <div role="tablist" aria-label={t("admin.courtRequests.tabsLabel")} className="tabs">
           {STATUS_TABS.map((tab) => {
             const selected = tab === status;
@@ -338,7 +339,9 @@ export function CourtRequests(): JSX.Element {
             );
           })}
         </div>
+        </div>
 
+        <div className="workspace__body">
         <div
           id="court-requests-panel"
           role="tabpanel"
@@ -360,7 +363,8 @@ export function CourtRequests(): JSX.Element {
             />
           )}
         </div>
-      </div>
+        </div>
+      </section>
 
       <Modal
         open={toConfirm !== null}

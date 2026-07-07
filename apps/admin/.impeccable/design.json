@@ -2,6 +2,73 @@
   "schemaVersion": 2,
   "generatedAt": "2026-07-07T08:59:58.1994939+02:00",
   "title": "Design System: BeoSand Admin",
+  "runtimeRedesign": {
+    "name": "BeoSand Dispatch Desk",
+    "kind": "corrective-visible-runtime-pass",
+    "intent": "Make /login and the authenticated admin shell visibly redesigned at runtime before any domain data is inspected.",
+    "visualThesis": "A purpose-built operations desk: ink-led brand rail, paper work surface, compact control bars, dense tables, and status-first rows. Structure and contrast carry the visible change, not decoration.",
+    "priorityOrder": [
+      "Login unauthenticated split dispatch surface",
+      "App shell, sidebar, topbar, mobile drawer, nav states",
+      "Shared primitives: buttons, fields, tables, modals, toasts, stats, tags, tabs, toolbars",
+      "Dense pages: dashboard, trainings, calendar, court load, court requests, clients, subscriptions, broadcasts, analytics",
+      "Management pages: groups, trainers, managers, levels, labels, notification templates, court blocks, attendance, connectors"
+    ],
+    "existingClasses": [
+      ".login",
+      ".login__card",
+      ".brand__mark",
+      ".brand__sub",
+      ".app",
+      ".sidebar",
+      ".topbar",
+      ".nav__item",
+      ".main",
+      ".page-head",
+      ".toolbar",
+      ".filter-toolbar",
+      ".datatable__surface",
+      ".datatable",
+      ".tabs",
+      ".tab",
+      ".card",
+      ".tag",
+      ".state",
+      ".modal",
+      ".toast",
+      ".calendar",
+      ".cal-event",
+      ".court-timeline",
+      ".court-event",
+      ".pricing-editor",
+      ".tpl-card",
+      ".tpl-preview",
+      ".court-picker",
+      ".admin-person",
+      ".admin-avatar"
+    ],
+    "allowedNewClasses": [
+      ".login__rail",
+      ".login__panel",
+      ".login__facts",
+      ".shell-topline",
+      ".workspace",
+      ".workspace__bar",
+      ".workspace__body",
+      ".workspace__inspector",
+      ".row-actions",
+      ".metric-strip",
+      ".provenance-list"
+    ],
+    "acceptanceChecks": [
+      "/login is visibly redesigned at desktop and phone widths without auth",
+      "Authenticated pages inherit a stronger shell before page-specific edits",
+      "Dense pages use toolbar plus primary workspace plus explicit state messages",
+      "Tables stay readable with horizontal scrolling instead of crushed columns",
+      "Frontend remains a thin renderer over API data and typed contracts",
+      "No thick side-stripes, gradient text, decorative grid or stripe backgrounds, glass default, bounce or elastic motion, or nested decorative cards"
+    ]
+  },
   "extensions": {
     "colorMeta": {
       "sand-50": {

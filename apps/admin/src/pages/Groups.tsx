@@ -199,7 +199,7 @@ function GroupForm({
   ];
 
   return (
-    <div style={{ display: "flex", flexDirection: "column", gap: "16px" }}>
+    <div className="form">
       <TextField
         label={t("admin.field.name")}
         value={form.name}
@@ -366,12 +366,7 @@ function TransferMemberModal({
         </>
       }
     >
-      <form
-        id="transfer-form"
-        onSubmit={handleConfirm}
-        noValidate
-        style={{ display: "flex", flexDirection: "column", gap: "16px" }}
-      >
+      <form id="transfer-form" onSubmit={handleConfirm} noValidate className="form">
         <p>
           {t("admin.groups.transferFrom")} <strong>{target.fromGroup.name}</strong>
         </p>
@@ -707,7 +702,7 @@ export function Groups(): JSX.Element {
       key: "actions",
       header: "",
       render: (group) => (
-        <div style={{ display: "flex", gap: "8px", justifyContent: "flex-end" }}>
+        <div className="row-actions">
           <Button
             variant="ghost"
             onClick={() => setMembersGroup(group)}
@@ -758,122 +753,127 @@ export function Groups(): JSX.Element {
           {t("admin.groups.error")}
         </p>
       ) : (
-        <>
-          <form
-            aria-label={t("admin.groups.filterLabel")}
-            onSubmit={(event) => event.preventDefault()}
-            className="filter-toolbar filter-toolbar--groups"
-          >
-            <TextField
-              label={t("admin.groups.filterName")}
-              type="search"
-              value={filterName}
-              onChange={(event) => setFilterName(event.target.value)}
-            />
-            <SelectField
-              label={t("admin.groups.filterWeekday")}
-              options={weekdayOptions}
-              value={filterWeekday}
-              onChange={(event) => setFilterWeekday(event.target.value)}
-            />
-            <SelectField
-              label={t("admin.field.trainer")}
-              options={filterTrainerOptions}
-              value={filterTrainerId}
-              onChange={(event) => setFilterTrainerId(event.target.value)}
-            />
-            <SelectField
-              label={t("admin.field.court")}
-              options={filterCourtOptions}
-              value={filterCourtId}
-              onChange={(event) => setFilterCourtId(event.target.value)}
-            />
-            <SelectField
-              label={t("admin.field.level")}
-              options={filterLevelOptions}
-              value={filterLevelId}
-              onChange={(event) => setFilterLevelId(event.target.value)}
-            />
-            <SelectField
-              label={t("admin.field.status")}
-              options={statusOptions}
-              value={filterStatus}
-              onChange={(event) => setFilterStatus(event.target.value)}
-            />
-            <SelectField
-              label={t("admin.groups.fieldVisibility")}
-              options={visibilityOptions}
-              value={filterVisibility}
-              onChange={(event) => setFilterVisibility(event.target.value)}
-            />
-            <NumberField
-              label={t("admin.groups.capacityFrom")}
-              value={filterCapacityMin}
-              onValueChange={setFilterCapacityMin}
-              min={0}
-            />
-            <NumberField
-              label={t("admin.groups.capacityTo")}
-              value={filterCapacityMax}
-              onValueChange={setFilterCapacityMax}
-              min={0}
-            />
-            <NumberField
-              label={t("admin.groups.priceSingleFrom")}
-              value={filterSinglePriceMin}
-              onValueChange={setFilterSinglePriceMin}
-              min={0}
-            />
-            <NumberField
-              label={t("admin.groups.priceSingleTo")}
-              value={filterSinglePriceMax}
-              onValueChange={setFilterSinglePriceMax}
-              min={0}
-            />
-            <NumberField
-              label={t("admin.groups.priceMonthFrom")}
-              value={filterMonthPriceMin}
-              onValueChange={setFilterMonthPriceMin}
-              min={0}
-            />
-            <NumberField
-              label={t("admin.groups.priceMonthTo")}
-              value={filterMonthPriceMax}
-              onValueChange={setFilterMonthPriceMax}
-              min={0}
-            />
-            <Button
-              type="button"
-              variant="ghost"
-              onClick={() => {
-                setFilterName("");
-                setFilterWeekday("");
-                setFilterTrainerId("");
-                setFilterCourtId("");
-                setFilterLevelId("");
-                setFilterStatus("");
-                setFilterVisibility("");
-                setFilterCapacityMin(null);
-                setFilterCapacityMax(null);
-                setFilterSinglePriceMin(null);
-                setFilterSinglePriceMax(null);
-                setFilterMonthPriceMin(null);
-                setFilterMonthPriceMax(null);
-              }}
+        <div className="workspace">
+          <div className="workspace__bar">
+            <span className="card__label">{t("admin.groups.caption")}</span>
+          </div>
+          <div className="workspace__body">
+            <form
+              aria-label={t("admin.groups.filterLabel")}
+              onSubmit={(event) => event.preventDefault()}
+              className="filter-toolbar filter-toolbar--groups"
             >
-              {t("admin.filters.reset")}
-            </Button>
-          </form>
-          <DataTable
-            caption={t("admin.groups.caption")}
-            columns={columns}
-            rows={filteredGroups}
-            rowKey={(group) => group.id}
-            emptyLabel={
-              sortedGroups.length === 0 ? t("admin.groups.empty") : t("admin.groups.filteredEmpty")
-            }
-          />
-        </>
+              <TextField
+                label={t("admin.groups.filterName")}
+                type="search"
+                value={filterName}
+                onChange={(event) => setFilterName(event.target.value)}
+              />
+              <SelectField
+                label={t("admin.groups.filterWeekday")}
+                options={weekdayOptions}
+                value={filterWeekday}
+                onChange={(event) => setFilterWeekday(event.target.value)}
+              />
+              <SelectField
+                label={t("admin.field.trainer")}
+                options={filterTrainerOptions}
+                value={filterTrainerId}
+                onChange={(event) => setFilterTrainerId(event.target.value)}
+              />
+              <SelectField
+                label={t("admin.field.court")}
+                options={filterCourtOptions}
+                value={filterCourtId}
+                onChange={(event) => setFilterCourtId(event.target.value)}
+              />
+              <SelectField
+                label={t("admin.field.level")}
+                options={filterLevelOptions}
+                value={filterLevelId}
+                onChange={(event) => setFilterLevelId(event.target.value)}
+              />
+              <SelectField
+                label={t("admin.field.status")}
+                options={statusOptions}
+                value={filterStatus}
+                onChange={(event) => setFilterStatus(event.target.value)}
+              />
+              <SelectField
+                label={t("admin.groups.fieldVisibility")}
+                options={visibilityOptions}
+                value={filterVisibility}
+                onChange={(event) => setFilterVisibility(event.target.value)}
+              />
+              <NumberField
+                label={t("admin.groups.capacityFrom")}
+                value={filterCapacityMin}
+                onValueChange={setFilterCapacityMin}
+                min={0}
+              />
+              <NumberField
+                label={t("admin.groups.capacityTo")}
+                value={filterCapacityMax}
+                onValueChange={setFilterCapacityMax}
+                min={0}
+              />
+              <NumberField
+                label={t("admin.groups.priceSingleFrom")}
+                value={filterSinglePriceMin}
+                onValueChange={setFilterSinglePriceMin}
+                min={0}
+              />
+              <NumberField
+                label={t("admin.groups.priceSingleTo")}
+                value={filterSinglePriceMax}
+                onValueChange={setFilterSinglePriceMax}
+                min={0}
+              />
+              <NumberField
+                label={t("admin.groups.priceMonthFrom")}
+                value={filterMonthPriceMin}
+                onValueChange={setFilterMonthPriceMin}
+                min={0}
+              />
+              <NumberField
+                label={t("admin.groups.priceMonthTo")}
+                value={filterMonthPriceMax}
+                onValueChange={setFilterMonthPriceMax}
+                min={0}
+              />
+              <Button
+                type="button"
+                variant="ghost"
+                onClick={() => {
+                  setFilterName("");
+                  setFilterWeekday("");
+                  setFilterTrainerId("");
+                  setFilterCourtId("");
+                  setFilterLevelId("");
+                  setFilterStatus("");
+                  setFilterVisibility("");
+                  setFilterCapacityMin(null);
+                  setFilterCapacityMax(null);
+                  setFilterSinglePriceMin(null);
+                  setFilterSinglePriceMax(null);
+                  setFilterMonthPriceMin(null);
+                  setFilterMonthPriceMax(null);
+                }}
+              >
+                {t("admin.filters.reset")}
+              </Button>
+            </form>
+            <DataTable
+              caption={t("admin.groups.caption")}
+              columns={columns}
+              rows={filteredGroups}
+              rowKey={(group) => group.id}
+              emptyLabel={
+                sortedGroups.length === 0 ? t("admin.groups.empty") : t("admin.groups.filteredEmpty")
+              }
+            />
+          </div>
+        </div>
       )}
 
       <Modal

@@ -111,7 +111,7 @@ function trainerColumns(t: Translate): Column<TrainerLoad>[] {
 function SummaryCards({ summary }: { summary: AnalyticsSummary }): JSX.Element {
   const t = useT();
   return (
-    <section className="grid" aria-label={t("admin.analytics.summaryLabel")}>
+    <section className="metric-strip" aria-label={t("admin.analytics.summaryLabel")}>
       <StatCard
         label={t("admin.analytics.card.bookings")}
         value={formatCount(summary.totalBookings)}
@@ -145,7 +145,7 @@ function SummaryCards({ summary }: { summary: AnalyticsSummary }): JSX.Element {
 function FillRateCards({ data }: { data: FillRate }): JSX.Element {
   const t = useT();
   return (
-    <div className="grid">
+    <div className="metric-strip">
       <StatCard label={t("admin.analytics.fill.avg")} value={formatPercentRatio(data.averageFillRate)} />
       <StatCard label={t("admin.analytics.fill.trainings")} value={formatCount(data.trainingsCount)} />
       <StatCard label={t("admin.analytics.fill.totalSeats")} value={formatCount(data.totalCapacity)} />
@@ -157,7 +157,7 @@ function FillRateCards({ data }: { data: FillRate }): JSX.Element {
 function CancellationCards({ data }: { data: CancellationStats }): JSX.Element {
   const t = useT();
   return (
-    <div className="grid">
+    <div className="metric-strip">
       <StatCard label={t("admin.analytics.cancellations.rate")} value={formatPercentRatio(data.cancellationRate)} />
       <StatCard label={t("admin.analytics.cancellations.cancelled")} value={formatCount(data.cancelledCount)} />
       <StatCard label={t("admin.analytics.cancellations.total")} value={formatCount(data.totalBookings)} />
@@ -168,7 +168,7 @@ function CancellationCards({ data }: { data: CancellationStats }): JSX.Element {
 function NoShowCards({ data }: { data: NoShowStats }): JSX.Element {
   const t = useT();
   return (
-    <div className="grid">
+    <div className="metric-strip">
       <StatCard label={t("admin.analytics.noShows.rate")} value={formatPercentRatio(data.noShowRate)} />
       <StatCard label={t("admin.analytics.noShows.count")} value={formatCount(data.noShowCount)} />
       <StatCard label={t("admin.analytics.noShows.attended")} value={formatCount(data.attendedCount)} />
@@ -184,7 +184,7 @@ function NoShowCards({ data }: { data: NoShowStats }): JSX.Element {
 function ClientActivityCards({ data }: { data: ClientActivity }): JSX.Element {
   const t = useT();
   return (
-    <div className="grid">
+    <div className="metric-strip">
       <StatCard label={t("admin.analytics.clientActivity.active")} value={formatCount(data.activeClients)} />
       <StatCard label={t("admin.analytics.clientActivity.booking")} value={formatCount(data.bookingClients)} />
       <StatCard label={t("admin.analytics.clientActivity.total")} value={formatCount(data.totalBookings)} />
@@ -195,7 +195,7 @@ function ClientActivityCards({ data }: { data: ClientActivity }): JSX.Element {
 function BroadcastEffectivenessCards({ data }: { data: BroadcastEffectiveness }): JSX.Element {
   const t = useT();
   return (
-    <div className="grid">
+    <div className="metric-strip">
       <StatCard label={t("admin.analytics.broadcastEff.broadcasts")} value={formatCount(data.broadcastsCount)} />
       <StatCard label={t("admin.analytics.broadcastEff.recipients")} value={formatCount(data.recipientsCount)} />
       <StatCard
@@ -243,8 +243,12 @@ export function Analytics(): JSX.Element {
         </div>
       </header>
 
-      <DateRangeFilter value={draft} onChange={setDraft} legend={t("admin.analytics.rangeLegend")} />
+      <section className="workspace" aria-label={t("admin.analytics.rangeLegend")}>
+        <div className="workspace__bar">
+          <DateRangeFilter value={draft} onChange={setDraft} legend={t("admin.analytics.rangeLegend")} />
+        </div>
 
+        <div className="workspace__body stack">
       <section className="stack" aria-labelledby="report-summary">
         <h2 id="report-summary">{t("admin.analytics.summaryHeading")}</h2>
         {summary.isPending ? (
@@ -335,6 +339,8 @@ export function Analytics(): JSX.Element {
           </ReportSection>
         </>
       )}
+        </div>
+      </section>
     </AppShell>
   );
 }

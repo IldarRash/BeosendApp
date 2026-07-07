@@ -37,7 +37,7 @@ function formatPercentRatio(ratio: number): string {
 function SummaryCards({ summary }: { summary: AnalyticsSummary }): JSX.Element {
   const t = useT();
   return (
-    <section className="grid">
+    <section className="metric-strip">
       <StatCard
         label={t("admin.dashboard.card.bookings")}
         value={summary.totalBookings.toLocaleString("ru-RU")}
@@ -86,18 +86,24 @@ export function Dashboard(): JSX.Element {
           <h1>{t("admin.dashboard.title")}</h1>
           <p>{t("admin.dashboard.lead")}</p>
         </div>
-        <HealthBadge />
       </header>
 
-      {summary.isLoading ? (
-        <p className="state state--loading">{t("admin.dashboard.loading")}</p>
-      ) : summary.isError ? (
-        <p className="state state--error" role="alert">
-          {t("admin.dashboard.error")}
-        </p>
-      ) : summary.data ? (
-        <SummaryCards summary={summary.data} />
-      ) : null}
+      <section className="workspace" aria-label={t("admin.dashboard.title")}>
+        <div className="workspace__bar">
+          <HealthBadge />
+        </div>
+        <div className="workspace__body">
+          {summary.isLoading ? (
+            <p className="state state--loading">{t("admin.dashboard.loading")}</p>
+          ) : summary.isError ? (
+            <p className="state state--error" role="alert">
+              {t("admin.dashboard.error")}
+            </p>
+          ) : summary.data ? (
+            <SummaryCards summary={summary.data} />
+          ) : null}
+        </div>
+      </section>
     </AppShell>
   );
 }
