@@ -1,2 +1,2 @@
-# Project-specific Codex config is intentionally empty.
-# Shared GitHub automation is configured globally in ~/.codex/config.toml.
+[mcp_servers.github]
+url = "https://api.githubcopilot.com/mcp/"

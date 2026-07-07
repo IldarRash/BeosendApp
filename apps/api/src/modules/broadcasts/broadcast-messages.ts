@@ -25,11 +25,10 @@ export function composeBroadcastText(type: BroadcastType, slots: SlotCard[]): st
   return `${HEADERS[type]}\n\n${lines}`;
 }
 
-/** One slot line: "DD.MM HH:MM–HH:MM · Level · Trainer · N мест · P RSD". */
+/** One slot line: "DD.MM HH:MM–HH:MM · Уровень: Level · Trainer · N мест · P RSD". */
 function slotLine(slot: SlotCard): string {
-  const level = slot.levelName ? ` · ${slot.levelName}` : "";
   return (
-    `${slot.date} ${slot.startTime}–${slot.endTime}${level} · ${slot.trainerName} · ` +
+    `${slot.date} ${slot.startTime}–${slot.endTime} · Уровень: ${slot.levelName} · ${slot.trainerName} · ` +
     `${slot.freeSeats} мест · ${slot.priceSingleRsd} RSD`
   );
 }

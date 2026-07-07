@@ -118,8 +118,8 @@ export class NotificationsRepository {
    * render fields, LEFT-JOINed to the log so any (client, training, type) already
    * sent is excluded in SQL — at-most-once even across overlapping scan ticks.
    *
-   * Window bounds are passed as full timestamps; the training start is compared
-   * as `date + startTime` interpreted in the API process timezone.
+   * Window bounds are passed as instants; the training start is compared as
+   * Belgrade wall-clock `date + startTime`, independent of the API host timezone.
    */
   async findDueReminders(
     type: NotificationType,
@@ -127,11 +127,11 @@ export class NotificationsRepository {
     windowEnd: Date
   ): Promise<NotificationRecipient[]> {
     // `date + time` yields a naive timestamp (training wall-clock). Compare it
-    // against the window bounds formatted as naive local wall-clock strings so
-    // both sides share the API/DB local timezone (no UTC offset skew).
+    // against the window bounds formatted as naive Belgrade wall-clock strings
+    // so production UTC hosts do not skew reminder due windows.
     const startsAt = sql<string>`(${tables.trainings.date} + ${tables.trainings.startTime})`;
-    const lower = toNaiveLocal(windowStart);
-    const upper = toNaiveLocal(windowEnd);
+    const lower = toNaiveBelgrade(windowStart);
+    const upper = toNaiveBelgrade(windowEnd);
     const rows = await this.database.db
       .select({
         clientId: tables.bookings.clientId,
@@ -365,12 +365,30 @@ interface RecipientRow {
   levelName: string | null;
 }
 
-/** Format a Date as a naive local "YYYY-MM-DD HH:MM:SS" (no timezone suffix). */
-function toNaiveLocal(date: Date): string {
-  const pad = (n: number): string => String(n).padStart(2, "0");
+const BELGRADE_DATE_TIME_FORMATTER = new Intl.DateTimeFormat("en-CA", {
+  timeZone: "Europe/Belgrade",
+  year: "numeric",
+  month: "2-digit",
+  day: "2-digit",
+  hour: "2-digit",
+  minute: "2-digit",
+  second: "2-digit",
+  hourCycle: "h23"
+});
+
+/** Format a Date as a naive Belgrade "YYYY-MM-DD HH:MM:SS" (no timezone suffix). */
+function toNaiveBelgrade(date: Date): string {
+  const parts = BELGRADE_DATE_TIME_FORMATTER.formatToParts(date);
+  const part = (type: Intl.DateTimeFormatPartTypes): string => {
+    const value = parts.find((item) => item.type === type)?.value;
+    if (value === undefined) {
+      throw new Error(`Missing ${type} while formatting Belgrade reminder window`);
+    }
+    return value;
+  };
   return (
-    `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())} ` +
-    `${pad(date.getHours())}:${pad(date.getMinutes())}:${pad(date.getSeconds())}`
+    `${part("year")}-${part("month")}-${part("day")} ` +
+    `${part("hour")}:${part("minute")}:${part("second")}`
   );
 }
 
