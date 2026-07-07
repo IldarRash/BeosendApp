@@ -1,0 +1,290 @@
+{
+  "schemaVersion": 2,
+  "generatedAt": "2026-07-07T08:59:58.1994939+02:00",
+  "title": "Design System: BeoSand Admin",
+  "extensions": {
+    "colorMeta": {
+      "sand-50": {
+        "role": "neutral",
+        "displayName": "Sand Canvas 50",
+        "canonical": "#faf6ef",
+        "tonalRamp": ["#211c15", "#4b4339", "#8a8073", "#b0a695", "#d8c9af", "#e7dbc7", "#f2eadd", "#faf6ef"]
+      },
+      "paper": {
+        "role": "neutral",
+        "displayName": "Paper Surface",
+        "canonical": "#ffffff",
+        "tonalRamp": ["#211c15", "#4b4339", "#8a8073", "#b0a695", "#d8c9af", "#e7dbc7", "#faf6ef", "#ffffff"]
+      },
+      "ink-900": {
+        "role": "neutral",
+        "displayName": "Deep Ink",
+        "canonical": "#211c15",
+        "tonalRamp": ["#211c15", "#372f25", "#4b4339", "#6a6053", "#8a8073", "#b0a695", "#d8c9af", "#faf6ef"]
+      },
+      "coral": {
+        "role": "primary",
+        "displayName": "Sunset Coral",
+        "canonical": "#e15b43",
+        "tonalRamp": ["#3d130d", "#6d2117", "#993421", "#b23e2b", "#cf4f39", "#e15b43", "#f1a08f", "#fbe5df"]
+      },
+      "teal": {
+        "role": "secondary",
+        "displayName": "Operational Teal",
+        "canonical": "#1c9488",
+        "tonalRamp": ["#082622", "#0d403a", "#126b62", "#1c9488", "#4ab5aa", "#8bd1ca", "#dbf0ed", "#f2fbfa"]
+      },
+      "amber": {
+        "role": "secondary",
+        "displayName": "Exception Amber",
+        "canonical": "#c98a12",
+        "tonalRamp": ["#2f1d02", "#5c3c04", "#93630a", "#c98a12", "#e4b64f", "#f1d48f", "#f7ebcf", "#fff8e8"]
+      },
+      "indigo": {
+        "role": "tertiary",
+        "displayName": "Training Indigo",
+        "canonical": "#4b6bbd",
+        "tonalRamp": ["#111a33", "#1f2d59", "#334b86", "#4b6bbd", "#7f97d2", "#b7c5e7", "#e4e9f7", "#f6f8fd"]
+      },
+      "focus": {
+        "role": "focus",
+        "displayName": "Focus Blue",
+        "canonical": "#2c6fb0",
+        "tonalRamp": ["#071a2b", "#12395c", "#1e5688", "#2c6fb0", "#5a95cb", "#9cc2e4", "#d9e9f7", "#f4f9fd"]
+      }
+    },
+    "typographyMeta": {
+      "display": {
+        "displayName": "Page Title",
+        "purpose": "Serif page h1 only; keep admin screens out of hero territory."
+      },
+      "title": {
+        "displayName": "Dialog and Section Title",
+        "purpose": "Modal titles and important section headings."
+      },
+      "body": {
+        "displayName": "Operator Body",
+        "purpose": "Dense labels, descriptions, forms, and table body copy."
+      },
+      "label": {
+        "displayName": "Control Label",
+        "purpose": "Field labels, legends, compact helper text."
+      },
+      "mono": {
+        "displayName": "Operational Mono",
+        "purpose": "Counts, RSD, IDs, times, statuses, headers, and filters."
+      }
+    },
+    "shadows": [
+      {
+        "name": "surface-low",
+        "value": "0 1px 2px rgba(33, 28, 21, 0.06)",
+        "purpose": "Static paper work surfaces on the sand canvas."
+      },
+      {
+        "name": "surface-raised",
+        "value": "0 6px 22px rgba(33, 28, 21, 0.1)",
+        "purpose": "Rare raised panels such as login."
+      },
+      {
+        "name": "overlay-high",
+        "value": "0 18px 48px rgba(33, 28, 21, 0.18)",
+        "purpose": "Modals, drawers, and toasts."
+      },
+      {
+        "name": "focus-ring",
+        "value": "0 0 0 3px rgba(44, 111, 176, 0.35)",
+        "purpose": "Keyboard focus distinct from coral selection."
+      }
+    ],
+    "motion": [
+      {
+        "name": "state-fast",
+        "value": "120ms ease-out",
+        "purpose": "Hover, focus, row hover, tags, and compact control feedback."
+      },
+      {
+        "name": "overlay-enter",
+        "value": "160ms cubic-bezier(0.16, 1, 0.3, 1)",
+        "purpose": "Modal and toast entry after removing bounce or elastic easing."
+      },
+      {
+        "name": "drawer-enter",
+        "value": "220ms cubic-bezier(0.16, 1, 0.3, 1)",
+        "purpose": "Mobile drawer movement."
+      },
+      {
+        "name": "reduced-motion",
+        "value": "instant or opacity-only",
+        "purpose": "Required alternative for every animation."
+      }
+    ],
+    "breakpoints": [
+      {
+        "name": "desktop-shell",
+        "value": "1025px",
+        "purpose": "Persistent sidebar and two-column app grid."
+      },
+      {
+        "name": "tablet-drawer",
+        "value": "1024px",
+        "purpose": "Top bar plus off-canvas navigation drawer."
+      },
+      {
+        "name": "phone",
+        "value": "640px",
+        "purpose": "Single-column cards, scrollable calendar, full-width toasts, bottom-sheet modals."
+      }
+    ]
+  },
+  "components": [
+    {
+      "name": "Primary Button",
+      "kind": "button",
+      "refersTo": "button-primary",
+      "description": "The one primary action in a workspace or modal footer.",
+      "html": "<button class=\"ds-btn-primary\" type=\"button\">Сохранить</button>",
+      "css": ".ds-btn-primary { display: inline-flex; align-items: center; justify-content: center; gap: 7px; height: 38px; padding: 0 15px; border: 1px solid transparent; border-radius: var(--radius-sm, 7px); background: var(--coral, #e15b43); color: #fff; font: 600 13.5px var(--font-sans, ui-sans-serif, system-ui); white-space: nowrap; cursor: pointer; transition: background 120ms ease-out, box-shadow 120ms ease-out; } .ds-btn-primary:hover:not(:disabled) { background: #cf4f39; } .ds-btn-primary:active:not(:disabled) { background: var(--coral-ink, #b23e2b); } .ds-btn-primary:focus-visible { outline: none; box-shadow: var(--focus-ring, 0 0 0 3px rgba(44, 111, 176, 0.35)); } .ds-btn-primary:disabled { opacity: .45; cursor: not-allowed; }"
+    },
+    {
+      "name": "Ghost Button",
+      "kind": "button",
+      "refersTo": "button-ghost",
+      "description": "Secondary command for dense toolbars, table rows, and cancel actions.",
+      "html": "<button class=\"ds-btn-ghost\" type=\"button\">Отмена</button>",
+      "css": ".ds-btn-ghost { display: inline-flex; align-items: center; justify-content: center; gap: 7px; height: 38px; padding: 0 15px; border: 1px solid var(--border-strong, #cfc1a8); border-radius: var(--radius-sm, 7px); background: var(--paper, #fff); color: var(--ink-900, #211c15); font: 600 13.5px var(--font-sans, ui-sans-serif, system-ui); white-space: nowrap; cursor: pointer; transition: background 120ms ease-out, border-color 120ms ease-out, color 120ms ease-out, box-shadow 120ms ease-out; } .ds-btn-ghost:hover:not(:disabled) { background: var(--sand-100, #f2eadd); border-color: var(--ink-400, #b0a695); } .ds-btn-ghost:focus-visible { outline: none; box-shadow: var(--focus-ring, 0 0 0 3px rgba(44, 111, 176, 0.35)); } .ds-btn-ghost:disabled { opacity: .45; cursor: not-allowed; }"
+    },
+    {
+      "name": "Text Field",
+      "kind": "input",
+      "refersTo": "input",
+      "description": "Labelled field shell with accessible hint and error slots.",
+      "html": "<label class=\"ds-field\"><span class=\"ds-field-label\">Клиент</span><input class=\"ds-input\" type=\"search\" placeholder=\"Имя или @username\"><span class=\"ds-field-hint\">Поиск выполняет сервер.</span></label>",
+      "css": ".ds-field { display: flex; flex-direction: column; gap: 6px; color: var(--ink-900, #211c15); font-family: var(--font-sans, ui-sans-serif, system-ui); } .ds-field-label { font-size: 12.5px; font-weight: 600; color: var(--ink-700, #4b4339); } .ds-input { width: 100%; height: 38px; padding: 0 12px; border: 1px solid var(--border-strong, #cfc1a8); border-radius: var(--radius-sm, 7px); background: var(--paper, #fff); color: var(--ink-900, #211c15); font: 400 13.5px var(--font-sans, ui-sans-serif, system-ui); transition: border-color 120ms ease-out, box-shadow 120ms ease-out; } .ds-input::placeholder { color: var(--ink-400, #b0a695); } .ds-input:hover { border-color: var(--ink-400, #b0a695); } .ds-input:focus { outline: none; border-color: var(--focus, #2c6fb0); box-shadow: var(--focus-ring, 0 0 0 3px rgba(44, 111, 176, 0.35)); } .ds-field-hint { font-size: 11.5px; color: var(--ink-500, #8a8073); }"
+    },
+    {
+      "name": "Data Table",
+      "kind": "custom",
+      "refersTo": "datatable",
+      "description": "Semantic dense table with sticky sand header and mono numeric alignment.",
+      "html": "<div class=\"ds-table-surface\"><table class=\"ds-table\"><caption>Тренировки</caption><thead><tr><th>Дата</th><th>Группа</th><th class=\"ds-num\">Мест</th></tr></thead><tbody><tr><td>2026-07-07</td><td>Beach A</td><td class=\"ds-num\">8 / 12</td></tr><tr><td>2026-07-08</td><td>Индивидуальная</td><td class=\"ds-num\">1 / 1</td></tr></tbody></table></div>",
+      "css": ".ds-table-surface { overflow-x: auto; border: 1px solid var(--border, #e3d9c8); border-radius: var(--radius, 10px); background: var(--paper, #fff); box-shadow: var(--shadow-sm, 0 1px 2px rgba(33, 28, 21, .06)); } .ds-table { width: 100%; border-collapse: collapse; font: 400 13px var(--font-sans, ui-sans-serif, system-ui); } .ds-table caption { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; } .ds-table th { padding: 11px 14px; background: var(--sand-100, #f2eadd); border-bottom: 1px solid var(--border, #e3d9c8); color: var(--ink-500, #8a8073); font: 600 10.5px var(--font-mono, ui-monospace, monospace); letter-spacing: .07em; text-transform: uppercase; text-align: left; white-space: nowrap; } .ds-table td { padding: 11px 14px; border-bottom: 1px solid var(--sand-200, #e7dbc7); color: var(--ink-700, #4b4339); vertical-align: middle; } .ds-table tbody tr:hover { background: var(--sand-50, #faf6ef); } .ds-table tr:last-child td { border-bottom: 0; } .ds-num { text-align: right !important; font-family: var(--font-mono, ui-monospace, monospace); font-variant-numeric: tabular-nums; }"
+    },
+    {
+      "name": "Navigation Row",
+      "kind": "nav",
+      "refersTo": "navigation",
+      "description": "Grouped sidebar row with icon, label, optional count, and active paper fill.",
+      "html": "<a class=\"ds-nav-item ds-nav-item-active\" href=\"#\"><svg class=\"ds-nav-icon\" viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"2\" aria-hidden=\"true\"><path d=\"M4 6h16M4 12h16M4 18h10\"></path></svg><span>Тренировки</span><span class=\"ds-nav-count\">3</span></a>",
+      "css": ".ds-nav-item { display: flex; align-items: center; gap: 10px; min-height: 34px; padding: 8px 10px; border-radius: var(--radius-sm, 7px); color: var(--ink-700, #4b4339); background: transparent; font: 500 13.5px var(--font-sans, ui-sans-serif, system-ui); text-decoration: none; transition: background 120ms ease-out, color 120ms ease-out; } .ds-nav-item:hover { background: var(--sand-200, #e7dbc7); color: var(--ink-900, #211c15); } .ds-nav-item:focus-visible { outline: 2px solid var(--focus, #2c6fb0); outline-offset: 2px; } .ds-nav-icon { width: 17px; height: 17px; color: var(--ink-500, #8a8073); flex: none; } .ds-nav-count { margin-left: auto; padding: 1px 7px; border-radius: var(--radius-pill, 999px); background: var(--sand-200, #e7dbc7); color: var(--ink-700, #4b4339); font: 600 11px var(--font-mono, ui-monospace, monospace); } .ds-nav-item-active { background: var(--paper, #fff); color: var(--coral-ink, #b23e2b); box-shadow: 0 0 0 1px var(--border, #e3d9c8), var(--shadow-sm, 0 1px 2px rgba(33, 28, 21, .06)); } .ds-nav-item-active .ds-nav-icon { color: var(--coral, #e15b43); } .ds-nav-item-active .ds-nav-count { background: var(--coral-soft, #fbe5df); color: var(--coral-ink, #b23e2b); }"
+    },
+    {
+      "name": "Stat Card",
+      "kind": "card",
+      "refersTo": "surface-card",
+      "description": "Compact display-only metric for dashboard and report summaries.",
+      "html": "<div class=\"ds-stat\"><span class=\"ds-stat-label\">Записи</span><span class=\"ds-stat-value\">128</span><span class=\"ds-stat-hint\">2026-07-01 - 2026-07-31</span></div>",
+      "css": ".ds-stat { display: flex; flex-direction: column; gap: 9px; padding: 16px 18px 17px; border: 1px solid var(--border, #e3d9c8); border-radius: var(--radius, 10px); background: var(--paper, #fff); color: var(--ink-900, #211c15); box-shadow: var(--shadow-sm, 0 1px 2px rgba(33, 28, 21, .06)); } .ds-stat-label { color: var(--ink-500, #8a8073); font: 600 10.5px var(--font-mono, ui-monospace, monospace); letter-spacing: .1em; text-transform: uppercase; } .ds-stat-value { color: var(--ink-900, #211c15); font: 600 30px/1 var(--font-mono, ui-monospace, monospace); letter-spacing: -.02em; font-variant-numeric: tabular-nums; } .ds-stat-hint { color: var(--ink-500, #8a8073); font: 400 12.5px var(--font-sans, ui-sans-serif, system-ui); }"
+    },
+    {
+      "name": "Status Tag",
+      "kind": "chip",
+      "refersTo": "status-tag",
+      "description": "Text-first status badge with semantic tone.",
+      "html": "<span class=\"ds-tag ds-tag-ok\"><span class=\"ds-tag-dot\" aria-hidden=\"true\"></span>Оплачено</span>",
+      "css": ".ds-tag { display: inline-flex; align-items: center; gap: 5px; padding: 2px 9px; border: 1px solid transparent; border-radius: var(--radius-pill, 999px); font: 600 11px/1.5 var(--font-mono, ui-monospace, monospace); letter-spacing: .02em; white-space: nowrap; } .ds-tag-dot { width: 6px; height: 6px; border-radius: 50%; background: currentColor; } .ds-tag-ok { background: var(--teal-soft, #dbf0ed); color: var(--teal-ink, #126b62); border-color: color-mix(in srgb, var(--teal, #1c9488) 24%, var(--border, #e3d9c8)); } .ds-tag-warn { background: var(--amber-soft, #f7ebcf); color: var(--amber-ink, #93630a); border-color: color-mix(in srgb, var(--amber, #c98a12) 28%, var(--border, #e3d9c8)); } .ds-tag-coral { background: var(--coral-soft, #fbe5df); color: var(--coral-ink, #b23e2b); border-color: color-mix(in srgb, var(--coral, #e15b43) 24%, var(--border, #e3d9c8)); } .ds-tag-muted { background: transparent; color: var(--ink-500, #8a8073); border-color: var(--border, #e3d9c8); }"
+    },
+    {
+      "name": "Modal",
+      "kind": "custom",
+      "refersTo": "modal",
+      "description": "Accessible overlay panel with title, body, and stable footer actions.",
+      "html": "<div class=\"ds-modal\"><div class=\"ds-modal-head\"><h2>Подтвердить оплату</h2><button class=\"ds-modal-close\" type=\"button\" aria-label=\"Закрыть\">×</button></div><div class=\"ds-modal-body\">Сумма и статус пришли из API.</div><div class=\"ds-modal-foot\"><button class=\"ds-btn-ghost\" type=\"button\">Отмена</button><button class=\"ds-btn-primary\" type=\"button\">Сохранить</button></div></div>",
+      "css": ".ds-modal { width: min(560px, 100%); max-height: calc(100vh - 56px); display: flex; flex-direction: column; border-radius: var(--radius-lg, 14px); background: var(--paper, #fff); color: var(--ink-900, #211c15); box-shadow: var(--shadow-lg, 0 18px 48px rgba(33, 28, 21, .18)); overflow: hidden; } .ds-modal-head { display: flex; align-items: flex-start; justify-content: space-between; gap: 14px; padding: 18px 22px 16px; border-bottom: 1px solid var(--border, #e3d9c8); } .ds-modal h2 { margin: 0; font: 600 20px/1.2 var(--font-serif, Georgia, serif); letter-spacing: -.01em; } .ds-modal-close { width: 32px; height: 32px; display: grid; place-items: center; border: 0; border-radius: var(--radius-sm, 7px); background: transparent; color: var(--ink-500, #8a8073); cursor: pointer; } .ds-modal-close:hover { background: var(--sand-200, #e7dbc7); color: var(--ink-900, #211c15); } .ds-modal-close:focus-visible { outline: none; box-shadow: var(--focus-ring, 0 0 0 3px rgba(44, 111, 176, .35)); } .ds-modal-body { padding: 22px; overflow-y: auto; font: 400 14px/1.5 var(--font-sans, ui-sans-serif, system-ui); } .ds-modal-foot { display: flex; justify-content: flex-end; gap: 10px; padding: 16px 22px; border-top: 1px solid var(--border, #e3d9c8); background: var(--sand-50, #faf6ef); } .ds-btn-primary, .ds-btn-ghost { height: 38px; padding: 0 15px; border-radius: var(--radius-sm, 7px); font: 600 13.5px var(--font-sans, ui-sans-serif, system-ui); } .ds-btn-primary { border: 1px solid transparent; background: var(--coral, #e15b43); color: #fff; } .ds-btn-ghost { border: 1px solid var(--border-strong, #cfc1a8); background: var(--paper, #fff); color: var(--ink-900, #211c15); }"
+    },
+    {
+      "name": "Toast",
+      "kind": "custom",
+      "refersTo": "toast",
+      "description": "Live-region notification with dark ink surface, full tokenized tone border, icon, and message.",
+      "html": "<div class=\"ds-toast ds-toast-success\" role=\"status\"><svg class=\"ds-toast-icon\" viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"2\" aria-hidden=\"true\"><path d=\"M5 12l4 4 10-10\"></path></svg><span>Сохранено</span></div>",
+      "css": ".ds-toast { width: min(340px, 100%); display: flex; align-items: flex-start; gap: 11px; padding: 13px 15px; border: 1px solid color-mix(in srgb, var(--sand-50, #faf6ef) 14%, var(--ink-900, #211c15)); border-radius: var(--radius, 10px); background: var(--ink-900, #211c15); color: var(--sand-50, #faf6ef); box-shadow: var(--shadow-lg, 0 18px 48px rgba(33, 28, 21, .18)); font: 400 13px/1.4 var(--font-sans, ui-sans-serif, system-ui); } .ds-toast-icon { width: 18px; height: 18px; flex: none; margin-top: 1px; } .ds-toast-success { border-color: color-mix(in srgb, var(--teal, #1c9488) 55%, var(--ink-900, #211c15)); } .ds-toast-error { border-color: color-mix(in srgb, var(--coral, #e15b43) 55%, var(--ink-900, #211c15)); } .ds-toast-info { border-color: color-mix(in srgb, var(--focus, #2c6fb0) 55%, var(--ink-900, #211c15)); } .ds-toast-success .ds-toast-icon { color: var(--teal-soft, #dbf0ed); } .ds-toast-error .ds-toast-icon { color: var(--coral-soft, #fbe5df); } .ds-toast-info .ds-toast-icon { color: color-mix(in srgb, var(--focus, #2c6fb0) 45%, var(--paper, #fff)); }"
+    },
+    {
+      "name": "Court Timeline Event",
+      "kind": "custom",
+      "refersTo": "court-event",
+      "description": "Time-block event that keeps state and time visible instead of relying on color.",
+      "html": "<button class=\"ds-court-event ds-court-event-training\" type=\"button\"><span class=\"ds-court-glyph\">T</span><span class=\"ds-court-text\">Тренировка · 18:00-19:30</span></button>",
+      "css": ".ds-court-event { display: inline-flex; align-items: center; gap: 7px; min-width: 38px; height: 40px; padding: 0 9px; border: 1px solid var(--court-event-border, var(--border, #e3d9c8)); border-radius: var(--radius-sm, 7px); background: var(--court-event-bg, var(--sand-100, #f2eadd)); color: var(--court-event-fg, var(--ink-700, #4b4339)); box-shadow: 0 8px 18px rgba(33, 28, 21, .08); font: 400 12px var(--font-sans, ui-sans-serif, system-ui); cursor: pointer; transition: filter 120ms ease-out, transform 120ms ease-out; } .ds-court-event:hover { filter: brightness(.97); transform: translateY(-1px); } .ds-court-event:focus-visible { outline: 2px solid var(--focus, #2c6fb0); outline-offset: 2px; } .ds-court-glyph { display: inline-grid; place-items: center; width: 20px; height: 20px; border-radius: var(--radius-sm, 7px); background: color-mix(in srgb, var(--court-event-fg, var(--ink-700, #4b4339)) 13%, transparent); font: 700 12px var(--font-mono, ui-monospace, monospace); } .ds-court-text { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; } .ds-court-event-training { --court-event-border: var(--indigo, #4b6bbd); --court-event-bg: color-mix(in srgb, var(--indigo, #4b6bbd) 16%, var(--paper, #fff)); --court-event-fg: var(--indigo, #4b6bbd); }"
+    }
+  ],
+  "narrative": {
+    "northStar": "The Warm Control Room",
+    "overview": "A school manager works at a laptop between training blocks, calls, payments, and court changes. The room is bright enough for a light interface, noisy enough that the UI must scan instantly, and operational enough that every figure must feel server-owned rather than locally guessed.\n\nThe redesign direction is a calm precise warm operator workspace: refined, utilitarian, data-dense, fast to scan, and unmistakably BeoSand without becoming ornamental. The working surface comes first: tables, calendars, timelines, queues, filters, forms, status, and detail inspection. Cards support repeated figures or framed tools only; they do not become a decorative dashboard grid.\n\nProduct register: product. Design serves the admin task; it does not become the product itself.\n\nThe admin is a thin interaction layer over apps/api. Frontend components render validated contract data, collect manager intent, and show API errors verbatim. Money, capacity, availability, waitlists, court assignment, payment state, status, and pricing provenance stay out of UI logic.",
+    "keyCharacteristics": [
+      "Dense but legible operational layouts with one primary workspace per screen.",
+      "Warm sand and ink foundation, white work surfaces, coral used sparingly for action and selection.",
+      "Mono figures for counts, RSD, Telegram IDs, time, filters, and compact status facts.",
+      "Server provenance is visible when it affects trust, especially stored snapshots, payment/pricing breakdowns, and API-decided statuses.",
+      "Short state-driven motion only; no ornamental page choreography."
+    ],
+    "rules": [
+      {
+        "name": "The One Accent Rule",
+        "body": "Coral is for action, selection, and urgent emphasis only. If coral appears in decoration, remove it.",
+        "section": "colors"
+      },
+      {
+        "name": "The Server Truth Rule",
+        "body": "State colors label API-decided facts. They must not imply local recomputation of price, availability, capacity, payment state, or court assignment.",
+        "section": "colors"
+      },
+      {
+        "name": "The No Side-Stripe Cleanup Rule",
+        "body": "During the redesign, remove thick side-tab accent borders and card/list border-left accents greater than 1px. Replace them with full borders, filled status tags, compact icons, row selection backgrounds, or text labels.",
+        "section": "colors"
+      },
+      {
+        "name": "The Data First Type Rule",
+        "body": "Use mono for operational facts that benefit from alignment or quick comparison. Do not use decorative type inside controls, tags, data cells, or filters.",
+        "section": "typography"
+      },
+      {
+        "name": "The No Hero Admin Rule",
+        "body": "Admin screens start with the working surface. No oversized hero type, marketing panels, or decorative metric headers.",
+        "section": "typography"
+      },
+      {
+        "name": "The Flat Until State Rule",
+        "body": "At rest, interfaces are defined by borders, spacing, and tonal surfaces. Lift appears for overlays, hover feedback, and keyboard focus.",
+        "section": "elevation"
+      },
+      {
+        "name": "The Motion Cleanup Rule",
+        "body": "Replace bounce or elastic easing with short ease-out/quart-like curves. Modal, sheet, toast, and drawer motion must be 120-220ms, state-driven, and compatible with reduced motion.",
+        "section": "elevation"
+      }
+    ],
+    "dos": [
+      "Do start every admin screen with the operational workspace: table, calendar, timeline, queue, form, or report.",
+      "Do keep apps/admin thin over typed API contracts. Render server-decided money, capacity, availability, waitlists, court assignment, payment state, and status.",
+      "Do use Russian UI strings, Serbian where the product already uses it, and whole-dinar RSD display via the shared formatter.",
+      "Do make provenance visible when trust depends on it: stored booking prices, pricing breakdowns, monthly count context, server decisions, and editable manager inputs should not blur together.",
+      "Do preserve dense scanning: sticky headers, mono figures, right-aligned numeric columns, compact filters, clear status tags, and explicit empty/error/loading states.",
+      "Do keep keyboard focus visible and separate from brand accent by using the blue focus ring.",
+      "Do make mobile layouts structurally safe: drawer navigation, horizontally scrollable dense grids, full-width toasts, and bottom-sheet modals."
+    ],
+    "donts": [
+      "Don't create generic SaaS dashboard kits with interchangeable blue/gray cards and decorative metrics.",
+      "Don't create loud sports or fitness interfaces that prioritize energy over operational clarity.",
+      "Don't make Telegram-bot-like admin screens that feel like a thin chat wrapper instead of a real console.",
+      "Don't use overly ornamental editorial UI that makes dense tables, forms, and exception queues harder to use.",
+      "Don't make the frontend appear to recompute prices, capacity, or availability instead of clearly reflecting server-owned state.",
+      "Don't use thick side-tab accent borders or border-left accents greater than 1px on cards, list items, notes, toasts, or calendar chips in the redesign.",
+      "Don't use bounce, elastic, or overshooting cubic-bezier motion. Motion is short, state-driven, and reduced-motion aware.",
+      "Don't use gradient text, glassmorphism, decorative grid/stripe backgrounds, oversized cards, nested cards, or marketing hero sections.",
+      "Don't hide critical action text behind icons unless the icon is familiar and has an accessible label or tooltip."
+    ]
+  }
+}

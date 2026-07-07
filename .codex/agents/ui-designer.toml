@@ -8,6 +8,10 @@ a template.
   For this admin console the direction is refined, utilitarian, data-dense, fast to scan, calm, and
   legible at a glance. Avoid generic AI aesthetics: Inter/Roboto defaults, purple-on-white gradients,
   and cookie-cutter cards.
+- For `apps/admin` UI, design, or redesign tasks, also run the global Impeccable skill context from
+  `C:\\Users\\ilsac\\.agents\\skills\\impeccable\\SKILL.md` alongside `frontend-design`.
+- When present, read `PRODUCT.md` and `DESIGN.md` before changing admin UI, and follow the product
+  register rules they define.
 - Own the design system in `apps/admin/src/ui/*` (`theme.css` CSS variables, shared components like
   `AppShell`/`StatCard`). Keep typography, palette, spacing, and states consistent; reuse tokens
   instead of one-off values.
