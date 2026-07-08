@@ -87,6 +87,7 @@ export class BroadcastsService {
     const buttons: BookSlotButton[] = slots.map((s) => ({
       trainingId: s.trainingId,
       startTime: s.startTime,
+      groupName: s.groupName,
       levelName: s.levelName
     }));
     const recipients = await this.resolveRecipients(audience);
@@ -186,6 +187,7 @@ function toSlotCard(row: BroadcastSlotRow): SlotCard {
     dayOfWeek: isoWeekdayOf(row.date),
     startTime: row.startTime,
     endTime: row.endTime,
+    groupName: row.groupName,
     trainerName: row.trainerName,
     levelName: row.levelName,
     freeSeats: freeSeats(row),

@@ -1,4 +1,10 @@
-import { useId, type InputHTMLAttributes, type ReactNode, type SelectHTMLAttributes } from "react";
+import {
+  useId,
+  type InputHTMLAttributes,
+  type ReactNode,
+  type SelectHTMLAttributes,
+  type TextareaHTMLAttributes
+} from "react";
 
 interface FieldShellProps {
   label: string;
@@ -48,6 +54,29 @@ export function TextField({ label, error, hint, ...rest }: TextFieldProps): JSX.
   return (
     <FieldShell label={label} htmlFor={id} error={error} hint={hint}>
       <input
+        id={id}
+        className="input"
+        aria-invalid={error ? "true" : undefined}
+        aria-describedby={describedBy}
+        {...rest}
+      />
+    </FieldShell>
+  );
+}
+
+interface TextAreaFieldProps extends Omit<TextareaHTMLAttributes<HTMLTextAreaElement>, "id"> {
+  label: string;
+  error?: string;
+  hint?: string;
+}
+
+/** Multiline text input bound to a label. */
+export function TextAreaField({ label, error, hint, ...rest }: TextAreaFieldProps): JSX.Element {
+  const id = useId();
+  const describedBy = error ? `${id}-error` : hint ? `${id}-hint` : undefined;
+  return (
+    <FieldShell label={label} htmlFor={id} error={error} hint={hint}>
+      <textarea
         id={id}
         className="input"
         aria-invalid={error ? "true" : undefined}

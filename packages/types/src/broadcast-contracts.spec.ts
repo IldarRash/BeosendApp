@@ -49,6 +49,7 @@ describe("broadcast contracts", () => {
             dayOfWeek: 3,
             startTime: "18:00",
             endTime: "19:30",
+            groupName: "Evening group",
             trainerName: "Ana",
             levelName: "Beginner",
             freeSeats: 5,
@@ -66,6 +67,28 @@ describe("broadcast contracts", () => {
         text: "x",
         slots: [],
         recipientsCount: -1
+      });
+      expect(result.success).toBe(false);
+    });
+
+    it("rejects a preview slot missing the required group name", () => {
+      const result = broadcastPreviewSchema.safeParse({
+        type: "today",
+        text: "x",
+        slots: [
+          {
+            trainingId: "11111111-1111-1111-1111-111111111111",
+            date: "2026-06-03",
+            dayOfWeek: 3,
+            startTime: "18:00",
+            endTime: "19:30",
+            trainerName: "Ana",
+            levelName: "Beginner",
+            freeSeats: 5,
+            priceSingleRsd: 1500
+          }
+        ],
+        recipientsCount: 1
       });
       expect(result.success).toBe(false);
     });

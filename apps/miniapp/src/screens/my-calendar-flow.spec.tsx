@@ -123,6 +123,7 @@ const SLOT_ALREADY_BOOKED: TrainingScheduleSlot = {
   dayOfWeek: 3,
   startTime: "18:00",
   endTime: "19:30",
+  groupName: "Beginner Mix Evening",
   trainerName: "Иван",
   levelName: "Начинающий",
   freeSeats: 3,

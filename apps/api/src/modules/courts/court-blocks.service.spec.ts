@@ -30,16 +30,22 @@ function makeRepo(overrides: Partial<CourtBlocksRepository> = {}): CourtBlocksRe
     transaction: vi.fn().mockImplementation(async (work) => work({})),
     insert: vi
       .fn()
-      .mockImplementation(async (input) => ({ id: BLOCK_ID, groupTrainingId: null, ...input })),
-    updateCourt: vi
+      .mockImplementation(async (input) => ({
+        id: BLOCK_ID,
+        groupTrainingId: null,
+        ...input,
+        description: input.description ?? null
+      })),
+    updateBlock: vi
       .fn()
-      .mockImplementation(async (id, courtId) => ({
+      .mockImplementation(async (id, patch) => ({
         id,
-        courtId,
+        courtId: patch.courtId ?? COURT_ID,
         date: "2026-06-10",
         startTime: "18:00",
         endTime: "20:00",
         reason: "Tournament",
+        description: patch.description ?? null,
         groupTrainingId: null
       })),
     deleteById: vi.fn().mockResolvedValue(true),
@@ -241,6 +247,32 @@ describe("CourtBlocksService", () => {
     expect(block).toMatchObject({ id: BLOCK_ID, courtId: COURT_ID, startTime: "18:00" });
   });
 
+  it("trims and stores a create description, and normalizes blanks to null", async () => {
+    const described = await service.createBlock(ADMIN, {
+      ...baseInput,
+      description: "  bring dividers  "
+    });
+    expect(described.description).toBe("bring dividers");
+    expect(repo.insert).toHaveBeenLastCalledWith(
+      expect.objectContaining({ description: "bring dividers" }),
+      expect.anything()
+    );
+
+    const blank = await service.createBlock(ADMIN, { ...baseInput, description: "   " });
+    expect(blank.description).toBeNull();
+    expect(repo.insert).toHaveBeenLastCalledWith(
+      expect.objectContaining({ description: null }),
+      expect.anything()
+    );
+  });
+
+  it("rejects an overlong create description before inserting", async () => {
+    await expect(
+      service.createBlock(ADMIN, { ...baseInput, description: "x".repeat(1001) })
+    ).rejects.toBeInstanceOf(BadRequestException);
+    expect(repo.insert).not.toHaveBeenCalled();
+  });
+
   it("takes the per-date occupancy lock before single-block overlap reads and insert", async () => {
     await service.createBlock(ADMIN, baseInput);
 
@@ -275,6 +307,20 @@ describe("CourtBlocksService", () => {
       ]);
       expect(repo.transaction).toHaveBeenCalledOnce();
       expect(repo.insert).toHaveBeenCalledTimes(3);
+    });
+
+    it("applies one normalized description to every recurring occurrence", async () => {
+      await service.createRecurringBlocks(ADMIN, {
+        ...recurringInput,
+        description: "  tournament setup  "
+      });
+
+      expect(repo.insert).toHaveBeenCalledTimes(3);
+      expect(vi.mocked(repo.insert).mock.calls.map(([input]) => input.description)).toEqual([
+        "tournament setup",
+        "tournament setup",
+        "tournament setup"
+      ]);
     });
 
     it("locks each selected date once in sorted order before recurring overlap reads", async () => {
@@ -377,6 +423,7 @@ describe("CourtBlocksService", () => {
       startTime: "18:00",
       endTime: "20:00",
       reason: "Tournament",
+      description: null,
       groupTrainingId: null
     };
     repo = makeRepo({ findById: vi.fn().mockResolvedValue(block) });
@@ -406,6 +453,7 @@ describe("CourtBlocksService", () => {
         startTime: d.startTime,
         endTime: "21:00",
         reason: "Tournament",
+        description: i === 0 ? "Setup note" : null,
         groupTrainingId: null
       }));
       repo = makeRepo({ findByDateRange: vi.fn().mockResolvedValue(ranged) });
@@ -437,6 +485,7 @@ describe("CourtBlocksService", () => {
       startTime: "18:00",
       endTime: "20:00",
       reason: "Group A",
+      description: null,
       groupTrainingId: "44444444-4444-4444-4444-444444444444"
     };
 
@@ -473,7 +522,51 @@ describe("CourtBlocksService", () => {
       service = new CourtBlocksService(env, repo, makeSettings());
       const moved = await service.reassignCourt(ADMIN, BLOCK_ID, { courtId: TARGET_COURT });
       expect(moved.courtId).toBe(TARGET_COURT);
-      expect(repo.updateCourt).toHaveBeenCalledWith(BLOCK_ID, TARGET_COURT, expect.anything());
+      expect(repo.updateBlock).toHaveBeenCalledWith(
+        BLOCK_ID,
+        { courtId: TARGET_COURT },
+        expect.anything()
+      );
+    });
+
+    it("updates only the description without running reassignment availability checks", async () => {
+      repo = makeRepo({
+        findById: vi.fn().mockResolvedValue(existingBlock),
+        updateBlock: vi.fn().mockResolvedValue({ ...existingBlock, description: "Updated note" })
+      });
+      service = new CourtBlocksService(env, repo, makeSettings());
+
+      const updated = await service.reassignCourt(ADMIN, BLOCK_ID, {
+        description: "  Updated note  "
+      });
+
+      expect(updated.description).toBe("Updated note");
+      expect(repo.updateBlock).toHaveBeenCalledWith(
+        BLOCK_ID,
+        { description: "Updated note" },
+        expect.anything()
+      );
+      expect(repo.isActiveCourt).not.toHaveBeenCalled();
+      expect(repo.confirmedOccupancyForDate).not.toHaveBeenCalled();
+      expect(repo.blocksOccupancyForDate).not.toHaveBeenCalled();
+      expect(repo.countActiveCourts).not.toHaveBeenCalled();
+    });
+
+    it("clears the description to null when PATCH sends an empty string", async () => {
+      repo = makeRepo({
+        findById: vi.fn().mockResolvedValue({ ...existingBlock, description: "Old note" }),
+        updateBlock: vi.fn().mockResolvedValue({ ...existingBlock, description: null })
+      });
+      service = new CourtBlocksService(env, repo, makeSettings());
+
+      const updated = await service.reassignCourt(ADMIN, BLOCK_ID, { description: "" });
+
+      expect(updated.description).toBeNull();
+      expect(repo.updateBlock).toHaveBeenCalledWith(
+        BLOCK_ID,
+        { description: null },
+        expect.anything()
+      );
     });
 
     it("takes the per-date occupancy lock before reassign overlap reads and update", async () => {
@@ -487,7 +580,7 @@ describe("CourtBlocksService", () => {
         vi.mocked(repo.confirmedOccupancyForDate).mock.invocationCallOrder[0]
       );
       expect(vi.mocked(repo.lockDate).mock.invocationCallOrder[0]).toBeLessThan(
-        vi.mocked(repo.updateCourt).mock.invocationCallOrder[0]
+        vi.mocked(repo.updateBlock).mock.invocationCallOrder[0]
       );
     });
 
@@ -504,7 +597,7 @@ describe("CourtBlocksService", () => {
       await expect(
         service.reassignCourt(ADMIN, BLOCK_ID, { courtId: TARGET_COURT })
       ).rejects.toBeInstanceOf(ConflictException);
-      expect(repo.updateCourt).not.toHaveBeenCalled();
+      expect(repo.updateBlock).not.toHaveBeenCalled();
     });
 
     it("409s when the move would exceed the 6-per-slot limit", async () => {

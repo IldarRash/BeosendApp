@@ -23,6 +23,7 @@ import {
   autoAssignResultSchema,
   courtBlockSchema,
   createRecurringCourtBlocksSchema,
+  updateCourtBlockSchema,
   courtLoadGridSchema,
   cancelCourtRequestSchema,
   reassignCourtRequestSchema,
@@ -149,6 +150,7 @@ import {
   type TrainingPricingTier,
   type TrainingRoster,
   type UpdateTrainingScheduleCourtInput,
+  type UpdateCourtBlock,
   type TransferGroupInput,
   type TransferGroupResult,
   type UpdateIndividualPriceInput,
@@ -366,6 +368,14 @@ export class ApiClient {
     }
   }
 
+  /** Patch editable court-block fields. The server owns validation and conflict checks. */
+  updateCourtBlock(id: string, input: UpdateCourtBlock): Promise<CourtBlock> {
+    return this.request(`/court-blocks/${id}`, courtBlockSchema, {
+      method: "PATCH",
+      body: JSON.stringify(updateCourtBlockSchema.parse(input))
+    });
+  }
+
   /**
    * Move a block to another court (PATCH /court-blocks/:id, body `{ courtId }`).
    * Used primarily for group auto-blocks (non-null `groupTrainingId`). The server
@@ -373,10 +383,7 @@ export class ApiClient {
    * the block's own slots and rejects (409) a clash — the client computes nothing.
    */
   reassignCourtBlock(id: string, courtId: string): Promise<CourtBlock> {
-    return this.request(`/court-blocks/${id}`, courtBlockSchema, {
-      method: "PATCH",
-      body: JSON.stringify({ courtId })
-    });
+    return this.updateCourtBlock(id, { courtId });
   }
 
   // ── Court requests & courts (M3) ──────────────────────────────────────────

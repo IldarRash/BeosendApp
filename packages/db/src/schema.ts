@@ -399,6 +399,7 @@ export const courtBlocks = pgTable(
     startTime: time("start_time").notNull(),
     endTime: time("end_time").notNull(),
     reason: text("reason").notNull(),
+    description: text("description"),
     // Non-null = an auto-block created for this training instance at month
     // generation; null = a manual admin block (C5). Lets auto-blocks be
     // distinguished, reassigned, and removed when the training is cancelled.

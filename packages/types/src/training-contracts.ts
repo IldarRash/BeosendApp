@@ -435,6 +435,7 @@ export const slotCardSchema = z.object({
   dayOfWeek,
   startTime: timeString,
   endTime: timeString,
+  groupName: z.string().min(1),
   trainerName: z.string(),
   levelName: z.string(),
   freeSeats: z.number().int().nonnegative(),

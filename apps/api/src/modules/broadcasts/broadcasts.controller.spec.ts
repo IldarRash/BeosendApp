@@ -23,6 +23,7 @@ function slotRow(overrides: Partial<BroadcastSlotRow> = {}): BroadcastSlotRow {
     date: "2026-06-03",
     startTime: "18:00",
     endTime: "19:30",
+    groupName: "Evening group",
     trainerName: "Ana",
     levelName: "Beginner",
     capacity: 8,
@@ -141,6 +142,7 @@ describe("BroadcastsController", () => {
         audience: { kind: "active", days: 30 }
       });
       expect(preview.recipientsCount).toBe(1);
+      expect(preview.text).toContain("Evening group");
       expect(repo.listActiveRecipientsBookedSince).toHaveBeenCalledTimes(1);
       expect(repo.insertBroadcast).not.toHaveBeenCalled();
     });

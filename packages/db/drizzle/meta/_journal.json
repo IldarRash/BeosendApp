@@ -176,6 +176,13 @@
       "when": 1783325557779,
       "tag": "0024_chemical_terror",
       "breakpoints": true
+    },
+    {
+      "idx": 25,
+      "version": "7",
+      "when": 1783508227119,
+      "tag": "0025_fine_tigra",
+      "breakpoints": true
     }
   ]
 }

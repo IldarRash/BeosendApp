@@ -287,6 +287,7 @@ const SLOT: SlotCard = {
   dayOfWeek: 3,
   startTime: "18:00",
   endTime: "19:30",
+  groupName: "Утро Про",
   trainerName: "Иван",
   levelName: "Начинающий",
   freeSeats: 4,
@@ -307,6 +308,7 @@ describe("MiniappApiClient.listAvailableSlots", () => {
     });
 
     expect(result).toEqual([SLOT]);
+    expect(result[0].groupName).toBe(SLOT.groupName);
     const url = new URL(fetchMock.mock.calls[0][0] as string);
     expect(url.pathname).toBe("/trainings/available");
     // Every set filter rides the query; the API owns coercion/validation.
@@ -368,6 +370,7 @@ describe("MiniappApiClient.listTrainingSchedule", () => {
     const result = await client.listTrainingSchedule({ from: "2026-06-10", to: "2026-06-10" });
 
     expect(result).toEqual([SCHEDULE_SLOT_OPEN, SCHEDULE_SLOT_FULL]);
+    expect(result.map((slot) => slot.groupName)).toEqual([SLOT.groupName, SLOT.groupName]);
     const url = new URL(fetchMock.mock.calls[0][0] as string);
     expect(url.pathname).toBe("/trainings/schedule");
     expect(url.searchParams.get("from")).toBe("2026-06-10");

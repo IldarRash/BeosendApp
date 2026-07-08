@@ -44,6 +44,7 @@ export function confirmDeclineKeyboard(
 export interface BookSlotButton {
   trainingId: string;
   startTime: string;
+  groupName?: string;
   levelName: string;
 }
 
@@ -65,11 +66,22 @@ export function bookSlotsKeyboard(
   return {
     inline_keyboard: slots.map((slot) => [
       {
-        text: t(catalog, "bot.notify.bookSlot", { time: slot.startTime, level: slot.levelName }),
+        text: compactBookSlotLabel(
+          t(catalog, "bot.notify.bookSlot", { time: slot.startTime, level: slot.levelName }),
+          slot.groupName
+        ),
         callback_data: `book:slot:${slot.trainingId}`
       }
     ])
   };
+}
+
+function compactBookSlotLabel(base: string, groupName: string | undefined): string {
+  if (!groupName) {
+    return base;
+  }
+  const label = `${base} · ${groupName}`;
+  return label.length <= 64 ? label : base;
 }
 
 /**

@@ -47,6 +47,13 @@ export const courtSchema = z.object({
 });
 export type Court = z.infer<typeof courtSchema>;
 
+export const courtBlockDescriptionInputSchema = z
+  .preprocess(
+    (value) => (typeof value === "string" ? value.trim() : value),
+    z.string().max(1000).nullable()
+  )
+  .transform((value) => (value === "" ? null : value));
+
 /** Admin-only reservation of a court (manual block, or an auto-block under a group). */
 export const courtBlockSchema = z.object({
   id: uuid,
@@ -55,12 +62,16 @@ export const courtBlockSchema = z.object({
   startTime: timeString,
   endTime: timeString,
   reason: z.string().min(1),
+  description: z.string().nullable(),
   /** Non-null = auto-block created for this training instance; null = manual admin block. */
   groupTrainingId: uuid.nullable()
 });
 /** Manual create (C5) never sets the link; the generator sets groupTrainingId, the create endpoint never does. */
 export const createCourtBlockSchema = courtBlockSchema
-  .omit({ id: true, groupTrainingId: true })
+  .omit({ id: true, groupTrainingId: true, description: true })
+  .extend({
+    description: courtBlockDescriptionInputSchema.optional()
+  })
   .strict();
 export type CourtBlock = z.infer<typeof courtBlockSchema>;
 export type CreateCourtBlock = z.infer<typeof createCourtBlockSchema>;
@@ -84,8 +95,19 @@ export const createRecurringCourtBlocksSchema = createCourtBlockSchema
 export type CreateRecurringCourtBlocks = z.infer<typeof createRecurringCourtBlocksSchema>;
 
 /** PATCH /court-blocks/:id — admin moves a block to another court (re-checks limit + overlap). */
-export const reassignCourtBlockSchema = z.object({ courtId: uuid }).strict();
-export type ReassignCourtBlock = z.infer<typeof reassignCourtBlockSchema>;
+export const updateCourtBlockSchema = z
+  .object({
+    courtId: uuid.optional(),
+    description: courtBlockDescriptionInputSchema.optional()
+  })
+  .strict()
+  .refine((input) => input.courtId !== undefined || input.description !== undefined, {
+    message: "At least one editable field is required"
+  });
+export type UpdateCourtBlock = z.infer<typeof updateCourtBlockSchema>;
+
+export const reassignCourtBlockSchema = updateCourtBlockSchema;
+export type ReassignCourtBlock = UpdateCourtBlock;
 
 /**
  * GET /court-blocks list query (admin-only). Back-compatible with the original
@@ -385,7 +407,8 @@ export const courtLoadCellSchema = z.object({
   requestId: uuid.nullable(),
   trainingId: uuid.nullable(),
   blockId: uuid.nullable(),
-  reason: z.string().nullable()
+  reason: z.string().nullable(),
+  description: z.string().nullable()
 });
 export type CourtLoadCell = z.infer<typeof courtLoadCellSchema>;
 
