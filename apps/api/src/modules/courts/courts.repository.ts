@@ -15,6 +15,8 @@ export interface CourtOccupancyRow {
   blockId?: string;
   /** Stored court-block reason for admin-only load details. */
   reason?: string;
+  /** Stored court-block description for admin-only load details. */
+  description?: string | null;
 }
 
 /** A training on a date with no auto-block (no court reserved), joined to group/level names. */
@@ -102,6 +104,7 @@ export class CourtsRepository {
         startTime: tables.courtBlocks.startTime,
         endTime: tables.courtBlocks.endTime,
         reason: tables.courtBlocks.reason,
+        description: tables.courtBlocks.description,
         groupTrainingId: tables.courtBlocks.groupTrainingId
       })
       .from(tables.courtBlocks)
@@ -112,7 +115,8 @@ export class CourtsRepository {
       durationMinutes: minuteSpan(row.startTime, row.endTime),
       trainingId: row.groupTrainingId ?? undefined,
       blockId: row.id,
-      reason: row.reason
+      reason: row.reason,
+      description: row.description
     }));
   }
 

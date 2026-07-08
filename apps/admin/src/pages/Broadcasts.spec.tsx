@@ -56,6 +56,7 @@ const samplePreview: BroadcastPreview = {
       dayOfWeek: 4,
       startTime: "18:00",
       endTime: "19:30",
+      groupName: "Evening group",
       trainerName: "Анна",
       levelName: "Начинающий",
       freeSeats: 3,
@@ -101,9 +102,11 @@ describe("Broadcasts composer", () => {
   it("renders the API recipient count and composed message verbatim", () => {
     renderPage();
     expect(screen.getByText("42")).toBeTruthy();
-    expect(screen.getByText("Свободные места сегодня!")).toBeTruthy();
+    const previewText = screen.getByText(samplePreview.text);
+    expect(previewText.textContent).toBe(samplePreview.text);
     // Slot card details come straight from the preview.
     expect(screen.getByText(/Анна/)).toBeTruthy();
+    expect(screen.getByText("Evening group")).toBeTruthy();
     expect(screen.getByText(/1[\s ]?500\s*RSD/)).toBeTruthy();
   });
 

@@ -73,6 +73,11 @@ export class CourtsService {
         .filter((block) => block.blockId)
         .map((block) => [block.blockId as string, block.reason ?? null])
     );
+    const descriptionByBlockId = new Map(
+      blocks
+        .filter((block) => block.blockId)
+        .map((block) => [block.blockId as string, block.description ?? null])
+    );
 
     return courtLoadGridSchema.parse({
       date,
@@ -93,6 +98,10 @@ export class CourtsService {
           reason:
             (cell.state === "block" || cell.state === "training") && cell.blockId
               ? reasonByBlockId.get(cell.blockId) ?? null
+              : null,
+          description:
+            (cell.state === "block" || cell.state === "training") && cell.blockId
+              ? descriptionByBlockId.get(cell.blockId) ?? null
               : null
         }))
       })),

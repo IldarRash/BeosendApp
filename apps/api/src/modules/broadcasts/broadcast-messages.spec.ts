@@ -9,6 +9,7 @@ function slot(overrides: Partial<SlotCard> = {}): SlotCard {
     dayOfWeek: 1,
     startTime: "18:00",
     endTime: "19:30",
+    groupName: "Evening group",
     trainerName: "Ana",
     levelName: "Beginner",
     freeSeats: 2,
@@ -31,7 +32,27 @@ describe("composeBroadcastText", () => {
 
     const slotLines = text.split("\n").filter((line) => line.includes("RSD"));
     expect(slotLines).toHaveLength(2);
+    expect(slotLines[0]).toContain("Evening group");
+    expect(slotLines[1]).toContain("Evening group");
     expect(slotLines[0]).toContain("\u0423\u0440\u043e\u0432\u0435\u043d\u044c: Beginner");
     expect(slotLines[1]).toContain("\u0423\u0440\u043e\u0432\u0435\u043d\u044c: Advanced");
+  });
+
+  it("HTML-escapes slot display names for Telegram HTML parse mode", () => {
+    const text = composeBroadcastText("today", [
+      slot({
+        groupName: "<Group & Co>",
+        levelName: "Level <B>",
+        trainerName: "Ana <Coach>"
+      })
+    ]);
+
+    expect(text).toContain("&lt;Group &amp; Co&gt;");
+    expect(text).toContain("\u0423\u0440\u043e\u0432\u0435\u043d\u044c: Level &lt;B&gt;");
+    expect(text).toContain("Ana &lt;Coach&gt;");
+    expect(text).not.toContain("<Group & Co>");
+    expect(text).not.toContain("Level <B>");
+    expect(text).not.toContain("Ana <Coach>");
+    expect(text).not.toMatch(/<[^>]+>/);
   });
 });

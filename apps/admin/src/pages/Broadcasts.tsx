@@ -280,6 +280,7 @@ function BroadcastPreviewPanel({
           end: slot.endTime
         })
     },
+    { key: "group", header: t("admin.broadcasts.colGroup"), render: (slot) => slot.groupName },
     { key: "level", header: t("admin.broadcasts.colLevel"), render: (slot) => slot.levelName },
     { key: "trainer", header: t("admin.broadcasts.colTrainer"), render: (slot) => slot.trainerName },
     {

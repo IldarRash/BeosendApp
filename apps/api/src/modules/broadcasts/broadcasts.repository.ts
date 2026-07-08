@@ -28,6 +28,7 @@ export interface BroadcastSlotRow {
   date: string;
   startTime: string;
   endTime: string;
+  groupName: string;
   trainerName: string;
   levelName: string;
   capacity: number;
@@ -60,6 +61,7 @@ export class BroadcastsRepository {
         date: tables.trainings.date,
         startTime: tables.trainings.startTime,
         endTime: tables.trainings.endTime,
+        groupName: tables.groups.name,
         trainerName: tables.trainers.name,
         levelName: tables.levels.name,
         capacity: tables.trainings.capacity,

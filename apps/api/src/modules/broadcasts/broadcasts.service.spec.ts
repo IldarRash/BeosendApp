@@ -21,6 +21,7 @@ function slotRow(overrides: Partial<BroadcastSlotRow> = {}): BroadcastSlotRow {
     date: "2026-06-03",
     startTime: "18:00",
     endTime: "19:30",
+    groupName: "Evening group",
     trainerName: "Ana",
     levelName: "Beginner",
     capacity: 8,
@@ -128,6 +129,8 @@ describe("BroadcastsService", () => {
       const preview = await service.preview(ADMIN_ID, "today");
       // Default audience (absent) preserves T2.4: every active client.
       expect(preview.recipientsCount).toBe(42);
+      expect(preview.slots[0].groupName).toBe("Evening group");
+      expect(preview.text).toContain("Evening group");
       expect(preview.text).toContain("1500 RSD");
       expect(preview.text).toContain("5 мест");
     });

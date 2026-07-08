@@ -263,6 +263,7 @@ describe("ApiClient group-court scheduling (features 2+3)", () => {
       startTime: "14:00",
       endTime: "15:00",
       reason: "Группа А",
+      description: "Coach note",
       groupTrainingId: TRAINING_ID
     });
     const result = await new ApiClient("http://api.test").reassignCourtBlock(BLOCK_ID, COURT_ID);
@@ -270,7 +271,28 @@ describe("ApiClient group-court scheduling (features 2+3)", () => {
     expect(calls[0]?.init?.method).toBe("PATCH");
     expect(JSON.parse(calls[0]?.init?.body as string)).toEqual({ courtId: COURT_ID });
     expect(result.courtId).toBe(COURT_ID);
+    expect(result.description).toBe("Coach note");
     expect(result.groupTrainingId).toBe(TRAINING_ID);
+  });
+
+  it("PATCHes a court-block description through the generic update method", async () => {
+    const calls = mockFetchOnce({
+      id: BLOCK_ID,
+      courtId: COURT_ID,
+      date: "2026-06-10",
+      startTime: "14:00",
+      endTime: "15:00",
+      reason: "Group A",
+      description: "Coach note",
+      groupTrainingId: TRAINING_ID
+    });
+    const result = await new ApiClient("http://api.test").updateCourtBlock(BLOCK_ID, {
+      description: "Coach note"
+    });
+    expect(calls[0]?.url).toBe(`http://api.test/court-blocks/${BLOCK_ID}`);
+    expect(calls[0]?.init?.method).toBe("PATCH");
+    expect(JSON.parse(calls[0]?.init?.body as string)).toEqual({ description: "Coach note" });
+    expect(result.description).toBe("Coach note");
   });
 
   it("rejects a malformed reassign response (contract enforced)", async () => {
@@ -589,6 +611,7 @@ describe("ApiClient court blocks range (Slice C)", () => {
     startTime: "10:00",
     endTime: "12:00",
     reason: "Турнир",
+    description: "Setup note",
     groupTrainingId: null
   };
 

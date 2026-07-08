@@ -1097,6 +1097,7 @@ describe("TrainingsService", () => {
       endTime: "21:30",
       trainerId: TRAINER_A,
       trainerName: "Coach",
+      groupName: "Evening group",
       levelId: LEVEL_A,
       levelName: "Intermediate",
       capacity: 6,
@@ -1113,6 +1114,7 @@ describe("TrainingsService", () => {
       expect(cards[0]).toMatchObject({
         freeSeats: 2,
         priceSingleRsd: 1500,
+        groupName: "Evening group",
         trainerName: "Coach",
         levelName: "Intermediate",
         dayOfWeek: 5 // 2026-06-05 is a Friday

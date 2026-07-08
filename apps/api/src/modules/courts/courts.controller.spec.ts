@@ -33,7 +33,8 @@ const grid: CourtLoadGrid = {
           requestId: null,
           trainingId: null,
           blockId: null,
-          reason: null
+          reason: null,
+          description: null
         }
       ]
     }

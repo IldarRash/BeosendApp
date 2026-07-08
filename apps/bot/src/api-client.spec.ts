@@ -46,6 +46,7 @@ const card: SlotCard = {
   dayOfWeek: 3,
   startTime: "18:00",
   endTime: "19:30",
+  groupName: "Evening Group",
   trainerName: "Марко",
   levelName: "Начинающий",
   freeSeats: 4,
@@ -135,6 +136,7 @@ describe("ApiClient.listAvailableSlots", () => {
     const fetchMock = mockFetch([card]);
     const cards = await new ApiClient("http://api.test").listAvailableSlots();
     expect(cards).toEqual([card]);
+    expect(cards[0]?.groupName).toBe("Evening Group");
     const url = fetchMock.mock.calls[0][0] as string;
     expect(url).toBe("http://api.test/trainings/available");
   });
