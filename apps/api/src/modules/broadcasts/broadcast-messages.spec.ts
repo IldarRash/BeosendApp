@@ -1,4 +1,4 @@
-import type { SlotCard } from "@beosand/types";
+﻿import type { SlotCard } from "@beosand/types";
 import { describe, expect, it } from "vitest";
 import { composeBroadcastText } from "./broadcast-messages";
 
@@ -9,7 +9,7 @@ function slot(overrides: Partial<SlotCard> = {}): SlotCard {
     dayOfWeek: 1,
     startTime: "18:00",
     endTime: "19:30",
-    groupName: "Evening group",
+    groupName: "Beach Start",
     trainerName: "Ana",
     levelName: "Beginner",
     freeSeats: 2,
@@ -32,8 +32,8 @@ describe("composeBroadcastText", () => {
 
     const slotLines = text.split("\n").filter((line) => line.includes("RSD"));
     expect(slotLines).toHaveLength(2);
-    expect(slotLines[0]).toContain("Evening group");
-    expect(slotLines[1]).toContain("Evening group");
+    expect(slotLines[0]).toContain("Группа: Beach Start");
+    expect(slotLines[1]).toContain("Группа: Beach Start");
     expect(slotLines[0]).toContain("\u0423\u0440\u043e\u0432\u0435\u043d\u044c: Beginner");
     expect(slotLines[1]).toContain("\u0423\u0440\u043e\u0432\u0435\u043d\u044c: Advanced");
   });

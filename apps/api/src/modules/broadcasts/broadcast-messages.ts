@@ -1,4 +1,4 @@
-import type { BroadcastType, SlotCard } from "@beosand/types";
+﻿import type { BroadcastType, SlotCard } from "@beosand/types";
 
 /** Russian header per broadcast type (UX §13). */
 const HEADERS: Record<BroadcastType, string> = {
@@ -25,14 +25,14 @@ export function composeBroadcastText(type: BroadcastType, slots: SlotCard[]): st
   return `${HEADERS[type]}\n\n${lines}`;
 }
 
-/** One slot line: "DD.MM HH:MM–HH:MM · Group · Уровень: Level · Trainer · N мест · P RSD". */
+/** One slot line: "DD.MM HH:MM-HH:MM · Группа: Group · Уровень: Level · Trainer · N мест · P RSD". */
 function slotLine(slot: SlotCard): string {
   const groupName = escapeHtml(slot.groupName);
   const levelName = escapeHtml(slot.levelName);
   const trainerName = escapeHtml(slot.trainerName);
 
   return (
-    `${slot.date} ${slot.startTime}–${slot.endTime} · ${groupName} · Уровень: ${levelName} · ${trainerName} · ` +
+    `${slot.date} ${slot.startTime}–${slot.endTime} · Группа: ${groupName} · Уровень: ${levelName} · ${trainerName} · ` +
     `${slot.freeSeats} мест · ${slot.priceSingleRsd} RSD`
   );
 }

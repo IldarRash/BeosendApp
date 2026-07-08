@@ -33,8 +33,8 @@ export interface AvailableSlotRow {
   endTime: string;
   trainerId: string;
   trainerName: string;
-  levelId: string;
   groupName: string;
+  levelId: string;
   levelName: string;
   capacity: number;
   bookedCount: number;
@@ -710,8 +710,8 @@ export class TrainingsRepository {
         endTime: tables.trainings.endTime,
         trainerId: tables.trainings.trainerId,
         trainerName: tables.trainers.name,
-        levelId: tables.groups.levelId,
         groupName: tables.groups.name,
+        levelId: tables.groups.levelId,
         levelName: tables.levels.name,
         capacity: tables.trainings.capacity,
         bookedCount: tables.trainings.bookedCount,
@@ -768,8 +768,8 @@ export class TrainingsRepository {
         endTime: tables.trainings.endTime,
         trainerId: tables.trainings.trainerId,
         trainerName: tables.trainers.name,
-        levelId: tables.groups.levelId,
         groupName: tables.groups.name,
+        levelId: tables.groups.levelId,
         levelName: tables.levels.name,
         trainingContextLabel: tables.groups.name,
         capacity: tables.trainings.capacity,

@@ -43,7 +43,7 @@ function ToastIcon({ tone }: { tone: ToastTone }): JSX.Element {
   );
 }
 
-/** App-wide notice stack. Toasts auto-dismiss; the region is a polite live area. */
+/** App-wide notice stack. Toasts persist until dismissed; the region is a polite live area. */
 export function ToastProvider({ children }: { children: ReactNode }): JSX.Element {
   const t = useT();
   const [toasts, setToasts] = useState<Toast[]>([]);
@@ -51,12 +51,12 @@ export function ToastProvider({ children }: { children: ReactNode }): JSX.Elemen
   const notify = useCallback((message: string, tone: ToastTone = "info") => {
     const id = nextId++;
     setToasts((current) => [...current, { id, message, tone }]);
-    window.setTimeout(() => {
-      setToasts((current) => current.filter((t) => t.id !== id));
-    }, 4500);
   }, []);
 
   const api = useMemo<ToastApi>(() => ({ notify }), [notify]);
+  const dismiss = useCallback((id: number) => {
+    setToasts((current) => current.filter((toast) => toast.id !== id));
+  }, []);
 
   return (
     <ToastContext.Provider value={api}>
@@ -66,6 +66,14 @@ export function ToastProvider({ children }: { children: ReactNode }): JSX.Elemen
           <div key={toast.id} className={`toast toast--${toast.tone}`}>
             <ToastIcon tone={toast.tone} />
             <span className="toast__body">{toast.message}</span>
+            <button
+              type="button"
+              className="toast__close"
+              aria-label={t("admin.action.close")}
+              onClick={() => dismiss(toast.id)}
+            >
+              x
+            </button>
           </div>
         ))}
       </div>

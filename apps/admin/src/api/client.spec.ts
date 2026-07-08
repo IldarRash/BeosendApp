@@ -55,6 +55,177 @@ describe("ApiClient.health", () => {
   });
 });
 
+describe("ApiClient broadcast templates", () => {
+  afterEach(() => {
+    vi.unstubAllGlobals();
+  });
+
+  const TEMPLATE_ID = "11111111-1111-4111-8111-111111111111";
+  const TRAINING_ID = "22222222-2222-4222-8222-222222222222";
+  const template = {
+    id: TEMPLATE_ID,
+    name: "Weekend push",
+    broadcastType: "tomorrow",
+    status: "active",
+    bodyTemplate: "Body {groupName}",
+    slotLineTemplate: "{date} {startTime} {groupName}",
+    emptyBodyTemplate: "No slots",
+    version: 2,
+    createdAt: "2026-06-04T09:00:00.000Z",
+    updatedAt: "2026-06-04T09:30:00.000Z",
+    updatedBy: 1
+  };
+  const variable = {
+    key: "groupName",
+    placeholder: "{groupName}",
+    label: "Group name",
+    description: "Full group name resolved by the server.",
+    example: "Beach Start",
+    valueType: "string"
+  };
+  const preview = {
+    type: "tomorrow",
+    text: "API rendered body",
+    recipientsCount: 12,
+    templateId: TEMPLATE_ID,
+    templateVersion: 2,
+    previewToken: "preview-token",
+    templateVariables: [variable],
+    slots: [
+      {
+        trainingId: TRAINING_ID,
+        date: "2026-06-05",
+        dayOfWeek: 5,
+        startTime: "18:00",
+        endTime: "19:30",
+        trainerName: "Ana",
+        groupName: "Beach Start",
+        levelName: "Beginner",
+        freeSeats: 3,
+        priceSingleRsd: 1500
+      }
+    ]
+  };
+
+  it("lists templates for a broadcast type and validates the rows", async () => {
+    const calls = mockFetchOnce([template]);
+    const result = await new ApiClient("http://api.test").listBroadcastTemplates("tomorrow");
+
+    expect(calls[0]?.url).toBe("http://api.test/broadcast-templates?type=tomorrow");
+    expect(result[0].version).toBe(2);
+  });
+
+  it("rejects malformed template rows (unsafe path)", async () => {
+    mockFetchOnce([{ ...template, version: 0 }]);
+    await expect(
+      new ApiClient("http://api.test").listBroadcastTemplates("tomorrow")
+    ).rejects.toThrow();
+  });
+
+  it("lists server-defined broadcast template variables", async () => {
+    const calls = mockFetchOnce([variable]);
+    const result = await new ApiClient("http://api.test").listBroadcastTemplateVariables("tomorrow");
+
+    expect(calls[0]?.url).toBe("http://api.test/broadcast-templates/variables?type=tomorrow");
+    expect(result[0].placeholder).toBe("{groupName}");
+  });
+
+  it("creates a template through the strict shared payload", async () => {
+    const calls = mockFetchOnce(template);
+    const input = {
+      name: "Weekend push",
+      broadcastType: "tomorrow" as const,
+      bodyTemplate: "Body {groupName}",
+      slotLineTemplate: "{date} {startTime}",
+      emptyBodyTemplate: "No slots"
+    };
+
+    const result = await new ApiClient("http://api.test").createBroadcastTemplate(input);
+
+    expect(calls[0]?.url).toBe("http://api.test/broadcast-templates");
+    expect(calls[0]?.init?.method).toBe("POST");
+    expect(JSON.parse(calls[0]?.init?.body as string)).toEqual(input);
+    expect(result.id).toBe(TEMPLATE_ID);
+  });
+
+  it("updates a template on the id path", async () => {
+    const calls = mockFetchOnce({ ...template, name: "Updated", version: 3 });
+
+    const result = await new ApiClient("http://api.test").updateBroadcastTemplate(TEMPLATE_ID, {
+      name: "Updated"
+    });
+
+    expect(calls[0]?.url).toBe(`http://api.test/broadcast-templates/${TEMPLATE_ID}`);
+    expect(calls[0]?.init?.method).toBe("PATCH");
+    expect(JSON.parse(calls[0]?.init?.body as string)).toEqual({ name: "Updated" });
+    expect(result.version).toBe(3);
+  });
+
+  it("passes templateId to preview and validates template metadata plus groupName slots", async () => {
+    const calls = mockFetchOnce(preview);
+
+    const result = await new ApiClient("http://api.test").previewBroadcast(
+      "tomorrow",
+      { kind: "all" },
+      TEMPLATE_ID
+    );
+
+    expect(calls[0]?.url).toBe(
+      `http://api.test/broadcasts/preview?type=tomorrow&audience=%7B%22kind%22%3A%22all%22%7D&templateId=${TEMPLATE_ID}`
+    );
+    expect(result.previewToken).toBe("preview-token");
+    expect(result.slots[0].groupName).toBe("Beach Start");
+  });
+
+  it("rejects a preview slot missing groupName", async () => {
+    const { groupName: _omit, ...slotWithoutGroup } = preview.slots[0];
+    mockFetchOnce({ ...preview, slots: [slotWithoutGroup] });
+
+    await expect(
+      new ApiClient("http://api.test").previewBroadcast("tomorrow", undefined, TEMPLATE_ID)
+    ).rejects.toThrow();
+  });
+
+  it("sends templateId with previewToken", async () => {
+    const calls = mockFetchOnce({
+      id: "33333333-3333-4333-8333-333333333333",
+      type: "tomorrow",
+      payload: "API rendered body",
+      createdBy: 1,
+      sentAt: "2026-06-04T10:00:00.000Z",
+      recipientsCount: 12
+    });
+
+    await new ApiClient("http://api.test").sendBroadcast({
+      type: "tomorrow",
+      audience: { kind: "all" },
+      templateId: TEMPLATE_ID,
+      previewToken: "preview-token"
+    });
+
+    expect(calls[0]?.url).toBe("http://api.test/broadcasts/send");
+    expect(JSON.parse(calls[0]?.init?.body as string)).toEqual({
+      type: "tomorrow",
+      audience: { kind: "all" },
+      templateId: TEMPLATE_ID,
+      previewToken: "preview-token"
+    });
+  });
+
+  it("rejects templated send input without previewToken before fetch", async () => {
+    const fetch = vi.fn();
+    vi.stubGlobal("fetch", fetch);
+
+    expect(() =>
+      new ApiClient("http://api.test").sendBroadcast({
+        type: "tomorrow",
+        templateId: TEMPLATE_ID
+      })
+    ).toThrow();
+    expect(fetch).not.toHaveBeenCalled();
+  });
+});
+
 describe("ApiClient session", () => {
   beforeEach(() => {
     sessionStorage.clear();

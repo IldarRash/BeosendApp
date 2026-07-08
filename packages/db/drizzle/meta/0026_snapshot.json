@@ -1,6 +1,6 @@
 {
-  "id": "2c7526e8-02c0-43c2-adc0-4743141a2e8c",
-  "prevId": "7056dfed-36ba-472a-a7db-483d403c6ddd",
+  "id": "96af7412-5b6e-49dc-9cf7-06e1c528acb2",
+  "prevId": "2c7526e8-02c0-43c2-adc0-4743141a2e8c",
   "version": "7",
   "dialect": "postgresql",
   "tables": {
@@ -216,6 +216,136 @@
       "uniqueConstraints": {},
       "policies": {},
       "checkConstraints": {},
+      "isRLSEnabled": false
+    },
+    "public.broadcast_templates": {
+      "name": "broadcast_templates",
+      "schema": "",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "uuid",
+          "primaryKey": true,
+          "notNull": true,
+          "default": "gen_random_uuid()"
+        },
+        "name": {
+          "name": "name",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "broadcast_type": {
+          "name": "broadcast_type",
+          "type": "broadcast_type",
+          "typeSchema": "public",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "status": {
+          "name": "status",
+          "type": "entity_status",
+          "typeSchema": "public",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "'active'"
+        },
+        "body_template": {
+          "name": "body_template",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "slot_line_template": {
+          "name": "slot_line_template",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "empty_body_template": {
+          "name": "empty_body_template",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "version": {
+          "name": "version",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "default": 1
+        },
+        "created_at": {
+          "name": "created_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        },
+        "updated_at": {
+          "name": "updated_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        },
+        "updated_by": {
+          "name": "updated_by",
+          "type": "bigint",
+          "primaryKey": false,
+          "notNull": false
+        }
+      },
+      "indexes": {
+        "broadcast_templates_active_type_name_idx": {
+          "name": "broadcast_templates_active_type_name_idx",
+          "columns": [
+            {
+              "expression": "broadcast_type",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            },
+            {
+              "expression": "name",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": true,
+          "where": "\"broadcast_templates\".\"status\" = 'active'",
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        }
+      },
+      "foreignKeys": {},
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "policies": {},
+      "checkConstraints": {
+        "broadcast_templates_name_non_empty": {
+          "name": "broadcast_templates_name_non_empty",
+          "value": "length(trim(\"broadcast_templates\".\"name\")) > 0"
+        },
+        "broadcast_templates_body_template_non_empty": {
+          "name": "broadcast_templates_body_template_non_empty",
+          "value": "length(trim(\"broadcast_templates\".\"body_template\")) > 0"
+        },
+        "broadcast_templates_slot_line_template_non_empty": {
+          "name": "broadcast_templates_slot_line_template_non_empty",
+          "value": "length(trim(\"broadcast_templates\".\"slot_line_template\")) > 0"
+        },
+        "broadcast_templates_empty_body_template_non_empty": {
+          "name": "broadcast_templates_empty_body_template_non_empty",
+          "value": "length(trim(\"broadcast_templates\".\"empty_body_template\")) > 0"
+        },
+        "broadcast_templates_version_positive": {
+          "name": "broadcast_templates_version_positive",
+          "value": "\"broadcast_templates\".\"version\" > 0"
+        }
+      },
       "isRLSEnabled": false
     },
     "public.broadcasts": {
