@@ -8,9 +8,6 @@
  * This is the applied form of the design handoff: the prototype's visual language
  * (tokens, type, spacing, states) realised on the console's own component classes.
  */
-
-@import url("https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;600;700&display=swap");
-
 :root {
   /* Sand backgrounds */
   --sand-50: #faf6ef;
@@ -22,6 +19,7 @@
   --ink-900: #211c15;
   --ink-800: #332b21;
   --ink-700: #4b4339;
+  --ink-600: #64594c;
   --ink-500: #8a8073;
   --ink-400: #b0a695;
 
@@ -1385,7 +1383,7 @@ select.input {
 .toast {
   background: var(--ink-900);
   color: var(--sand-50);
-  padding: 13px 15px;
+  padding: 12px 12px 12px 15px;
   border-radius: var(--radius);
   box-shadow: var(--shadow-lg);
   display: flex;
@@ -1437,6 +1435,32 @@ select.input {
 
 .toast__body {
   flex: 1;
+  min-width: 0;
+}
+
+.toast__close {
+  display: grid;
+  place-items: center;
+  width: 26px;
+  height: 26px;
+  margin: -4px -4px -4px 4px;
+  border: 1px solid color-mix(in srgb, var(--sand-50) 18%, var(--ink-900));
+  border-radius: var(--radius-sm);
+  background: color-mix(in srgb, var(--sand-50) 8%, var(--ink-900));
+  color: var(--sand-50);
+  cursor: pointer;
+  font-family: var(--font-mono);
+  font-size: 14px;
+  line-height: 1;
+}
+
+.toast__close:hover {
+  background: color-mix(in srgb, var(--sand-50) 14%, var(--ink-900));
+}
+
+.toast__close:focus-visible {
+  box-shadow: var(--focus-ring);
+  outline: none;
 }
 
 /* ── Tabs (e.g. court-request moderation queue) ────────────────────────── */

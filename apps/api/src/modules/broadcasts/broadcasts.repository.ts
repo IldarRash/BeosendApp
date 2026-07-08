@@ -1,6 +1,13 @@
 import { Injectable } from "@nestjs/common";
 import { tables } from "@beosand/db";
-import type { Broadcast, Locale, TrainingStatus } from "@beosand/types";
+import type {
+  Broadcast,
+  BroadcastTemplate,
+  CreateBroadcastTemplateInput,
+  Locale,
+  TrainingStatus,
+  UpdateBroadcastTemplateInput
+} from "@beosand/types";
 import {
   and,
   asc,
@@ -17,6 +24,16 @@ import {
 import { DatabaseService } from "../../db/database.service";
 
 type BroadcastRow = typeof tables.broadcasts.$inferSelect;
+type BroadcastTemplateRow = typeof tables.broadcastTemplates.$inferSelect;
+
+const ACTIVE_TEMPLATE_NAME_INDEX = "broadcast_templates_active_type_name_idx";
+
+export class BroadcastTemplateNameConflictError extends Error {
+  constructor() {
+    super("Active broadcast template name already exists for this type");
+    this.name = "BroadcastTemplateNameConflictError";
+  }
+}
 
 /**
  * A bookable-slot row for a broadcast, joined across group/trainer/level. Carries
@@ -214,6 +231,72 @@ export class BroadcastsRepository {
       .returning();
     return toBroadcast(row);
   }
+
+  /** Active templates for one free-slot broadcast type. */
+  async listTemplates(type: BroadcastTemplate["broadcastType"]): Promise<BroadcastTemplate[]> {
+    const rows = await this.database.db
+      .select()
+      .from(tables.broadcastTemplates)
+      .where(
+        and(
+          eq(tables.broadcastTemplates.broadcastType, type),
+          eq(tables.broadcastTemplates.status, "active")
+        )
+      )
+      .orderBy(asc(tables.broadcastTemplates.name));
+    return rows.map(toBroadcastTemplate);
+  }
+
+  /** One active template by id, or undefined when missing/inactive. */
+  async findActiveTemplate(id: string): Promise<BroadcastTemplate | undefined> {
+    const [row] = await this.database.db
+      .select()
+      .from(tables.broadcastTemplates)
+      .where(
+        and(eq(tables.broadcastTemplates.id, id), eq(tables.broadcastTemplates.status, "active"))
+      )
+      .limit(1);
+    return row ? toBroadcastTemplate(row) : undefined;
+  }
+
+  /** Insert one broadcast template row. Validation is owned by controller/service contracts. */
+  async createTemplate(
+    input: CreateBroadcastTemplateInput,
+    updatedBy: number
+  ): Promise<BroadcastTemplate> {
+    try {
+      const [row] = await this.database.db
+        .insert(tables.broadcastTemplates)
+        .values({ ...input, updatedBy })
+        .returning();
+      return toBroadcastTemplate(row);
+    } catch (error) {
+      throw mapBroadcastTemplateWriteError(error);
+    }
+  }
+
+  /** Patch a template and bump its version so stale preview tokens stop sending. */
+  async updateTemplate(
+    id: string,
+    input: UpdateBroadcastTemplateInput,
+    updatedBy: number
+  ): Promise<BroadcastTemplate | undefined> {
+    try {
+      const [row] = await this.database.db
+        .update(tables.broadcastTemplates)
+        .set({
+          ...input,
+          updatedBy,
+          updatedAt: new Date(),
+          version: sql`${tables.broadcastTemplates.version} + 1`
+        })
+        .where(eq(tables.broadcastTemplates.id, id))
+        .returning();
+      return row ? toBroadcastTemplate(row) : undefined;
+    } catch (error) {
+      throw mapBroadcastTemplateWriteError(error);
+    }
+  }
 }
 
 /**
@@ -236,4 +319,39 @@ function toBroadcast(row: BroadcastRow): Broadcast {
     sentAt: row.sentAt.toISOString(),
     recipientsCount: row.recipientsCount
   };
+}
+
+/** Map a DB row to the BroadcastTemplate contract (timestamps -> ISO strings). */
+function toBroadcastTemplate(row: BroadcastTemplateRow): BroadcastTemplate {
+  return {
+    id: row.id,
+    name: row.name,
+    broadcastType: row.broadcastType,
+    status: row.status,
+    bodyTemplate: row.bodyTemplate,
+    slotLineTemplate: row.slotLineTemplate,
+    emptyBodyTemplate: row.emptyBodyTemplate,
+    version: row.version,
+    createdAt: row.createdAt.toISOString(),
+    updatedAt: row.updatedAt.toISOString(),
+    updatedBy: row.updatedBy
+  };
+}
+
+function mapBroadcastTemplateWriteError(error: unknown): Error {
+  if (isActiveTemplateNameUniqueViolation(error)) {
+    return new BroadcastTemplateNameConflictError();
+  }
+  return error instanceof Error ? error : new Error(String(error));
+}
+
+function isActiveTemplateNameUniqueViolation(error: unknown): boolean {
+  return (
+    typeof error === "object" &&
+    error !== null &&
+    "code" in error &&
+    (error as { code?: unknown }).code === "23505" &&
+    "constraint" in error &&
+    (error as { constraint?: unknown }).constraint === ACTIVE_TEMPLATE_NAME_INDEX
+  );
 }

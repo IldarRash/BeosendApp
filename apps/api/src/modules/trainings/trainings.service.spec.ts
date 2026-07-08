@@ -1,4 +1,4 @@
-import {
+﻿import {
   BadRequestException,
   ConflictException,
   ForbiddenException,
@@ -1097,7 +1097,7 @@ describe("TrainingsService", () => {
       endTime: "21:30",
       trainerId: TRAINER_A,
       trainerName: "Coach",
-      groupName: "Evening group",
+      groupName: "Beach Start",
       levelId: LEVEL_A,
       levelName: "Intermediate",
       capacity: 6,
@@ -1114,7 +1114,7 @@ describe("TrainingsService", () => {
       expect(cards[0]).toMatchObject({
         freeSeats: 2,
         priceSingleRsd: 1500,
-        groupName: "Evening group",
+        groupName: "Beach Start",
         trainerName: "Coach",
         levelName: "Intermediate",
         dayOfWeek: 5 // 2026-06-05 is a Friday
@@ -1135,7 +1135,7 @@ describe("TrainingsService", () => {
     it("keeps full rows out of available but returns them in schedule as non-bookable", async () => {
       const full = slot({ status: "full", bookedCount: 6, capacity: 6 });
       trainingsRepo.available = [full];
-      trainingsRepo.schedule = [{ ...full, trainingContextLabel: "Women" }];
+      trainingsRepo.schedule = [{ ...full, groupName: "Women", trainingContextLabel: "Women" }];
 
       expect(await service.listAvailable({})).toEqual([]);
 
@@ -1144,6 +1144,7 @@ describe("TrainingsService", () => {
       expect(schedule[0]).toMatchObject({
         trainingId: full.trainingId,
         freeSeats: 0,
+        groupName: "Women",
         trainingContextLabel: "Women",
         trainingStatus: "full",
         bookable: false

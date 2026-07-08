@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
   broadcastAudienceSchema,
+  broadcastTemplatePreviewSchema,
   broadcastPreviewQuerySchema,
   broadcastPreviewSchema,
   sendBroadcastSchema
@@ -49,7 +50,7 @@ describe("broadcast contracts", () => {
             dayOfWeek: 3,
             startTime: "18:00",
             endTime: "19:30",
-            groupName: "Evening group",
+            groupName: "Beach Start",
             trainerName: "Ana",
             levelName: "Beginner",
             freeSeats: 5,
@@ -59,6 +60,88 @@ describe("broadcast contracts", () => {
         recipientsCount: 42
       };
       expect(broadcastPreviewSchema.parse(preview)).toEqual(preview);
+    });
+
+    it("rejects a preview slot without groupName", () => {
+      const result = broadcastPreviewSchema.safeParse({
+        type: "today",
+        text: "x",
+        slots: [
+          {
+            trainingId: "11111111-1111-1111-1111-111111111111",
+            date: "2026-06-03",
+            dayOfWeek: 3,
+            startTime: "18:00",
+            endTime: "19:30",
+            trainerName: "Ana",
+            levelName: "Beginner",
+            freeSeats: 5,
+            priceSingleRsd: 1500
+          }
+        ],
+        recipientsCount: 42
+      });
+      expect(result.success).toBe(false);
+    });
+
+    it("accepts template preview metadata when present", () => {
+      const result = broadcastPreviewSchema.safeParse({
+        type: "tomorrow",
+        text: "x",
+        slots: [],
+        recipientsCount: 42,
+        templateId: "22222222-2222-4222-8222-222222222222",
+        templateVersion: 2,
+        previewToken: "signed-preview",
+        templateVariables: [
+          {
+            key: "groupName",
+            placeholder: "{groupName}",
+            label: "Group name",
+            description: "Full group name",
+            example: "Beach Start",
+            valueType: "string"
+          }
+        ]
+      });
+      expect(result.success).toBe(true);
+    });
+
+    it("accepts a strict templated preview response", () => {
+      const result = broadcastTemplatePreviewSchema.safeParse({
+        type: "tomorrow",
+        text: "x",
+        slots: [],
+        recipientsCount: 42,
+        templateId: "22222222-2222-4222-8222-222222222222",
+        templateVersion: 2,
+        previewToken: "signed-preview",
+        templateVariables: [
+          {
+            key: "groupName",
+            placeholder: "{groupName}",
+            label: "Group name",
+            description: "Full group name",
+            example: "Beach Start",
+            valueType: "string"
+          }
+        ]
+      });
+      expect(result.success).toBe(true);
+    });
+
+    it("rejects templated preview responses missing preview token metadata", () => {
+      expect(
+        broadcastTemplatePreviewSchema.safeParse({
+          type: "tomorrow",
+          text: "x",
+          slots: [],
+          recipientsCount: 42,
+          templateId: "22222222-2222-4222-8222-222222222222",
+          templateVersion: 2,
+          templateVariables: []
+        }).success
+      ).toBe(false);
     });
 
     it("rejects a negative recipient count", () => {
@@ -146,6 +229,21 @@ describe("broadcast contracts", () => {
     it("accepts preview/send without an audience (defaults to all)", () => {
       expect(broadcastPreviewQuerySchema.safeParse({ type: "today" }).success).toBe(true);
       expect(sendBroadcastSchema.safeParse({ type: "today" }).success).toBe(true);
+    });
+
+    it("accepts optional templateId on preview and requires previewToken on templated send", () => {
+      const templateId = "22222222-2222-4222-8222-222222222222";
+      expect(broadcastPreviewQuerySchema.safeParse({ type: "today", templateId }).success).toBe(
+        true
+      );
+      expect(
+        sendBroadcastSchema.safeParse({ type: "today", templateId, previewToken: "signed" })
+          .success
+      ).toBe(true);
+      expect(sendBroadcastSchema.safeParse({ type: "today", templateId }).success).toBe(false);
+      expect(sendBroadcastSchema.safeParse({ type: "today", previewToken: "signed" }).success).toBe(
+        false
+      );
     });
 
     it("rejects an invalid audience on send", () => {

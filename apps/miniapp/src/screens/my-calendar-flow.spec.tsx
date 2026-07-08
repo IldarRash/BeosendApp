@@ -152,6 +152,7 @@ const SLOT_FULL: TrainingScheduleSlot = {
   startTime: "19:00",
   endTime: "20:30",
   freeSeats: 0,
+  groupName: "Women",
   trainingContextLabel: "Women",
   trainingStatus: "full",
   bookable: false
