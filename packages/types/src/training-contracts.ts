@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { broadcastTemplateVariableSchema } from "./broadcast-template-contracts";
 import {
   bookingSource,
   dateString,
@@ -436,6 +437,7 @@ export const slotCardSchema = z.object({
   startTime: timeString,
   endTime: timeString,
   trainerName: z.string(),
+  groupName: z.string().min(1),
   levelName: z.string(),
   freeSeats: z.number().int().nonnegative(),
   priceSingleRsd: rsd
@@ -1222,7 +1224,8 @@ export type BroadcastAudience = z.infer<typeof broadcastAudienceSchema>;
 export const broadcastPreviewQuerySchema = z
   .object({
     type: broadcastType,
-    audience: broadcastAudienceSchema.optional()
+    audience: broadcastAudienceSchema.optional(),
+    templateId: uuid.optional()
   })
   .strict();
 export type BroadcastPreviewQuery = z.infer<typeof broadcastPreviewQuerySchema>;
@@ -1237,17 +1240,49 @@ export const broadcastPreviewSchema = z.object({
   type: broadcastType,
   text: z.string(),
   slots: z.array(slotCardSchema),
-  recipientsCount: z.number().int().nonnegative()
+  recipientsCount: z.number().int().nonnegative(),
+  templateId: uuid.optional(),
+  templateVersion: z.number().int().positive().optional(),
+  previewToken: z.string().min(1).optional(),
+  templateVariables: z.array(broadcastTemplateVariableSchema).optional()
 });
 export type BroadcastPreview = z.infer<typeof broadcastPreviewSchema>;
+
+export const broadcastTemplatePreviewSchema = broadcastPreviewSchema
+  .extend({
+    templateId: uuid,
+    templateVersion: z.number().int().positive(),
+    previewToken: z.string().min(1),
+    templateVariables: z.array(broadcastTemplateVariableSchema)
+  })
+  .strict();
+export type BroadcastTemplatePreview = z.infer<typeof broadcastTemplatePreviewSchema>;
 
 /** Body for POST /broadcasts/send: which free-slot set + audience to broadcast. */
 export const sendBroadcastSchema = z
   .object({
     type: broadcastType,
-    audience: broadcastAudienceSchema.optional()
+    audience: broadcastAudienceSchema.optional(),
+    templateId: uuid.optional(),
+    previewToken: z.string().min(1).optional()
   })
-  .strict();
+  .strict()
+  .superRefine((value, ctx) => {
+    if (value.templateId && !value.previewToken) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: "previewToken is required when templateId is provided",
+        path: ["previewToken"]
+      });
+    }
+    if (value.previewToken && !value.templateId) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: "templateId is required when previewToken is provided",
+        path: ["templateId"]
+      });
+    }
+  });
 export type SendBroadcastInput = z.infer<typeof sendBroadcastSchema>;
 
 // --- Notifications (section 16) ---

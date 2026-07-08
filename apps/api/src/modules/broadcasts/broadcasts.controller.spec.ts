@@ -1,6 +1,6 @@
-import { BadRequestException, ForbiddenException } from "@nestjs/common";
+import { BadRequestException, ConflictException, ForbiddenException } from "@nestjs/common";
 import type { Env } from "@beosand/config";
-import type { TrainingStatus } from "@beosand/types";
+import type { BroadcastTemplate, TrainingStatus } from "@beosand/types";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import type {
   InlineCallbackButton,
@@ -8,14 +8,18 @@ import type {
   TelegramSender
 } from "../notifications/telegram-sender";
 import type { BroadcastSlotRow, BroadcastsRepository } from "./broadcasts.repository";
-import { BroadcastsController } from "./broadcasts.controller";
+import { BroadcastTemplateNameConflictError } from "./broadcasts.repository";
+import { BroadcastsController, BroadcastTemplatesController } from "./broadcasts.controller";
 import { BroadcastsService } from "./broadcasts.service";
 
 const ADMIN_ID = 111;
 const NON_ADMIN_ID = 999;
 const LEVEL_ID = "11111111-1111-1111-1111-111111111111";
 
-const env = { ADMIN_TELEGRAM_IDS: [String(ADMIN_ID)] } as unknown as Env;
+const env = {
+  ADMIN_TELEGRAM_IDS: [String(ADMIN_ID)],
+  ADMIN_SESSION_SECRET: "admin-session-secret-1234567890"
+} as unknown as Env;
 
 function slotRow(overrides: Partial<BroadcastSlotRow> = {}): BroadcastSlotRow {
   return {
@@ -24,11 +28,29 @@ function slotRow(overrides: Partial<BroadcastSlotRow> = {}): BroadcastSlotRow {
     startTime: "18:00",
     endTime: "19:30",
     trainerName: "Ana",
+    groupName: "Beach Start",
     levelName: "Beginner",
     capacity: 8,
     bookedCount: 3,
     status: "open" as TrainingStatus,
     priceSingleRsd: 1500,
+    ...overrides
+  };
+}
+
+function template(overrides: Partial<BroadcastTemplate> = {}): BroadcastTemplate {
+  return {
+    id: "33333333-3333-3333-3333-333333333333",
+    name: "Morning fill",
+    broadcastType: "today",
+    status: "active",
+    bodyTemplate: "Open slots",
+    slotLineTemplate: "{groupName} {freeSeats}",
+    emptyBodyTemplate: "No slots",
+    version: 1,
+    createdAt: new Date("2026-06-01T10:00:00Z").toISOString(),
+    updatedAt: new Date("2026-06-01T10:00:00Z").toISOString(),
+    updatedBy: ADMIN_ID,
     ...overrides
   };
 }
@@ -47,15 +69,28 @@ describe("BroadcastsController", () => {
   let repo: { [K in keyof BroadcastsRepository]: ReturnType<typeof vi.fn> };
   let sender: { sendMessage: ReturnType<typeof vi.fn> };
   let controller: BroadcastsController;
+  let templatesController: BroadcastTemplatesController;
 
   beforeEach(() => {
     repo = {
       listSlots: vi.fn().mockResolvedValue([slotRow()]),
-      listActiveRecipients: vi.fn().mockResolvedValue([{ telegramId: 1 }, { telegramId: 2 }]),
-      listActiveRecipientsByLevel: vi.fn().mockResolvedValue([{ telegramId: 3 }]),
-      listActiveRecipientsBookedSince: vi.fn().mockResolvedValue([{ telegramId: 4 }]),
-      listActiveRecipientsNotBookedSince: vi.fn().mockResolvedValue([{ telegramId: 5 }]),
+      listActiveRecipients: vi
+        .fn()
+        .mockResolvedValue([{ telegramId: 1, language: "ru" }, { telegramId: 2, language: "sr" }]),
+      listActiveRecipientsByLevel: vi
+        .fn()
+        .mockResolvedValue([{ telegramId: 3, language: "ru" }]),
+      listActiveRecipientsBookedSince: vi
+        .fn()
+        .mockResolvedValue([{ telegramId: 4, language: "ru" }]),
+      listActiveRecipientsNotBookedSince: vi
+        .fn()
+        .mockResolvedValue([{ telegramId: 5, language: "en" }]),
       countActiveRecipients: vi.fn().mockResolvedValue(2),
+      listTemplates: vi.fn().mockResolvedValue([template()]),
+      findActiveTemplate: vi.fn().mockResolvedValue(template()),
+      createTemplate: vi.fn().mockImplementation(async (input) => template(input)),
+      updateTemplate: vi.fn().mockImplementation(async (_id, input) => template(input)),
       insertBroadcast: vi.fn().mockResolvedValue({
         id: "22222222-2222-2222-2222-222222222222",
         type: "today",
@@ -74,6 +109,7 @@ describe("BroadcastsController", () => {
       env
     );
     controller = new BroadcastsController(service);
+    templatesController = new BroadcastTemplatesController(service);
   });
 
   describe("unsafe path: non-admin send", () => {
@@ -177,6 +213,85 @@ describe("BroadcastsController", () => {
     it("400s a malformed audience query string on preview", () => {
       expect(() =>
         controller.preview(String(ADMIN_ID), { type: "today", audience: "{not json" })
+      ).toThrow(BadRequestException);
+    });
+  });
+
+  describe("template endpoints", () => {
+    it("lists active templates for a type through the admin gate", async () => {
+      const templates = await templatesController.list(String(ADMIN_ID), "today");
+      expect(templates).toHaveLength(1);
+      expect(repo.listTemplates).toHaveBeenCalledWith("today");
+
+      await expect(templatesController.list(String(NON_ADMIN_ID), "today")).rejects.toBeInstanceOf(
+        ForbiddenException
+      );
+    });
+
+    it("returns curated variables including groupName", () => {
+      const variables = templatesController.variables(String(ADMIN_ID), "today");
+      expect(variables.map((variable) => variable.key)).toContain("groupName");
+    });
+
+    it("creates and patches a template with Zod boundary validation", async () => {
+      await templatesController.create(String(ADMIN_ID), {
+        name: "Fill",
+        broadcastType: "today",
+        bodyTemplate: "Open",
+        slotLineTemplate: "{groupName} {freeSeats}",
+        emptyBodyTemplate: "No slots"
+      });
+      expect(repo.createTemplate).toHaveBeenCalledTimes(1);
+
+      await templatesController.update(String(ADMIN_ID), template().id, {
+        bodyTemplate: "Updated {groupName}"
+      });
+      expect(repo.updateTemplate).toHaveBeenCalledTimes(1);
+    });
+
+    it("rejects unknown placeholders before repository writes", async () => {
+      await expect(
+        templatesController.create(String(ADMIN_ID), {
+          name: "Broken",
+          broadcastType: "today",
+          bodyTemplate: "Hello {client}",
+          slotLineTemplate: "{groupName}",
+          emptyBodyTemplate: "No slots"
+        })
+      ).rejects.toBeInstanceOf(BadRequestException);
+      expect(repo.createTemplate).not.toHaveBeenCalled();
+    });
+
+    it("surfaces duplicate active template create and rename as conflicts", async () => {
+      repo.createTemplate.mockRejectedValueOnce(new BroadcastTemplateNameConflictError());
+      await expect(
+        templatesController.create(String(ADMIN_ID), {
+          name: "Fill",
+          broadcastType: "today",
+          bodyTemplate: "Open",
+          slotLineTemplate: "{groupName}",
+          emptyBodyTemplate: "No slots"
+        })
+      ).rejects.toBeInstanceOf(ConflictException);
+
+      repo.updateTemplate.mockRejectedValueOnce(new BroadcastTemplateNameConflictError());
+      await expect(
+        templatesController.update(String(ADMIN_ID), template().id, {
+          name: "Fill"
+        })
+      ).rejects.toBeInstanceOf(ConflictException);
+    });
+
+    it("passes templateId through preview and requires token on templated send", async () => {
+      const preview = await controller.preview(String(ADMIN_ID), {
+        type: "today",
+        templateId: template().id
+      });
+      expect(preview.templateId).toBe(template().id);
+      expect(preview.previewToken).toEqual(expect.any(String));
+
+      expect(() =>
+        controller.send(String(ADMIN_ID), { type: "today", templateId: template().id })
       ).toThrow(BadRequestException);
     });
   });

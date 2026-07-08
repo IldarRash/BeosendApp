@@ -675,6 +675,7 @@ export class TrainingsService {
         startTime: row.startTime,
         endTime: row.endTime,
         trainerName: row.trainerName,
+        groupName: row.groupName,
         levelName: row.levelName,
         freeSeats: freeSeats({
           capacity: row.capacity,
@@ -728,6 +729,7 @@ export class TrainingsService {
           endTime: row.endTime,
           trainingContextLabel: row.trainingContextLabel,
           trainerName: row.trainerName,
+          groupName: row.groupName,
           levelName: row.levelName,
           freeSeats: seats,
           priceSingleRsd: row.priceSingleRsd,

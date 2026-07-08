@@ -1,6 +1,6 @@
 import { Module } from "@nestjs/common";
 import { NotificationsModule } from "../notifications/notifications.module";
-import { BroadcastsController } from "./broadcasts.controller";
+import { BroadcastsController, BroadcastTemplatesController } from "./broadcasts.controller";
 import { BroadcastsRepository } from "./broadcasts.repository";
 import { BroadcastsService } from "./broadcasts.service";
 
@@ -11,7 +11,7 @@ import { BroadcastsService } from "./broadcasts.service";
  */
 @Module({
   imports: [NotificationsModule],
-  controllers: [BroadcastsController],
+  controllers: [BroadcastsController, BroadcastTemplatesController],
   providers: [BroadcastsService, BroadcastsRepository]
 })
 export class BroadcastsModule {}

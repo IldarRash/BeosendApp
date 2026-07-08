@@ -127,6 +127,7 @@ const SLOT_ALREADY_BOOKED: TrainingScheduleSlot = {
   levelName: "Начинающий",
   freeSeats: 3,
   priceSingleRsd: 1500,
+  groupName: "Evening Mix",
   trainingContextLabel: "Mix",
   trainingStatus: "open",
   bookable: true
@@ -151,6 +152,7 @@ const SLOT_FULL: TrainingScheduleSlot = {
   startTime: "19:00",
   endTime: "20:30",
   freeSeats: 0,
+  groupName: "Women",
   trainingContextLabel: "Women",
   trainingStatus: "full",
   bookable: false

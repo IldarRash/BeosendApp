@@ -1,19 +1,49 @@
-import { ForbiddenException, Inject, Injectable, Logger } from "@nestjs/common";
+import {
+  BadRequestException,
+  ConflictException,
+  ForbiddenException,
+  Inject,
+  Injectable,
+  Logger,
+  NotFoundException
+} from "@nestjs/common";
 import type { Env } from "@beosand/config";
 import { isAdmin } from "@beosand/config";
+import type { ZodSchema } from "zod";
 import type {
   Broadcast,
   BroadcastAudience,
   BroadcastPreview,
+  BroadcastTemplate,
+  BroadcastTemplateVariable,
   BroadcastType,
+  CreateBroadcastTemplateInput,
   SlotCard
 } from "@beosand/types";
-import { broadcastPreviewSchema, freeSeats, isBookable, isoWeekdayOf } from "@beosand/types";
+import {
+  BROADCAST_TEMPLATE_VARIABLES,
+  broadcastPreviewSchema,
+  broadcastTemplateSchema,
+  createBroadcastTemplateSchema,
+  findUnknownBroadcastTemplatePlaceholders,
+  freeSeats,
+  isBookable,
+  isoWeekdayOf,
+  updateBroadcastTemplateSchema,
+  type UpdateBroadcastTemplateInput
+} from "@beosand/types";
 import { ENV } from "../../config/config.module";
 import { TelegramSender } from "../notifications/telegram-sender";
 import { type BookSlotButton, bookSlotsKeyboard } from "../notifications/notification-keyboards";
 import { composeBroadcastText } from "./broadcast-messages";
 import {
+  signBroadcastPreviewToken,
+  verifyBroadcastPreviewToken,
+  type BroadcastPreviewTokenProblem
+} from "./broadcast-preview-token";
+import { renderBroadcastTemplate } from "./broadcast-template-renderer";
+import {
+  BroadcastTemplateNameConflictError,
   type BroadcastRecipient,
   type BroadcastSlotRow,
   BroadcastsRepository
@@ -50,19 +80,38 @@ export class BroadcastsService {
   async preview(
     actorTelegramId: number,
     type: BroadcastType,
-    audience: BroadcastAudience = DEFAULT_AUDIENCE
+    audience: BroadcastAudience = DEFAULT_AUDIENCE,
+    templateId?: string
   ): Promise<BroadcastPreview> {
     this.assertAdmin(actorTelegramId);
 
     const slots = await this.selectBookableSlots(type);
-    const text = composeBroadcastText(type, slots);
+    const template = templateId ? await this.loadTemplateForType(templateId, type) : undefined;
+    const text = this.render(type, slots, template);
     const recipients = await this.resolveRecipients(audience);
 
     return broadcastPreviewSchema.parse({
       type,
       text,
       slots,
-      recipientsCount: recipients.length
+      recipientsCount: recipients.length,
+      ...(template
+        ? {
+            templateId: template.id,
+            templateVersion: template.version,
+            previewToken: signBroadcastPreviewToken(
+              {
+                actorTelegramId,
+                type,
+                audience,
+                templateId: template.id,
+                templateVersion: template.version
+              },
+              this.env.ADMIN_SESSION_SECRET
+            ),
+            templateVariables: BROADCAST_TEMPLATE_VARIABLES
+          }
+        : {})
     });
   }
 
@@ -78,12 +127,28 @@ export class BroadcastsService {
   async send(
     actorTelegramId: number,
     type: BroadcastType,
-    audience: BroadcastAudience = DEFAULT_AUDIENCE
+    audience: BroadcastAudience = DEFAULT_AUDIENCE,
+    templateId?: string,
+    previewToken?: string
   ): Promise<Broadcast> {
     this.assertAdmin(actorTelegramId);
 
+    const template = templateId ? await this.loadTemplateForType(templateId, type) : undefined;
+    if (template) {
+      if (!previewToken) {
+        throw new BadRequestException("previewToken is required when templateId is provided");
+      }
+      this.assertPreviewToken(previewToken, {
+        actorTelegramId,
+        type,
+        audience,
+        templateId: template.id,
+        templateVersion: template.version
+      });
+    }
+
     const slots = await this.selectBookableSlots(type);
-    const text = composeBroadcastText(type, slots);
+    const text = this.render(type, slots, template);
     const buttons: BookSlotButton[] = slots.map((s) => ({
       trainingId: s.trainingId,
       startTime: s.startTime,
@@ -111,6 +176,59 @@ export class BroadcastsService {
       createdBy: actorTelegramId,
       recipientsCount: recipients.length
     });
+  }
+
+  /** Admin: active templates for one broadcast type. */
+  async listTemplates(
+    actorTelegramId: number,
+    type: BroadcastType
+  ): Promise<BroadcastTemplate[]> {
+    this.assertAdmin(actorTelegramId);
+    return this.repo.listTemplates(type);
+  }
+
+  /** Admin: create a strict-placeholder broadcast template. */
+  async createTemplate(
+    actorTelegramId: number,
+    input: CreateBroadcastTemplateInput
+  ): Promise<BroadcastTemplate> {
+    this.assertAdmin(actorTelegramId);
+    const parsed = validateTemplateInput(createBroadcastTemplateSchema, input);
+    this.assertKnownPlaceholders(parsed);
+    try {
+      return broadcastTemplateSchema.parse(await this.repo.createTemplate(parsed, actorTelegramId));
+    } catch (error) {
+      this.throwIfTemplateNameConflict(error);
+      throw error;
+    }
+  }
+
+  /** Admin: patch a template and bump version. */
+  async updateTemplate(
+    actorTelegramId: number,
+    id: string,
+    input: UpdateBroadcastTemplateInput
+  ): Promise<BroadcastTemplate> {
+    this.assertAdmin(actorTelegramId);
+    const parsed = validateTemplateInput(updateBroadcastTemplateSchema, input);
+    this.assertKnownPlaceholders(parsed);
+    let updated: BroadcastTemplate | undefined;
+    try {
+      updated = await this.repo.updateTemplate(id, parsed, actorTelegramId);
+    } catch (error) {
+      this.throwIfTemplateNameConflict(error);
+      throw error;
+    }
+    if (!updated) {
+      throw new NotFoundException("Broadcast template not found");
+    }
+    return broadcastTemplateSchema.parse(updated);
+  }
+
+  /** Admin: the server-owned variables available to broadcast templates. */
+  variables(actorTelegramId: number, _type: BroadcastType): BroadcastTemplateVariable[] {
+    this.assertAdmin(actorTelegramId);
+    return [...BROADCAST_TEMPLATE_VARIABLES];
   }
 
   /**
@@ -156,6 +274,70 @@ export class BroadcastsService {
       throw new ForbiddenException("Admin privileges required");
     }
   }
+
+  private async loadTemplateForType(id: string, type: BroadcastType): Promise<BroadcastTemplate> {
+    const template = await this.repo.findActiveTemplate(id);
+    if (!template || template.broadcastType !== type) {
+      throw new NotFoundException("Broadcast template not found");
+    }
+    this.assertKnownPlaceholders(template);
+    return template;
+  }
+
+  private render(
+    type: BroadcastType,
+    slots: SlotCard[],
+    template: BroadcastTemplate | undefined
+  ): string {
+    return template ? renderBroadcastTemplate(template, slots) : composeBroadcastText(type, slots);
+  }
+
+  private assertKnownPlaceholders(input: {
+    bodyTemplate?: string;
+    slotLineTemplate?: string;
+    emptyBodyTemplate?: string;
+  }): void {
+    const unknown = [
+      ...(input.bodyTemplate ? findUnknownBroadcastTemplatePlaceholders(input.bodyTemplate) : []),
+      ...(input.slotLineTemplate
+        ? findUnknownBroadcastTemplatePlaceholders(input.slotLineTemplate)
+        : []),
+      ...(input.emptyBodyTemplate
+        ? findUnknownBroadcastTemplatePlaceholders(input.emptyBodyTemplate)
+        : [])
+    ];
+    if (unknown.length > 0) {
+      throw new BadRequestException(
+        `Unknown broadcast template placeholder: ${Array.from(new Set(unknown)).join(", ")}`
+      );
+    }
+  }
+
+  private throwIfTemplateNameConflict(error: unknown): void {
+    if (error instanceof BroadcastTemplateNameConflictError) {
+      throw new ConflictException("Active broadcast template name already exists for this type");
+    }
+  }
+
+  private assertPreviewToken(
+    token: string,
+    expected: {
+      actorTelegramId: number;
+      type: BroadcastType;
+      audience: BroadcastAudience;
+      templateId: string;
+      templateVersion: number;
+    }
+  ): void {
+    const result = verifyBroadcastPreviewToken(token, expected, this.env.ADMIN_SESSION_SECRET);
+    if (result.ok) {
+      return;
+    }
+    if (result.problem === "version-stale") {
+      throw new ConflictException("Broadcast template changed; preview again before sending");
+    }
+    throw new BadRequestException(messageForTokenProblem(result.problem));
+  }
 }
 
 /** A Date `days` whole days before now — the rolling cutoff for active/lapsed. */
@@ -187,10 +369,39 @@ function toSlotCard(row: BroadcastSlotRow): SlotCard {
     startTime: row.startTime,
     endTime: row.endTime,
     trainerName: row.trainerName,
+    groupName: row.groupName,
     levelName: row.levelName,
     freeSeats: freeSeats(row),
     priceSingleRsd: row.priceSingleRsd
   };
+}
+
+function messageForTokenProblem(problem: BroadcastPreviewTokenProblem): string {
+  switch (problem) {
+    case "expired":
+      return "Broadcast preview expired; preview again before sending";
+    case "actor-mismatch":
+    case "type-mismatch":
+    case "audience-mismatch":
+    case "template-mismatch":
+      return "Broadcast preview token does not match this send request";
+    case "invalid":
+      return "Invalid broadcast preview token";
+    case "version-stale":
+      return "Broadcast template changed; preview again before sending";
+    default: {
+      const exhaustive: never = problem;
+      return exhaustive;
+    }
+  }
+}
+
+function validateTemplateInput<T>(schema: ZodSchema<T>, input: unknown): T {
+  const result = schema.safeParse(input);
+  if (!result.success) {
+    throw new BadRequestException(result.error.issues.map((issue) => issue.message).join("; "));
+  }
+  return result.data;
 }
 
 /** Today's date in Europe/Belgrade as "YYYY-MM-DD". */

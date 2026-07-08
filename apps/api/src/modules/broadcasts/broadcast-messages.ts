@@ -13,7 +13,7 @@ const EMPTY = "Сейчас нет свободных мест.";
 
 /**
  * Compose the broadcast message body from the bookable slot cards (T2.4). One
- * line per slot with date/time, level, trainer, free seats and the RSD price
+ * line per slot with date/time, group, level, trainer, free seats and the RSD price
  * (computed server-side; the bot only renders this text). The per-slot inline
  * "Записаться" button is attached by the sender, keyed by `trainingId`.
  */
@@ -25,10 +25,10 @@ export function composeBroadcastText(type: BroadcastType, slots: SlotCard[]): st
   return `${HEADERS[type]}\n\n${lines}`;
 }
 
-/** One slot line: "DD.MM HH:MM–HH:MM · Уровень: Level · Trainer · N мест · P RSD". */
+/** One slot line: "DD.MM HH:MM-HH:MM · Группа: Group · Уровень: Level · Trainer · N мест · P RSD". */
 function slotLine(slot: SlotCard): string {
   return (
-    `${slot.date} ${slot.startTime}–${slot.endTime} · Уровень: ${slot.levelName} · ${slot.trainerName} · ` +
+    `${slot.date} ${slot.startTime}–${slot.endTime} · Группа: ${slot.groupName} · Уровень: ${slot.levelName} · ${slot.trainerName} · ` +
     `${slot.freeSeats} мест · ${slot.priceSingleRsd} RSD`
   );
 }

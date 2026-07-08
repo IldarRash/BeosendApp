@@ -26,6 +26,7 @@ import {
   groupSchema,
   rescheduleTrainingSchema,
   updateTrainingScheduleCourtSchema,
+  slotCardSchema,
   trainingSchema,
   trainingCalendarItemSchema,
   listSubscriptionsQuerySchema,
@@ -1058,6 +1059,7 @@ describe("trainingScheduleSlotSchema", () => {
     startTime: "18:00",
     endTime: "19:30",
     trainerName: "Coach",
+    groupName: "Beach Start",
     levelName: "Beginners",
     freeSeats: 3,
     priceSingleRsd: 1800,
@@ -1083,6 +1085,13 @@ describe("trainingScheduleSlotSchema", () => {
     expect(
       trainingScheduleSlotSchema.safeParse({ ...validSlot, trainingContextLabel: "   " }).success
     ).toBe(false);
+  });
+
+  it("requires a non-empty groupName through the shared slot card", () => {
+    const { groupName: _omitted, ...withoutGroupName } = validSlot;
+    expect(slotCardSchema.safeParse(validSlot).success).toBe(true);
+    expect(slotCardSchema.safeParse(withoutGroupName).success).toBe(false);
+    expect(slotCardSchema.safeParse({ ...validSlot, groupName: "" }).success).toBe(false);
   });
 });
 

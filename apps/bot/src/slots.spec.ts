@@ -30,7 +30,8 @@ const card: SlotCard = {
   trainerName: "Марко",
   levelName: "Начинающий",
   freeSeats: 4,
-  priceSingleRsd: 1500
+  priceSingleRsd: 1500,
+  groupName: "Evening Beginners"
 };
 
 /** Pull callback_data of every keyboard button (flattened). */

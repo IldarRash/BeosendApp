@@ -26,7 +26,8 @@ const SLOT: SlotCard = {
   trainerName: "Иван",
   levelName: "Начинающий",
   freeSeats: 4,
-  priceSingleRsd: 1500
+  priceSingleRsd: 1500,
+  groupName: "Evening Beginners"
 };
 
 const BOOKING: Booking = {

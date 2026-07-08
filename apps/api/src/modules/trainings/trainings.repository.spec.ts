@@ -118,7 +118,7 @@ describe("TrainingsRepository.listInRange", () => {
 });
 
 describe("TrainingsRepository.listSchedule", () => {
-  it("selects the joined group name as the server-owned context label", async () => {
+  it("selects the joined group name for the shared slot card and context label", async () => {
     let selection: Record<string, unknown> | undefined;
     const builder = {
       from: () => builder,
@@ -137,6 +137,31 @@ describe("TrainingsRepository.listSchedule", () => {
     await repo.listSchedule("2026-07-01", "2026-07-31");
 
     expect(selection).toBeDefined();
+    expect(selection?.groupName).toBe(tables.groups.name);
     expect(selection?.trainingContextLabel).toBe(tables.groups.name);
+  });
+});
+
+describe("TrainingsRepository.listAvailable", () => {
+  it("selects the joined group name for the shared slot card", async () => {
+    let selection: Record<string, unknown> | undefined;
+    const builder = {
+      from: () => builder,
+      innerJoin: () => builder,
+      where: () => builder,
+      orderBy: async () => [] as unknown[]
+    };
+    const db = {
+      select: (columns: Record<string, unknown>) => {
+        selection = columns;
+        return builder;
+      }
+    } as unknown as Database;
+    const repo = new TrainingsRepository({ db } as unknown as DatabaseService);
+
+    await repo.listAvailable("2026-07-01", "2026-07-31");
+
+    expect(selection).toBeDefined();
+    expect(selection?.groupName).toBe(tables.groups.name);
   });
 });

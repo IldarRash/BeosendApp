@@ -10,6 +10,7 @@ function slot(overrides: Partial<SlotCard> = {}): SlotCard {
     startTime: "18:00",
     endTime: "19:30",
     trainerName: "Ana",
+    groupName: "Beach Start",
     levelName: "Beginner",
     freeSeats: 2,
     priceSingleRsd: 1500,
@@ -31,6 +32,7 @@ describe("composeBroadcastText", () => {
 
     const slotLines = text.split("\n").filter((line) => line.includes("RSD"));
     expect(slotLines).toHaveLength(2);
+    expect(slotLines[0]).toContain("Группа: Beach Start");
     expect(slotLines[0]).toContain("\u0423\u0440\u043e\u0432\u0435\u043d\u044c: Beginner");
     expect(slotLines[1]).toContain("\u0423\u0440\u043e\u0432\u0435\u043d\u044c: Advanced");
   });

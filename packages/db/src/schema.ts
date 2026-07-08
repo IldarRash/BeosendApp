@@ -2,6 +2,7 @@ import { sql } from "drizzle-orm";
 import {
   bigint,
   boolean,
+  check,
   date,
   integer,
   numeric,
@@ -363,6 +364,42 @@ export const broadcasts = pgTable("broadcasts", {
   recipientsCount: integer("recipients_count").notNull().default(0)
 });
 
+export const broadcastTemplates = pgTable(
+  "broadcast_templates",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    name: text("name").notNull(),
+    broadcastType: broadcastType("broadcast_type").notNull(),
+    status: entityStatus("status").notNull().default("active"),
+    bodyTemplate: text("body_template").notNull(),
+    slotLineTemplate: text("slot_line_template").notNull(),
+    emptyBodyTemplate: text("empty_body_template").notNull(),
+    version: integer("version").notNull().default(1),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+    updatedBy: bigint("updated_by", { mode: "number" })
+  },
+  (table) => ({
+    activeTypeNameIdx: uniqueIndex("broadcast_templates_active_type_name_idx")
+      .on(table.broadcastType, table.name)
+      .where(sql`${table.status} = 'active'`),
+    nameNonEmpty: check("broadcast_templates_name_non_empty", sql`length(trim(${table.name})) > 0`),
+    bodyTemplateNonEmpty: check(
+      "broadcast_templates_body_template_non_empty",
+      sql`length(trim(${table.bodyTemplate})) > 0`
+    ),
+    slotLineTemplateNonEmpty: check(
+      "broadcast_templates_slot_line_template_non_empty",
+      sql`length(trim(${table.slotLineTemplate})) > 0`
+    ),
+    emptyBodyTemplateNonEmpty: check(
+      "broadcast_templates_empty_body_template_non_empty",
+      sql`length(trim(${table.emptyBodyTemplate})) > 0`
+    ),
+    versionPositive: check("broadcast_templates_version_positive", sql`${table.version} > 0`)
+  })
+);
+
 export const notifications = pgTable("notifications", {
   id: uuid("id").primaryKey().defaultRandom(),
   type: notificationType("type").notNull(),
@@ -566,6 +603,7 @@ export const schema = {
   bookings,
   waitlist,
   broadcasts,
+  broadcastTemplates,
   notifications,
   courts,
   courtBlocks,

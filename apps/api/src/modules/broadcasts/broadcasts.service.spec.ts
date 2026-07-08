@@ -1,6 +1,6 @@
-import { ForbiddenException } from "@nestjs/common";
+import { BadRequestException, ConflictException, ForbiddenException } from "@nestjs/common";
 import type { Env } from "@beosand/config";
-import type { BroadcastType, TrainingStatus } from "@beosand/types";
+import type { BroadcastTemplate, BroadcastType, TrainingStatus } from "@beosand/types";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type {
   InlineCallbackButton,
@@ -8,12 +8,16 @@ import type {
   TelegramSender
 } from "../notifications/telegram-sender";
 import type { BroadcastSlotRow, BroadcastsRepository } from "./broadcasts.repository";
+import { BroadcastTemplateNameConflictError } from "./broadcasts.repository";
 import { BroadcastsService } from "./broadcasts.service";
 
 const ADMIN_ID = 111;
 const NON_ADMIN_ID = 999;
 
-const env = { ADMIN_TELEGRAM_IDS: [String(ADMIN_ID)] } as unknown as Env;
+const env = {
+  ADMIN_TELEGRAM_IDS: [String(ADMIN_ID)],
+  ADMIN_SESSION_SECRET: "admin-session-secret-1234567890"
+} as unknown as Env;
 
 function slotRow(overrides: Partial<BroadcastSlotRow> = {}): BroadcastSlotRow {
   return {
@@ -22,11 +26,30 @@ function slotRow(overrides: Partial<BroadcastSlotRow> = {}): BroadcastSlotRow {
     startTime: "18:00",
     endTime: "19:30",
     trainerName: "Ana",
+    groupName: "Beach Start",
     levelName: "Beginner",
     capacity: 8,
     bookedCount: 3,
     status: "open" as TrainingStatus,
     priceSingleRsd: 1500,
+    ...overrides
+  };
+}
+
+function template(overrides: Partial<BroadcastTemplate> = {}): BroadcastTemplate {
+  return {
+    id: "33333333-3333-3333-3333-333333333333",
+    name: "Morning fill",
+    broadcastType: "today",
+    status: "active",
+    bodyTemplate: "Slots for {groupName}",
+    slotLineTemplate:
+      "{date} {startTime}-{endTime} | {groupName} | {level} | {trainer} | {freeSeats} | {price}",
+    emptyBodyTemplate: "No open slots",
+    version: 1,
+    createdAt: new Date("2026-06-01T10:00:00Z").toISOString(),
+    updatedAt: new Date("2026-06-01T10:00:00Z").toISOString(),
+    updatedBy: ADMIN_ID,
     ...overrides
   };
 }
@@ -43,6 +66,10 @@ function makeService(repoOverrides: Partial<BroadcastsRepository> = {}): {
     listActiveRecipientsBookedSince: vi.fn().mockResolvedValue([]),
     listActiveRecipientsNotBookedSince: vi.fn().mockResolvedValue([]),
     countActiveRecipients: vi.fn().mockResolvedValue(0),
+    listTemplates: vi.fn().mockResolvedValue([]),
+    findActiveTemplate: vi.fn().mockResolvedValue(undefined),
+    createTemplate: vi.fn().mockImplementation(async (input) => template(input)),
+    updateTemplate: vi.fn().mockImplementation(async (_id, input) => template(input)),
     insertBroadcast: vi.fn().mockResolvedValue({
       id: "22222222-2222-2222-2222-222222222222",
       type: "today",
@@ -130,6 +157,214 @@ describe("BroadcastsService", () => {
       expect(preview.recipientsCount).toBe(42);
       expect(preview.text).toContain("1500 RSD");
       expect(preview.text).toContain("5 мест");
+    });
+  });
+
+  describe("broadcast templates", () => {
+    it("lists templates through the admin gate", async () => {
+      const row = template({ broadcastType: "tomorrow" });
+      const { service, repo } = makeService({
+        listTemplates: vi.fn().mockResolvedValue([row]) as unknown as
+          BroadcastsRepository["listTemplates"]
+      });
+
+      await expect(service.listTemplates(NON_ADMIN_ID, "tomorrow")).rejects.toBeInstanceOf(
+        ForbiddenException
+      );
+
+      const templates = await service.listTemplates(ADMIN_ID, "tomorrow");
+      expect(templates).toEqual([row]);
+      expect(repo.listTemplates).toHaveBeenCalledWith("tomorrow");
+    });
+
+    it("creates and updates templates, rejecting malformed or unknown placeholders", async () => {
+      const { service, repo } = makeService();
+
+      for (const slotLineTemplate of [
+        "{client}",
+        "{client_name}",
+        "{ price }",
+        "{price.rsd}",
+        "{1bad}",
+        "{date",
+        "date}"
+      ]) {
+        await expect(
+          service.createTemplate(ADMIN_ID, {
+            name: "Bad",
+            broadcastType: "today",
+            bodyTemplate: "Open slots",
+            slotLineTemplate,
+            emptyBodyTemplate: "No slots"
+          })
+        ).rejects.toBeInstanceOf(BadRequestException);
+      }
+
+      expect(repo.createTemplate).not.toHaveBeenCalled();
+
+      await expect(
+        service.updateTemplate(ADMIN_ID, template().id, {
+          slotLineTemplate: "{{date}"
+        })
+      ).rejects.toBeInstanceOf(BadRequestException);
+
+      await expect(
+        service.createTemplate(ADMIN_ID, {
+          name: "Bad",
+          broadcastType: "today",
+          bodyTemplate: "Hello {client}",
+          slotLineTemplate: "{groupName}",
+          emptyBodyTemplate: "No slots"
+        })
+      ).rejects.toBeInstanceOf(BadRequestException);
+
+      await service.createTemplate(ADMIN_ID, {
+        name: "Good",
+        broadcastType: "today",
+        bodyTemplate: "Open slots",
+        slotLineTemplate: "{groupName} {freeSeats}",
+        emptyBodyTemplate: "No slots"
+      });
+      expect(repo.createTemplate).toHaveBeenCalledTimes(1);
+
+      await service.updateTemplate(ADMIN_ID, template().id, {
+        slotLineTemplate: "{date} {groupName}"
+      });
+      expect(repo.updateTemplate).toHaveBeenCalledWith(
+        template().id,
+        { slotLineTemplate: "{date} {groupName}" },
+        ADMIN_ID
+      );
+    });
+
+    it("translates duplicate active template create and rename to conflict", async () => {
+      const { service } = makeService({
+        createTemplate: vi
+          .fn()
+          .mockRejectedValue(new BroadcastTemplateNameConflictError()) as unknown as
+          BroadcastsRepository["createTemplate"],
+        updateTemplate: vi
+          .fn()
+          .mockRejectedValue(new BroadcastTemplateNameConflictError()) as unknown as
+          BroadcastsRepository["updateTemplate"]
+      });
+
+      const createError = await service
+        .createTemplate(ADMIN_ID, {
+          name: "Existing",
+          broadcastType: "today",
+          bodyTemplate: "Open slots",
+          slotLineTemplate: "{groupName}",
+          emptyBodyTemplate: "No slots"
+        })
+        .catch((error: unknown) => error);
+      expect(createError).toBeInstanceOf(ConflictException);
+      expect((createError as Error).message).toBe(
+        "Active broadcast template name already exists for this type"
+      );
+
+      const updateError = await service
+        .updateTemplate(ADMIN_ID, template().id, {
+          name: "Existing"
+        })
+        .catch((error: unknown) => error);
+      expect(updateError).toBeInstanceOf(ConflictException);
+      expect((updateError as Error).message).toBe(
+        "Active broadcast template name already exists for this type"
+      );
+    });
+
+    it("renders preview variables from server slot fields and returns a token", async () => {
+      const tpl = template({ broadcastType: "today" });
+      const { service } = makeService({
+        findActiveTemplate: vi.fn().mockResolvedValue(tpl) as unknown as
+          BroadcastsRepository["findActiveTemplate"],
+        listSlots: vi.fn().mockResolvedValue([slotRow()]) as unknown as
+          BroadcastsRepository["listSlots"],
+        listActiveRecipients: vi.fn().mockResolvedValue([{ telegramId: 10, language: "ru" }]) as
+          unknown as BroadcastsRepository["listActiveRecipients"]
+      });
+
+      const preview = await service.preview(ADMIN_ID, "today", { kind: "all" }, tpl.id);
+
+      expect(preview.text).toContain("Beach Start");
+      expect(preview.text).toContain("Beginner");
+      expect(preview.text).toContain("Ana");
+      expect(preview.text).toContain("5");
+      expect(preview.text).toContain("1500 RSD");
+      expect(preview.templateId).toBe(tpl.id);
+      expect(preview.templateVersion).toBe(1);
+      expect(preview.previewToken).toEqual(expect.any(String));
+      expect(preview.templateVariables?.map((variable) => variable.key)).toContain("groupName");
+    });
+
+    it("rejects a mismatched preview token before sending", async () => {
+      const tpl = template({ broadcastType: "today" });
+      const { service, repo, sender } = makeService({
+        findActiveTemplate: vi.fn().mockResolvedValue(tpl) as unknown as
+          BroadcastsRepository["findActiveTemplate"],
+        listSlots: vi.fn().mockResolvedValue([slotRow()]) as unknown as
+          BroadcastsRepository["listSlots"]
+      });
+      const preview = await service.preview(ADMIN_ID, "today", { kind: "all" }, tpl.id);
+
+      await expect(
+        service.send(
+          ADMIN_ID,
+          "today",
+          { kind: "active", days: 30 },
+          tpl.id,
+          preview.previewToken
+        )
+      ).rejects.toBeInstanceOf(BadRequestException);
+      expect(sender.sendMessage).not.toHaveBeenCalled();
+      expect(repo.insertBroadcast).not.toHaveBeenCalled();
+    });
+
+    it("rejects a stale template version token after an edit", async () => {
+      const tpl = template({ broadcastType: "today", version: 1 });
+      const edited = template({ broadcastType: "today", version: 2 });
+      const findActiveTemplate = vi
+        .fn()
+        .mockResolvedValueOnce(tpl)
+        .mockResolvedValueOnce(edited);
+      const { service, repo, sender } = makeService({
+        findActiveTemplate: findActiveTemplate as unknown as
+          BroadcastsRepository["findActiveTemplate"],
+        listSlots: vi.fn().mockResolvedValue([slotRow()]) as unknown as
+          BroadcastsRepository["listSlots"]
+      });
+      const preview = await service.preview(ADMIN_ID, "today", { kind: "all" }, tpl.id);
+
+      await expect(
+        service.send(ADMIN_ID, "today", { kind: "all" }, tpl.id, preview.previewToken)
+      ).rejects.toBeInstanceOf(ConflictException);
+      expect(sender.sendMessage).not.toHaveBeenCalled();
+      expect(repo.insertBroadcast).not.toHaveBeenCalled();
+    });
+
+    it("rejects an expired preview token before sending", async () => {
+      vi.useFakeTimers();
+      try {
+        vi.setSystemTime(new Date("2026-06-03T10:00:00Z"));
+        const tpl = template({ broadcastType: "today" });
+        const { service, repo, sender } = makeService({
+          findActiveTemplate: vi.fn().mockResolvedValue(tpl) as unknown as
+            BroadcastsRepository["findActiveTemplate"],
+          listSlots: vi.fn().mockResolvedValue([slotRow()]) as unknown as
+            BroadcastsRepository["listSlots"]
+        });
+        const preview = await service.preview(ADMIN_ID, "today", { kind: "all" }, tpl.id);
+
+        vi.setSystemTime(new Date("2026-06-03T10:16:00Z"));
+        await expect(
+          service.send(ADMIN_ID, "today", { kind: "all" }, tpl.id, preview.previewToken)
+        ).rejects.toBeInstanceOf(BadRequestException);
+        expect(sender.sendMessage).not.toHaveBeenCalled();
+        expect(repo.insertBroadcast).not.toHaveBeenCalled();
+      } finally {
+        vi.useRealTimers();
+      }
     });
   });
 
