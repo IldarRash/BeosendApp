@@ -5,6 +5,7 @@ import type { SettingsService } from "./settings.service";
 
 const CONTACT = { contact: "@beosand", url: "https://t.me/beosand" };
 const REQUEST_LOGGING = { detailed: true };
+const FREED_SLOT_AUTOMATION = { enabled: true, audience: { kind: "all" as const } };
 const MONTH_VIEW = {
   year: 2026,
   month: 7,
@@ -46,6 +47,8 @@ function build() {
     updateManagerContact: vi.fn(async () => CONTACT),
     requestLoggingSettings: vi.fn(async () => REQUEST_LOGGING),
     updateRequestLoggingSettings: vi.fn(async () => REQUEST_LOGGING),
+    sameDayFreedSlotAutomationSettings: vi.fn(async () => FREED_SLOT_AUTOMATION),
+    updateSameDayFreedSlotAutomationSettings: vi.fn(async () => FREED_SLOT_AUTOMATION),
     courtWorkingHoursMonthView: vi.fn(async () => MONTH_VIEW),
     updateCourtWorkingHoursMonth: vi.fn(async () => MONTH_SETTING),
     deleteCourtWorkingHoursMonth: vi.fn(async () => undefined),
@@ -130,6 +133,47 @@ describe("SettingsController", () => {
     );
     expect(settings.requestLoggingSettings).not.toHaveBeenCalled();
     expect(settings.updateRequestLoggingSettings).not.toHaveBeenCalled();
+  });
+
+  it("GET/PATCH freed-slot automation parse the actor and strict validated policy", async () => {
+    const { controller, settings } = build();
+
+    await expect(controller.sameDayFreedSlotAutomationSettings("111")).resolves.toEqual(
+      FREED_SLOT_AUTOMATION
+    );
+    await expect(
+      controller.updateSameDayFreedSlotAutomationSettings("111", FREED_SLOT_AUTOMATION)
+    ).resolves.toEqual(FREED_SLOT_AUTOMATION);
+
+    expect(settings.sameDayFreedSlotAutomationSettings).toHaveBeenCalledWith(111);
+    expect(settings.updateSameDayFreedSlotAutomationSettings).toHaveBeenCalledWith(
+      111,
+      FREED_SLOT_AUTOMATION
+    );
+  });
+
+  it("rejects invalid freed-slot actors, incomplete enablement, and unknown fields", async () => {
+    const { controller, settings } = build();
+
+    expect(() => controller.sameDayFreedSlotAutomationSettings(undefined)).toThrow(
+      BadRequestException
+    );
+    await expect(
+      controller.updateSameDayFreedSlotAutomationSettings("111", {
+        enabled: true,
+        audience: null
+      })
+    ).rejects.toBeInstanceOf(BadRequestException);
+    await expect(
+      controller.updateSameDayFreedSlotAutomationSettings("111", {
+        enabled: false,
+        audience: null,
+        retry: true
+      })
+    ).rejects.toBeInstanceOf(BadRequestException);
+
+    expect(settings.sameDayFreedSlotAutomationSettings).not.toHaveBeenCalled();
+    expect(settings.updateSameDayFreedSlotAutomationSettings).not.toHaveBeenCalled();
   });
 
   it("GET /settings/court-hours/month validates the query and delegates", async () => {

@@ -5,6 +5,7 @@ import {
   check,
   date,
   integer,
+  jsonb,
   numeric,
   pgEnum,
   pgTable,
@@ -51,6 +52,17 @@ export const individualTrainingRequestStatus = pgEnum("individual_training_reque
   "declined"
 ]);
 export const broadcastType = pgEnum("broadcast_type", ["today", "tomorrow", "week", "freed-up"]);
+export const sameDayFreedSlotEventOutcome = pgEnum("same_day_freed_slot_event_outcome", [
+  "pending",
+  "skipped",
+  "completed"
+]);
+export const sameDayFreedSlotDeliveryOutcome = pgEnum("same_day_freed_slot_delivery_outcome", [
+  "claimed",
+  "sent",
+  "failed",
+  "ambiguous"
+]);
 export const notificationType = pgEnum("notification_type", [
   "booking-confirmed",
   "booking-pending",
@@ -335,6 +347,50 @@ export const bookings = pgTable("bookings", {
   priceSnapshotAt: timestamp("price_snapshot_at", { withTimezone: true })
 });
 
+export const sameDayFreedSlotEvents = pgTable("same_day_freed_slot_events", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  cancelledBookingId: uuid("cancelled_booking_id")
+    .notNull()
+    .references(() => bookings.id),
+  trainingId: uuid("training_id")
+    .notNull()
+    .references(() => trainings.id)
+    .unique(),
+  audienceSnapshot: jsonb("audience_snapshot").notNull(),
+  occurrenceDate: date("occurrence_date").notNull(),
+  occurrenceStartTime: time("occurrence_start_time").notNull(),
+  capacity: integer("capacity").notNull(),
+  bookedCount: integer("booked_count").notNull(),
+  triggeredAt: timestamp("triggered_at", { withTimezone: true }).notNull().defaultNow(),
+  outcome: sameDayFreedSlotEventOutcome("outcome").notNull().default("pending"),
+  skipReason: text("skip_reason")
+});
+
+export const sameDayFreedSlotDeliveries = pgTable(
+  "same_day_freed_slot_deliveries",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    eventId: uuid("event_id")
+      .notNull()
+      .references(() => sameDayFreedSlotEvents.id),
+    clientId: uuid("client_id")
+      .notNull()
+      .references(() => clients.id),
+    telegramId: bigint("telegram_id", { mode: "number" }).notNull(),
+    outcome: sameDayFreedSlotDeliveryOutcome("outcome").notNull().default("claimed"),
+    claimedAt: timestamp("claimed_at", { withTimezone: true }).notNull().defaultNow(),
+    sentAt: timestamp("sent_at", { withTimezone: true }),
+    failedAt: timestamp("failed_at", { withTimezone: true }),
+    lastError: text("last_error")
+  },
+  (table) => ({
+    eventClientIdx: uniqueIndex("same_day_freed_slot_deliveries_event_client_idx").on(
+      table.eventId,
+      table.clientId
+    )
+  })
+);
+
 export const waitlist = pgTable("waitlist", {
   id: uuid("id").primaryKey().defaultRandom(),
   clientId: uuid("client_id")
@@ -602,6 +658,8 @@ export const schema = {
   trainings,
   individualTrainingRequests,
   bookings,
+  sameDayFreedSlotEvents,
+  sameDayFreedSlotDeliveries,
   waitlist,
   broadcasts,
   broadcastTemplates,

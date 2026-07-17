@@ -184,6 +184,65 @@ describe("SettingsService.updateRequestLoggingSettings", () => {
   });
 });
 
+describe("SettingsService same-day freed-slot automation", () => {
+  it("defaults to disabled and unconfigured when the singleton key is absent", async () => {
+    const settingsRepo = repo(undefined);
+    const service = new SettingsService(settingsRepo, env());
+
+    await expect(service.sameDayFreedSlotAutomationSettings(ADMIN_ID)).resolves.toEqual({
+      enabled: false,
+      audience: null
+    });
+    expect(settingsRepo.findValue).toHaveBeenCalledWith("same_day_freed_slot_automation");
+  });
+
+  it("round-trips a validated global policy through app_settings", async () => {
+    const settingsRepo = repo();
+    const service = new SettingsService(settingsRepo, env());
+    const input = { enabled: true, audience: { kind: "active" as const, days: 30 } };
+
+    await expect(
+      service.updateSameDayFreedSlotAutomationSettings(ADMIN_ID, input)
+    ).resolves.toEqual(input);
+    expect(settingsRepo.upsertValue).toHaveBeenCalledWith(
+      "same_day_freed_slot_automation",
+      JSON.stringify(input),
+      ADMIN_ID
+    );
+  });
+
+  it.each([
+    "not-json",
+    JSON.stringify({ enabled: true, audience: null }),
+    JSON.stringify({ enabled: true, audience: { kind: "unknown" } }),
+    JSON.stringify({ enabled: true, audience: { kind: "all" }, extra: true })
+  ])("fails closed for corrupt persisted settings: %s", async (stored) => {
+    const service = new SettingsService(repo(stored), env());
+
+    await expect(service.currentSameDayFreedSlotAutomationSettings()).resolves.toEqual({
+      enabled: false,
+      audience: null
+    });
+  });
+
+  it("forbids non-admin reads and writes before touching app_settings", async () => {
+    const settingsRepo = repo(JSON.stringify({ enabled: false, audience: null }));
+    const service = new SettingsService(settingsRepo, env());
+
+    await expect(
+      service.sameDayFreedSlotAutomationSettings(NON_ADMIN_ID)
+    ).rejects.toBeInstanceOf(ForbiddenException);
+    await expect(
+      service.updateSameDayFreedSlotAutomationSettings(NON_ADMIN_ID, {
+        enabled: true,
+        audience: { kind: "all" }
+      })
+    ).rejects.toBeInstanceOf(ForbiddenException);
+    expect(settingsRepo.findValue).not.toHaveBeenCalled();
+    expect(settingsRepo.upsertValue).not.toHaveBeenCalled();
+  });
+});
+
 describe("SettingsService court working hours", () => {
   it("resolves day override before month default before fallback", async () => {
     const settingsRepo = repo();

@@ -880,6 +880,28 @@ export const adminRu: Record<string, string> = {
   // ── Broadcasts page ───────────────────────────────────────────────────────
   "admin.broadcasts.title": "Рассылки",
   "admin.broadcasts.lead": "Подготовьте рассылку о свободных слотах, проверьте охват и отправьте.",
+  "admin.broadcasts.automationTitle": "Авторассылка об освободившемся месте",
+  "admin.broadcasts.automationLead":
+    "Уведомляет выбранную аудиторию, когда сегодня освобождается место в групповой тренировке.",
+  "admin.broadcasts.automationStatusEnabled": "Включена",
+  "admin.broadcasts.automationStatusDisabled": "Выключена",
+  "admin.broadcasts.automationStatusUnavailable": "Статус недоступен",
+  "admin.broadcasts.automationLoading": "Загрузка настройки…",
+  "admin.broadcasts.automationLoadFailed": "Не удалось загрузить настройку: {message}",
+  "admin.broadcasts.automationRetry": "Повторить",
+  "admin.broadcasts.automationEnable": "Включить авторассылку",
+  "admin.broadcasts.automationAudiencePlaceholder": "Аудитория не выбрана",
+  "admin.broadcasts.automationAudienceUnconfigured":
+    "Выберите аудиторию. Без неё авторассылку включить нельзя.",
+  "admin.broadcasts.automationSafety":
+    "Уведомление не обещает и не резервирует место: доступность повторно проверяется при записи.",
+  "admin.broadcasts.automationSeparation":
+    "Эта настройка не меняет ручные рассылки; они остаются отдельным действием менеджера.",
+  "admin.broadcasts.automationIncomplete": "Чтобы включить авторассылку, выберите аудиторию.",
+  "admin.broadcasts.automationSave": "Сохранить настройку",
+  "admin.broadcasts.automationSaving": "Сохранение…",
+  "admin.broadcasts.automationSaved": "Настройка авторассылки сохранена",
+  "admin.broadcasts.automationSaveFailed": "Не удалось сохранить настройку: {message}",
   "admin.broadcasts.paramsLabel": "Параметры рассылки",
   "admin.broadcasts.fieldType": "Тип рассылки",
   "admin.broadcasts.typeHint": "Сервер составляет текст сообщения по выбранному типу.",

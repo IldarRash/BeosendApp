@@ -45,6 +45,7 @@ import {
   notificationTemplateSchema,
   popularSlotSchema,
   requestLoggingSettingsSchema,
+  sameDayFreedSlotAutomationSettingsSchema,
   sendBroadcastSchema,
   subscriptionSummarySchema,
   trainingPricingTiersSchema,
@@ -65,6 +66,7 @@ import {
   updateCourtWorkingHoursDaySchema,
   updateCourtWorkingHoursMonthSchema,
   updateRequestLoggingSettingsSchema,
+  updateSameDayFreedSlotAutomationSettingsSchema,
   waitlistAdminItemSchema,
   waitlistEntrySchema,
   deleteTrainingSeriesResultSchema,
@@ -146,6 +148,7 @@ import {
   type OnboardClientInput,
   type PopularSlot,
   type RequestLoggingSettings,
+  type SameDayFreedSlotAutomationSettings,
   type RescheduleTrainingInput,
   type SendBroadcastInput,
   type ReplaceTrainingPricingTiersInput,
@@ -168,6 +171,7 @@ import {
   type UpdateLevelInput,
   type UpdateManagerInput,
   type UpdateRequestLoggingSettingsInput,
+  type UpdateSameDayFreedSlotAutomationSettingsInput,
   type UpdateBroadcastTemplateInput,
   type UpdateTrainerInput,
   type WaitlistAdminItem,
@@ -707,6 +711,28 @@ export class ApiClient {
       method: "PATCH",
       body: JSON.stringify(updateRequestLoggingSettingsSchema.parse(input))
     });
+  }
+
+  /** Global manager-owned policy for same-day freed-slot Telegram notifications. */
+  getSameDayFreedSlotAutomationSettings(): Promise<SameDayFreedSlotAutomationSettings> {
+    return this.request(
+      "/settings/freed-slot-automation",
+      sameDayFreedSlotAutomationSettingsSchema
+    );
+  }
+
+  /** Persist the validated automation switch and its existing broadcast audience segment. */
+  updateSameDayFreedSlotAutomationSettings(
+    input: UpdateSameDayFreedSlotAutomationSettingsInput
+  ): Promise<SameDayFreedSlotAutomationSettings> {
+    return this.request(
+      "/settings/freed-slot-automation",
+      sameDayFreedSlotAutomationSettingsSchema,
+      {
+        method: "PATCH",
+        body: JSON.stringify(updateSameDayFreedSlotAutomationSettingsSchema.parse(input))
+      }
+    );
   }
 
   // ── Groups (M1) ────────────────────────────────────────────────────────

@@ -13,16 +13,19 @@ import {
 import {
   courtWorkingHoursDayQuerySchema,
   courtWorkingHoursMonthQuerySchema,
+  sameDayFreedSlotAutomationSettingsSchema,
   updateManagerContactSchema,
   updateCourtWorkingHoursDaySchema,
   updateCourtWorkingHoursMonthSchema,
   updateRequestLoggingSettingsSchema,
+  updateSameDayFreedSlotAutomationSettingsSchema,
   type CourtWorkingHoursDayOverride,
   type CourtWorkingHoursDayView,
   type CourtWorkingHoursMonth,
   type CourtWorkingHoursMonthView,
   type ManagerContact,
-  type RequestLoggingSettings
+  type RequestLoggingSettings,
+  type SameDayFreedSlotAutomationSettings
 } from "@beosand/types";
 import type { ZodSchema } from "zod";
 import { SettingsService } from "./settings.service";
@@ -67,6 +70,28 @@ export class SettingsController {
     const actorTelegramId = parseTelegramId(telegramIdHeader);
     const input = validate(updateRequestLoggingSettingsSchema, body ?? {});
     return this.settings.updateRequestLoggingSettings(actorTelegramId, input);
+  }
+
+  /** Admin-only read of the global same-day freed-slot automation policy. */
+  @Get("freed-slot-automation")
+  sameDayFreedSlotAutomationSettings(
+    @Headers("x-telegram-id") telegramIdHeader: string | undefined
+  ): Promise<SameDayFreedSlotAutomationSettings> {
+    const actorTelegramId = parseTelegramId(telegramIdHeader);
+    return this.settings.sameDayFreedSlotAutomationSettings(actorTelegramId);
+  }
+
+  /** Admin-only update; strict audience validation is shared with every client. */
+  @Patch("freed-slot-automation")
+  async updateSameDayFreedSlotAutomationSettings(
+    @Headers("x-telegram-id") telegramIdHeader: string | undefined,
+    @Body() body: unknown
+  ): Promise<SameDayFreedSlotAutomationSettings> {
+    const actorTelegramId = parseTelegramId(telegramIdHeader);
+    const input = validate(updateSameDayFreedSlotAutomationSettingsSchema, body ?? {});
+    return sameDayFreedSlotAutomationSettingsSchema.parse(
+      await this.settings.updateSameDayFreedSlotAutomationSettings(actorTelegramId, input)
+    );
   }
 
   @Get("court-hours/month")

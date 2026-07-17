@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useState, type FormEvent } from "react";
 import type {
   BroadcastAudience,
   BroadcastPreview,
@@ -6,6 +6,7 @@ import type {
   BroadcastTemplateVariable,
   BroadcastType,
   DayOfWeek,
+  SameDayFreedSlotAutomationSettings,
   SlotCard
 } from "@beosand/types";
 import { AppShell } from "../ui/AppShell";
@@ -21,7 +22,9 @@ import {
   useBroadcastTemplateVariables,
   useBroadcastTemplates,
   useCreateBroadcastTemplate,
+  useSameDayFreedSlotAutomationSettings,
   useSendBroadcast,
+  useUpdateSameDayFreedSlotAutomationSettings,
   useUpdateBroadcastTemplate
 } from "../hooks/useBroadcasts";
 import { formatRsd } from "../lib/format";
@@ -69,7 +72,7 @@ const EMPTY_TEMPLATE_FORM: TemplateFormState = {
  * no segmentation math - it only assembles the chosen segment descriptor.
  */
 function buildAudience(
-  kind: AudienceKind,
+  kind: AudienceKind | "",
   levelId: string,
   days: number | null
 ): BroadcastAudience | null {
@@ -85,6 +88,282 @@ function buildAudience(
     default:
       return null;
   }
+}
+
+interface AudienceFieldsProps {
+  idPrefix: string;
+  kind: AudienceKind | "";
+  levelId: string;
+  days: number | null;
+  levelOptions: Array<{ value: string; label: string }>;
+  levelsLoading: boolean;
+  levelsError: string | null;
+  disabled?: boolean;
+  allowUnconfigured?: boolean;
+  onKindChange: (kind: AudienceKind | "") => void;
+  onLevelIdChange: (levelId: string) => void;
+  onDaysChange: (days: number | null) => void;
+}
+
+/** Shared audience descriptor controls; API-side recipient resolution remains authoritative. */
+function AudienceFields({
+  idPrefix,
+  kind,
+  levelId,
+  days,
+  levelOptions,
+  levelsLoading,
+  levelsError,
+  disabled = false,
+  allowUnconfigured = false,
+  onKindChange,
+  onLevelIdChange,
+  onDaysChange
+}: AudienceFieldsProps): JSX.Element {
+  const t = useT();
+  const audienceOptions = useMemo(
+    () => [
+      ...(allowUnconfigured
+        ? [{ value: "", label: t("admin.broadcasts.automationAudiencePlaceholder") }]
+        : []),
+      ...(Object.keys(AUDIENCE_KEY) as AudienceKind[]).map((value) => ({
+        value,
+        label: t(AUDIENCE_KEY[value])
+      }))
+    ],
+    [allowUnconfigured, t]
+  );
+  const detailId = `${idPrefix}-audience-detail`;
+
+  return (
+    <>
+      <SelectField
+        label={t("admin.broadcasts.fieldAudience")}
+        value={kind}
+        disabled={disabled}
+        onChange={(event) => onKindChange(event.target.value as AudienceKind | "")}
+        options={audienceOptions}
+        aria-controls={detailId}
+      />
+
+      <div id={detailId}>
+        {kind === "level" ? (
+          levelsLoading ? (
+            <p className="state state--loading">{t("admin.broadcasts.levelsLoading")}</p>
+          ) : levelsError ? (
+            <p className="state state--error" role="alert">
+              {t("admin.broadcasts.levelsError", { message: levelsError })}
+            </p>
+          ) : (
+            <SelectField
+              label={t("admin.broadcasts.fieldLevel")}
+              value={levelId}
+              disabled={disabled}
+              onChange={(event) => onLevelIdChange(event.target.value)}
+              options={[{ value: "", label: t("admin.broadcasts.pickLevel") }, ...levelOptions]}
+              hint={t("admin.broadcasts.levelHint")}
+            />
+          )
+        ) : null}
+
+        {kind === "active" || kind === "lapsed" ? (
+          <NumberField
+            label={t("admin.broadcasts.fieldDays")}
+            value={days}
+            disabled={disabled}
+            onValueChange={onDaysChange}
+            min={1}
+            max={365}
+            hint={
+              kind === "active"
+                ? t("admin.broadcasts.daysActiveHint")
+                : t("admin.broadcasts.daysLapsedHint")
+            }
+          />
+        ) : null}
+      </div>
+    </>
+  );
+}
+
+interface AutomationDraft {
+  enabled: boolean;
+  kind: AudienceKind | "";
+  levelId: string;
+  days: number | null;
+}
+
+const EMPTY_AUTOMATION_DRAFT: AutomationDraft = {
+  enabled: false,
+  kind: "",
+  levelId: "",
+  days: 7
+};
+
+function draftFromSettings(settings: SameDayFreedSlotAutomationSettings): AutomationDraft {
+  const audience = settings.audience;
+  if (audience === null) return { ...EMPTY_AUTOMATION_DRAFT, enabled: settings.enabled };
+  if (audience.kind === "level") {
+    return { enabled: settings.enabled, kind: audience.kind, levelId: audience.levelId, days: 7 };
+  }
+  if (audience.kind === "active" || audience.kind === "lapsed") {
+    return { enabled: settings.enabled, kind: audience.kind, levelId: "", days: audience.days };
+  }
+  return { enabled: settings.enabled, kind: "all", levelId: "", days: 7 };
+}
+
+interface AutomationWorkspaceProps {
+  levelOptions: Array<{ value: string; label: string }>;
+  levelsLoading: boolean;
+  levelsError: string | null;
+}
+
+function AutomationWorkspace({
+  levelOptions,
+  levelsLoading,
+  levelsError
+}: AutomationWorkspaceProps): JSX.Element {
+  const t = useT();
+  const toast = useToast();
+  const settings = useSameDayFreedSlotAutomationSettings();
+  const update = useUpdateSameDayFreedSlotAutomationSettings();
+  const [draft, setDraft] = useState<AutomationDraft>(EMPTY_AUTOMATION_DRAFT);
+  const draftAudience = useMemo(
+    () => buildAudience(draft.kind, draft.levelId, draft.days),
+    [draft.days, draft.kind, draft.levelId]
+  );
+
+  useEffect(() => {
+    if (settings.data) setDraft(draftFromSettings(settings.data));
+  }, [settings.data]);
+
+  const dirty =
+    settings.data !== undefined &&
+    (settings.data.enabled !== draft.enabled ||
+      JSON.stringify(settings.data.audience) !== JSON.stringify(draftAudience));
+  const incomplete = draft.enabled && draftAudience === null;
+
+  function changeDraft(patch: Partial<AutomationDraft>): void {
+    update.reset();
+    setDraft((current) => ({ ...current, ...patch }));
+  }
+
+  function handleSubmit(event: FormEvent<HTMLFormElement>): void {
+    event.preventDefault();
+    if (incomplete) return;
+    update.mutate(
+      { enabled: draft.enabled, audience: draftAudience },
+      {
+        onSuccess: (persisted) => {
+          setDraft(draftFromSettings(persisted));
+          toast.notify(t("admin.broadcasts.automationSaved"), "success");
+        },
+        onError: (error) =>
+          toast.notify(t("admin.broadcasts.automationSaveFailed", { message: error.message }), "error")
+      }
+    );
+  }
+
+  const statusEnabled = settings.data?.enabled === true;
+
+  return (
+    <section className="workspace" aria-labelledby="freed-slot-automation-title">
+      <div className="workspace__bar cluster">
+        <div>
+          <h2 id="freed-slot-automation-title">{t("admin.broadcasts.automationTitle")}</h2>
+          <p className="field__hint">{t("admin.broadcasts.automationLead")}</p>
+        </div>
+        <span className={statusEnabled ? "tag tag--ok" : "tag tag--muted"} aria-live="polite">
+          <span className="dot" aria-hidden="true" />
+          {settings.data === undefined
+            ? t("admin.broadcasts.automationStatusUnavailable")
+            : statusEnabled
+              ? t("admin.broadcasts.automationStatusEnabled")
+              : t("admin.broadcasts.automationStatusDisabled")}
+        </span>
+      </div>
+
+      <div className="workspace__body">
+        {settings.isLoading ? (
+          <p className="state state--loading">{t("admin.broadcasts.automationLoading")}</p>
+        ) : settings.isError || settings.data === undefined ? (
+          <div className="stack">
+            <p className="state state--error" role="alert">
+              {t("admin.broadcasts.automationLoadFailed", {
+                message: settings.error?.message ?? ""
+              })}
+            </p>
+            <div>
+              <Button variant="ghost" className="btn--compact" onClick={() => void settings.refetch()}>
+                {t("admin.broadcasts.automationRetry")}
+              </Button>
+            </div>
+          </div>
+        ) : (
+          <form className="form" aria-busy={update.isPending} onSubmit={handleSubmit}>
+            <label className="cluster" htmlFor="freed-slot-automation-enabled">
+              <input
+                id="freed-slot-automation-enabled"
+                type="checkbox"
+                checked={draft.enabled}
+                disabled={update.isPending}
+                aria-describedby="freed-slot-automation-safety freed-slot-automation-separation"
+                onChange={(event) => changeDraft({ enabled: event.currentTarget.checked })}
+              />
+              <span className="field__label">{t("admin.broadcasts.automationEnable")}</span>
+            </label>
+
+            <AudienceFields
+              idPrefix="freed-slot-automation"
+              kind={draft.kind}
+              levelId={draft.levelId}
+              days={draft.days}
+              levelOptions={levelOptions}
+              levelsLoading={levelsLoading}
+              levelsError={levelsError}
+              disabled={update.isPending}
+              allowUnconfigured
+              onKindChange={(kind) => changeDraft({ kind })}
+              onLevelIdChange={(levelId) => changeDraft({ levelId })}
+              onDaysChange={(days) => changeDraft({ days })}
+            />
+
+            {draft.kind === "" ? (
+              <p className="field__hint">{t("admin.broadcasts.automationAudienceUnconfigured")}</p>
+            ) : null}
+            <p id="freed-slot-automation-safety" className="field__hint">
+              {t("admin.broadcasts.automationSafety")}
+            </p>
+            <p id="freed-slot-automation-separation" className="field__hint">
+              {t("admin.broadcasts.automationSeparation")}
+            </p>
+
+            {incomplete ? (
+              <p className="state state--error" role="alert">
+                {t("admin.broadcasts.automationIncomplete")}
+              </p>
+            ) : null}
+            {update.isError ? (
+              <p className="state state--error" role="alert">
+                {t("admin.broadcasts.automationSaveFailed", { message: update.error.message })}
+              </p>
+            ) : null}
+
+            <div className="cluster" aria-live="polite">
+              <Button type="submit" disabled={!dirty || incomplete || update.isPending}>
+                {update.isPending
+                  ? t("admin.broadcasts.automationSaving")
+                  : t("admin.broadcasts.automationSave")}
+              </Button>
+              {update.isSuccess && !dirty ? (
+                <span className="state">{t("admin.broadcasts.automationSaved")}</span>
+              ) : null}
+            </div>
+          </form>
+        )}
+      </div>
+    </section>
+  );
 }
 
 function formFromTemplate(template: BroadcastTemplate): TemplateFormState {
@@ -163,15 +442,6 @@ export function Broadcasts(): JSX.Element {
       })),
     [t]
   );
-  const audienceOptions = useMemo(
-    () =>
-      (Object.keys(AUDIENCE_KEY) as AudienceKind[]).map((value) => ({
-        value,
-        label: t(AUDIENCE_KEY[value])
-      })),
-    [t]
-  );
-
   function handleTypeChange(nextType: BroadcastType): void {
     setType(nextType);
     setSelectedTemplateId(DEFAULT_TEMPLATE_ID);
@@ -277,6 +547,12 @@ export function Broadcasts(): JSX.Element {
         </div>
       </header>
 
+      <AutomationWorkspace
+        levelOptions={levelOptions}
+        levelsLoading={levels.isLoading}
+        levelsError={levels.isError ? levels.error.message : null}
+      />
+
       <section className="workspace" aria-label={t("admin.broadcasts.paramsLabel")}>
         <div className="workspace__bar">
           <form className="form" aria-label={t("admin.broadcasts.paramsLabel")}>
@@ -288,50 +564,18 @@ export function Broadcasts(): JSX.Element {
               hint={t("admin.broadcasts.typeHint")}
             />
 
-            <SelectField
-              label={t("admin.broadcasts.fieldAudience")}
-              value={audienceKind}
-              onChange={(event) => {
-                setAudienceKind(event.target.value as AudienceKind);
-              }}
-              options={audienceOptions}
-              aria-controls="audience-detail"
+            <AudienceFields
+              idPrefix="manual-broadcast"
+              kind={audienceKind}
+              levelId={levelId}
+              days={days}
+              levelOptions={levelOptions}
+              levelsLoading={levels.isLoading}
+              levelsError={levels.isError ? levels.error.message : null}
+              onKindChange={(kind) => setAudienceKind(kind as AudienceKind)}
+              onLevelIdChange={setLevelId}
+              onDaysChange={setDays}
             />
-
-            <div id="audience-detail">
-              {audienceKind === "level" ? (
-                levels.isLoading ? (
-                  <p className="state state--loading">{t("admin.broadcasts.levelsLoading")}</p>
-                ) : levels.isError ? (
-                  <p className="state state--error" role="alert">
-                    {t("admin.broadcasts.levelsError", { message: levels.error.message })}
-                  </p>
-                ) : (
-                  <SelectField
-                    label={t("admin.broadcasts.fieldLevel")}
-                    value={levelId}
-                    onChange={(event) => setLevelId(event.target.value)}
-                    options={[{ value: "", label: t("admin.broadcasts.pickLevel") }, ...levelOptions]}
-                    hint={t("admin.broadcasts.levelHint")}
-                  />
-                )
-              ) : null}
-
-              {audienceKind === "active" || audienceKind === "lapsed" ? (
-                <NumberField
-                  label={t("admin.broadcasts.fieldDays")}
-                  value={days}
-                  onValueChange={setDays}
-                  min={1}
-                  max={365}
-                  hint={
-                    audienceKind === "active"
-                      ? t("admin.broadcasts.daysActiveHint")
-                      : t("admin.broadcasts.daysLapsedHint")
-                  }
-                />
-              ) : null}
-            </div>
           </form>
         </div>
 

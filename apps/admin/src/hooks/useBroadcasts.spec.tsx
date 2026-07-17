@@ -5,14 +5,20 @@ import type { ReactNode } from "react";
 import type { BroadcastPreview } from "@beosand/types";
 
 const api = vi.hoisted(() => ({
-  previewBroadcast: vi.fn()
+  previewBroadcast: vi.fn(),
+  getSameDayFreedSlotAutomationSettings: vi.fn(),
+  updateSameDayFreedSlotAutomationSettings: vi.fn()
 }));
 
 vi.mock("../api/ApiProvider", () => ({
   useApiClient: () => api
 }));
 
-import { useBroadcastPreview } from "./useBroadcasts";
+import {
+  useBroadcastPreview,
+  useSameDayFreedSlotAutomationSettings,
+  useUpdateSameDayFreedSlotAutomationSettings
+} from "./useBroadcasts";
 
 const preview: BroadcastPreview = {
   type: "today",
@@ -36,6 +42,14 @@ function wrapperFor(queryClient: QueryClient): ({ children }: { children: ReactN
 beforeEach(() => {
   vi.clearAllMocks();
   api.previewBroadcast.mockResolvedValue(preview);
+  api.getSameDayFreedSlotAutomationSettings.mockResolvedValue({
+    enabled: false,
+    audience: null
+  });
+  api.updateSameDayFreedSlotAutomationSettings.mockResolvedValue({
+    enabled: true,
+    audience: { kind: "all" }
+  });
 });
 
 afterEach(cleanup);
@@ -60,5 +74,38 @@ describe("useBroadcastPreview", () => {
     await waitFor(() => expect(result.current.isSuccess).toBe(true));
 
     expect(api.previewBroadcast).toHaveBeenCalledWith("today", { kind: "all" }, undefined);
+  });
+});
+
+describe("same-day freed-slot automation hooks", () => {
+  it("loads the global policy with a stable settings query", async () => {
+    const client = queryClient();
+    const { result } = renderHook(() => useSameDayFreedSlotAutomationSettings(), {
+      wrapper: wrapperFor(client)
+    });
+
+    await waitFor(() => expect(result.current.isSuccess).toBe(true));
+
+    expect(api.getSameDayFreedSlotAutomationSettings).toHaveBeenCalledOnce();
+    expect(result.current.data).toEqual({ enabled: false, audience: null });
+  });
+
+  it("saves the policy and replaces the shared cache with the validated response", async () => {
+    const client = queryClient();
+    const { result } = renderHook(() => useUpdateSameDayFreedSlotAutomationSettings(), {
+      wrapper: wrapperFor(client)
+    });
+
+    result.current.mutate({ enabled: true, audience: { kind: "all" } });
+    await waitFor(() => expect(result.current.isSuccess).toBe(true));
+
+    expect(api.updateSameDayFreedSlotAutomationSettings).toHaveBeenCalledWith({
+      enabled: true,
+      audience: { kind: "all" }
+    });
+    expect(client.getQueryData(["settings", "freed-slot-automation"])).toEqual({
+      enabled: true,
+      audience: { kind: "all" }
+    });
   });
 });
