@@ -2,8 +2,10 @@ import { Injectable } from "@nestjs/common";
 import { tables } from "@beosand/db";
 import type {
   Broadcast,
+  BroadcastAudience,
   BroadcastTemplate,
   CreateBroadcastTemplateInput,
+  EntityStatus,
   Locale,
   TrainingStatus,
   UpdateBroadcastTemplateInput
@@ -18,6 +20,7 @@ import {
   isNotNull,
   lte,
   ne,
+  notExists,
   notInArray,
   sql
 } from "drizzle-orm";
@@ -58,6 +61,19 @@ export interface BroadcastSlotRow {
 export interface BroadcastRecipient {
   telegramId: number;
   language: Locale;
+}
+
+export interface SameDayFreedSlotRecipient extends BroadcastRecipient {
+  clientId: string;
+}
+
+/** Current occurrence truth needed by the automatic dispatcher. */
+export interface SameDayFreedSlotOccurrenceRow extends BroadcastSlotRow {
+  groupId: string | null;
+  groupHidden: boolean | null;
+  groupStatus: EntityStatus | null;
+  trainerStatus: EntityStatus;
+  levelStatus: EntityStatus | null;
 }
 
 /** Only place broadcasts DB access lives. Returns typed rows; no business rules. */
@@ -216,6 +232,216 @@ export class BroadcastsRepository {
       .from(tables.clients)
       .where(and(eq(tables.clients.status, "active"), isNotNull(tables.clients.telegramId)));
     return row?.value ?? 0;
+  }
+
+  async findSameDayFreedSlotOccurrence(
+    trainingId: string
+  ): Promise<SameDayFreedSlotOccurrenceRow | undefined> {
+    const [row] = await this.database.db
+      .select({
+        trainingId: tables.trainings.id,
+        groupId: tables.trainings.groupId,
+        date: tables.trainings.date,
+        startTime: tables.trainings.startTime,
+        endTime: tables.trainings.endTime,
+        groupName: tables.groups.name,
+        trainerName: tables.trainers.name,
+        levelName: tables.levels.name,
+        capacity: tables.trainings.capacity,
+        bookedCount: tables.trainings.bookedCount,
+        status: tables.trainings.status,
+        priceSingleRsd: tables.groups.priceSingleRsd,
+        groupHidden: tables.groups.hidden,
+        groupStatus: tables.groups.status,
+        trainerStatus: tables.trainers.status,
+        levelStatus: tables.levels.status
+      })
+      .from(tables.trainings)
+      .innerJoin(tables.trainers, eq(tables.trainings.trainerId, tables.trainers.id))
+      .leftJoin(tables.groups, eq(tables.trainings.groupId, tables.groups.id))
+      .leftJoin(tables.levels, eq(tables.groups.levelId, tables.levels.id))
+      .where(eq(tables.trainings.id, trainingId))
+      .limit(1);
+
+    if (!row) {
+      return undefined;
+    }
+    return {
+      ...row,
+      groupName: row.groupName ?? "",
+      levelName: row.levelName ?? "",
+      priceSingleRsd: row.priceSingleRsd ?? 0,
+      startTime: row.startTime.slice(0, 5),
+      endTime: row.endTime.slice(0, 5)
+    };
+  }
+
+  async hasBlockingSameDayFreedSlotWaitlist(trainingId: string): Promise<boolean> {
+    const [row] = await this.database.db
+      .select({ id: tables.waitlist.id })
+      .from(tables.waitlist)
+      .where(
+        and(
+          eq(tables.waitlist.trainingId, trainingId),
+          inArray(tables.waitlist.status, ["waiting", "notified"])
+        )
+      )
+      .limit(1);
+    return row !== undefined;
+  }
+
+  /** Apply occurrence-specific exclusions to a previously resolved audience. */
+  async filterSameDayFreedSlotRecipients(
+    audience: readonly BroadcastRecipient[],
+    trainingId: string,
+    cancellingClientId: string
+  ): Promise<SameDayFreedSlotRecipient[]> {
+    const telegramIds = Array.from(new Set(audience.map((recipient) => recipient.telegramId)));
+    if (telegramIds.length === 0) {
+      return [];
+    }
+
+    const activeBooking = this.database.db
+      .select({ id: tables.bookings.id })
+      .from(tables.bookings)
+      .where(
+        and(
+          eq(tables.bookings.clientId, tables.clients.id),
+          eq(tables.bookings.trainingId, trainingId),
+          inArray(tables.bookings.status, ["booked", "pending"])
+        )
+      );
+    const activeWaitlist = this.database.db
+      .select({ id: tables.waitlist.id })
+      .from(tables.waitlist)
+      .where(
+        and(
+          eq(tables.waitlist.clientId, tables.clients.id),
+          eq(tables.waitlist.trainingId, trainingId),
+          inArray(tables.waitlist.status, ["waiting", "notified"])
+        )
+      );
+
+    const rows = await this.database.db
+      .select({
+        clientId: tables.clients.id,
+        telegramId: tables.clients.telegramId,
+        language: tables.clients.language
+      })
+      .from(tables.clients)
+      .where(
+        and(
+          eq(tables.clients.status, "active"),
+          ne(tables.clients.id, cancellingClientId),
+          isNotNull(tables.clients.telegramId),
+          inArray(tables.clients.telegramId, telegramIds),
+          notExists(activeBooking),
+          notExists(activeWaitlist)
+        )
+      );
+
+    return rows
+      .filter(
+        (row): row is SameDayFreedSlotRecipient & { telegramId: number } =>
+          row.telegramId !== null
+      )
+      .map((row) => ({
+        clientId: row.clientId,
+        telegramId: row.telegramId,
+        language: row.language
+      }));
+  }
+
+  /** Uniqueness on trainingId atomically limits the automation to one event per occurrence. */
+  async createSameDayFreedSlotEvent(input: {
+    cancelledBookingId: string;
+    trainingId: string;
+    audienceSnapshot: BroadcastAudience;
+    occurrenceDate: string;
+    occurrenceStartTime: string;
+    capacity: number;
+    bookedCount: number;
+  }): Promise<{ id: string } | undefined> {
+    const [row] = await this.database.db
+      .insert(tables.sameDayFreedSlotEvents)
+      .values({ ...input, outcome: "pending" })
+      .onConflictDoNothing({ target: tables.sameDayFreedSlotEvents.trainingId })
+      .returning({ id: tables.sameDayFreedSlotEvents.id });
+    return row;
+  }
+
+  async markSameDayFreedSlotEventSkipped(eventId: string, reason: string): Promise<void> {
+    await this.database.db
+      .update(tables.sameDayFreedSlotEvents)
+      .set({ outcome: "skipped", skipReason: reason })
+      .where(eq(tables.sameDayFreedSlotEvents.id, eventId));
+  }
+
+  async markSameDayFreedSlotEventDispatched(eventId: string): Promise<void> {
+    await this.database.db
+      .update(tables.sameDayFreedSlotEvents)
+      .set({ outcome: "completed", skipReason: null })
+      .where(eq(tables.sameDayFreedSlotEvents.id, eventId));
+  }
+
+  /** Insert-before-send is the one-shot delivery claim. */
+  async claimSameDayFreedSlotDelivery(
+    eventId: string,
+    recipient: SameDayFreedSlotRecipient
+  ): Promise<{ id: string } | undefined> {
+    const [row] = await this.database.db
+      .insert(tables.sameDayFreedSlotDeliveries)
+      .values({
+        eventId,
+        clientId: recipient.clientId,
+        telegramId: recipient.telegramId,
+        outcome: "claimed"
+      })
+      .onConflictDoNothing()
+      .returning({ id: tables.sameDayFreedSlotDeliveries.id });
+    return row;
+  }
+
+  async markSameDayFreedSlotDeliverySent(deliveryId: string): Promise<void> {
+    await this.database.db
+      .update(tables.sameDayFreedSlotDeliveries)
+      .set({ outcome: "sent", sentAt: new Date(), failedAt: null, lastError: null })
+      .where(
+        and(
+          eq(tables.sameDayFreedSlotDeliveries.id, deliveryId),
+          eq(tables.sameDayFreedSlotDeliveries.outcome, "claimed")
+        )
+      );
+  }
+
+  async markSameDayFreedSlotDeliveryFailed(
+    deliveryId: string,
+    error: string
+  ): Promise<void> {
+    await this.database.db
+      .update(tables.sameDayFreedSlotDeliveries)
+      .set({ outcome: "failed", failedAt: new Date(), lastError: error })
+      .where(
+        and(
+          eq(tables.sameDayFreedSlotDeliveries.id, deliveryId),
+          eq(tables.sameDayFreedSlotDeliveries.outcome, "claimed")
+        )
+      );
+  }
+
+  async markSameDayFreedSlotDeliveryAmbiguous(
+    deliveryId: string,
+    error: string
+  ): Promise<void> {
+    await this.database.db
+      .update(tables.sameDayFreedSlotDeliveries)
+      .set({ outcome: "ambiguous", failedAt: new Date(), lastError: error })
+      .where(
+        and(
+          eq(tables.sameDayFreedSlotDeliveries.id, deliveryId),
+          eq(tables.sameDayFreedSlotDeliveries.outcome, "claimed")
+        )
+      );
   }
 
   /** Insert exactly one broadcasts row; `sentAt` defaults to now. Returns it. */

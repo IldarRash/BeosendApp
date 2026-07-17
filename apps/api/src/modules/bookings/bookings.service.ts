@@ -39,6 +39,10 @@ import {
 } from "@beosand/types";
 import type { Database } from "@beosand/db";
 import { ENV } from "../../config/config.module";
+import {
+  SameDayFreedSlotDispatcher,
+  sanitizeFreedSlotDiagnostic
+} from "../broadcasts/same-day-freed-slot-dispatcher.service";
 import { ClientsRepository } from "../clients/clients.repository";
 import { renderTrainingIcs } from "../connectors/calendar/calendar-ics";
 import { DomainEventsService } from "../connectors/domain-events.service";
@@ -105,7 +109,8 @@ export class BookingsService {
     private readonly trainers: TrainersRepository,
     private readonly domainEvents: DomainEventsService,
     @Inject(ENV) private readonly env: Env,
-    @Optional() private readonly pricing?: TrainingPricingService
+    @Optional() private readonly pricing?: TrainingPricingService,
+    @Optional() private readonly freedSlotDispatcher?: SameDayFreedSlotDispatcher
   ) {}
 
   async createSingle(
@@ -877,12 +882,13 @@ export class BookingsService {
     bookingId: string,
     options: ClientOwnershipOptions = {}
   ): Promise<Booking> {
-    const cancelled = await this.bookings.transaction(async (tx) => {
+    const result = await this.bookings.transaction(async (tx) => {
       const booking = await this.bookings.findBookingForUpdate(tx, bookingId);
       if (!booking) {
         throw new NotFoundException(`Booking ${bookingId} not found`);
       }
 
+      const actorClient = await this.clients.findByTelegramId(actorTelegramId, tx);
       await this.assertOwnsClient(actorTelegramId, booking.clientId, options);
 
       if (booking.status !== "booked" && booking.status !== "pending") {
@@ -909,16 +915,25 @@ export class BookingsService {
       this.logger.log(
         `Cancelled booking ${bookingId} on training ${booking.trainingId} (${newCount}/${training.capacity}, ${newStatus})`
       );
-      return updated;
+      return {
+        cancelled: updated,
+        evidence: {
+          cancelledBookingId: booking.id,
+          trainingId: booking.trainingId,
+          cancellingClientId: booking.clientId,
+          selfCancellation: actorClient?.id === booking.clientId
+        }
+      };
     });
 
     // Post-commit seam for waitlist promotion (T2.1): the seat is already freed and
     // the status recomputed inside the committed tx, so promotion runs here (after
     // commit) against the now-visible free seat. Self-tolerant — a promotion
     // failure never undoes the committed cancellation.
-    await this.promoteWaitlistSafely(cancelled.trainingId);
+    await this.promoteWaitlistSafely(result.cancelled.trainingId);
+    await this.dispatchFreedSlotSafely(result.evidence);
 
-    return bookingSchema.parse(withNullableSnapshotFields(cancelled));
+    return bookingSchema.parse(withNullableSnapshotFields(result.cancelled));
   }
 
   /**
@@ -1315,6 +1330,22 @@ export class BookingsService {
       this.logger.error(
         "Waitlist promotion after cancel failed (cancellation stands): " +
           (error instanceof Error ? error.message : String(error))
+      );
+    }
+  }
+
+  private async dispatchFreedSlotSafely(
+    evidence: Parameters<SameDayFreedSlotDispatcher["dispatchAfterCancellation"]>[0]
+  ): Promise<void> {
+    if (!this.freedSlotDispatcher) {
+      return;
+    }
+    try {
+      await this.freedSlotDispatcher.dispatchAfterCancellation(evidence);
+    } catch (error) {
+      this.logger.error(
+        "Same-day freed-slot dispatch failed (cancellation stands): " +
+          sanitizeFreedSlotDiagnostic(error)
       );
     }
   }

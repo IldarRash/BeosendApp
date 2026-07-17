@@ -871,6 +871,28 @@ export const adminEn: Record<string, string> = {
   // ── Broadcasts page ───────────────────────────────────────────────────────
   "admin.broadcasts.title": "Broadcasts",
   "admin.broadcasts.lead": "Prepare a broadcast about free slots, check the reach and send it.",
+  "admin.broadcasts.automationTitle": "Freed-slot automation",
+  "admin.broadcasts.automationLead":
+    "Notifies the selected audience when a group-training place opens later today.",
+  "admin.broadcasts.automationStatusEnabled": "Enabled",
+  "admin.broadcasts.automationStatusDisabled": "Disabled",
+  "admin.broadcasts.automationStatusUnavailable": "Status unavailable",
+  "admin.broadcasts.automationLoading": "Loading setting…",
+  "admin.broadcasts.automationLoadFailed": "Failed to load the setting: {message}",
+  "admin.broadcasts.automationRetry": "Retry",
+  "admin.broadcasts.automationEnable": "Enable automatic notifications",
+  "admin.broadcasts.automationAudiencePlaceholder": "No audience selected",
+  "admin.broadcasts.automationAudienceUnconfigured":
+    "Select an audience. The automation cannot be enabled without one.",
+  "admin.broadcasts.automationSafety":
+    "The notification does not promise or reserve a place; availability is checked again when booking.",
+  "admin.broadcasts.automationSeparation":
+    "This setting does not change manual broadcasts; they remain a separate manager action.",
+  "admin.broadcasts.automationIncomplete": "Select an audience before enabling the automation.",
+  "admin.broadcasts.automationSave": "Save setting",
+  "admin.broadcasts.automationSaving": "Saving…",
+  "admin.broadcasts.automationSaved": "Automation setting saved",
+  "admin.broadcasts.automationSaveFailed": "Failed to save the setting: {message}",
   "admin.broadcasts.paramsLabel": "Broadcast parameters",
   "admin.broadcasts.fieldType": "Broadcast type",
   "admin.broadcasts.typeHint": "The server composes the message text based on the selected type.",

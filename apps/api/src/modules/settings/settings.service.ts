@@ -14,6 +14,7 @@ import {
   managerContactTelegramUrl,
   managerContactValueSchema,
   requestLoggingSettingsSchema,
+  sameDayFreedSlotAutomationSettingsSchema,
   type CourtWorkingHours,
   type CourtWorkingHoursDayOverride,
   type CourtWorkingHoursDayQuery,
@@ -24,9 +25,11 @@ import {
   type CourtWorkingHoursWindow,
   type ManagerContact,
   type RequestLoggingSettings,
+  type SameDayFreedSlotAutomationSettings,
   type UpdateCourtWorkingHoursDay,
   type UpdateCourtWorkingHoursMonth,
   type UpdateRequestLoggingSettingsInput,
+  type UpdateSameDayFreedSlotAutomationSettingsInput,
   type UpdateManagerContactInput
 } from "@beosand/types";
 import { ENV } from "../../config/config.module";
@@ -34,6 +37,7 @@ import { SettingsRepository, type AppSettingRow } from "./settings.repository";
 
 const MANAGER_CONTACT_KEY = "manager_contact";
 const REQUEST_LOGGING_DETAILED_KEY = "request_logging_detailed";
+const SAME_DAY_FREED_SLOT_AUTOMATION_KEY = "same_day_freed_slot_automation";
 const REQUEST_LOGGING_DETAILED_CACHE_TTL_MS = 1_000;
 const COURT_HOURS_MONTH_KEY_PREFIX = "court_hours_month:";
 const COURT_HOURS_DAY_KEY_PREFIX = "court_hours_day:";
@@ -42,6 +46,11 @@ interface RequestLoggingDetailedCache {
   detailed: boolean;
   expiresAt: number;
 }
+
+const DISABLED_SAME_DAY_FREED_SLOT_AUTOMATION: SameDayFreedSlotAutomationSettings = {
+  enabled: false,
+  audience: null
+};
 
 /** Owns settings domain logic: env fallback, admin gate, and contact URL derivation. */
 @Injectable()
@@ -104,6 +113,33 @@ export class SettingsService {
     const settings = await this.currentRequestLoggingSettings();
     this.setRequestLoggingDetailedCache(settings.detailed);
     return settings.detailed;
+  }
+
+  async sameDayFreedSlotAutomationSettings(
+    actorTelegramId: number
+  ): Promise<SameDayFreedSlotAutomationSettings> {
+    this.assertAdmin(actorTelegramId);
+    return this.currentSameDayFreedSlotAutomationSettings();
+  }
+
+  async updateSameDayFreedSlotAutomationSettings(
+    actorTelegramId: number,
+    input: UpdateSameDayFreedSlotAutomationSettingsInput
+  ): Promise<SameDayFreedSlotAutomationSettings> {
+    this.assertAdmin(actorTelegramId);
+    const parsed = sameDayFreedSlotAutomationSettingsSchema.parse(input);
+    const stored = await this.settings.upsertValue(
+      SAME_DAY_FREED_SLOT_AUTOMATION_KEY,
+      JSON.stringify(parsed),
+      actorTelegramId
+    );
+    return this.parseSameDayFreedSlotAutomationSettings(stored);
+  }
+
+  /** Internal read for the dispatcher. Invalid or unknown JSON disables sending. */
+  async currentSameDayFreedSlotAutomationSettings(): Promise<SameDayFreedSlotAutomationSettings> {
+    const stored = await this.settings.findValue(SAME_DAY_FREED_SLOT_AUTOMATION_KEY);
+    return this.parseSameDayFreedSlotAutomationSettings(stored);
   }
 
   async courtWorkingHoursMonthView(
@@ -242,6 +278,21 @@ export class SettingsService {
   private assertAdmin(actorTelegramId: number): void {
     if (!isAdmin(this.env, actorTelegramId)) {
       throw new ForbiddenException("Admin privileges required");
+    }
+  }
+
+  private parseSameDayFreedSlotAutomationSettings(
+    stored: string | undefined
+  ): SameDayFreedSlotAutomationSettings {
+    if (stored === undefined) {
+      return DISABLED_SAME_DAY_FREED_SLOT_AUTOMATION;
+    }
+    try {
+      const parsed: unknown = JSON.parse(stored);
+      const result = sameDayFreedSlotAutomationSettingsSchema.safeParse(parsed);
+      return result.success ? result.data : DISABLED_SAME_DAY_FREED_SLOT_AUTOMATION;
+    } catch {
+      return DISABLED_SAME_DAY_FREED_SLOT_AUTOMATION;
     }
   }
 

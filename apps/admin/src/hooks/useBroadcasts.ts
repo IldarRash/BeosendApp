@@ -13,13 +13,44 @@ import type {
   BroadcastTemplateVariable,
   BroadcastType,
   CreateBroadcastTemplateInput,
+  SameDayFreedSlotAutomationSettings,
   SendBroadcastInput,
+  UpdateSameDayFreedSlotAutomationSettingsInput,
   UpdateBroadcastTemplateInput
 } from "@beosand/types";
 import { useApiClient } from "../api/ApiProvider";
 
 const BROADCASTS_KEY = ["broadcasts"] as const;
 const ANALYTICS_KEY = ["analytics"] as const;
+const FREED_SLOT_AUTOMATION_KEY = ["settings", "freed-slot-automation"] as const;
+
+/** Persisted global same-day freed-slot automation policy. */
+export function useSameDayFreedSlotAutomationSettings(): UseQueryResult<
+  SameDayFreedSlotAutomationSettings,
+  Error
+> {
+  const api = useApiClient();
+  return useQuery({
+    queryKey: FREED_SLOT_AUTOMATION_KEY,
+    queryFn: () => api.getSameDayFreedSlotAutomationSettings()
+  });
+}
+
+/** Save the policy and hydrate the shared cache from the validated API response. */
+export function useUpdateSameDayFreedSlotAutomationSettings(): UseMutationResult<
+  SameDayFreedSlotAutomationSettings,
+  Error,
+  UpdateSameDayFreedSlotAutomationSettingsInput
+> {
+  const api = useApiClient();
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (input) => api.updateSameDayFreedSlotAutomationSettings(input),
+    onSuccess: (settings) => {
+      queryClient.setQueryData(FREED_SLOT_AUTOMATION_KEY, settings);
+    }
+  });
+}
 
 /**
  * Stable cache key for a preview, keyed by type + audience so the dry-run refetches

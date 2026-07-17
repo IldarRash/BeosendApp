@@ -55,6 +55,45 @@ describe("ApiClient.health", () => {
   });
 });
 
+describe("ApiClient same-day freed-slot automation", () => {
+  afterEach(() => {
+    vi.unstubAllGlobals();
+  });
+
+  it("loads and validates the persisted policy", async () => {
+    const calls = mockFetchOnce({ enabled: true, audience: { kind: "active", days: 30 } });
+
+    await expect(
+      new ApiClient("http://api.test").getSameDayFreedSlotAutomationSettings()
+    ).resolves.toEqual({ enabled: true, audience: { kind: "active", days: 30 } });
+    expect(calls[0]?.url).toBe("http://api.test/settings/freed-slot-automation");
+  });
+
+  it("PATCHes the strict policy and validates the response", async () => {
+    const policy = { enabled: true, audience: { kind: "all" as const } };
+    const calls = mockFetchOnce(policy);
+
+    await expect(
+      new ApiClient("http://api.test").updateSameDayFreedSlotAutomationSettings(policy)
+    ).resolves.toEqual(policy);
+    expect(calls[0]?.init?.method).toBe("PATCH");
+    expect(JSON.parse(calls[0]?.init?.body as string)).toEqual(policy);
+  });
+
+  it("rejects incomplete input before fetch and malformed server settings after fetch", async () => {
+    const calls = mockFetchOnce({ enabled: true, audience: null });
+    const client = new ApiClient("http://api.test");
+
+    expect(() =>
+      client.updateSameDayFreedSlotAutomationSettings({ enabled: true, audience: null })
+    ).toThrow();
+    expect(calls).toHaveLength(0);
+
+    await expect(client.getSameDayFreedSlotAutomationSettings()).rejects.toThrow();
+    expect(calls).toHaveLength(1);
+  });
+});
+
 describe("ApiClient broadcast templates", () => {
   afterEach(() => {
     vi.unstubAllGlobals();

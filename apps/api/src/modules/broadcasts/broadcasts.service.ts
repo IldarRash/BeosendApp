@@ -253,7 +253,7 @@ export class BroadcastsService {
    * of now − days. This is the single place the audience → recipients mapping
    * lives, so preview and send always agree.
    */
-  private resolveRecipients(audience: BroadcastAudience): Promise<BroadcastRecipient[]> {
+  resolveRecipients(audience: BroadcastAudience): Promise<BroadcastRecipient[]> {
     switch (audience.kind) {
       case "all":
         return this.repo.listActiveRecipients();

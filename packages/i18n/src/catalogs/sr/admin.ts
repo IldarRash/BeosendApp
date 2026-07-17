@@ -871,6 +871,28 @@ export const adminSr: Record<string, string> = {
   // ── Broadcasts page ───────────────────────────────────────────────────────
   "admin.broadcasts.title": "Obaveštenja",
   "admin.broadcasts.lead": "Pripremite obaveštenje o slobodnim terminima, proverite doseg i pošaljite.",
+  "admin.broadcasts.automationTitle": "Automatsko obaveštenje o oslobođenom mestu",
+  "admin.broadcasts.automationLead":
+    "Obaveštava izabranu publiku kada se danas oslobodi mesto na grupnom treningu.",
+  "admin.broadcasts.automationStatusEnabled": "Uključeno",
+  "admin.broadcasts.automationStatusDisabled": "Isključeno",
+  "admin.broadcasts.automationStatusUnavailable": "Status nije dostupan",
+  "admin.broadcasts.automationLoading": "Učitavanje podešavanja…",
+  "admin.broadcasts.automationLoadFailed": "Učitavanje podešavanja nije uspelo: {message}",
+  "admin.broadcasts.automationRetry": "Pokušaj ponovo",
+  "admin.broadcasts.automationEnable": "Uključi automatsko obaveštenje",
+  "admin.broadcasts.automationAudiencePlaceholder": "Publika nije izabrana",
+  "admin.broadcasts.automationAudienceUnconfigured":
+    "Izaberite publiku. Automatsko obaveštenje ne može da se uključi bez nje.",
+  "admin.broadcasts.automationSafety":
+    "Obaveštenje ne obećava niti rezerviše mesto; dostupnost se ponovo proverava pri prijavi.",
+  "admin.broadcasts.automationSeparation":
+    "Ovo podešavanje ne menja ručna obaveštenja; ona ostaju posebna radnja menadžera.",
+  "admin.broadcasts.automationIncomplete": "Izaberite publiku da biste uključili automatsko obaveštenje.",
+  "admin.broadcasts.automationSave": "Sačuvaj podešavanje",
+  "admin.broadcasts.automationSaving": "Čuvanje…",
+  "admin.broadcasts.automationSaved": "Podešavanje automatskog obaveštenja je sačuvano",
+  "admin.broadcasts.automationSaveFailed": "Čuvanje podešavanja nije uspelo: {message}",
   "admin.broadcasts.paramsLabel": "Parametri obaveštenja",
   "admin.broadcasts.fieldType": "Tip obaveštenja",
   "admin.broadcasts.typeHint": "Server sastavlja tekst poruke prema izabranom tipu.",

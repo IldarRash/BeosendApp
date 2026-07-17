@@ -1,6 +1,10 @@
 import { describe, expect, it } from "vitest";
 import { getTableConfig } from "drizzle-orm/pg-core";
-import { schema } from "./schema";
+import {
+  sameDayFreedSlotDeliveryOutcome,
+  sameDayFreedSlotEventOutcome,
+  schema
+} from "./schema";
 
 describe("schema", () => {
   it("exposes the full domain backbone", () => {
@@ -43,5 +47,38 @@ describe("schema", () => {
         "broadcast_templates_version_positive"
       ])
     );
+  });
+
+  it("limits freed-slot event and delivery outcomes to the durable state machines", () => {
+    expect(sameDayFreedSlotEventOutcome.enumValues).toEqual([
+      "pending",
+      "skipped",
+      "completed"
+    ]);
+    expect(sameDayFreedSlotDeliveryOutcome.enumValues).toEqual([
+      "claimed",
+      "sent",
+      "failed",
+      "ambiguous"
+    ]);
+  });
+
+  it("enforces one freed-slot event per training", () => {
+    expect(schema.sameDayFreedSlotEvents.trainingId.isUnique).toBe(true);
+    expect(schema.sameDayFreedSlotEvents.trainingId.uniqueName).toBe(
+      "same_day_freed_slot_events_training_id_unique"
+    );
+  });
+
+  it("enforces one freed-slot delivery claim per event and client", () => {
+    const config = getTableConfig(schema.sameDayFreedSlotDeliveries);
+    const eventClientIndex = config.indexes.find(
+      (index) => index.config.name === "same_day_freed_slot_deliveries_event_client_idx"
+    );
+
+    expect(eventClientIndex?.config.unique).toBe(true);
+    expect(
+      eventClientIndex?.config.columns.map((column) => (column as { name?: string }).name)
+    ).toEqual(["event_id", "client_id"]);
   });
 });

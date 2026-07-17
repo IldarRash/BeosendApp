@@ -7,6 +7,7 @@ import type {
   BroadcastTemplateVariable,
   Level
 } from "@beosand/types";
+import { DEFAULT_LOCALE, getStaticCatalog, t } from "@beosand/i18n";
 import { MemoryRouter } from "react-router-dom";
 
 // --- Mocks ---------------------------------------------------------------
@@ -34,7 +35,10 @@ const useBroadcastTemplateVariables = vi.fn();
 const useCreateBroadcastTemplate = vi.fn();
 const useUpdateBroadcastTemplate = vi.fn();
 const useSendBroadcast = vi.fn();
+const useSameDayFreedSlotAutomationSettings = vi.fn();
+const useUpdateSameDayFreedSlotAutomationSettings = vi.fn();
 const sendMutate = vi.fn();
+const updateAutomationMutate = vi.fn();
 const createTemplateMutate = vi.fn();
 const updateTemplateMutate = vi.fn();
 vi.mock("../hooks/useBroadcasts", () => ({
@@ -43,7 +47,10 @@ vi.mock("../hooks/useBroadcasts", () => ({
   useBroadcastTemplateVariables: (...args: unknown[]) => useBroadcastTemplateVariables(...args),
   useCreateBroadcastTemplate: () => useCreateBroadcastTemplate(),
   useUpdateBroadcastTemplate: () => useUpdateBroadcastTemplate(),
-  useSendBroadcast: () => useSendBroadcast()
+  useSendBroadcast: () => useSendBroadcast(),
+  useSameDayFreedSlotAutomationSettings: () => useSameDayFreedSlotAutomationSettings(),
+  useUpdateSameDayFreedSlotAutomationSettings: () =>
+    useUpdateSameDayFreedSlotAutomationSettings()
 }));
 
 import { Broadcasts } from "./Broadcasts";
@@ -54,6 +61,14 @@ function renderPage(): void {
       <Broadcasts />
     </MemoryRouter>
   );
+}
+
+const catalog = getStaticCatalog(DEFAULT_LOCALE);
+const tr = (key: string, params?: Record<string, string | number>): string =>
+  t(catalog, key, params);
+
+function getManualAudienceSelect(): HTMLElement {
+  return screen.getAllByLabelText(tr("admin.broadcasts.fieldAudience")).at(-1)!;
 }
 
 const templateNameLabel = /Название шаблона|admin\.broadcasts\.templateName/;
@@ -136,6 +151,7 @@ const sentBroadcast: Broadcast = {
 beforeEach(() => {
   notify.mockReset();
   sendMutate.mockReset();
+  updateAutomationMutate.mockReset();
   createTemplateMutate.mockReset();
   updateTemplateMutate.mockReset();
   useLevels.mockReturnValue({ isLoading: false, isError: false, data: sampleLevels });
@@ -169,9 +185,114 @@ beforeEach(() => {
     data: samplePreview
   });
   useSendBroadcast.mockReturnValue({ mutate: sendMutate, isPending: false, error: null });
+  useSameDayFreedSlotAutomationSettings.mockReturnValue({
+    isLoading: false,
+    isError: false,
+    error: null,
+    data: { enabled: false, audience: null },
+    refetch: vi.fn()
+  });
+  useUpdateSameDayFreedSlotAutomationSettings.mockReturnValue({
+    mutate: updateAutomationMutate,
+    reset: vi.fn(),
+    isPending: false,
+    isError: false,
+    isSuccess: false,
+    error: null
+  });
 });
 
 afterEach(cleanup);
+
+describe("same-day freed-slot automation workspace", () => {
+  it("renders the persisted disabled status and unconfigured audience placeholder", () => {
+    renderPage();
+
+    expect(screen.getByText(tr("admin.broadcasts.automationStatusDisabled"))).toBeTruthy();
+    expect(
+      screen.getByRole("option", {
+        name: tr("admin.broadcasts.automationAudiencePlaceholder")
+      })
+    ).toBeTruthy();
+  });
+
+  it("shows load failure and retries the settings query", () => {
+    const refetch = vi.fn();
+    useSameDayFreedSlotAutomationSettings.mockReturnValue({
+      isLoading: false,
+      isError: true,
+      error: new Error("offline"),
+      data: undefined,
+      refetch
+    });
+
+    renderPage();
+
+    expect(screen.getByRole("alert").textContent).toContain("offline");
+    fireEvent.click(
+      screen.getByRole("button", { name: tr("admin.broadcasts.automationRetry") })
+    );
+    expect(refetch).toHaveBeenCalledOnce();
+  });
+
+  it("blocks enabling until a complete audience is selected", () => {
+    renderPage();
+
+    fireEvent.click(
+      screen.getByRole("checkbox", { name: tr("admin.broadcasts.automationEnable") })
+    );
+
+    expect(screen.getByText(tr("admin.broadcasts.automationIncomplete"))).toBeTruthy();
+    expect(
+      screen
+        .getByRole("button", { name: tr("admin.broadcasts.automationSave") })
+        .hasAttribute("disabled")
+    ).toBe(true);
+    expect(updateAutomationMutate).not.toHaveBeenCalled();
+  });
+
+  it("saves a complete policy and reports the persisted result", () => {
+    updateAutomationMutate.mockImplementation(
+      (_input, options?: { onSuccess?: (value: unknown) => void }) =>
+        options?.onSuccess?.({ enabled: true, audience: { kind: "all" } })
+    );
+    renderPage();
+
+    fireEvent.change(screen.getAllByLabelText(tr("admin.broadcasts.fieldAudience"))[0], {
+      target: { value: "all" }
+    });
+    fireEvent.click(
+      screen.getByRole("checkbox", { name: tr("admin.broadcasts.automationEnable") })
+    );
+    fireEvent.click(
+      screen.getByRole("button", { name: tr("admin.broadcasts.automationSave") })
+    );
+
+    expect(updateAutomationMutate.mock.calls[0]?.[0]).toEqual({
+      enabled: true,
+      audience: { kind: "all" }
+    });
+    expect(notify).toHaveBeenCalledWith(tr("admin.broadcasts.automationSaved"), "success");
+  });
+
+  it("renders save errors without changing the manual composer", () => {
+    useUpdateSameDayFreedSlotAutomationSettings.mockReturnValue({
+      mutate: updateAutomationMutate,
+      reset: vi.fn(),
+      isPending: false,
+      isError: true,
+      isSuccess: false,
+      error: new Error("save failed")
+    });
+
+    renderPage();
+
+    expect(screen.getAllByRole("alert").some((node) => node.textContent?.includes("save failed"))).toBe(
+      true
+    );
+    expect(useBroadcastPreview).toHaveBeenCalledWith("today", { kind: "all" }, null);
+  });
+});
 
 describe("Broadcasts composer", () => {
   it("requests the preview with the default type, all audience, and no template", () => {
@@ -201,7 +322,7 @@ describe("Broadcasts composer", () => {
 
   it("builds a level audience when the level kind and level are chosen", () => {
     renderPage();
-    fireEvent.change(screen.getByLabelText("Аудитория"), { target: { value: "level" } });
+    fireEvent.change(getManualAudienceSelect(), { target: { value: "level" } });
     fireEvent.change(screen.getByLabelText("Уровень"), {
       target: { value: sampleLevels[1].id }
     });
@@ -211,14 +332,14 @@ describe("Broadcasts composer", () => {
 
   it("gates the preview (null audience) until a level is picked", () => {
     renderPage();
-    fireEvent.change(screen.getByLabelText("Аудитория"), { target: { value: "level" } });
+    fireEvent.change(getManualAudienceSelect(), { target: { value: "level" } });
     const [, audience] = useBroadcastPreview.mock.calls.at(-1) as [string, unknown];
     expect(audience).toBeNull();
   });
 
   it("does not send when level audience is selected without a level", () => {
     renderPage();
-    fireEvent.change(screen.getByLabelText("Аудитория"), { target: { value: "level" } });
+    fireEvent.change(getManualAudienceSelect(), { target: { value: "level" } });
 
     const sendButton = screen.getByRole("button", { name: "Отправить" });
     expect(sendButton.hasAttribute("disabled")).toBe(true);
@@ -231,7 +352,7 @@ describe("Broadcasts composer", () => {
 
   it("builds an active-days audience from the days field", () => {
     renderPage();
-    fireEvent.change(screen.getByLabelText("Аудитория"), { target: { value: "active" } });
+    fireEvent.change(getManualAudienceSelect(), { target: { value: "active" } });
     fireEvent.change(screen.getByLabelText("Период, дней"), { target: { value: "30" } });
     const [, audience] = useBroadcastPreview.mock.calls.at(-1) as [string, unknown];
     expect(audience).toEqual({ kind: "active", days: 30 });
