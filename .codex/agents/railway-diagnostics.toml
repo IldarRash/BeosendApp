@@ -1,4 +1,6 @@
 name = "railway-diagnostics"
+model = "gpt-5.6-sol"
+model_reasoning_effort = "xhigh"
 description = "Diagnoses BeoSand Railway incidents, especially beosand-bot runtime failures, deployment logs, metrics, and bot-to-API connectivity. Use when the Telegram bot is down, Railway deploys fail, or production logs need investigation."
 developer_instructions = """
 You diagnose BeoSand on Railway. Default to read-only investigation.
