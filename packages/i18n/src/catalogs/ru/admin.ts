@@ -732,6 +732,7 @@ export const adminRu: Record<string, string> = {
   "admin.courtRequests.confirmed": "Заявка подтверждена для {client}.",
   "admin.courtRequests.rejected": "Заявка отклонена для {client}.",
   "admin.courtRequests.cancelled": "Заявка отменена для {client}.",
+  "admin.courtRequests.cancelling": "Отмена…",
   "admin.courtRequests.cancelAction": "Отменить заявку",
   "admin.courtRequests.cancelTitleNamed": "Отменить заявку — {client}",
   "admin.courtRequests.cancelTitle": "Отменить заявку",
@@ -793,6 +794,11 @@ export const adminRu: Record<string, string> = {
   "admin.courtBlocks.changeCourtHint": "Текущий корт: {court}, {start}–{end}. Сервер проверит свободен ли выбранный корт на эти слоты.",
   "admin.courtBlocks.changeCourtHintSimple": "Текущий корт: {court}. Сервер проверит, свободен ли выбранный корт на нужные слоты.",
   "admin.courtBlocks.courtChanged": "Корт блокировки изменён.",
+  "admin.courtBlocks.deleteTitle": "Удалить блокировку",
+  "admin.courtBlocks.deleteKeep": "Оставить блокировку",
+  "admin.courtBlocks.deleteConfirm": "Удалить блокировку",
+  "admin.courtBlocks.deleting": "Удаление…",
+  "admin.courtBlocks.noAlternativeCourts": "Нет другого активного корта для переноса.",
   "admin.courtBlocks.opFailed": "Не удалось выполнить операцию.",
 
   // ── Court load page ───────────────────────────────────────────────────────

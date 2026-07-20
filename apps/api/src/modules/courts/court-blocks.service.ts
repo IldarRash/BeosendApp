@@ -240,6 +240,11 @@ export class CourtBlocksService {
       if (!lockedBlock) {
         return false;
       }
+      if (lockedBlock.groupTrainingId !== null) {
+        throw new ConflictException(
+          "A court block linked to a training can only be removed by cancelling that training."
+        );
+      }
       return this.repository.deleteById(id, db);
     });
     if (!removed) {

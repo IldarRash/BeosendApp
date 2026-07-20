@@ -724,6 +724,7 @@ export const adminSr: Record<string, string> = {
   "admin.courtRequests.confirmed": "Zahtev je potvrđen za {client}.",
   "admin.courtRequests.rejected": "Zahtev je odbijen za {client}.",
   "admin.courtRequests.cancelled": "Zahtev je otkazan za {client}.",
+  "admin.courtRequests.cancelling": "Otkazivanje…",
   "admin.courtRequests.cancelAction": "Otkaži zahtev",
   "admin.courtRequests.cancelTitleNamed": "Otkaži zahtev — {client}",
   "admin.courtRequests.cancelTitle": "Otkaži zahtev",
@@ -785,6 +786,11 @@ export const adminSr: Record<string, string> = {
   "admin.courtBlocks.changeCourtHint": "Trenutni teren: {court}, {start}–{end}. Server proverava da li je izabrani teren slobodan za te termine.",
   "admin.courtBlocks.changeCourtHintSimple": "Trenutni teren: {court}. Server proverava da li je izabrani teren slobodan za potrebne termine.",
   "admin.courtBlocks.courtChanged": "Teren blokade je promenjen.",
+  "admin.courtBlocks.deleteTitle": "Obriši blokadu",
+  "admin.courtBlocks.deleteKeep": "Zadrži blokadu",
+  "admin.courtBlocks.deleteConfirm": "Obriši blokadu",
+  "admin.courtBlocks.deleting": "Brisanje…",
+  "admin.courtBlocks.noAlternativeCourts": "Nema drugog aktivnog terena za premeštanje.",
   "admin.courtBlocks.opFailed": "Neuspešno izvršavanje operacije.",
 
   // ── Court load page ───────────────────────────────────────────────────────

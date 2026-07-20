@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import type { Court } from "@beosand/types";
 import { Button } from "../ui/Button";
 import { Modal } from "../ui/Modal";
@@ -38,14 +38,26 @@ export function ReassignCourtDialog({
   const t = useT();
   const { notify } = useToast();
   const reassign = useReassignCourtBlock();
+  const resetReassign = reassign.reset;
 
   // Offer every court except the block's current one (moving to itself is a no-op).
   const targets = courts.filter((c) => c.id !== currentCourtId);
-  const [courtId, setCourtId] = useState(targets[0]?.id ?? "");
+  const initialCourtId = targets[0]?.id ?? "";
+  const targetKey = targets.map((court) => court.id).join(":");
+  const [courtId, setCourtId] = useState(initialCourtId);
+
+  useEffect(() => {
+    setCourtId(initialCourtId);
+    resetReassign();
+  }, [blockId, currentCourtId, initialCourtId, resetReassign, targetKey]);
 
   const current = courts.find((c) => c.id === currentCourtId);
   const currentLabel =
     current === undefined ? "—" : t("admin.courtBlocks.court", { number: current.number });
+
+  function handleClose(): void {
+    if (!reassign.isPending) onClose();
+  }
 
   function handleSubmit(event: React.FormEvent): void {
     event.preventDefault();
@@ -64,11 +76,11 @@ export function ReassignCourtDialog({
   return (
     <Modal
       open
-      onClose={onClose}
+      onClose={handleClose}
       title={t("admin.courtBlocks.changeCourtTitle")}
       footer={
         <>
-          <Button variant="ghost" onClick={onClose} disabled={reassign.isPending}>
+          <Button variant="ghost" onClick={handleClose} disabled={reassign.isPending}>
             {t("admin.action.cancel")}
           </Button>
           <Button
@@ -91,16 +103,23 @@ export function ReassignCourtDialog({
               })
             : t("admin.courtBlocks.changeCourtHintSimple", { court: currentLabel })}
         </p>
-        <SelectField
-          label={t("admin.courtBlocks.colCourt")}
-          value={courtId}
-          onChange={(e) => setCourtId(e.target.value)}
-          required
-          options={targets.map((court) => ({
-            value: court.id,
-            label: t("admin.courtBlocks.court", { number: court.number })
-          }))}
-        />
+        {targets.length === 0 ? (
+          <p className="state" role="status">
+            {t("admin.courtBlocks.noAlternativeCourts")}
+          </p>
+        ) : (
+          <SelectField
+            label={t("admin.courtBlocks.colCourt")}
+            value={courtId}
+            onChange={(e) => setCourtId(e.target.value)}
+            required
+            disabled={reassign.isPending}
+            options={targets.map((court) => ({
+              value: court.id,
+              label: t("admin.courtBlocks.court", { number: court.number })
+            }))}
+          />
+        )}
         {reassign.error ? (
           <p className="state state--error" role="alert">
             {reassign.error instanceof Error
