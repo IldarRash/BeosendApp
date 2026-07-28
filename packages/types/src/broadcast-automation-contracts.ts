@@ -1,6 +1,7 @@
 import { z } from "zod";
 import { dateString, dayOfWeek, timeString, uuid } from "./common";
 import { localeSchema } from "./i18n-contracts";
+import { findUnknownBroadcastTemplatePlaceholders } from "./broadcast-template-contracts";
 
 /** Stable kinds for the builder-owned automation engine. */
 export const broadcastAutomationTriggerKind = z.enum([
@@ -58,7 +59,11 @@ export const broadcastAutomationSkipReason = z.enum([
 ]);
 export type BroadcastAutomationSkipReason = z.infer<typeof broadcastAutomationSkipReason>;
 
-const messageBodySchema = z.string().trim().min(1).max(4096);
+const messageBodySchema = z.string().trim().min(1).max(4096).superRefine((value, ctx) => {
+  for (const placeholder of findUnknownBroadcastTemplatePlaceholders(value)) {
+    ctx.addIssue({ code: z.ZodIssueCode.custom, message: `Unknown broadcast template placeholder: ${placeholder}` });
+  }
+});
 const automationNameSchema = z.string().trim().min(1).max(120);
 const versionSchema = z.number().int().positive();
 const nonnegativeInt = z.number().int().nonnegative();
