@@ -23,6 +23,17 @@ export interface InlineKeyboardMarkup {
 }
 
 /**
+ * A send can be known not to have reached Telegram (an HTTP response), or it
+ * can be indeterminate (a transport failure after the request may have left
+ * this process). Callers that persist delivery history must not retry the
+ * latter automatically.
+ */
+export type TelegramSendOutcome =
+  | { kind: "sent" }
+  | { kind: "failed"; diagnostic: string }
+  | { kind: "ambiguous"; diagnostic: string };
+
+/**
  * The single outbound Telegram channel for the API: a raw fetch POST to the
  * Bot API, no grammY dependency. The bot token comes from the injected,
  * validated Env and is NEVER logged or echoed in an error — only the chat id and
@@ -45,25 +56,43 @@ export class TelegramSender {
     text: string,
     replyMarkup?: InlineKeyboardMarkup
   ): Promise<void> {
+    const outcome = await this.sendMessageWithOutcome(telegramId, text, replyMarkup);
+    if (outcome.kind !== "sent") {
+      throw new Error(outcome.diagnostic);
+    }
+  }
+
+  /** Typed outcome for durable one-shot delivery workflows. */
+  async sendMessageWithOutcome(
+    telegramId: number,
+    text: string,
+    replyMarkup?: InlineKeyboardMarkup
+  ): Promise<TelegramSendOutcome> {
     const url = `https://api.telegram.org/bot${this.env.TELEGRAM_BOT_TOKEN}/sendMessage`;
-    const response = await fetch(url, {
-      method: "POST",
-      headers: { "content-type": "application/json" },
-      body: JSON.stringify({
-        chat_id: telegramId,
-        text,
-        parse_mode: "HTML",
-        ...(replyMarkup ? { reply_markup: replyMarkup } : {})
-      })
-    });
+    let response: Response;
+    try {
+      response = await fetch(url, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          chat_id: telegramId,
+          text,
+          parse_mode: "HTML",
+          ...(replyMarkup ? { reply_markup: replyMarkup } : {})
+        })
+      });
+    } catch (error) {
+      return { kind: "ambiguous", diagnostic: sanitizeTelegramDiagnostic(error) };
+    }
 
     if (!response.ok) {
       const description = await safeDescription(response);
-      // Token is in the URL only; never include the URL in the thrown message.
-      throw new Error(
-        `Telegram sendMessage to ${telegramId} failed: ${response.status} ${description}`
-      );
+      return {
+        kind: "failed",
+        diagnostic: sanitizeTelegramDiagnostic(`Telegram sendMessage failed: ${response.status} ${description}`)
+      };
     }
+    return { kind: "sent" };
   }
 }
 
@@ -75,4 +104,16 @@ async function safeDescription(response: Response): Promise<string> {
   } catch {
     return "";
   }
+}
+
+/** Safe for durable audit fields: no URL, chat id, token-shaped value, or controls. */
+export function sanitizeTelegramDiagnostic(value: unknown): string {
+  const raw = value instanceof Error ? value.message : String(value);
+  return raw
+    .replace(/https?:\/\/\S+/gi, "[url]")
+    .replace(/bot\d{6,}:[A-Za-z0-9_-]+/g, "[token]")
+    .replace(/\b\d{7,}\b/g, "[id]")
+    .replace(/[\r\n\t]+/g, " ")
+    .trim()
+    .slice(0, 1024);
 }
