@@ -9,13 +9,48 @@ import type {
   Broadcast,
   BroadcastAudience,
   BroadcastPreview,
+  BroadcastTemplate,
+  BroadcastTemplateVariable,
   BroadcastType,
-  SendBroadcastInput
+  CreateBroadcastTemplateInput,
+  SameDayFreedSlotAutomationSettings,
+  SendBroadcastInput,
+  UpdateSameDayFreedSlotAutomationSettingsInput,
+  UpdateBroadcastTemplateInput
 } from "@beosand/types";
 import { useApiClient } from "../api/ApiProvider";
 
 const BROADCASTS_KEY = ["broadcasts"] as const;
 const ANALYTICS_KEY = ["analytics"] as const;
+const FREED_SLOT_AUTOMATION_KEY = ["settings", "freed-slot-automation"] as const;
+
+/** Persisted global same-day freed-slot automation policy. */
+export function useSameDayFreedSlotAutomationSettings(): UseQueryResult<
+  SameDayFreedSlotAutomationSettings,
+  Error
+> {
+  const api = useApiClient();
+  return useQuery({
+    queryKey: FREED_SLOT_AUTOMATION_KEY,
+    queryFn: () => api.getSameDayFreedSlotAutomationSettings()
+  });
+}
+
+/** Save the policy and hydrate the shared cache from the validated API response. */
+export function useUpdateSameDayFreedSlotAutomationSettings(): UseMutationResult<
+  SameDayFreedSlotAutomationSettings,
+  Error,
+  UpdateSameDayFreedSlotAutomationSettingsInput
+> {
+  const api = useApiClient();
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (input) => api.updateSameDayFreedSlotAutomationSettings(input),
+    onSuccess: (settings) => {
+      queryClient.setQueryData(FREED_SLOT_AUTOMATION_KEY, settings);
+    }
+  });
+}
 
 /**
  * Stable cache key for a preview, keyed by type + audience so the dry-run refetches
@@ -23,9 +58,16 @@ const ANALYTICS_KEY = ["analytics"] as const;
  */
 function previewKey(
   type: BroadcastType | null,
-  audience: BroadcastAudience | null
+  audience: BroadcastAudience | null,
+  templateId: string | null
 ): readonly unknown[] {
-  return [...BROADCASTS_KEY, "preview", type, audience ? JSON.stringify(audience) : "all"] as const;
+  return [
+    ...BROADCASTS_KEY,
+    "preview",
+    type,
+    audience ? JSON.stringify(audience) : "incomplete-audience",
+    templateId ?? "default"
+  ] as const;
 }
 
 /**
@@ -36,13 +78,76 @@ function previewKey(
  */
 export function useBroadcastPreview(
   type: BroadcastType | null,
-  audience: BroadcastAudience | null
+  audience: BroadcastAudience | null,
+  templateId: string | null
 ): UseQueryResult<BroadcastPreview, Error> {
   const api = useApiClient();
   return useQuery({
-    queryKey: previewKey(type, audience),
-    queryFn: () => api.previewBroadcast(type as BroadcastType, audience ?? undefined),
-    enabled: type !== null
+    queryKey: previewKey(type, audience, templateId),
+    queryFn: () => {
+      if (type === null || audience === null) {
+        throw new Error("Broadcast preview requires a complete audience");
+      }
+      return api.previewBroadcast(type, audience, templateId ?? undefined);
+    },
+    enabled: type !== null && audience !== null
+  });
+}
+
+/** Broadcast templates for the selected free-slot broadcast type. */
+export function useBroadcastTemplates(
+  type: BroadcastType
+): UseQueryResult<BroadcastTemplate[], Error> {
+  const api = useApiClient();
+  return useQuery({
+    queryKey: [...BROADCASTS_KEY, "templates", type],
+    queryFn: () => api.listBroadcastTemplates(type)
+  });
+}
+
+/** Server-owned variable metadata for the selected broadcast type. */
+export function useBroadcastTemplateVariables(
+  type: BroadcastType
+): UseQueryResult<BroadcastTemplateVariable[], Error> {
+  const api = useApiClient();
+  return useQuery({
+    queryKey: [...BROADCASTS_KEY, "template-variables", type],
+    queryFn: () => api.listBroadcastTemplateVariables(type)
+  });
+}
+
+export function useCreateBroadcastTemplate(): UseMutationResult<
+  BroadcastTemplate,
+  Error,
+  CreateBroadcastTemplateInput
+> {
+  const api = useApiClient();
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (input) => api.createBroadcastTemplate(input),
+    onSuccess: (template) => {
+      queryClient.invalidateQueries({
+        queryKey: [...BROADCASTS_KEY, "templates", template.broadcastType]
+      });
+    }
+  });
+}
+
+export function useUpdateBroadcastTemplate(): UseMutationResult<
+  BroadcastTemplate,
+  Error,
+  { id: string; input: UpdateBroadcastTemplateInput }
+> {
+  const api = useApiClient();
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: ({ id, input }) => api.updateBroadcastTemplate(id, input),
+    onSuccess: (template) => {
+      queryClient.invalidateQueries({
+        queryKey: [...BROADCASTS_KEY, "templates", template.broadcastType]
+      });
+      queryClient.invalidateQueries({ queryKey: [...BROADCASTS_KEY, "preview"] });
+    }
   });
 }
 

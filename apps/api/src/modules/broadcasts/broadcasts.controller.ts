@@ -4,15 +4,25 @@ import {
   Controller,
   Get,
   Headers,
+  Param,
+  Patch,
   Post,
   Query
 } from "@nestjs/common";
 import {
+  broadcastTemplateBroadcastType,
+  broadcastTemplateSchema,
+  broadcastTemplateVariableSchema,
   broadcastPreviewQuerySchema,
+  createBroadcastTemplateSchema,
   sendBroadcastSchema,
   type Broadcast,
-  type BroadcastPreview
+  type BroadcastPreview,
+  type BroadcastTemplate,
+  type BroadcastTemplateVariable,
+  updateBroadcastTemplateSchema
 } from "@beosand/types";
+import { z } from "zod";
 import type { ZodSchema } from "zod";
 import { BroadcastsService } from "./broadcasts.service";
 
@@ -28,11 +38,11 @@ export class BroadcastsController {
     @Query() query: unknown
   ): Promise<BroadcastPreview> {
     const actorTelegramId = parseTelegramId(telegramIdHeader);
-    const { type, audience } = validate(
+    const { type, audience, templateId } = validate(
       broadcastPreviewQuerySchema,
       coerceAudienceQuery(query ?? {})
     );
-    return this.broadcasts.preview(actorTelegramId, type, audience);
+    return this.broadcasts.preview(actorTelegramId, type, audience, templateId);
   }
 
   /** Admin: send the free-slot broadcast to an audience; writes one broadcasts row. */
@@ -42,8 +52,66 @@ export class BroadcastsController {
     @Body() body: unknown
   ): Promise<Broadcast> {
     const actorTelegramId = parseTelegramId(telegramIdHeader);
-    const { type, audience } = validate(sendBroadcastSchema, body ?? {});
-    return this.broadcasts.send(actorTelegramId, type, audience);
+    const { type, audience, templateId, previewToken } = validate(sendBroadcastSchema, body ?? {});
+    return this.broadcasts.send(actorTelegramId, type, audience, templateId, previewToken);
+  }
+}
+
+/** Thin CRUD surface for admin-managed free-slot broadcast templates. */
+@Controller("broadcast-templates")
+export class BroadcastTemplatesController {
+  constructor(private readonly broadcasts: BroadcastsService) {}
+
+  /** Admin: active templates for one free-slot broadcast type. */
+  @Get()
+  async list(
+    @Headers("x-telegram-id") telegramIdHeader: string | undefined,
+    @Query("type") type: string | undefined
+  ): Promise<BroadcastTemplate[]> {
+    const actorTelegramId = parseTelegramId(telegramIdHeader);
+    const parsedType = validate(broadcastTemplateBroadcastType, type);
+    const templates = await this.broadcasts.listTemplates(actorTelegramId, parsedType);
+    return templates.map((template) => validate(broadcastTemplateSchema, template));
+  }
+
+  /** Admin: curated server variables available for this broadcast type. */
+  @Get("variables")
+  variables(
+    @Headers("x-telegram-id") telegramIdHeader: string | undefined,
+    @Query("type") type: string | undefined
+  ): BroadcastTemplateVariable[] {
+    const actorTelegramId = parseTelegramId(telegramIdHeader);
+    const parsedType = validate(broadcastTemplateBroadcastType, type);
+    return this.broadcasts
+      .variables(actorTelegramId, parsedType)
+      .map((variable) => validate(broadcastTemplateVariableSchema, variable));
+  }
+
+  /** Admin: create one reusable template. */
+  @Post()
+  async create(
+    @Headers("x-telegram-id") telegramIdHeader: string | undefined,
+    @Body() body: unknown
+  ): Promise<BroadcastTemplate> {
+    const actorTelegramId = parseTelegramId(telegramIdHeader);
+    const input = validate(createBroadcastTemplateSchema, body ?? {});
+    return validate(broadcastTemplateSchema, await this.broadcasts.createTemplate(actorTelegramId, input));
+  }
+
+  /** Admin: patch a template and bump version. */
+  @Patch(":id")
+  async update(
+    @Headers("x-telegram-id") telegramIdHeader: string | undefined,
+    @Param("id") id: string,
+    @Body() body: unknown
+  ): Promise<BroadcastTemplate> {
+    const actorTelegramId = parseTelegramId(telegramIdHeader);
+    const parsedId = validate(z.string().uuid(), id);
+    const input = validate(updateBroadcastTemplateSchema, body ?? {});
+    return validate(
+      broadcastTemplateSchema,
+      await this.broadcasts.updateTemplate(actorTelegramId, parsedId, input)
+    );
   }
 }
 

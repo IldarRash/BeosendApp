@@ -17,12 +17,16 @@ import {
   broadcastEffectivenessSchema,
   broadcastPreviewSchema,
   broadcastSchema,
+  broadcastTemplateSchema,
+  broadcastTemplateVariableSchema,
   cancellationStatsSchema,
   clientActivitySchema,
   clientSchema,
   autoAssignResultSchema,
   courtBlockSchema,
+  createBroadcastTemplateSchema,
   createRecurringCourtBlocksSchema,
+  updateCourtBlockSchema,
   courtLoadGridSchema,
   cancelCourtRequestSchema,
   reassignCourtRequestSchema,
@@ -41,6 +45,8 @@ import {
   notificationTemplateSchema,
   popularSlotSchema,
   requestLoggingSettingsSchema,
+  sameDayFreedSlotAutomationSettingsSchema,
+  sendBroadcastSchema,
   subscriptionSummarySchema,
   trainingPricingTiersSchema,
   replaceTrainingPricingTiersSchema,
@@ -54,11 +60,13 @@ import {
   trainingRosterSchema,
   trainingSchema,
   updateTrainingScheduleCourtSchema,
+  updateBroadcastTemplateSchema,
   updateIndividualPriceSchema,
   updateManagerContactSchema,
   updateCourtWorkingHoursDaySchema,
   updateCourtWorkingHoursMonthSchema,
   updateRequestLoggingSettingsSchema,
+  updateSameDayFreedSlotAutomationSettingsSchema,
   waitlistAdminItemSchema,
   waitlistEntrySchema,
   deleteTrainingSeriesResultSchema,
@@ -86,6 +94,8 @@ import {
   type BroadcastAudience,
   type BroadcastEffectiveness,
   type BroadcastPreview,
+  type BroadcastTemplate,
+  type BroadcastTemplateVariable,
   type BroadcastType,
   type CancellationStats,
   type ClientActivity,
@@ -122,6 +132,7 @@ import {
   type LabelEntry,
   type Level,
   type CreateManagerInput,
+  type CreateBroadcastTemplateInput,
   type ListClientsQuery,
   type ListSubscriptionsQuery,
   type ManagerContact,
@@ -137,6 +148,7 @@ import {
   type OnboardClientInput,
   type PopularSlot,
   type RequestLoggingSettings,
+  type SameDayFreedSlotAutomationSettings,
   type RescheduleTrainingInput,
   type SendBroadcastInput,
   type ReplaceTrainingPricingTiersInput,
@@ -149,6 +161,7 @@ import {
   type TrainingPricingTier,
   type TrainingRoster,
   type UpdateTrainingScheduleCourtInput,
+  type UpdateCourtBlock,
   type TransferGroupInput,
   type TransferGroupResult,
   type UpdateIndividualPriceInput,
@@ -158,6 +171,8 @@ import {
   type UpdateLevelInput,
   type UpdateManagerInput,
   type UpdateRequestLoggingSettingsInput,
+  type UpdateSameDayFreedSlotAutomationSettingsInput,
+  type UpdateBroadcastTemplateInput,
   type UpdateTrainerInput,
   type WaitlistAdminItem,
   type WaitlistEntry,
@@ -182,6 +197,8 @@ const generationStatusSchema = z.array(generationStatusItemSchema);
 const subscriptionsSchema = z.array(subscriptionSummarySchema);
 const trainingPricingListSchema = trainingPricingTiersSchema;
 const notificationTemplatesSchema = z.array(notificationTemplateSchema);
+const broadcastTemplatesSchema = z.array(broadcastTemplateSchema);
+const broadcastTemplateVariablesSchema = z.array(broadcastTemplateVariableSchema);
 const managersSchema = z.array(managerSchema);
 const waitlistAdminItemsSchema = z.array(waitlistAdminItemSchema);
 const webhookEndpointsSchema = z.array(webhookEndpointSchema);
@@ -366,6 +383,14 @@ export class ApiClient {
     }
   }
 
+  /** Patch editable court-block fields. The server owns validation and conflict checks. */
+  updateCourtBlock(id: string, input: UpdateCourtBlock): Promise<CourtBlock> {
+    return this.request(`/court-blocks/${id}`, courtBlockSchema, {
+      method: "PATCH",
+      body: JSON.stringify(updateCourtBlockSchema.parse(input))
+    });
+  }
+
   /**
    * Move a block to another court (PATCH /court-blocks/:id, body `{ courtId }`).
    * Used primarily for group auto-blocks (non-null `groupTrainingId`). The server
@@ -373,10 +398,7 @@ export class ApiClient {
    * the block's own slots and rejects (409) a clash — the client computes nothing.
    */
   reassignCourtBlock(id: string, courtId: string): Promise<CourtBlock> {
-    return this.request(`/court-blocks/${id}`, courtBlockSchema, {
-      method: "PATCH",
-      body: JSON.stringify({ courtId })
-    });
+    return this.updateCourtBlock(id, { courtId });
   }
 
   // ── Court requests & courts (M3) ──────────────────────────────────────────
@@ -689,6 +711,28 @@ export class ApiClient {
       method: "PATCH",
       body: JSON.stringify(updateRequestLoggingSettingsSchema.parse(input))
     });
+  }
+
+  /** Global manager-owned policy for same-day freed-slot Telegram notifications. */
+  getSameDayFreedSlotAutomationSettings(): Promise<SameDayFreedSlotAutomationSettings> {
+    return this.request(
+      "/settings/freed-slot-automation",
+      sameDayFreedSlotAutomationSettingsSchema
+    );
+  }
+
+  /** Persist the validated automation switch and its existing broadcast audience segment. */
+  updateSameDayFreedSlotAutomationSettings(
+    input: UpdateSameDayFreedSlotAutomationSettingsInput
+  ): Promise<SameDayFreedSlotAutomationSettings> {
+    return this.request(
+      "/settings/freed-slot-automation",
+      sameDayFreedSlotAutomationSettingsSchema,
+      {
+        method: "PATCH",
+        body: JSON.stringify(updateSameDayFreedSlotAutomationSettingsSchema.parse(input))
+      }
+    );
   }
 
   // ── Groups (M1) ────────────────────────────────────────────────────────
@@ -1189,12 +1233,53 @@ export class ApiClient {
    * means `{ kind: "all" }`. The browser does NO recipient/segmentation math — it
    * only renders this validated result before the send action.
    */
-  previewBroadcast(type: BroadcastType, audience?: BroadcastAudience): Promise<BroadcastPreview> {
+  previewBroadcast(
+    type: BroadcastType,
+    audience?: BroadcastAudience,
+    templateId?: string
+  ): Promise<BroadcastPreview> {
     const params = new URLSearchParams({ type });
     if (audience) {
       params.set("audience", JSON.stringify(audience));
     }
+    if (templateId) {
+      params.set("templateId", templateId);
+    }
     return this.request(`/broadcasts/preview?${params.toString()}`, broadcastPreviewSchema);
+  }
+
+  /** Broadcast template catalog for the free-slot broadcast flow. */
+  listBroadcastTemplates(type: BroadcastType): Promise<BroadcastTemplate[]> {
+    const query = new URLSearchParams({ type }).toString();
+    return this.request(`/broadcast-templates?${query}`, broadcastTemplatesSchema);
+  }
+
+  /** Server-defined variables the selected broadcast type may use in templates. */
+  listBroadcastTemplateVariables(type: BroadcastType): Promise<BroadcastTemplateVariable[]> {
+    const query = new URLSearchParams({ type }).toString();
+    return this.request(
+      `/broadcast-templates/variables?${query}`,
+      broadcastTemplateVariablesSchema
+    );
+  }
+
+  /** Create a reusable broadcast template. Server validates placeholders and admin role. */
+  createBroadcastTemplate(input: CreateBroadcastTemplateInput): Promise<BroadcastTemplate> {
+    return this.request("/broadcast-templates", broadcastTemplateSchema, {
+      method: "POST",
+      body: JSON.stringify(createBroadcastTemplateSchema.parse(input))
+    });
+  }
+
+  /** Update a broadcast template; server increments version and validates placeholders. */
+  updateBroadcastTemplate(
+    id: string,
+    input: UpdateBroadcastTemplateInput
+  ): Promise<BroadcastTemplate> {
+    return this.request(`/broadcast-templates/${id}`, broadcastTemplateSchema, {
+      method: "PATCH",
+      body: JSON.stringify(updateBroadcastTemplateSchema.parse(input))
+    });
   }
 
   /**
@@ -1206,7 +1291,7 @@ export class ApiClient {
   sendBroadcast(input: SendBroadcastInput): Promise<Broadcast> {
     return this.request("/broadcasts/send", broadcastSchema, {
       method: "POST",
-      body: JSON.stringify(input)
+      body: JSON.stringify(sendBroadcastSchema.parse(input))
     });
   }
 

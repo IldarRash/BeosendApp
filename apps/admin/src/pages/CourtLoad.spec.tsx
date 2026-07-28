@@ -33,8 +33,10 @@ vi.mock("../hooks/useCourtLoad", () => ({
 
 // The shared move-court dialog reaches for the reassign mutation.
 const useReassignCourtBlock = vi.fn();
+const useUpdateCourtBlockDescription = vi.fn();
 vi.mock("../hooks/useCourtBlocks", () => ({
-  useReassignCourtBlock: (...args: unknown[]) => useReassignCourtBlock(...args)
+  useReassignCourtBlock: (...args: unknown[]) => useReassignCourtBlock(...args),
+  useUpdateCourtBlockDescription: (...args: unknown[]) => useUpdateCourtBlockDescription(...args)
 }));
 
 const useCourts = vi.fn();
@@ -71,7 +73,13 @@ const MANUAL_BLOCK_ID = "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb";
 function cell(
   startTime: string,
   state: CourtLoadGrid["rows"][number]["cells"][number]["state"],
-  links: { requestId?: string; trainingId?: string; blockId?: string; reason?: string | null } = {}
+  links: {
+    requestId?: string;
+    trainingId?: string;
+    blockId?: string;
+    reason?: string | null;
+    description?: string | null;
+  } = {}
 ): CourtLoadGrid["rows"][number]["cells"][number] {
   return {
     startTime,
@@ -79,7 +87,8 @@ function cell(
     requestId: links.requestId ?? null,
     trainingId: links.trainingId ?? null,
     blockId: links.blockId ?? null,
-    reason: links.reason ?? null
+    reason: links.reason ?? null,
+    description: links.description ?? null
   };
 }
 
@@ -130,7 +139,8 @@ const GRID: CourtLoadGrid = {
         cell("09:00", "training", {
           trainingId: TRAINING_ID,
           blockId: TRAINING_BLOCK_ID,
-          reason: "Generated group training"
+          reason: "Generated group training",
+          description: "Training setup note"
         }),
         cell("09:30", "free"),
         cell("10:00", "free"),
@@ -143,7 +153,11 @@ const GRID: CourtLoadGrid = {
       courtId: "22222222-2222-2222-2222-222222222222",
       courtNumber: 2,
       cells: [
-        cell("08:00", "block", { blockId: MANUAL_BLOCK_ID, reason: "Maintenance" }),
+        cell("08:00", "block", {
+          blockId: MANUAL_BLOCK_ID,
+          reason: "Maintenance",
+          description: "Set up tournament"
+        }),
         cell("08:30", "hold", { requestId: REQUEST_ID }),
         cell("09:00", "free"),
         cell("09:30", "free"),
@@ -249,6 +263,7 @@ beforeEach(() => {
   useDeleteCourtWorkingHoursMonth.mockReturnValue(mutation());
   useDeleteCourtWorkingHoursDay.mockReturnValue(mutation());
   useReassignCourtBlock.mockReturnValue(mutation());
+  useUpdateCourtBlockDescription.mockReturnValue(mutation());
   useCourts.mockReturnValue({
     isPending: false,
     isError: false,
@@ -359,6 +374,7 @@ describe("CourtLoad page", () => {
     const training = screen.getByLabelText("Корт 1, 09:00–09:30 — Тренировка");
 
     expect(block.getAttribute("title")).toContain("Maintenance");
+    expect(block.getAttribute("title")).toContain("Set up tournament");
     expect(training.getAttribute("title")).toContain("Generated group training");
   });
 
@@ -427,6 +443,44 @@ describe("CourtLoad page", () => {
     expect(within(dialog).getByText("Generated group training")).toBeTruthy();
     expect(within(dialog).getByText("Дети 10:00")).toBeTruthy();
     expect(within(dialog).getByText("Иван Тренеров")).toBeTruthy();
+  });
+
+  it("shows a training block description and saves description edits without moving the court", () => {
+    const updateMutate = vi.fn((_input, options) =>
+      options?.onSuccess?.({
+        id: TRAINING_BLOCK_ID,
+        courtId: COURT.id,
+        date: "2026-06-10",
+        startTime: "09:00",
+        endTime: "09:30",
+        reason: "Generated group training",
+        description: "Coach asked for side gate",
+        groupTrainingId: TRAINING_ID
+      })
+    );
+    const reassignMutate = vi.fn();
+    useUpdateCourtBlockDescription.mockReturnValue(mutation({ mutate: updateMutate }));
+    useReassignCourtBlock.mockReturnValue(mutation({ mutate: reassignMutate }));
+    renderPage();
+
+    fireEvent.click(
+      screen.getByLabelText("Корт 1, 09:00–09:30 — Тренировка")
+    );
+    const dialog = screen.getByRole("dialog", { name: "Тренировка" });
+    const description = within(dialog).getByLabelText("Описание");
+
+    expect(description).toHaveProperty("value", "Training setup note");
+
+    fireEvent.change(description, { target: { value: "Coach asked for side gate" } });
+    fireEvent.click(within(dialog).getByRole("button", { name: "Сохранить описание" }));
+
+    expect(updateMutate).toHaveBeenCalledTimes(1);
+    expect(updateMutate.mock.calls[0][0]).toEqual({
+      id: TRAINING_BLOCK_ID,
+      description: "Coach asked for side gate"
+    });
+    expect(reassignMutate).not.toHaveBeenCalled();
+    expect(description).toHaveProperty("value", "Coach asked for side gate");
   });
 
   it("shows a loading state while the grid query is pending", () => {
@@ -560,12 +614,64 @@ describe("CourtLoad page", () => {
     );
   });
 
+  it("shows a manual block description and saves description edits", () => {
+    const mutate = vi.fn((_input, options) =>
+      options?.onSuccess?.({
+        id: MANUAL_BLOCK_ID,
+        courtId: COURT2.id,
+        date: "2026-06-10",
+        startTime: "08:00",
+        endTime: "08:30",
+        reason: "Maintenance",
+        description: "Tape lines before start",
+        groupTrainingId: null
+      })
+    );
+    useUpdateCourtBlockDescription.mockReturnValue(mutation({ mutate }));
+    renderPage();
+
+    fireEvent.click(screen.getByLabelText("Корт 2, 08:00–08:30 — Блокировка"));
+    const dialog = screen.getByRole("dialog", { name: "Детали блокировки" });
+    const description = within(dialog).getByLabelText("Описание");
+
+    expect(description).toHaveProperty("value", "Set up tournament");
+
+    fireEvent.change(description, { target: { value: "Tape lines before start" } });
+    fireEvent.click(within(dialog).getByRole("button", { name: "Сохранить описание" }));
+
+    expect(mutate).toHaveBeenCalledTimes(1);
+    expect(mutate.mock.calls[0][0]).toEqual({
+      id: MANUAL_BLOCK_ID,
+      description: "Tape lines before start"
+    });
+    expect(description).toHaveProperty("value", "Tape lines before start");
+  });
+
+  it("saves a cleared manual block description", () => {
+    const mutate = vi.fn();
+    useUpdateCourtBlockDescription.mockReturnValue(mutation({ mutate }));
+    renderPage();
+
+    fireEvent.click(screen.getByLabelText("Корт 2, 08:00–08:30 — Блокировка"));
+    const dialog = screen.getByRole("dialog", { name: "Детали блокировки" });
+    const description = within(dialog).getByLabelText("Описание");
+
+    fireEvent.change(description, { target: { value: "" } });
+    fireEvent.click(within(dialog).getByRole("button", { name: "Сохранить описание" }));
+
+    expect(mutate).toHaveBeenCalledTimes(1);
+    expect(mutate.mock.calls[0][0]).toEqual({ id: MANUAL_BLOCK_ID, description: "" });
+  });
+
   it("moves a manual block to another court via reassign when its segment is clicked", () => {
     const mutate = vi.fn();
     useReassignCourtBlock.mockReturnValue(mutation({ mutate }));
     renderPage();
 
     fireEvent.click(screen.getByLabelText("Корт 2, 08:00–08:30 — Блокировка"));
+    const detail = screen.getByRole("dialog", { name: "Детали блокировки" });
+    fireEvent.click(within(detail).getByRole("button", { name: "Сменить корт" }));
+
     const dialog = screen.getByRole("dialog", { name: "Сменить корт блокировки" });
     // Court 2 (current) is excluded; court 1 is the only target and is preselected.
     fireEvent.click(within(dialog).getByRole("button", { name: "Сохранить" }));

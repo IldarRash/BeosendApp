@@ -11,7 +11,7 @@ import { AppShell } from "../ui/AppShell";
 import { Button } from "../ui/Button";
 import { DataTable, type Column } from "../ui/DataTable";
 import { Modal } from "../ui/Modal";
-import { SelectField, TextField, TimeField } from "../ui/Field";
+import { SelectField, TextAreaField, TextField, TimeField } from "../ui/Field";
 import { DayOfWeekPicker } from "../ui/DayOfWeekPicker";
 import { useToast } from "../ui/Toast";
 import { useT } from "../i18n/LanguageProvider";
@@ -148,6 +148,11 @@ export function CourtBlocks(): JSX.Element {
         )
     },
     { key: "reason", header: t("admin.courtBlocks.colReason"), render: (b) => b.reason },
+    {
+      key: "description",
+      header: t("admin.courtBlocks.colDescription"),
+      render: (b) => (b.description?.trim() ? b.description : "—")
+    },
     {
       key: "actions",
       header: t("admin.courtBlocks.colActions"),
@@ -294,13 +299,14 @@ function CreateBlockDialog({ date, courts, onClose }: CreateBlockDialogProps): J
   const [startTime, setStartTime] = useState("");
   const [endTime, setEndTime] = useState("");
   const [reason, setReason] = useState("");
+  const [description, setDescription] = useState("");
   const pending = create.isPending || createRecurring.isPending;
   const error = mode === "recurring" ? createRecurring.error : create.error;
 
   function handleSubmit(event: React.FormEvent): void {
     event.preventDefault();
     if (mode === "single") {
-      const input: CreateCourtBlock = { courtId, date: blockDate, startTime, endTime, reason };
+      const input: CreateCourtBlock = { courtId, date: blockDate, startTime, endTime, reason, description };
       create.mutate(input, {
         onSuccess: () => {
           notify(t("admin.courtBlocks.created"), "success");
@@ -317,7 +323,8 @@ function CreateBlockDialog({ date, courts, onClose }: CreateBlockDialogProps): J
       daysOfWeek,
       startTime,
       endTime,
-      reason
+      reason,
+      description
     };
     createRecurring.mutate(input, {
       onSuccess: (created) => {
@@ -428,6 +435,12 @@ function CreateBlockDialog({ date, courts, onClose }: CreateBlockDialogProps): J
           onChange={(e) => setReason(e.target.value)}
           required
           autoComplete="off"
+        />
+        <TextAreaField
+          label={t("admin.courtBlocks.fieldDescription")}
+          value={description}
+          onChange={(e) => setDescription(e.target.value)}
+          rows={4}
         />
         {error ? (
           <p className="state state--error" role="alert">

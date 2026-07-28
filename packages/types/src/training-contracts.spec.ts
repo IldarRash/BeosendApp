@@ -26,6 +26,7 @@ import {
   groupSchema,
   rescheduleTrainingSchema,
   updateTrainingScheduleCourtSchema,
+  slotCardSchema,
   trainingSchema,
   trainingCalendarItemSchema,
   listSubscriptionsQuerySchema,
@@ -459,6 +460,27 @@ describe("generateGroupResult / generateAllResult schemas (T10)", () => {
 
   it("accepts a perGroup envelope", () => {
     expect(generateAllResultSchema.safeParse({ perGroup: [groupResult] }).success).toBe(true);
+  });
+});
+
+describe("slotCardSchema", () => {
+  const slot = {
+    trainingId: "11111111-1111-1111-1111-111111111111",
+    date: "2026-06-03",
+    dayOfWeek: 3,
+    startTime: "18:00",
+    endTime: "19:30",
+    groupName: "Evening group",
+    trainerName: "Ana",
+    levelName: "Beginner",
+    freeSeats: 5,
+    priceSingleRsd: 1500
+  };
+
+  it("requires the group name used in broadcast and slot cards", () => {
+    expect(slotCardSchema.safeParse(slot).success).toBe(true);
+    const { groupName: _groupName, ...withoutGroupName } = slot;
+    expect(slotCardSchema.safeParse(withoutGroupName).success).toBe(false);
   });
 });
 
@@ -1057,6 +1079,7 @@ describe("trainingScheduleSlotSchema", () => {
     dayOfWeek: 1,
     startTime: "18:00",
     endTime: "19:30",
+    groupName: "Beach Start",
     trainerName: "Coach",
     levelName: "Beginners",
     freeSeats: 3,
@@ -1083,6 +1106,13 @@ describe("trainingScheduleSlotSchema", () => {
     expect(
       trainingScheduleSlotSchema.safeParse({ ...validSlot, trainingContextLabel: "   " }).success
     ).toBe(false);
+  });
+
+  it("requires a non-empty groupName through the shared slot card", () => {
+    const { groupName: _omitted, ...withoutGroupName } = validSlot;
+    expect(slotCardSchema.safeParse(validSlot).success).toBe(true);
+    expect(slotCardSchema.safeParse(withoutGroupName).success).toBe(false);
+    expect(slotCardSchema.safeParse({ ...validSlot, groupName: "" }).success).toBe(false);
   });
 });
 

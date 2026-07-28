@@ -154,7 +154,8 @@ describe("menu dispatch table", () => {
       trainerName: "Марко",
       levelName: "Начинающий",
       freeSeats: 4,
-      priceSingleRsd: 1500
+      priceSingleRsd: 1500,
+      groupName: "Evening Beginners"
     };
     const { ctx, reply } = fakeCtx();
     const localDeps = makeDeps();
@@ -178,7 +179,8 @@ describe("menu dispatch table", () => {
       trainerName: "Марко",
       levelName: "Начинающий",
       freeSeats: 4,
-      priceSingleRsd: 1500
+      priceSingleRsd: 1500,
+      groupName: "Evening Beginners"
     };
     const { ctx, reply } = fakeCtx();
     const localDeps = makeDeps();

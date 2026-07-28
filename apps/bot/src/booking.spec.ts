@@ -14,6 +14,7 @@ const card: SlotCard = {
   dayOfWeek: 3,
   startTime: "18:00",
   endTime: "19:30",
+  groupName: "Beginner Evening Group",
   trainerName: "Марко",
   levelName: "Начинающий",
   freeSeats: 4,

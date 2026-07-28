@@ -23,13 +23,14 @@ import {
   type CourtSlotOccupant,
   type CreateCourtBlock,
   type CreateRecurringCourtBlocks,
-  type ReassignCourtBlock
+  type UpdateCourtBlock
 } from "@beosand/types";
 import { ENV } from "../../config/config.module";
 import { SettingsService } from "../settings/settings.service";
 import { CourtBlocksRepository, type CourtOccupancyRow } from "./court-blocks.repository";
 
 const RECURRING_COURT_BLOCK_MAX_DAYS = 62;
+const COURT_BLOCK_DESCRIPTION_MAX_LENGTH = 1000;
 
 /**
  * C5 — admin-only manual court blocks (training / tournament / repair). A block
@@ -52,6 +53,7 @@ export class CourtBlocksService {
   async createBlock(callerTelegramId: number, input: CreateCourtBlock): Promise<CourtBlock> {
     this.assertAdmin(callerTelegramId, "create");
     await this.assertValidRange(input.date, input.startTime, input.endTime);
+    const description = normalizeCourtBlockDescription(input.description);
 
     return this.repository.transaction(async (db) => {
       await this.repository.lockDate(input.date, db);
@@ -67,7 +69,8 @@ export class CourtBlocksService {
         date: input.date,
         startTime: input.startTime,
         endTime: input.endTime,
-        reason: input.reason
+        reason: input.reason,
+        description
       }, db);
       return courtBlockSchema.parse(row);
     });
@@ -88,6 +91,7 @@ export class CourtBlocksService {
     if (dates.length === 0) {
       throw new BadRequestException("No dates in the range match the selected weekdays.");
     }
+    const description = normalizeCourtBlockDescription(input.description);
     for (const date of dates) {
       await this.assertValidRange(date, input.startTime, input.endTime);
     }
@@ -106,7 +110,8 @@ export class CourtBlocksService {
         date,
         startTime: input.startTime,
         endTime: input.endTime,
-        reason: input.reason
+        reason: input.reason,
+        description
       }));
       for (const occurrence of occurrences) {
         await this.assertCourtFreeForBlock(occurrence, db);
@@ -141,7 +146,7 @@ export class CourtBlocksService {
   async reassignCourt(
     callerTelegramId: number,
     blockId: string,
-    input: ReassignCourtBlock
+    input: UpdateCourtBlock
   ): Promise<CourtBlock> {
     this.assertAdmin(callerTelegramId, "reassign");
 
@@ -157,11 +162,26 @@ export class CourtBlocksService {
       if (!lockedBlock) {
         throw new NotFoundException("No court block with that id.");
       }
+      const patch = {
+        ...(input.description !== undefined
+          ? { description: normalizeCourtBlockDescription(input.description) }
+          : {})
+      };
+
+      if (input.courtId === undefined) {
+        const updated = await this.repository.updateBlock(blockId, patch, db);
+        return courtBlockSchema.parse(updated);
+      }
+
+      if (lockedBlock.courtId === input.courtId) {
+        if (input.description !== undefined) {
+          const updated = await this.repository.updateBlock(blockId, patch, db);
+          return courtBlockSchema.parse(updated);
+        }
+        return courtBlockSchema.parse(lockedBlock);
+      }
       if (!(await this.repository.isActiveCourt(input.courtId, db))) {
         throw new BadRequestException("No active court with that id.");
-      }
-      if (lockedBlock.courtId === input.courtId) {
-        return courtBlockSchema.parse(lockedBlock);
       }
 
       const slots = courtSlotsCovered(
@@ -197,7 +217,11 @@ export class CourtBlocksService {
         throw new ConflictException("That time is fully booked. No court can be assigned.");
       }
 
-      const updated = await this.repository.updateCourt(blockId, input.courtId, db);
+      const updated = await this.repository.updateBlock(
+        blockId,
+        { ...patch, courtId: input.courtId },
+        db
+      );
       return courtBlockSchema.parse(updated);
     });
   }
@@ -337,4 +361,17 @@ function inclusiveDayCount(from: string, to: string): number {
 
 function sortedUnique(dates: readonly string[]): string[] {
   return [...new Set(dates)].sort();
+}
+
+function normalizeCourtBlockDescription(value: string | null | undefined): string | null {
+  const trimmed = value?.trim();
+  if (!trimmed) {
+    return null;
+  }
+  if (trimmed.length > COURT_BLOCK_DESCRIPTION_MAX_LENGTH) {
+    throw new BadRequestException(
+      `Court block description is limited to ${COURT_BLOCK_DESCRIPTION_MAX_LENGTH} characters.`
+    );
+  }
+  return trimmed;
 }

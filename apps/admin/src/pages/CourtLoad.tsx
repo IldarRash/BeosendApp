@@ -12,7 +12,7 @@ import type {
 import { AppShell } from "../ui/AppShell";
 import { Button } from "../ui/Button";
 import { DataTable, type Column } from "../ui/DataTable";
-import { TextField, TimeField } from "../ui/Field";
+import { TextAreaField, TextField, TimeField } from "../ui/Field";
 import { Modal } from "../ui/Modal";
 import { useToast } from "../ui/Toast";
 import { useT } from "../i18n/LanguageProvider";
@@ -31,6 +31,7 @@ import { useCourtRequestDetail } from "../hooks/useCourtRequests";
 import { useTrainingDetail } from "../hooks/useTrainingDetail";
 import { TrainingDetailBody } from "../ui/TrainingDetailBody";
 import { ReassignCourtDialog } from "../components/ReassignCourtDialog";
+import { useUpdateCourtBlockDescription } from "../hooks/useCourtBlocks";
 import { formatRsd } from "../lib/format";
 import type { CourtLoadGridView, CourtWorkingHoursMonthView } from "../api/client";
 
@@ -39,11 +40,21 @@ interface TrainingTarget {
   blockId: string | null;
   courtId: string;
   reason: string | null;
+  description: string | null;
 }
 
 interface MoveTarget {
   blockId: string;
   currentCourtId: string;
+}
+
+interface BlockDetailTarget extends MoveTarget {
+  date: string;
+  startTime: string;
+  endTime: string;
+  courtNumber: number;
+  reason: string | null;
+  description: string | null;
 }
 
 interface TimelineWindow {
@@ -61,6 +72,7 @@ interface TimelineEvent {
   trainingId: string | null;
   blockId: string | null;
   reason: string | null;
+  description: string | null;
 }
 
 type Translate = (key: string, params?: Record<string, string | number>) => string;
@@ -188,7 +200,8 @@ function buildEvents(row: CourtLoadRow): TimelineEvent[] {
       requestId: cell.requestId,
       trainingId: cell.trainingId,
       blockId: cell.blockId,
-      reason: cell.reason
+      reason: cell.reason,
+      description: cell.description
     };
     events.push(current);
   });
@@ -246,6 +259,7 @@ export function CourtLoad(): JSX.Element {
   const [date, setDate] = useState(queryDate);
   const [openRequestId, setOpenRequestId] = useState<string | null>(null);
   const [openTraining, setOpenTraining] = useState<TrainingTarget | null>(null);
+  const [openBlock, setOpenBlock] = useState<BlockDetailTarget | null>(null);
   const [moveTarget, setMoveTarget] = useState<MoveTarget | null>(null);
   const [assignTarget, setAssignTarget] = useState<UnassignedTraining | null>(null);
   const load = useCourtLoad(date || null);
@@ -345,7 +359,7 @@ export function CourtLoad(): JSX.Element {
               window={window}
               onOpenRequest={setOpenRequestId}
               onOpenTraining={setOpenTraining}
-              onMoveBlock={setMoveTarget}
+              onOpenBlock={setOpenBlock}
               targetRequestId={targetRequestId}
               t={t}
             />
@@ -379,6 +393,16 @@ export function CourtLoad(): JSX.Element {
         t={t}
       />
 
+      <BlockDetailModal
+        target={openBlock}
+        onClose={() => setOpenBlock(null)}
+        onMove={(move) => {
+          setOpenBlock(null);
+          setMoveTarget(move);
+        }}
+        t={t}
+      />
+
       {moveTarget ? (
         <ReassignCourtDialog
           blockId={moveTarget.blockId}
@@ -396,7 +420,7 @@ function CourtTimeline({
   window,
   onOpenRequest,
   onOpenTraining,
-  onMoveBlock,
+  onOpenBlock,
   targetRequestId,
   t
 }: {
@@ -404,7 +428,7 @@ function CourtTimeline({
   window: TimelineWindow;
   onOpenRequest: (id: string) => void;
   onOpenTraining: (target: TrainingTarget) => void;
-  onMoveBlock: (target: MoveTarget) => void;
+  onOpenBlock: (target: BlockDetailTarget) => void;
   targetRequestId: string | null;
   t: Translate;
 }): JSX.Element {
@@ -438,10 +462,11 @@ function CourtTimeline({
             <CourtTimelineRow
               key={row.courtId}
               row={row}
+              date={grid.date}
               window={window}
               onOpenRequest={onOpenRequest}
               onOpenTraining={onOpenTraining}
-              onMoveBlock={onMoveBlock}
+              onOpenBlock={onOpenBlock}
               targetRequestId={targetRequestId}
               t={t}
             />
@@ -454,18 +479,20 @@ function CourtTimeline({
 
 function CourtTimelineRow({
   row,
+  date,
   window,
   onOpenRequest,
   onOpenTraining,
-  onMoveBlock,
+  onOpenBlock,
   targetRequestId,
   t
 }: {
   row: CourtLoadRow;
+  date: string;
   window: TimelineWindow;
   onOpenRequest: (id: string) => void;
   onOpenTraining: (target: TrainingTarget) => void;
-  onMoveBlock: (target: MoveTarget) => void;
+  onOpenBlock: (target: BlockDetailTarget) => void;
   targetRequestId: string | null;
   t: Translate;
 }): JSX.Element {
@@ -480,11 +507,12 @@ function CourtTimelineRow({
           <CourtEventCard
             key={event.key}
             event={event}
+            date={date}
             window={window}
             row={row}
             onOpenRequest={onOpenRequest}
             onOpenTraining={onOpenTraining}
-            onMoveBlock={onMoveBlock}
+            onOpenBlock={onOpenBlock}
             isTarget={targetRequestId !== null && event.requestId === targetRequestId}
             t={t}
           />
@@ -496,20 +524,22 @@ function CourtTimelineRow({
 
 function CourtEventCard({
   event,
+  date,
   window,
   row,
   onOpenRequest,
   onOpenTraining,
-  onMoveBlock,
+  onOpenBlock,
   isTarget,
   t
 }: {
   event: TimelineEvent;
+  date: string;
   window: TimelineWindow;
   row: CourtLoadRow;
   onOpenRequest: (id: string) => void;
   onOpenTraining: (target: TrainingTarget) => void;
-  onMoveBlock: (target: MoveTarget) => void;
+  onOpenBlock: (target: BlockDetailTarget) => void;
   isTarget: boolean;
   t: Translate;
 }): JSX.Element {
@@ -529,8 +559,11 @@ function CourtEventCard({
     state: cellStateLabel(event.state, t)
   });
   const reasonText = event.reason?.trim() ? event.reason : "—";
+  const descriptionText = event.description?.trim() ? event.description : "—";
   const title =
-    event.state === "block" || event.state === "training"
+    event.state === "block"
+      ? `${label}. ${t("admin.courtLoad.reason")}: ${reasonText}. ${t("admin.courtBlocks.fieldDescription")}: ${descriptionText}`
+      : event.state === "training"
       ? `${label}. ${t("admin.courtLoad.reason")}: ${reasonText}`
       : label;
   const style = { left: `${left}%`, width: `${width}%` };
@@ -577,7 +610,8 @@ function CourtEventCard({
             trainingId: event.trainingId as string,
             blockId: event.blockId,
             courtId: row.courtId,
-            reason: event.reason
+            reason: event.reason,
+            description: event.blockId ? event.description : null
           })
         }
       >
@@ -596,7 +630,18 @@ function CourtEventCard({
         aria-current={isTarget ? "true" : undefined}
         aria-label={label}
         title={title}
-        onClick={() => onMoveBlock({ blockId: event.blockId as string, currentCourtId: row.courtId })}
+        onClick={() =>
+          onOpenBlock({
+            blockId: event.blockId as string,
+            currentCourtId: row.courtId,
+            courtNumber: row.courtNumber,
+            date,
+            startTime: event.startTime,
+            endTime: event.endTime,
+            reason: event.reason,
+            description: event.description
+          })
+        }
       >
         {content}
       </button>
@@ -781,8 +826,31 @@ function TrainingDetailModal({
   onMove: (move: MoveTarget) => void;
   t: Translate;
 }): JSX.Element {
+  const { notify } = useToast();
   const detail = useTrainingDetail(target?.trainingId ?? null);
+  const update = useUpdateCourtBlockDescription();
   const blockId = target?.blockId ?? null;
+  const [description, setDescription] = useState("");
+
+  useEffect(() => {
+    setDescription(target?.description ?? "");
+  }, [target?.blockId, target?.description]);
+
+  function handleSubmit(event: React.FormEvent): void {
+    event.preventDefault();
+    if (blockId === null) return;
+    update.mutate(
+      { id: blockId, description },
+      {
+        onSuccess: (block) => {
+          setDescription(block.description ?? "");
+          notify(t("admin.courtBlocks.descriptionSaved"), "success");
+        },
+        onError: (error) =>
+          notify(error instanceof Error ? error.message : t("admin.courtBlocks.opFailed"), "error")
+      }
+    );
+  }
 
   return (
     <Modal
@@ -791,12 +859,18 @@ function TrainingDetailModal({
       title={t("admin.calendar.detailTitle")}
       footer={
         blockId !== null && target !== null ? (
-          <Button
-            variant="primary"
-            onClick={() => onMove({ blockId, currentCourtId: target.courtId })}
-          >
-            {t("admin.courtBlocks.changeCourt")}
-          </Button>
+          <div className="cluster">
+            <Button
+              variant="ghost"
+              onClick={() => onMove({ blockId, currentCourtId: target.courtId })}
+              disabled={update.isPending}
+            >
+              {t("admin.courtBlocks.changeCourt")}
+            </Button>
+            <Button type="submit" form="training-block-description-form" disabled={update.isPending}>
+              {update.isPending ? t("admin.action.saving") : t("admin.courtBlocks.saveDescription")}
+            </Button>
+          </div>
         ) : undefined
       }
     >
@@ -814,8 +888,122 @@ function TrainingDetailModal({
               <dd>{target?.reason?.trim() ? target.reason : "—"}</dd>
             </div>
           </dl>
+          {blockId !== null ? (
+            <form id="training-block-description-form" onSubmit={handleSubmit} className="form">
+              <TextAreaField
+                label={t("admin.courtBlocks.fieldDescription")}
+                value={description}
+                onChange={(event) => setDescription(event.target.value)}
+                rows={5}
+              />
+              {update.error ? (
+                <p className="state state--error" role="alert">
+                  {errorText(update.error, t)}
+                </p>
+              ) : null}
+            </form>
+          ) : null}
           <TrainingDetailBody item={detail.data} t={t} />
         </div>
+      ) : null}
+    </Modal>
+  );
+}
+
+function BlockDetailModal({
+  target,
+  onClose,
+  onMove,
+  t
+}: {
+  target: BlockDetailTarget | null;
+  onClose: () => void;
+  onMove: (move: MoveTarget) => void;
+  t: Translate;
+}): JSX.Element {
+  const { notify } = useToast();
+  const update = useUpdateCourtBlockDescription();
+  const [description, setDescription] = useState("");
+
+  useEffect(() => {
+    setDescription(target?.description ?? "");
+  }, [target?.blockId, target?.description]);
+
+  function handleSubmit(event: React.FormEvent): void {
+    event.preventDefault();
+    if (!target) return;
+    update.mutate(
+      { id: target.blockId, description },
+      {
+        onSuccess: (block) => {
+          setDescription(block.description ?? "");
+          notify(t("admin.courtBlocks.descriptionSaved"), "success");
+        },
+        onError: (error) =>
+          notify(error instanceof Error ? error.message : t("admin.courtBlocks.opFailed"), "error")
+      }
+    );
+  }
+
+  return (
+    <Modal
+      open={target !== null}
+      onClose={onClose}
+      title={t("admin.courtLoad.blockDetailTitle")}
+      footer={
+        target ? (
+          <div className="cluster">
+            <Button variant="ghost" onClick={onClose} disabled={update.isPending}>
+              {t("admin.action.cancel")}
+            </Button>
+            <Button
+              variant="ghost"
+              onClick={() => onMove({ blockId: target.blockId, currentCourtId: target.currentCourtId })}
+              disabled={update.isPending}
+            >
+              {t("admin.courtBlocks.changeCourt")}
+            </Button>
+            <Button type="submit" form="court-block-detail-form" disabled={update.isPending}>
+              {update.isPending ? t("admin.action.saving") : t("admin.courtBlocks.saveDescription")}
+            </Button>
+          </div>
+        ) : undefined
+      }
+    >
+      {target ? (
+        <form id="court-block-detail-form" onSubmit={handleSubmit} className="form">
+          <dl className="detail-list">
+            <div className="detail-list__row">
+              <dt>{t("admin.courtLoad.reason")}</dt>
+              <dd>{target.reason?.trim() ? target.reason : "—"}</dd>
+            </div>
+            <div className="detail-list__row">
+              <dt>{t("admin.courtLoad.detailDate")}</dt>
+              <dd>{target.date}</dd>
+            </div>
+            <div className="detail-list__row">
+              <dt>{t("admin.courtLoad.detailTime")}</dt>
+              <dd>
+                {target.startTime}-{target.endTime}
+              </dd>
+            </div>
+            <div className="detail-list__row">
+              <dt>{t("admin.courtLoad.detailCourt")}</dt>
+              <dd>{t("admin.courtLoad.courtNumber", { number: target.courtNumber })}</dd>
+            </div>
+          </dl>
+          <TextAreaField
+            label={t("admin.courtBlocks.fieldDescription")}
+            value={description}
+            onChange={(event) => setDescription(event.target.value)}
+            rows={5}
+          />
+          {update.error ? (
+            <p className="state state--error" role="alert">
+              {errorText(update.error, t)}
+            </p>
+          ) : null}
+        </form>
       ) : null}
     </Modal>
   );

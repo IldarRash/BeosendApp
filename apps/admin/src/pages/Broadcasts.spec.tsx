@@ -1,6 +1,13 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { cleanup, fireEvent, render, screen } from "@testing-library/react";
-import type { Broadcast, BroadcastPreview, Level } from "@beosand/types";
+import type {
+  Broadcast,
+  BroadcastPreview,
+  BroadcastTemplate,
+  BroadcastTemplateVariable,
+  Level
+} from "@beosand/types";
+import { DEFAULT_LOCALE, getStaticCatalog, t } from "@beosand/i18n";
 import { MemoryRouter } from "react-router-dom";
 
 // --- Mocks ---------------------------------------------------------------
@@ -23,11 +30,27 @@ vi.mock("../hooks/useLevels", () => ({
 }));
 
 const useBroadcastPreview = vi.fn();
+const useBroadcastTemplates = vi.fn();
+const useBroadcastTemplateVariables = vi.fn();
+const useCreateBroadcastTemplate = vi.fn();
+const useUpdateBroadcastTemplate = vi.fn();
 const useSendBroadcast = vi.fn();
+const useSameDayFreedSlotAutomationSettings = vi.fn();
+const useUpdateSameDayFreedSlotAutomationSettings = vi.fn();
 const sendMutate = vi.fn();
+const updateAutomationMutate = vi.fn();
+const createTemplateMutate = vi.fn();
+const updateTemplateMutate = vi.fn();
 vi.mock("../hooks/useBroadcasts", () => ({
   useBroadcastPreview: (...args: unknown[]) => useBroadcastPreview(...args),
-  useSendBroadcast: () => useSendBroadcast()
+  useBroadcastTemplates: (...args: unknown[]) => useBroadcastTemplates(...args),
+  useBroadcastTemplateVariables: (...args: unknown[]) => useBroadcastTemplateVariables(...args),
+  useCreateBroadcastTemplate: () => useCreateBroadcastTemplate(),
+  useUpdateBroadcastTemplate: () => useUpdateBroadcastTemplate(),
+  useSendBroadcast: () => useSendBroadcast(),
+  useSameDayFreedSlotAutomationSettings: () => useSameDayFreedSlotAutomationSettings(),
+  useUpdateSameDayFreedSlotAutomationSettings: () =>
+    useUpdateSameDayFreedSlotAutomationSettings()
 }));
 
 import { Broadcasts } from "./Broadcasts";
@@ -38,6 +61,24 @@ function renderPage(): void {
       <Broadcasts />
     </MemoryRouter>
   );
+}
+
+const catalog = getStaticCatalog(DEFAULT_LOCALE);
+const tr = (key: string, params?: Record<string, string | number>): string =>
+  t(catalog, key, params);
+
+function getManualAudienceSelect(): HTMLElement {
+  return screen.getAllByLabelText(tr("admin.broadcasts.fieldAudience")).at(-1)!;
+}
+
+const templateNameLabel = /Название шаблона|admin\.broadcasts\.templateName/;
+const templateBodyLabel = /Основной текст|admin\.broadcasts\.templateBody/;
+const templateSlotLineLabel = /Строка слота|admin\.broadcasts\.templateSlotLine/;
+const templateEmptyLabel =
+  /Текст без свободных слотов|admin\.broadcasts\.templateEmpty/;
+
+function getTemplateSelect(): HTMLElement {
+  return screen.getByRole("combobox", { name: "Шаблон" });
 }
 
 const sampleLevels: Level[] = [
@@ -57,12 +98,46 @@ const samplePreview: BroadcastPreview = {
       startTime: "18:00",
       endTime: "19:30",
       trainerName: "Анна",
+      groupName: "Beach Start",
       levelName: "Начинающий",
       freeSeats: 3,
       priceSingleRsd: 1500
     }
   ]
 };
+
+const sampleTemplate: BroadcastTemplate = {
+  id: "55555555-5555-4555-8555-555555555555",
+  name: "Weekend push",
+  broadcastType: "today",
+  status: "active",
+  bodyTemplate: "Body {groupName}",
+  slotLineTemplate: "{date} {startTime} {groupName}",
+  emptyBodyTemplate: "No slots",
+  version: 2,
+  createdAt: "2026-06-04T09:00:00.000Z",
+  updatedAt: "2026-06-04T09:30:00.000Z",
+  updatedBy: 1
+};
+
+const sampleVariables: BroadcastTemplateVariable[] = [
+  {
+    key: "groupName",
+    placeholder: "{groupName}",
+    label: "Group name",
+    description: "Full group name resolved by the server.",
+    example: "Beach Start",
+    valueType: "string"
+  },
+  {
+    key: "freeSeats",
+    placeholder: "{freeSeats}",
+    label: "Free seats",
+    description: "Server-computed remaining capacity.",
+    example: "3",
+    valueType: "integer"
+  }
+];
 
 const sentBroadcast: Broadcast = {
   id: "44444444-4444-4444-4444-444444444444",
@@ -76,40 +151,178 @@ const sentBroadcast: Broadcast = {
 beforeEach(() => {
   notify.mockReset();
   sendMutate.mockReset();
+  updateAutomationMutate.mockReset();
+  createTemplateMutate.mockReset();
+  updateTemplateMutate.mockReset();
   useLevels.mockReturnValue({ isLoading: false, isError: false, data: sampleLevels });
-  // Default: a successful preview exists.
+  useBroadcastTemplates.mockReturnValue({
+    isLoading: false,
+    isError: false,
+    error: null,
+    data: [sampleTemplate]
+  });
+  useBroadcastTemplateVariables.mockReturnValue({
+    isLoading: false,
+    isError: false,
+    error: null,
+    data: sampleVariables
+  });
+  useCreateBroadcastTemplate.mockReturnValue({
+    mutate: createTemplateMutate,
+    isPending: false,
+    error: null
+  });
+  useUpdateBroadcastTemplate.mockReturnValue({
+    mutate: updateTemplateMutate,
+    isPending: false,
+    error: null
+  });
   useBroadcastPreview.mockReturnValue({
     isLoading: false,
+    isFetching: false,
     isError: false,
     error: null,
     data: samplePreview
   });
   useSendBroadcast.mockReturnValue({ mutate: sendMutate, isPending: false, error: null });
+  useSameDayFreedSlotAutomationSettings.mockReturnValue({
+    isLoading: false,
+    isError: false,
+    error: null,
+    data: { enabled: false, audience: null },
+    refetch: vi.fn()
+  });
+  useUpdateSameDayFreedSlotAutomationSettings.mockReturnValue({
+    mutate: updateAutomationMutate,
+    reset: vi.fn(),
+    isPending: false,
+    isError: false,
+    isSuccess: false,
+    error: null
+  });
 });
 
 afterEach(cleanup);
 
-describe("Broadcasts composer", () => {
-  it("requests the preview with the default type and an 'all' audience", () => {
+describe("same-day freed-slot automation workspace", () => {
+  it("renders the persisted disabled status and unconfigured audience placeholder", () => {
     renderPage();
-    // type "today", audience kind "all" by default.
-    const [type, audience] = useBroadcastPreview.mock.calls.at(-1) as [string, unknown];
+
+    expect(screen.getByText(tr("admin.broadcasts.automationStatusDisabled"))).toBeTruthy();
+    expect(
+      screen.getByRole("option", {
+        name: tr("admin.broadcasts.automationAudiencePlaceholder")
+      })
+    ).toBeTruthy();
+  });
+
+  it("shows load failure and retries the settings query", () => {
+    const refetch = vi.fn();
+    useSameDayFreedSlotAutomationSettings.mockReturnValue({
+      isLoading: false,
+      isError: true,
+      error: new Error("offline"),
+      data: undefined,
+      refetch
+    });
+
+    renderPage();
+
+    expect(screen.getByRole("alert").textContent).toContain("offline");
+    fireEvent.click(
+      screen.getByRole("button", { name: tr("admin.broadcasts.automationRetry") })
+    );
+    expect(refetch).toHaveBeenCalledOnce();
+  });
+
+  it("blocks enabling until a complete audience is selected", () => {
+    renderPage();
+
+    fireEvent.click(
+      screen.getByRole("checkbox", { name: tr("admin.broadcasts.automationEnable") })
+    );
+
+    expect(screen.getByText(tr("admin.broadcasts.automationIncomplete"))).toBeTruthy();
+    expect(
+      screen
+        .getByRole("button", { name: tr("admin.broadcasts.automationSave") })
+        .hasAttribute("disabled")
+    ).toBe(true);
+    expect(updateAutomationMutate).not.toHaveBeenCalled();
+  });
+
+  it("saves a complete policy and reports the persisted result", () => {
+    updateAutomationMutate.mockImplementation(
+      (_input, options?: { onSuccess?: (value: unknown) => void }) =>
+        options?.onSuccess?.({ enabled: true, audience: { kind: "all" } })
+    );
+    renderPage();
+
+    fireEvent.change(screen.getAllByLabelText(tr("admin.broadcasts.fieldAudience"))[0], {
+      target: { value: "all" }
+    });
+    fireEvent.click(
+      screen.getByRole("checkbox", { name: tr("admin.broadcasts.automationEnable") })
+    );
+    fireEvent.click(
+      screen.getByRole("button", { name: tr("admin.broadcasts.automationSave") })
+    );
+
+    expect(updateAutomationMutate.mock.calls[0]?.[0]).toEqual({
+      enabled: true,
+      audience: { kind: "all" }
+    });
+    expect(notify).toHaveBeenCalledWith(tr("admin.broadcasts.automationSaved"), "success");
+  });
+
+  it("renders save errors without changing the manual composer", () => {
+    useUpdateSameDayFreedSlotAutomationSettings.mockReturnValue({
+      mutate: updateAutomationMutate,
+      reset: vi.fn(),
+      isPending: false,
+      isError: true,
+      isSuccess: false,
+      error: new Error("save failed")
+    });
+
+    renderPage();
+
+    expect(screen.getAllByRole("alert").some((node) => node.textContent?.includes("save failed"))).toBe(
+      true
+    );
+    expect(useBroadcastPreview).toHaveBeenCalledWith("today", { kind: "all" }, null);
+  });
+});
+
+describe("Broadcasts composer", () => {
+  it("requests the preview with the default type, all audience, and no template", () => {
+    renderPage();
+    const [type, audience, templateId] = useBroadcastPreview.mock.calls.at(-1) as [
+      string,
+      unknown,
+      unknown
+    ];
     expect(type).toBe("today");
     expect(audience).toEqual({ kind: "all" });
+    expect(templateId).toBeNull();
   });
 
-  it("renders the API recipient count and composed message verbatim", () => {
+  it("renders the API recipient count, composed message, variables and slot metadata verbatim", () => {
     renderPage();
     expect(screen.getByText("42")).toBeTruthy();
-    expect(screen.getByText("Свободные места сегодня!")).toBeTruthy();
+    const previewText = screen.getByText(samplePreview.text);
+    expect(previewText.textContent).toBe(samplePreview.text);
     // Slot card details come straight from the preview.
+    expect(screen.getByText("Beach Start")).toBeTruthy();
     expect(screen.getByText(/Анна/)).toBeTruthy();
     expect(screen.getByText(/1[\s ]?500\s*RSD/)).toBeTruthy();
+    expect(screen.getByText("{groupName}")).toBeTruthy();
+    expect(screen.getByText("{freeSeats}")).toBeTruthy();
   });
 
-  it("builds a level audience when the level kind + level are chosen", () => {
+  it("builds a level audience when the level kind and level are chosen", () => {
     renderPage();
-    fireEvent.change(screen.getByLabelText("Аудитория"), { target: { value: "level" } });
+    fireEvent.change(getManualAudienceSelect(), { target: { value: "level" } });
     fireEvent.change(screen.getByLabelText("Уровень"), {
       target: { value: sampleLevels[1].id }
     });
@@ -119,25 +332,127 @@ describe("Broadcasts composer", () => {
 
   it("gates the preview (null audience) until a level is picked", () => {
     renderPage();
-    fireEvent.change(screen.getByLabelText("Аудитория"), { target: { value: "level" } });
-    // Level kind chosen but no level selected yet ⇒ audience must be null.
+    fireEvent.change(getManualAudienceSelect(), { target: { value: "level" } });
     const [, audience] = useBroadcastPreview.mock.calls.at(-1) as [string, unknown];
     expect(audience).toBeNull();
   });
 
+  it("does not send when level audience is selected without a level", () => {
+    renderPage();
+    fireEvent.change(getManualAudienceSelect(), { target: { value: "level" } });
+
+    const sendButton = screen.getByRole("button", { name: "Отправить" });
+    expect(sendButton.hasAttribute("disabled")).toBe(true);
+    fireEvent.click(sendButton);
+
+    const [, audience] = useBroadcastPreview.mock.calls.at(-1) as [string, unknown];
+    expect(audience).toBeNull();
+    expect(sendMutate).not.toHaveBeenCalled();
+  });
+
   it("builds an active-days audience from the days field", () => {
     renderPage();
-    fireEvent.change(screen.getByLabelText("Аудитория"), { target: { value: "active" } });
+    fireEvent.change(getManualAudienceSelect(), { target: { value: "active" } });
     fireEvent.change(screen.getByLabelText("Период, дней"), { target: { value: "30" } });
     const [, audience] = useBroadcastPreview.mock.calls.at(-1) as [string, unknown];
     expect(audience).toEqual({ kind: "active", days: 30 });
   });
 
-  it("sends the previewed broadcast with { type, audience }", () => {
+  it("sends the previewed fixed broadcast with { type, audience }", () => {
     renderPage();
     fireEvent.click(screen.getByRole("button", { name: "Отправить" }));
     expect(sendMutate).toHaveBeenCalledTimes(1);
     expect(sendMutate.mock.calls[0][0]).toEqual({ type: "today", audience: { kind: "all" } });
+  });
+
+  it("passes selected templateId to preview and sends templateId with previewToken", () => {
+    useBroadcastPreview.mockReturnValue({
+      isLoading: false,
+      isFetching: false,
+      isError: false,
+      error: null,
+      data: {
+        ...samplePreview,
+        templateId: sampleTemplate.id,
+        templateVersion: 2,
+        previewToken: "preview-token",
+        templateVariables: sampleVariables
+      }
+    });
+
+    renderPage();
+    fireEvent.change(getTemplateSelect(), {
+      target: { value: sampleTemplate.id }
+    });
+
+    const [, , templateId] = useBroadcastPreview.mock.calls.at(-1) as [
+      string,
+      unknown,
+      string
+    ];
+    expect(templateId).toBe(sampleTemplate.id);
+
+    fireEvent.click(screen.getByRole("button", { name: "Отправить" }));
+    expect(sendMutate.mock.calls[0][0]).toEqual({
+      type: "today",
+      audience: { kind: "all" },
+      templateId: sampleTemplate.id,
+      previewToken: "preview-token"
+    });
+  });
+
+  it("requires a fresh preview token before templated send", () => {
+    renderPage();
+    fireEvent.change(getTemplateSelect(), {
+      target: { value: sampleTemplate.id }
+    });
+    fireEvent.click(screen.getByRole("button", { name: "Отправить" }));
+
+    expect(sendMutate).not.toHaveBeenCalled();
+    expect(notify).toHaveBeenCalledWith(expect.any(String), "error");
+  });
+
+  it("creates a new template from the editor form", () => {
+    renderPage();
+    fireEvent.change(getTemplateSelect(), { target: { value: "__new__" } });
+    fireEvent.change(screen.getByLabelText(templateNameLabel), { target: { value: "Fresh copy" } });
+    fireEvent.change(screen.getByLabelText(templateBodyLabel), {
+      target: { value: "Body {groupName}" }
+    });
+    fireEvent.change(screen.getByLabelText(templateSlotLineLabel), {
+      target: { value: "{date} {startTime}" }
+    });
+    fireEvent.change(screen.getByLabelText(templateEmptyLabel), {
+      target: { value: "No slots" }
+    });
+    fireEvent.click(screen.getByRole("button", { name: "Сохранить" }));
+
+    expect(createTemplateMutate.mock.calls[0][0]).toEqual({
+      name: "Fresh copy",
+      broadcastType: "today",
+      bodyTemplate: "Body {groupName}",
+      slotLineTemplate: "{date} {startTime}",
+      emptyBodyTemplate: "No slots"
+    });
+  });
+
+  it("updates an existing template from the editor form", () => {
+    renderPage();
+    fireEvent.change(getTemplateSelect(), {
+      target: { value: sampleTemplate.id }
+    });
+    fireEvent.change(screen.getByLabelText(templateNameLabel), { target: { value: "Updated" } });
+    fireEvent.click(screen.getByRole("button", { name: "Сохранить" }));
+
+    expect(updateTemplateMutate.mock.calls[0][0]).toEqual({
+      id: sampleTemplate.id,
+      input: {
+        name: "Updated",
+        bodyTemplate: sampleTemplate.bodyTemplate,
+        slotLineTemplate: sampleTemplate.slotLineTemplate,
+        emptyBodyTemplate: sampleTemplate.emptyBodyTemplate
+      }
+    });
   });
 
   it("toasts the persisted recipients reached on a successful send", () => {
@@ -165,6 +480,7 @@ describe("Broadcasts composer", () => {
   it("disables send until a preview exists", () => {
     useBroadcastPreview.mockReturnValue({
       isLoading: true,
+      isFetching: true,
       isError: false,
       error: null,
       data: undefined
@@ -177,6 +493,7 @@ describe("Broadcasts composer", () => {
   it("shows a loading state while the preview is computing", () => {
     useBroadcastPreview.mockReturnValue({
       isLoading: true,
+      isFetching: true,
       isError: false,
       error: null,
       data: undefined
@@ -188,6 +505,7 @@ describe("Broadcasts composer", () => {
   it("surfaces a preview error", () => {
     useBroadcastPreview.mockReturnValue({
       isLoading: false,
+      isFetching: false,
       isError: true,
       error: new Error("nope"),
       data: undefined

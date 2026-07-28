@@ -674,6 +674,7 @@ export class TrainingsService {
         dayOfWeek: isoWeekdayOf(row.date),
         startTime: row.startTime,
         endTime: row.endTime,
+        groupName: row.groupName,
         trainerName: row.trainerName,
         levelName: row.levelName,
         freeSeats: freeSeats({
@@ -726,6 +727,7 @@ export class TrainingsService {
           dayOfWeek: isoWeekdayOf(row.date),
           startTime: row.startTime,
           endTime: row.endTime,
+          groupName: row.groupName,
           trainingContextLabel: row.trainingContextLabel,
           trainerName: row.trainerName,
           levelName: row.levelName,

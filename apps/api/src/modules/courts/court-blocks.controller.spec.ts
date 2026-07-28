@@ -11,6 +11,7 @@ const block: CourtBlock = {
   startTime: "08:00",
   endTime: "10:00",
   reason: "Maintenance",
+  description: "Net repair",
   groupTrainingId: null
 };
 

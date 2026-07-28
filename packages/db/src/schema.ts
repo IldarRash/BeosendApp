@@ -2,8 +2,10 @@ import { sql } from "drizzle-orm";
 import {
   bigint,
   boolean,
+  check,
   date,
   integer,
+  jsonb,
   numeric,
   pgEnum,
   pgTable,
@@ -50,6 +52,17 @@ export const individualTrainingRequestStatus = pgEnum("individual_training_reque
   "declined"
 ]);
 export const broadcastType = pgEnum("broadcast_type", ["today", "tomorrow", "week", "freed-up"]);
+export const sameDayFreedSlotEventOutcome = pgEnum("same_day_freed_slot_event_outcome", [
+  "pending",
+  "skipped",
+  "completed"
+]);
+export const sameDayFreedSlotDeliveryOutcome = pgEnum("same_day_freed_slot_delivery_outcome", [
+  "claimed",
+  "sent",
+  "failed",
+  "ambiguous"
+]);
 export const notificationType = pgEnum("notification_type", [
   "booking-confirmed",
   "booking-pending",
@@ -334,6 +347,50 @@ export const bookings = pgTable("bookings", {
   priceSnapshotAt: timestamp("price_snapshot_at", { withTimezone: true })
 });
 
+export const sameDayFreedSlotEvents = pgTable("same_day_freed_slot_events", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  cancelledBookingId: uuid("cancelled_booking_id")
+    .notNull()
+    .references(() => bookings.id),
+  trainingId: uuid("training_id")
+    .notNull()
+    .references(() => trainings.id)
+    .unique(),
+  audienceSnapshot: jsonb("audience_snapshot").notNull(),
+  occurrenceDate: date("occurrence_date").notNull(),
+  occurrenceStartTime: time("occurrence_start_time").notNull(),
+  capacity: integer("capacity").notNull(),
+  bookedCount: integer("booked_count").notNull(),
+  triggeredAt: timestamp("triggered_at", { withTimezone: true }).notNull().defaultNow(),
+  outcome: sameDayFreedSlotEventOutcome("outcome").notNull().default("pending"),
+  skipReason: text("skip_reason")
+});
+
+export const sameDayFreedSlotDeliveries = pgTable(
+  "same_day_freed_slot_deliveries",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    eventId: uuid("event_id")
+      .notNull()
+      .references(() => sameDayFreedSlotEvents.id),
+    clientId: uuid("client_id")
+      .notNull()
+      .references(() => clients.id),
+    telegramId: bigint("telegram_id", { mode: "number" }).notNull(),
+    outcome: sameDayFreedSlotDeliveryOutcome("outcome").notNull().default("claimed"),
+    claimedAt: timestamp("claimed_at", { withTimezone: true }).notNull().defaultNow(),
+    sentAt: timestamp("sent_at", { withTimezone: true }),
+    failedAt: timestamp("failed_at", { withTimezone: true }),
+    lastError: text("last_error")
+  },
+  (table) => ({
+    eventClientIdx: uniqueIndex("same_day_freed_slot_deliveries_event_client_idx").on(
+      table.eventId,
+      table.clientId
+    )
+  })
+);
+
 export const waitlist = pgTable("waitlist", {
   id: uuid("id").primaryKey().defaultRandom(),
   clientId: uuid("client_id")
@@ -362,6 +419,42 @@ export const broadcasts = pgTable("broadcasts", {
   sentAt: timestamp("sent_at", { withTimezone: true }).notNull().defaultNow(),
   recipientsCount: integer("recipients_count").notNull().default(0)
 });
+
+export const broadcastTemplates = pgTable(
+  "broadcast_templates",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    name: text("name").notNull(),
+    broadcastType: broadcastType("broadcast_type").notNull(),
+    status: entityStatus("status").notNull().default("active"),
+    bodyTemplate: text("body_template").notNull(),
+    slotLineTemplate: text("slot_line_template").notNull(),
+    emptyBodyTemplate: text("empty_body_template").notNull(),
+    version: integer("version").notNull().default(1),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+    updatedBy: bigint("updated_by", { mode: "number" })
+  },
+  (table) => ({
+    activeTypeNameIdx: uniqueIndex("broadcast_templates_active_type_name_idx")
+      .on(table.broadcastType, table.name)
+      .where(sql`${table.status} = 'active'`),
+    nameNonEmpty: check("broadcast_templates_name_non_empty", sql`length(trim(${table.name})) > 0`),
+    bodyTemplateNonEmpty: check(
+      "broadcast_templates_body_template_non_empty",
+      sql`length(trim(${table.bodyTemplate})) > 0`
+    ),
+    slotLineTemplateNonEmpty: check(
+      "broadcast_templates_slot_line_template_non_empty",
+      sql`length(trim(${table.slotLineTemplate})) > 0`
+    ),
+    emptyBodyTemplateNonEmpty: check(
+      "broadcast_templates_empty_body_template_non_empty",
+      sql`length(trim(${table.emptyBodyTemplate})) > 0`
+    ),
+    versionPositive: check("broadcast_templates_version_positive", sql`${table.version} > 0`)
+  })
+);
 
 export const notifications = pgTable("notifications", {
   id: uuid("id").primaryKey().defaultRandom(),
@@ -399,6 +492,7 @@ export const courtBlocks = pgTable(
     startTime: time("start_time").notNull(),
     endTime: time("end_time").notNull(),
     reason: text("reason").notNull(),
+    description: text("description"),
     // Non-null = an auto-block created for this training instance at month
     // generation; null = a manual admin block (C5). Lets auto-blocks be
     // distinguished, reassigned, and removed when the training is cancelled.
@@ -564,8 +658,11 @@ export const schema = {
   trainings,
   individualTrainingRequests,
   bookings,
+  sameDayFreedSlotEvents,
+  sameDayFreedSlotDeliveries,
   waitlist,
   broadcasts,
+  broadcastTemplates,
   notifications,
   courts,
   courtBlocks,

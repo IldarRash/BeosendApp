@@ -64,6 +64,7 @@ const sampleBlocks: CourtBlock[] = [
     endTime: "12:00",
     reason: "Турнир",
     // Manual admin block (C5): no source training.
+    description: "Setup note",
     groupTrainingId: null
   },
   {
@@ -74,6 +75,7 @@ const sampleBlocks: CourtBlock[] = [
     endTime: "15:00",
     reason: "Группа А",
     // Auto-block created under a group at month generation.
+    description: null,
     groupTrainingId: GROUP_TRAINING_ID
   }
 ];
@@ -179,6 +181,9 @@ describe("CourtBlocks page", () => {
     fireEvent.change(within(dialog).getByLabelText("Причина"), {
       target: { value: "Тренировка" }
     });
+    fireEvent.change(within(dialog).getByLabelText("Описание"), {
+      target: { value: "Bring extra balls" }
+    });
     fireEvent.click(within(dialog).getByRole("button", { name: "Сохранить" }));
     expect(createMutate).toHaveBeenCalledTimes(1);
     expect(createMutate.mock.calls[0][0]).toEqual({
@@ -186,7 +191,8 @@ describe("CourtBlocks page", () => {
       date: "2026-06-11",
       startTime: "09:00",
       endTime: "11:00",
-      reason: "Тренировка"
+      reason: "Тренировка",
+      description: "Bring extra balls"
     });
   });
 
@@ -214,6 +220,9 @@ describe("CourtBlocks page", () => {
     fireEvent.change(within(dialog).getByLabelText("Причина"), {
       target: { value: "Турнир" }
     });
+    fireEvent.change(within(dialog).getByLabelText("Описание"), {
+      target: { value: "Use divider nets" }
+    });
     fireEvent.click(within(dialog).getByRole("button", { name: "Сохранить" }));
 
     expect(createRecurringMutate).toHaveBeenCalledTimes(1);
@@ -224,7 +233,8 @@ describe("CourtBlocks page", () => {
       daysOfWeek: [3],
       startTime: "09:00",
       endTime: "11:00",
-      reason: "Турнир"
+      reason: "Турнир",
+      description: "Use divider nets"
     });
     expect(notify).toHaveBeenCalledWith("Создано блокировок: 2.", "success");
   });

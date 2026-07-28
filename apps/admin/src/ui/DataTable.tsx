@@ -235,10 +235,6 @@ export function DataTable<Row>({
     [rows, columns, sort, filters]
   );
 
-  if (rows.length === 0) {
-    return <p className="datatable__empty">{emptyLabel}</p>;
-  }
-
   function setFilter(key: string, value: TableFilterValue): void {
     setFilters((current) => ({ ...current, [key]: value }));
   }
@@ -400,7 +396,7 @@ export function DataTable<Row>({
           {visibleRows.length === 0 ? (
             <tr>
               <td className="datatable__empty-cell" colSpan={columns.length}>
-                {filteredEmptyLabel}
+                {rows.length === 0 ? emptyLabel : filteredEmptyLabel}
               </td>
             </tr>
           ) : (

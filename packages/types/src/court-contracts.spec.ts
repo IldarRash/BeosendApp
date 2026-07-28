@@ -22,7 +22,8 @@ import {
   reassignCourtBlockSchema,
   reassignCourtRequestSchema,
   rejectCourtRequestSchema,
-  slotAvailabilitySchema
+  slotAvailabilitySchema,
+  updateCourtBlockSchema
 } from "./court-contracts";
 
 const validBlock = {
@@ -66,6 +67,21 @@ describe("createCourtBlockSchema", () => {
     if (!parsed.success) {
       expect(parsed.error.issues[0]?.code).toBe("unrecognized_keys");
     }
+  });
+
+  it("accepts omitted, null, blank, and trimmed descriptions", () => {
+    expect(createCourtBlockSchema.parse(validBlock)).toEqual(validBlock);
+    expect(createCourtBlockSchema.parse({ ...validBlock, description: null }).description).toBeNull();
+    expect(createCourtBlockSchema.parse({ ...validBlock, description: "   " }).description).toBeNull();
+    expect(createCourtBlockSchema.parse({ ...validBlock, description: "  setup note  " }).description).toBe(
+      "setup note"
+    );
+  });
+
+  it("rejects an overlong description", () => {
+    expect(
+      createCourtBlockSchema.safeParse({ ...validBlock, description: "x".repeat(1001) }).success
+    ).toBe(false);
   });
 });
 
@@ -120,13 +136,25 @@ describe("createRecurringCourtBlocksSchema", () => {
       createRecurringCourtBlocksSchema.safeParse({ ...validRecurring, groupTrainingId: null }).success
     ).toBe(false);
   });
+
+  it("accepts and normalizes the optional description for every occurrence", () => {
+    expect(
+      createRecurringCourtBlocksSchema.parse({
+        ...validRecurring,
+        description: "  recurring setup  "
+      }).description
+    ).toBe("recurring setup");
+    expect(
+      createRecurringCourtBlocksSchema.parse({ ...validRecurring, description: "" }).description
+    ).toBeNull();
+  });
 });
 
 describe("courtBlockSchema (entity — carries the group link)", () => {
   const id = "33333333-3333-4333-8333-333333333333";
   it("T10 — accepts a null groupTrainingId (manual block)", () => {
     expect(
-      courtBlockSchema.safeParse({ ...validBlock, id, groupTrainingId: null }).success
+      courtBlockSchema.safeParse({ ...validBlock, id, description: null, groupTrainingId: null }).success
     ).toBe(true);
   });
 
@@ -135,13 +163,18 @@ describe("courtBlockSchema (entity — carries the group link)", () => {
       courtBlockSchema.safeParse({
         ...validBlock,
         id,
+        description: "Operator note",
         groupTrainingId: "44444444-4444-4444-4444-444444444444"
       }).success
     ).toBe(true);
   });
 
   it("T10 — rejects a missing groupTrainingId (it is required, even if nullable)", () => {
-    expect(courtBlockSchema.safeParse({ ...validBlock, id }).success).toBe(false);
+    expect(courtBlockSchema.safeParse({ ...validBlock, id, description: null }).success).toBe(false);
+  });
+
+  it("requires the description key even when the value is null", () => {
+    expect(courtBlockSchema.safeParse({ ...validBlock, id, groupTrainingId: null }).success).toBe(false);
   });
 });
 
@@ -153,8 +186,33 @@ describe("reassignCourtBlockSchema (T10)", () => {
     ).toBe(true);
   });
 
+  it("accepts description-only patches with trim/null normalization", () => {
+    expect(updateCourtBlockSchema.parse({ description: "  refreshed note  " })).toEqual({
+      description: "refreshed note"
+    });
+    expect(updateCourtBlockSchema.parse({ description: "" })).toEqual({ description: null });
+    expect(updateCourtBlockSchema.parse({ description: null })).toEqual({ description: null });
+  });
+
+  it("accepts courtId and description together", () => {
+    expect(
+      updateCourtBlockSchema.parse({
+        courtId: "55555555-5555-4555-8555-555555555555",
+        description: "  keep clear  "
+      })
+    ).toEqual({
+      courtId: "55555555-5555-4555-8555-555555555555",
+      description: "keep clear"
+    });
+  });
+
   it("rejects a non-uuid courtId", () => {
     expect(reassignCourtBlockSchema.safeParse({ courtId: "nope" }).success).toBe(false);
+  });
+
+  it("rejects an empty patch and overlong descriptions", () => {
+    expect(updateCourtBlockSchema.safeParse({}).success).toBe(false);
+    expect(updateCourtBlockSchema.safeParse({ description: "x".repeat(1001) }).success).toBe(false);
   });
 
   it("rejects unknown fields", () => {
@@ -175,7 +233,8 @@ describe("courtLoadCellSchema (carries the block id and optional reason for admi
     state: "free",
     requestId: null,
     trainingId: null,
-    reason: null
+    reason: null,
+    description: null
   };
 
   it("accepts a free cell with a null blockId", () => {
@@ -190,7 +249,8 @@ describe("courtLoadCellSchema (carries the block id and optional reason for admi
         requestId: "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb",
         trainingId: null,
         blockId: null,
-        reason: null
+        reason: null,
+        description: null
       }).success
     ).toBe(true);
   });
@@ -203,7 +263,8 @@ describe("courtLoadCellSchema (carries the block id and optional reason for admi
         requestId: null,
         trainingId: "66666666-6666-4666-8666-666666666666",
         blockId: "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa",
-        reason: "Group training"
+        reason: "Group training",
+        description: "Bring cones"
       }).success
     ).toBe(true);
   });
@@ -215,6 +276,15 @@ describe("courtLoadCellSchema (carries the block id and optional reason for admi
   it("requires the reason key (nullable for free/request cells)", () => {
     const { reason: _reason, ...withoutReason } = { ...base, blockId: null };
     expect(courtLoadCellSchema.safeParse(withoutReason).success).toBe(false);
+  });
+
+  it("requires the description key and carries null for non-block cells", () => {
+    const { description: _description, ...withoutDescription } = { ...base, blockId: null };
+    expect(courtLoadCellSchema.safeParse(withoutDescription).success).toBe(false);
+    expect(
+      courtLoadCellSchema.parse({ ...base, state: "request", requestId: uuidA, blockId: null })
+        .description
+    ).toBeNull();
   });
 
   it("rejects a non-uuid blockId", () => {

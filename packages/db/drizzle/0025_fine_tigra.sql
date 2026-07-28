@@ -1,0 +1,1 @@
+ALTER TABLE "court_blocks" ADD COLUMN "description" text;

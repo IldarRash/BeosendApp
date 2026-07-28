@@ -132,4 +132,20 @@ describe("DataTable controls", () => {
       "—"
     ]);
   });
+
+  it("keeps the source-empty state inside table semantics", () => {
+    render(
+      <DataTable
+        caption="Empty table"
+        columns={columns}
+        rows={[]}
+        rowKey={(row) => row.id}
+        emptyLabel="No source rows"
+      />
+    );
+
+    const table = screen.getByRole("table", { name: "Empty table" });
+    const emptyCell = within(table).getByRole("cell", { name: "No source rows" });
+    expect(emptyCell.getAttribute("colspan")).toBe(String(columns.length));
+  });
 });

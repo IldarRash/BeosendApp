@@ -9,6 +9,7 @@ export interface InsertCourtBlock {
   startTime: string;
   endTime: string;
   reason: string;
+  description?: string | null;
   groupTrainingId?: string | null;
 }
 
@@ -19,6 +20,11 @@ export interface UpdateCourtBlockAssignment {
   endTime: string;
 }
 
+export interface UpdateCourtBlockPatch {
+  courtId?: string;
+  description?: string | null;
+}
+
 /** Persisted court-block row, as the entity contract expects it. */
 export interface CourtBlockRow {
   id: string;
@@ -27,6 +33,7 @@ export interface CourtBlockRow {
   startTime: string;
   endTime: string;
   reason: string;
+  description: string | null;
   groupTrainingId: string | null;
 }
 
@@ -277,6 +284,7 @@ export class CourtBlocksRepository {
         startTime: input.startTime,
         endTime: input.endTime,
         reason: input.reason,
+        description: input.description ?? null,
         groupTrainingId: input.groupTrainingId ?? null
       })
       .returning(blockColumns);
@@ -292,6 +300,20 @@ export class CourtBlocksRepository {
     const rows = await db
       .update(tables.courtBlocks)
       .set({ courtId })
+      .where(eq(tables.courtBlocks.id, id))
+      .returning(blockColumns);
+    return normalizeBlock(rows[0]);
+  }
+
+  /** Patch editable block fields. Returns the updated row. */
+  async updateBlock(
+    id: string,
+    input: UpdateCourtBlockPatch,
+    db: Database = this.database.db
+  ): Promise<CourtBlockRow> {
+    const rows = await db
+      .update(tables.courtBlocks)
+      .set(input)
       .where(eq(tables.courtBlocks.id, id))
       .returning(blockColumns);
     return normalizeBlock(rows[0]);
@@ -358,6 +380,7 @@ const blockColumns = {
   startTime: tables.courtBlocks.startTime,
   endTime: tables.courtBlocks.endTime,
   reason: tables.courtBlocks.reason,
+  description: tables.courtBlocks.description,
   groupTrainingId: tables.courtBlocks.groupTrainingId
 } as const;
 

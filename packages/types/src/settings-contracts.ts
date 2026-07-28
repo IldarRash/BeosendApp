@@ -6,6 +6,7 @@ import {
   normalizeUsername,
   timeString
 } from "./common";
+import { broadcastAudienceSchema } from "./training-contracts";
 
 /** Manager contact shown to clients. Allows handles, phones, or short free text. */
 export const managerContactValueSchema = z.string().trim().min(1).max(120);
@@ -39,6 +40,33 @@ export const updateRequestLoggingSettingsSchema = z
   .strict();
 export type UpdateRequestLoggingSettingsInput = z.infer<
   typeof updateRequestLoggingSettingsSchema
+>;
+
+const sameDayFreedSlotAutomationSettingsShape = {
+  enabled: z.boolean(),
+  audience: broadcastAudienceSchema.nullable()
+};
+
+export const sameDayFreedSlotAutomationSettingsSchema = z
+  .object(sameDayFreedSlotAutomationSettingsShape)
+  .strict()
+  .refine((value) => !value.enabled || value.audience !== null, {
+    message: "Audience is required when same-day freed-slot automation is enabled.",
+    path: ["audience"]
+  });
+export type SameDayFreedSlotAutomationSettings = z.infer<
+  typeof sameDayFreedSlotAutomationSettingsSchema
+>;
+
+export const updateSameDayFreedSlotAutomationSettingsSchema = z
+  .object(sameDayFreedSlotAutomationSettingsShape)
+  .strict()
+  .refine((value) => !value.enabled || value.audience !== null, {
+    message: "Audience is required when same-day freed-slot automation is enabled.",
+    path: ["audience"]
+  });
+export type UpdateSameDayFreedSlotAutomationSettingsInput = z.infer<
+  typeof updateSameDayFreedSlotAutomationSettingsSchema
 >;
 
 const calendarYear = z.coerce.number().int().min(2000).max(2100);

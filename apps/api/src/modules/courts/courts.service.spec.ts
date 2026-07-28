@@ -99,7 +99,16 @@ describe("CourtsService.getLoadGrid", () => {
       heldCourtOccupancyForDate: vi.fn().mockResolvedValue([]),
       blocksByCourtForDate: vi
         .fn()
-        .mockResolvedValue([{ courtId: courtB, startTime: "09:00", durationMinutes: 180 }]),
+        .mockResolvedValue([
+          {
+            courtId: courtB,
+            startTime: "09:00",
+            durationMinutes: 180,
+            blockId: "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb",
+            reason: "Maintenance",
+            description: "Net repair"
+          }
+        ]),
       unassignedTrainingsForDate: vi.fn().mockResolvedValue([])
     } as unknown as CourtsRepository;
   }
@@ -140,6 +149,10 @@ describe("CourtsService.getLoadGrid", () => {
     expect(stateAt(rowA, "12:00")).toBe("free");
     expect(stateAt(rowA, "09:00")).toBe("free");
     expect(stateAt(rowB, "09:00")).toBe("block");
+    expect(rowB?.cells.find((c) => c.startTime === "09:00")).toMatchObject({
+      reason: "Maintenance",
+      description: "Net repair"
+    });
     expect(stateAt(rowB, "11:30")).toBe("block");
     expect(stateAt(rowB, "12:00")).toBe("free");
     expect(rowA?.cells[0].startTime).toBe(timeOfMinutes(COURT_OPEN_HOUR * 60));
@@ -190,8 +203,23 @@ describe("CourtsService.getLoadGrid", () => {
       confirmedCourtOccupancyForDate: vi.fn().mockResolvedValue([]),
       heldCourtOccupancyForDate: vi.fn().mockResolvedValue([]),
       blocksByCourtForDate: vi.fn().mockResolvedValue([
-        { courtId: courtA, startTime: "10:00", durationMinutes: 120, trainingId },
-        { courtId: courtB, startTime: "14:00", durationMinutes: 60 }
+        {
+          courtId: courtA,
+          startTime: "10:00",
+          durationMinutes: 120,
+          trainingId,
+          blockId: "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa",
+          reason: "Group training",
+          description: "Coach note"
+        },
+        {
+          courtId: courtB,
+          startTime: "14:00",
+          durationMinutes: 60,
+          blockId: "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb",
+          reason: "Maintenance",
+          description: "Net repair"
+        }
       ]),
       unassignedTrainingsForDate: vi.fn().mockResolvedValue([])
     } as unknown as CourtsRepository;
@@ -206,6 +234,7 @@ describe("CourtsService.getLoadGrid", () => {
     const training = cellAt(rowA, "10:00");
     expect(training?.state).toBe("training");
     expect(training?.trainingId).toBe(trainingId);
+    expect(training?.description).toBe("Coach note");
     expect(training?.requestId).toBeNull();
     expect(cellAt(rowA, "11:30")?.state).toBe("training");
     expect(cellAt(rowA, "11:30")?.trainingId).toBe(trainingId);
@@ -213,13 +242,15 @@ describe("CourtsService.getLoadGrid", () => {
     const manual = cellAt(rowB, "14:00");
     expect(manual?.state).toBe("block");
     expect(manual?.trainingId).toBeNull();
+    expect(manual?.description).toBe("Net repair");
 
     const free = cellAt(rowA, "12:00");
     expect(free?.state).toBe("free");
     expect(free?.trainingId).toBeNull();
+    expect(free?.description).toBeNull();
   });
 
-  it("adds stored reasons to admin block/training cells and null elsewhere", async () => {
+  it("adds stored reasons and descriptions to admin block/training cells and null elsewhere", async () => {
     const trainingId = "33333333-3333-4333-8333-333333333333";
     const trainingBlockId = "44444444-4444-4444-8444-444444444444";
     const manualBlockId = "55555555-5555-4555-8555-555555555555";
@@ -240,14 +271,16 @@ describe("CourtsService.getLoadGrid", () => {
           durationMinutes: 60,
           trainingId,
           blockId: trainingBlockId,
-          reason: "Generated group block"
+          reason: "Generated group block",
+          description: "Use court divider"
         },
         {
           courtId: courtB,
           startTime: "11:00",
           durationMinutes: 30,
           blockId: manualBlockId,
-          reason: "Maintenance"
+          reason: "Maintenance",
+          description: "Replace net"
         }
       ]),
       unassignedTrainingsForDate: vi.fn().mockResolvedValue([])
@@ -261,21 +294,25 @@ describe("CourtsService.getLoadGrid", () => {
     expect(rowA?.cells.find((c) => c.startTime === "10:00")).toMatchObject({
       state: "training",
       blockId: trainingBlockId,
-      reason: "Generated group block"
+      reason: "Generated group block",
+      description: "Use court divider"
     });
     expect(rowB?.cells.find((c) => c.startTime === "11:00")).toMatchObject({
       state: "block",
       blockId: manualBlockId,
-      reason: "Maintenance"
+      reason: "Maintenance",
+      description: "Replace net"
     });
     expect(rowA?.cells.find((c) => c.startTime === "08:00")).toMatchObject({
       state: "request",
       requestId,
-      reason: null
+      reason: null,
+      description: null
     });
     expect(rowA?.cells.find((c) => c.startTime === "12:00")).toMatchObject({
       state: "free",
-      reason: null
+      reason: null,
+      description: null
     });
   });
 

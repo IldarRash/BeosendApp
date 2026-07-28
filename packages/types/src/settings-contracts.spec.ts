@@ -4,9 +4,11 @@ import {
   courtWorkingHoursMonthQuerySchema,
   courtWorkingHoursWindowSchema,
   requestLoggingSettingsSchema,
+  sameDayFreedSlotAutomationSettingsSchema,
   updateCourtWorkingHoursDaySchema,
   updateCourtWorkingHoursMonthSchema,
-  updateRequestLoggingSettingsSchema
+  updateRequestLoggingSettingsSchema,
+  updateSameDayFreedSlotAutomationSettingsSchema
 } from "./settings-contracts";
 
 describe("request logging settings contracts", () => {
@@ -22,6 +24,40 @@ describe("request logging settings contracts", () => {
     expect(() => requestLoggingSettingsSchema.parse({ detailed: "false" })).toThrow();
     expect(() => updateRequestLoggingSettingsSchema.parse({ detailed: true, extra: true })).toThrow();
     expect(() => updateRequestLoggingSettingsSchema.parse({ detailed: "true" })).toThrow();
+  });
+});
+
+describe("same-day freed-slot automation contracts", () => {
+  it.each([
+    { kind: "all" },
+    { kind: "level", levelId: "11111111-1111-4111-8111-111111111111" },
+    { kind: "active", days: 30 },
+    { kind: "lapsed", days: 60 }
+  ])("accepts an enabled policy for the existing $kind audience", (audience) => {
+    expect(
+      sameDayFreedSlotAutomationSettingsSchema.parse({ enabled: true, audience })
+    ).toEqual({ enabled: true, audience });
+    expect(
+      updateSameDayFreedSlotAutomationSettingsSchema.parse({ enabled: true, audience })
+    ).toEqual({ enabled: true, audience });
+  });
+
+  it("accepts an explicitly disabled unconfigured policy", () => {
+    expect(
+      sameDayFreedSlotAutomationSettingsSchema.parse({ enabled: false, audience: null })
+    ).toEqual({ enabled: false, audience: null });
+  });
+
+  it.each([
+    { enabled: true, audience: null },
+    { enabled: true },
+    { enabled: true, audience: { kind: "unknown" } },
+    { enabled: true, audience: { kind: "active", days: 0 } },
+    { enabled: true, audience: { kind: "level", levelId: "not-a-uuid" } },
+    { enabled: true, audience: { kind: "all" }, extra: true }
+  ])("rejects invalid or non-strict policy %#", (input) => {
+    expect(sameDayFreedSlotAutomationSettingsSchema.safeParse(input).success).toBe(false);
+    expect(updateSameDayFreedSlotAutomationSettingsSchema.safeParse(input).success).toBe(false);
   });
 });
 

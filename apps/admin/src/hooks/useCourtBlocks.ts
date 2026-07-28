@@ -5,7 +5,12 @@ import {
   type UseMutationResult,
   type UseQueryResult
 } from "@tanstack/react-query";
-import type { CourtBlock, CreateCourtBlock, CreateRecurringCourtBlocks } from "@beosand/types";
+import type {
+  CourtBlock,
+  CreateCourtBlock,
+  CreateRecurringCourtBlocks,
+  UpdateCourtBlock
+} from "@beosand/types";
 import { useApiClient } from "../api/ApiProvider";
 import type { DateRange } from "../ui/DateRangeFilter";
 import { COURT_LOAD_KEY } from "./useCourtLoad";
@@ -91,6 +96,20 @@ export function useReassignCourtBlock(): UseMutationResult<
   const queryClient = useQueryClient();
   return useMutation({
     mutationFn: ({ id, courtId }) => api.reassignCourtBlock(id, courtId),
+    onSuccess: () => invalidateBlocks(queryClient)
+  });
+}
+
+/** Update a block's operator description; refreshes the blocks list and load grid. */
+export function useUpdateCourtBlockDescription(): UseMutationResult<
+  CourtBlock,
+  Error,
+  { id: string } & Pick<UpdateCourtBlock, "description">
+> {
+  const api = useApiClient();
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: ({ id, description }) => api.updateCourtBlock(id, { description }),
     onSuccess: () => invalidateBlocks(queryClient)
   });
 }

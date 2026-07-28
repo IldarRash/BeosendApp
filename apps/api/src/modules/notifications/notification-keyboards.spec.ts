@@ -103,6 +103,27 @@ describe("bookSlotsKeyboard", () => {
     }
   });
 
+  it("adds the group name to the visible label while keeping callback_data unchanged", () => {
+    const markup = bookSlotsKeyboard("en", [
+      { ...slot, groupName: "Evening group" }
+    ]) as InlineKeyboardMarkup;
+
+    const button = markup.inline_keyboard[0][0];
+    expect(button.text.startsWith(`${BOOK_SLOT.en} `)).toBe(true);
+    expect(button.text).toContain("Evening group");
+    expect(callback(button)).toBe("book:slot:t1");
+  });
+
+  it("falls back to the compact label when group name would exceed Telegram's limit", () => {
+    const markup = bookSlotsKeyboard("en", [
+      { ...slot, groupName: "A very long group name that does not fit Telegram inline buttons" }
+    ]) as InlineKeyboardMarkup;
+
+    const button = markup.inline_keyboard[0][0];
+    expect(button.text).toBe(BOOK_SLOT.en);
+    expect(callback(button)).toBe("book:slot:t1");
+  });
+
   it("keeps the callback_data array byte-identical across locales (only labels localize)", () => {
     const slots = [slot, { trainingId: "t2", startTime: "19:00", levelName: "Beginner" }];
     const callbacksFor = (locale: Locale): string[] =>

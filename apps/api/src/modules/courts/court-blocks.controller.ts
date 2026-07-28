@@ -16,7 +16,7 @@ import {
   courtBlocksListQuerySchema,
   createCourtBlockSchema,
   createRecurringCourtBlocksSchema,
-  reassignCourtBlockSchema,
+  updateCourtBlockSchema,
   uuid,
   type CourtBlock
 } from "@beosand/types";
@@ -39,7 +39,7 @@ export class CourtBlocksController {
     const parsed = createCourtBlockSchema.safeParse(body);
     if (!parsed.success) {
       throw new BadRequestException(
-        "Invalid block body: expected { courtId, date, startTime, endTime, reason }."
+        "Invalid block body: expected { courtId, date, startTime, endTime, reason, description? }."
       );
     }
     return this.service.createBlock(telegramId, parsed.data);
@@ -55,7 +55,7 @@ export class CourtBlocksController {
     const parsed = createRecurringCourtBlocksSchema.safeParse(body);
     if (!parsed.success) {
       throw new BadRequestException(
-        "Invalid recurring block body: expected { courtId, from, to, daysOfWeek, startTime, endTime, reason }."
+        "Invalid recurring block body: expected { courtId, from, to, daysOfWeek, startTime, endTime, reason, description? }."
       );
     }
     return this.service.createRecurringBlocks(telegramId, parsed.data);
@@ -88,7 +88,7 @@ export class CourtBlocksController {
     return this.service.listBlocks(telegramId, single, single);
   }
 
-  /** Admin-only. Move a block to another court (re-checks overlap + 6-per-slot limit). */
+  /** Admin-only. Edit block notes and/or move to another court. */
   @Patch(":id")
   async reassign(
     @Headers("x-telegram-id") rawTelegramId: string | undefined,
@@ -100,9 +100,11 @@ export class CourtBlocksController {
     if (!idParsed.success) {
       throw new BadRequestException("Invalid block id.");
     }
-    const bodyParsed = reassignCourtBlockSchema.safeParse(body);
+    const bodyParsed = updateCourtBlockSchema.safeParse(body);
     if (!bodyParsed.success) {
-      throw new BadRequestException("Invalid body: expected { courtId }.");
+      throw new BadRequestException(
+        "Invalid body: expected at least one of { courtId, description }."
+      );
     }
     return this.service.reassignCourt(telegramId, idParsed.data, bodyParsed.data);
   }
