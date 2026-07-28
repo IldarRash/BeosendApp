@@ -10,6 +10,7 @@
  * `{param}` tokens are interpolated by the resolver.
  */
 export const adminRu: Record<string, string> = {
+  "admin.broadcasts.item": "Сообщение", "admin.broadcasts.itemText": "Снимок текста", "admin.broadcasts.bookingTraining": "Тренировка для бронирования", "admin.broadcasts.language": "Язык", "admin.broadcasts.fallback": "замена языка", "admin.broadcasts.detailItems": "Элементы сообщения", "admin.broadcasts.detailItemsEmpty": "Элементы сообщения не созданы.", "admin.broadcasts.detailTrainings": "Решения по тренировкам", "admin.broadcasts.detailTrainingsEmpty": "Решения по тренировкам не записаны.", "admin.broadcasts.detailDeliveries": "Результаты доставок", "admin.broadcasts.detailDeliveriesEmpty": "Доставки не записаны.", "admin.broadcasts.training": "Снимок тренировки", "admin.broadcasts.outcome": "Результат", "admin.broadcasts.skipReason": "Причина пропуска", "admin.broadcasts.freeSeats": "Свободные места", "admin.broadcasts.payload": "Снимок отправки", "admin.broadcasts.diagnostic": "Диагностика", "admin.broadcasts.noDiagnostic": "Нет диагностики", "admin.broadcasts.retryLink": "Связь повтора", "admin.broadcasts.retryOfDelivery": "Повтор доставки", "admin.broadcasts.openOriginalRun": "Открыть исходный запуск", "admin.broadcasts.retrySucceeded": "Создан повтор для доставок: {count}.", "admin.broadcasts.retryFailed": "Не удалось повторить: {message}", "admin.broadcasts.retrying": "Повтор…",
   // ── Navigation ──────────────────────────────────────────────────────────
   "admin.nav.dashboard": "Дашборд",
   "admin.nav.overview": "Обзор",

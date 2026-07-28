@@ -1,5 +1,5 @@
 import { useMemo, useState } from "react";
-import type { BroadcastAudience, BroadcastAutomation, BroadcastAutomationPreview, BroadcastType, Locale } from "@beosand/types";
+import type { BroadcastAudience, BroadcastAutomation, BroadcastAutomationPreview, BroadcastAutomationRunDetail, BroadcastType, Locale, RetryBroadcastAutomationFailuresResult } from "@beosand/types";
 import { AppShell } from "../ui/AppShell";
 import { Button } from "../ui/Button";
 import { DataTable, type Column } from "../ui/DataTable";
@@ -29,6 +29,7 @@ export function Broadcasts(): JSX.Element {
   const [preview, setPreview] = useState<BroadcastAutomationPreview | null>(null);
   const [runId, setRunId] = useState<string | null>(null);
   const [ambiguous, setAmbiguous] = useState(false);
+  const [retryResult, setRetryResult] = useState<RetryBroadcastAutomationFailuresResult | null>(null);
   const selectedRun = useBroadcastAutomationRun(runId);
   const levelOptions = useMemo(() => levels.data ?? [], [levels.data]);
   const valid = draft.name.trim() !== "" && draft.audience.levelIds.length > 0 && Boolean(draft.message.bodies[draft.message.defaultLanguage]);
@@ -61,9 +62,9 @@ export function Broadcasts(): JSX.Element {
         </aside>
       </div>
     </section>
-    <section className="workspace" aria-label={t("admin.broadcasts.historyTitle")}><div className="workspace__bar"><h2>{t("admin.broadcasts.historyTitle")}</h2></div>{runs.isLoading ? <p className="state state--loading">{t("admin.broadcasts.loading")}</p> : <History items={runs.data?.items ?? []} onOpen={setRunId} />}</section>
+    <section className="workspace" aria-label={t("admin.broadcasts.historyTitle")}><div className="workspace__bar"><h2>{t("admin.broadcasts.historyTitle")}</h2></div>{runs.isLoading ? <p className="state state--loading">{t("admin.broadcasts.loading")}</p> : runs.isError ? <p className="state state--error" role="alert">{t("admin.broadcasts.loadFailed", { message: runs.error.message })}</p> : <History items={runs.data?.items ?? []} onOpen={(id) => { setRunId(id); setAmbiguous(false); setRetryResult(null); }} />}</section>
     <LegacyManualSend levels={levelOptions} />
-    <RunDetail detail={selectedRun.data} loading={selectedRun.isLoading} onClose={() => setRunId(null)} onRetry={() => { if (runId) actions.retry.mutate({ runId, input: ambiguous ? { includeAmbiguous: true, acknowledgeAmbiguous: true } : { includeAmbiguous: false } }); }} ambiguous={ambiguous} onAmbiguous={setAmbiguous} />
+    <RunDetail detail={selectedRun.data} loading={selectedRun.isLoading} error={selectedRun.error} onClose={() => setRunId(null)} onOpenRun={(id) => { setRunId(id); setAmbiguous(false); setRetryResult(null); }} onRetry={() => { if (!runId) return; void actions.retry.mutateAsync({ runId, input: ambiguous ? { includeAmbiguous: true, acknowledgeAmbiguous: true } : { includeAmbiguous: false } }).then(setRetryResult).catch(() => undefined); }} retrying={actions.retry.isPending} retryResult={retryResult} retryError={actions.retry.error} ambiguous={ambiguous} onAmbiguous={setAmbiguous} />
   </AppShell>;
 }
 
@@ -143,4 +144,38 @@ function LegacyManualSend({ levels }: { levels: Array<{ id: string; name: string
 
 function History({ items, onOpen }: { items: Array<{ id: string; triggerKind: string; status: string; counts: { sent: number; failed: number; ambiguous: number }; createdAt: string }>; onOpen: (id: string) => void }): JSX.Element { const t = useT(); const columns: Column<(typeof items)[number]>[] = [{ key: "when", header: t("admin.broadcasts.when"), render: (row) => new Date(row.createdAt).toLocaleString() }, { key: "trigger", header: t("admin.broadcasts.trigger"), render: (row) => row.triggerKind }, { key: "status", header: t("admin.broadcasts.status"), render: (row) => row.status }, { key: "results", header: t("admin.broadcasts.results"), render: (row) => `${row.counts.sent}/${row.counts.failed}/${row.counts.ambiguous}` }, { key: "open", header: t("admin.broadcasts.actions"), render: (row) => <Button variant="ghost" onClick={() => onOpen(row.id)}>{t("admin.action.view")}</Button> }]; return <DataTable caption={t("admin.broadcasts.historyTitle")} columns={columns} rows={items} rowKey={(row) => row.id} emptyLabel={t("admin.broadcasts.historyEmpty")} />; }
 
-function RunDetail({ detail, loading, onClose, onRetry, ambiguous, onAmbiguous }: { detail: ReturnType<typeof useBroadcastAutomationRun>["data"]; loading: boolean; onClose: () => void; onRetry: () => void; ambiguous: boolean; onAmbiguous: (value: boolean) => void }): JSX.Element | null { const t = useT(); if (!detail && !loading) return null; return <Modal open onClose={onClose} title={t("admin.broadcasts.runDetail")}>{loading || !detail ? <p className="state state--loading">{t("admin.broadcasts.loading")}</p> : <div className="stack"><p>{t("admin.broadcasts.results")}: {detail.run.counts.sent}/{detail.run.counts.failed}/{detail.run.counts.ambiguous}</p><p className="field__hint">{t("admin.broadcasts.retryHint")}</p><label className="check"><input type="checkbox" checked={ambiguous} onChange={(e) => onAmbiguous(e.target.checked)} /> {t("admin.broadcasts.retryAmbiguous")}</label>{ambiguous ? <p className="state state--warning">{t("admin.broadcasts.duplicateWarning")}</p> : null}<Button variant="primary" onClick={onRetry}>{t("admin.broadcasts.retry")}</Button></div>}</Modal>; }
+function RunDetail({ detail, loading, error, onClose, onOpenRun, onRetry, retrying, retryResult, retryError, ambiguous, onAmbiguous }: { detail: BroadcastAutomationRunDetail | undefined; loading: boolean; error: Error | null; onClose: () => void; onOpenRun: (id: string) => void; onRetry: () => void; retrying: boolean; retryResult: RetryBroadcastAutomationFailuresResult | null; retryError: Error | null; ambiguous: boolean; onAmbiguous: (value: boolean) => void }): JSX.Element | null {
+  const t = useT();
+  if (!detail && !loading && !error) return null;
+  if (loading) return <Modal open onClose={onClose} title={t("admin.broadcasts.runDetail")}><p className="state state--loading">{t("admin.broadcasts.loading")}</p></Modal>;
+  if (error || !detail) return <Modal open onClose={onClose} title={t("admin.broadcasts.runDetail")}><p className="state state--error" role="alert">{t("admin.broadcasts.loadFailed", { message: error?.message ?? "" })}</p></Modal>;
+
+  const itemColumns: Column<BroadcastAutomationRunDetail["items"][number]>[] = [
+    { key: "ordinal", header: t("admin.broadcasts.item"), render: (item) => item.ordinal, numeric: true },
+    { key: "text", header: t("admin.broadcasts.itemText"), render: (item) => <pre className="broadcast-preview__text">{item.itemSnapshot.text}</pre> },
+    { key: "cta", header: t("admin.broadcasts.cta"), render: (item) => `${item.ctaMode}${item.itemSnapshot.bookingTrainingId ? ` · ${t("admin.broadcasts.bookingTraining")}: ${item.itemSnapshot.bookingTrainingId}` : ""}` },
+    { key: "language", header: t("admin.broadcasts.language"), render: (item) => `${item.itemSnapshot.requestedLanguage} → ${item.itemSnapshot.resolvedLanguage}${item.itemSnapshot.usedFallback ? ` · ${t("admin.broadcasts.fallback")}` : ""}` }
+  ];
+  const trainingColumns: Column<BroadcastAutomationRunDetail["trainings"][number]>[] = [
+    { key: "training", header: t("admin.broadcasts.training"), render: (row) => `${row.trainingSnapshot.date} ${row.trainingSnapshot.startTime} · ${row.trainingSnapshot.groupName} · ${row.trainingSnapshot.levelName}` },
+    { key: "outcome", header: t("admin.broadcasts.outcome"), render: (row) => row.outcome },
+    { key: "skip", header: t("admin.broadcasts.skipReason"), render: (row) => row.skipReason ?? "—" },
+    { key: "seats", header: t("admin.broadcasts.freeSeats"), render: (row) => row.trainingSnapshot.freeSeats, numeric: true }
+  ];
+  const deliveryColumns: Column<BroadcastAutomationRunDetail["deliveries"][number]>[] = [
+    { key: "outcome", header: t("admin.broadcasts.outcome"), render: (row) => row.outcome },
+    { key: "language", header: t("admin.broadcasts.language"), render: (row) => `${row.requestedLanguage} → ${row.resolvedLanguage}` },
+    { key: "payload", header: t("admin.broadcasts.payload"), render: (row) => <pre className="broadcast-preview__text">{row.payloadSnapshot.text}</pre> },
+    { key: "diagnostic", header: t("admin.broadcasts.diagnostic"), render: (row) => row.diagnostic ?? t("admin.broadcasts.noDiagnostic") },
+    { key: "retry", header: t("admin.broadcasts.retryLink"), render: (row) => row.retryOfDeliveryId ? `${t("admin.broadcasts.retryOfDelivery")}: ${row.retryOfDeliveryId}` : "—" }
+  ];
+
+  return <Modal open onClose={onClose} title={t("admin.broadcasts.runDetail")}><div className="stack">
+    <div className="card"><p>{t("admin.broadcasts.results")}: {detail.run.counts.sent}/{detail.run.counts.failed}/{detail.run.counts.ambiguous}</p><p>{t("admin.broadcasts.status")}: {detail.run.status}</p>{detail.run.skipReason ? <p>{t("admin.broadcasts.skipReason")}: {detail.run.skipReason}</p> : null}{detail.run.originalRunId ? <p><Button variant="ghost" onClick={() => onOpenRun(detail.run.originalRunId!)}>{t("admin.broadcasts.openOriginalRun")}</Button></p> : null}</div>
+    <section><h3>{t("admin.broadcasts.detailItems")}</h3><DataTable caption={t("admin.broadcasts.detailItems")} columns={itemColumns} rows={detail.items} rowKey={(item) => item.id} emptyLabel={t("admin.broadcasts.detailItemsEmpty")} /></section>
+    <section><h3>{t("admin.broadcasts.detailTrainings")}</h3><DataTable caption={t("admin.broadcasts.detailTrainings")} columns={trainingColumns} rows={detail.trainings} rowKey={(row) => row.id} emptyLabel={t("admin.broadcasts.detailTrainingsEmpty")} /></section>
+    <section><h3>{t("admin.broadcasts.detailDeliveries")}</h3><DataTable caption={t("admin.broadcasts.detailDeliveries")} columns={deliveryColumns} rows={detail.deliveries} rowKey={(row) => row.id} emptyLabel={t("admin.broadcasts.detailDeliveriesEmpty")} /></section>
+    {retryResult ? <p className="state state--ok" role="status">{t("admin.broadcasts.retrySucceeded", { count: retryResult.selectedDeliveryCount })}</p> : null}{retryError ? <p className="state state--error" role="alert">{t("admin.broadcasts.retryFailed", { message: retryError.message })}</p> : null}
+    <p className="field__hint">{t("admin.broadcasts.retryHint")}</p><label className="check"><input type="checkbox" checked={ambiguous} onChange={(e) => onAmbiguous(e.target.checked)} /> {t("admin.broadcasts.retryAmbiguous")}</label>{ambiguous ? <p className="state state--warning">{t("admin.broadcasts.duplicateWarning")}</p> : null}<Button variant="primary" onClick={onRetry} disabled={retrying}>{retrying ? t("admin.broadcasts.retrying") : t("admin.broadcasts.retry")}</Button>
+  </div></Modal>;
+}

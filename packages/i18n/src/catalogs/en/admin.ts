@@ -4,6 +4,7 @@
  * admin.* key here. Missing keys fall back to RU at resolve time.
  */
 export const adminEn: Record<string, string> = {
+  "admin.broadcasts.item": "Item", "admin.broadcasts.itemText": "Message snapshot", "admin.broadcasts.bookingTraining": "Booking training", "admin.broadcasts.language": "Language", "admin.broadcasts.fallback": "fallback", "admin.broadcasts.detailItems": "Message items", "admin.broadcasts.detailItemsEmpty": "No message items were created.", "admin.broadcasts.detailTrainings": "Training decisions", "admin.broadcasts.detailTrainingsEmpty": "No training decisions were recorded.", "admin.broadcasts.detailDeliveries": "Delivery outcomes", "admin.broadcasts.detailDeliveriesEmpty": "No deliveries were recorded.", "admin.broadcasts.training": "Training snapshot", "admin.broadcasts.outcome": "Outcome", "admin.broadcasts.skipReason": "Skip reason", "admin.broadcasts.freeSeats": "Free seats", "admin.broadcasts.payload": "Payload snapshot", "admin.broadcasts.diagnostic": "Diagnostic", "admin.broadcasts.noDiagnostic": "No diagnostic", "admin.broadcasts.retryLink": "Retry link", "admin.broadcasts.retryOfDelivery": "Retry of delivery", "admin.broadcasts.openOriginalRun": "Open original run", "admin.broadcasts.retrySucceeded": "Retry run created for {count} deliveries.", "admin.broadcasts.retryFailed": "Retry failed: {message}", "admin.broadcasts.retrying": "Retrying…",
   // ── Navigation ──────────────────────────────────────────────────────────
   "admin.nav.dashboard": "Dashboard",
   "admin.nav.overview": "Overview",
