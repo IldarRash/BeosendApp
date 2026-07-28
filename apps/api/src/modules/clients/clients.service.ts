@@ -104,11 +104,16 @@ export class ClientsService {
     }
 
     const client = await this.database.db.transaction(async (tx) => {
+      // Only a bridged Mini App session supplies display identity. Bot onboarding
+      // must never count as Mini App activity.
+      const miniAppAccessedAt = displayIdentity !== undefined ? new Date() : undefined;
       const existing = await this.clients.findByTelegramId(input.telegramId, tx);
       if (existing) {
-        return displayIdentity
-          ? await this.syncTelegramDisplayIdentity(input.telegramId, displayIdentity, tx)
-          : existing;
+        if (!displayIdentity || !miniAppAccessedAt) {
+          return existing;
+        }
+        await this.syncTelegramDisplayIdentity(input.telegramId, displayIdentity, tx);
+        return this.recordMiniAppAccess(input.telegramId, miniAppAccessedAt, tx);
       }
 
       const inserted = await this.clients.insertIgnoreConflict(
@@ -125,7 +130,8 @@ export class ClientsService {
           // The contract validated consentAccepted === true before reaching the
           // service, so stamp the consent time server-side (never trust a client
           // clock). Only set on first insert — re-onboard returns the row unchanged.
-          consentGivenAt: new Date()
+          consentGivenAt: new Date(),
+          ...(miniAppAccessedAt ? { miniAppLastAccessAt: miniAppAccessedAt } : {})
         },
         tx
       );
@@ -139,9 +145,11 @@ export class ClientsService {
       if (!raced) {
         throw new BadRequestException("Failed to onboard client");
       }
-      return displayIdentity
-        ? await this.syncTelegramDisplayIdentity(input.telegramId, displayIdentity, tx)
-        : raced;
+      if (!displayIdentity || !miniAppAccessedAt) {
+        return raced;
+      }
+      await this.syncTelegramDisplayIdentity(input.telegramId, displayIdentity, tx);
+      return this.recordMiniAppAccess(input.telegramId, miniAppAccessedAt, tx);
     });
 
     // First bot contact links any trainer/manager added by this @username to the
@@ -283,6 +291,19 @@ export class ClientsService {
     tx?: Parameters<ClientsRepository["syncTelegramDisplayIdentity"]>[2]
   ): Promise<Client> {
     const updated = await this.clients.syncTelegramDisplayIdentity(telegramId, identity, tx);
+    if (!updated) {
+      throw new NotFoundException(`Client with telegram_id ${telegramId} not found`);
+    }
+    return updated;
+  }
+
+  /** A missing row means the transaction lost its client and must fail closed. */
+  private async recordMiniAppAccess(
+    telegramId: number,
+    accessedAt: Date,
+    tx: Parameters<ClientsRepository["recordMiniAppAccess"]>[2]
+  ): Promise<Client> {
+    const updated = await this.clients.recordMiniAppAccess(telegramId, accessedAt, tx);
     if (!updated) {
       throw new NotFoundException(`Client with telegram_id ${telegramId} not found`);
     }
