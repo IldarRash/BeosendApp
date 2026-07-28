@@ -324,6 +324,7 @@ export const broadcastAutomationDeliverySchema = z
     outcome: broadcastAutomationDeliveryOutcome,
     skipReason: broadcastAutomationSkipReason.nullable(),
     retryOfDeliveryId: uuid.nullable(),
+    rootDeliveryId: uuid,
     isAutomatic: z.boolean(),
     payloadSnapshot: broadcastAutomationRenderedItemSchema,
     attemptedAt: z.string().datetime().nullable(),

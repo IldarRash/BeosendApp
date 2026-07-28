@@ -648,6 +648,8 @@ export const broadcastAutomationDeliveries = pgTable(
     skipReason: text("skip_reason"),
     isAutomatic: boolean("is_automatic").notNull().default(true),
     retryOfDeliveryId: uuid("retry_of_delivery_id"),
+    /** Stable lineage root: serializes retry eligibility across every descendant attempt. */
+    rootDeliveryId: uuid("root_delivery_id").notNull(),
     payloadSnapshot: jsonb("payload_snapshot").notNull(),
     diagnostic: text("diagnostic"),
     attemptedAt: timestamp("attempted_at", { withTimezone: true }),
@@ -660,6 +662,7 @@ export const broadcastAutomationDeliveries = pgTable(
       .where(sql`${table.isAutomatic} = true`),
     runItemIdx: index("broadcast_automation_deliveries_run_item_idx").on(table.runItemId),
     retryOfIdx: index("broadcast_automation_deliveries_retry_of_idx").on(table.retryOfDeliveryId),
+    rootDeliveryIdx: index("broadcast_automation_deliveries_root_delivery_idx").on(table.rootDeliveryId),
     retryOfFk: foreignKey({
       columns: [table.retryOfDeliveryId],
       foreignColumns: [table.id],
