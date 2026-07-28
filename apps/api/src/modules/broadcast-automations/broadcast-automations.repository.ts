@@ -1,7 +1,7 @@
 /* eslint-disable @typescript-eslint/no-explicit-any -- JSONB rows are validated on service return. */
 import { Injectable } from "@nestjs/common";
 import { randomUUID } from "node:crypto";
-import { and, asc, desc, eq, gt, gte, inArray, isNotNull, isNull, lt, lte, or, sql } from "drizzle-orm";
+import { and, asc, desc, eq, gt, gte, inArray, isNotNull, isNull, lt, lte, ne, or, sql } from "drizzle-orm";
 import { type Database, tables } from "@beosand/db";
 import type { BroadcastAutomation, BroadcastAutomationAudience, BroadcastAutomationDelivery, BroadcastAutomationRun, BroadcastAutomationRunDetail, BroadcastAutomationRunItem, BroadcastAutomationRunTraining, BroadcastAutomationSkipReason, CreateBroadcastAutomationInput, ListBroadcastAutomationRunsQuery, ListBroadcastAutomationsQuery } from "@beosand/types";
 import { DatabaseService } from "../../db/database.service";
@@ -134,13 +134,20 @@ export class BroadcastAutomationsRepository {
       const source = await tx.select().from(tables.broadcastAutomationDeliveries).where(and(...conditions));
       if (!source.length) return undefined;
       // The advisory transaction lock makes the eligibility check and child claim atomic for
-      // one lineage. A sent or in-flight child permanently blocks retries from older attempts;
-      // a failed child remains explicitly retryable by selecting that child on its own run.
+      // one lineage. A sent or in-flight child permanently blocks retries from older attempts.
+      // An ambiguous attempt also blocks an unacknowledged retry through an older failed
+      // attempt. The selected ambiguous source itself is excluded, so an administrator can
+      // retry it only via the explicit includeAmbiguous acknowledgement.
       const eligibleSource = [] as typeof source;
+      const claimedRoots = new Set<string>();
       for (const delivery of source) {
         await tx.execute(sql`select pg_advisory_xact_lock(hashtext(${delivery.rootDeliveryId}))`);
         const [blocking] = await tx.select({ id: tables.broadcastAutomationDeliveries.id }).from(tables.broadcastAutomationDeliveries).where(and(eq(tables.broadcastAutomationDeliveries.rootDeliveryId, delivery.rootDeliveryId), inArray(tables.broadcastAutomationDeliveries.outcome, ["claimed", "sent"]))).limit(1);
-        if (!blocking) eligibleSource.push(delivery);
+        const [ambiguous] = await tx.select({ id: tables.broadcastAutomationDeliveries.id }).from(tables.broadcastAutomationDeliveries).where(and(eq(tables.broadcastAutomationDeliveries.rootDeliveryId, delivery.rootDeliveryId), ne(tables.broadcastAutomationDeliveries.id, delivery.id), eq(tables.broadcastAutomationDeliveries.outcome, "ambiguous"))).limit(1);
+        if (!blocking && !ambiguous && !claimedRoots.has(delivery.rootDeliveryId)) {
+          eligibleSource.push(delivery);
+          claimedRoots.add(delivery.rootDeliveryId);
+        }
       }
       if (!eligibleSource.length) return undefined;
       const sourceItems = await tx.select().from(tables.broadcastAutomationRunItems).where(inArray(tables.broadcastAutomationRunItems.id, eligibleSource.map((delivery) => delivery.runItemId)));
