@@ -22,6 +22,7 @@ const createMutate = vi.fn();
 const createRecurringMutate = vi.fn();
 const deleteMutate = vi.fn();
 const reassignMutate = vi.fn();
+const reassignReset = vi.fn();
 const useCreateCourtBlock = vi.fn();
 const useCreateRecurringCourtBlocks = vi.fn();
 const useDeleteCourtBlock = vi.fn();
@@ -86,6 +87,7 @@ beforeEach(() => {
   createRecurringMutate.mockReset();
   deleteMutate.mockReset();
   reassignMutate.mockReset();
+  reassignReset.mockReset();
   useCourts.mockReturnValue({ isError: false, data: sampleCourts });
   useCourtBlocks.mockReturnValue({ isPending: false, isError: false, data: sampleBlocks });
   useCreateCourtBlock.mockReturnValue({ mutate: createMutate, isPending: false, error: null });
@@ -95,7 +97,12 @@ beforeEach(() => {
     error: null
   });
   useDeleteCourtBlock.mockReturnValue({ mutate: deleteMutate, isPending: false, error: null });
-  useReassignCourtBlock.mockReturnValue({ mutate: reassignMutate, isPending: false, error: null });
+  useReassignCourtBlock.mockReturnValue({
+    mutate: reassignMutate,
+    reset: reassignReset,
+    isPending: false,
+    error: null
+  });
 });
 
 afterEach(() => {
@@ -265,6 +272,20 @@ describe("CourtBlocks page", () => {
     expect(deleteMutate.mock.calls[0][0]).toBe(sampleBlocks[0].id);
   });
 
+  it("offers deletion only for manual blocks, not training-linked blocks", () => {
+    renderPage();
+
+    const manualRow = screen.getByText(sampleBlocks[0].reason).closest("tr");
+    const trainingRow = screen.getByText(sampleBlocks[1].reason).closest("tr");
+
+    expect(manualRow).not.toBeNull();
+    expect(trainingRow).not.toBeNull();
+    expect(within(manualRow as HTMLTableRowElement).getAllByRole("button")).toHaveLength(1);
+    expect((manualRow as HTMLTableRowElement).querySelector(".btn--danger")).not.toBeNull();
+    expect(within(trainingRow as HTMLTableRowElement).queryAllByRole("button")).toHaveLength(1);
+    expect((trainingRow as HTMLTableRowElement).querySelector(".btn--danger")).toBeNull();
+  });
+
   it("distinguishes a group auto-block from a manual block by type tag", () => {
     renderPage();
     // The manual block (null link) is tagged "Ручная"; the group auto-block "Группа".
@@ -296,6 +317,7 @@ describe("CourtBlocks page", () => {
   it("surfaces a reassign error (e.g. 409 limit) inside the change-court dialog", () => {
     useReassignCourtBlock.mockReturnValue({
       mutate: reassignMutate,
+      reset: reassignReset,
       isPending: false,
       error: new Error("Превышен лимит кортов")
     });

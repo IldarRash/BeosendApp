@@ -27,13 +27,25 @@ import {
   useSaveCourtWorkingHoursMonth
 } from "../hooks/useCourtLoad";
 import { useCourts } from "../hooks/useCourts";
-import { useCourtRequestDetail } from "../hooks/useCourtRequests";
+import {
+  useCancelRequest,
+  useCourtRequestDetail,
+  useFreeCourts,
+  useReassignRequestCourts
+} from "../hooks/useCourtRequests";
 import { useTrainingDetail } from "../hooks/useTrainingDetail";
 import { TrainingDetailBody } from "../ui/TrainingDetailBody";
 import { ReassignCourtDialog } from "../components/ReassignCourtDialog";
-import { useUpdateCourtBlockDescription } from "../hooks/useCourtBlocks";
+import {
+  useDeleteCourtBlock,
+  useUpdateCourtBlockDescription
+} from "../hooks/useCourtBlocks";
 import { formatRsd } from "../lib/format";
-import type { CourtLoadGridView, CourtWorkingHoursMonthView } from "../api/client";
+import {
+  ConflictError,
+  type CourtLoadGridView,
+  type CourtWorkingHoursMonthView
+} from "../api/client";
 
 interface TrainingTarget {
   trainingId: string;
@@ -239,6 +251,15 @@ function gridHasRequest(grid: CourtLoadGridView, requestId: string): boolean {
 
 function errorText(error: unknown, t: Translate): string {
   return error instanceof Error ? error.message : t("admin.courtLoad.loadError");
+}
+
+function requestActionError(error: unknown, t: Translate): string {
+  if (error instanceof ConflictError) return t("admin.courtRequests.conflict");
+  return error instanceof Error ? error.message : t("admin.courtRequests.opFailed");
+}
+
+function canReassignRequest(request: CourtRequestAdminView): boolean {
+  return request.status === "confirmed" && request.date >= todayIso();
 }
 
 function statusLabel(status: CourtRequestStatus, t: Translate): string {
@@ -829,12 +850,18 @@ function TrainingDetailModal({
   const { notify } = useToast();
   const detail = useTrainingDetail(target?.trainingId ?? null);
   const update = useUpdateCourtBlockDescription();
+  const resetUpdate = update.reset;
   const blockId = target?.blockId ?? null;
   const [description, setDescription] = useState("");
 
   useEffect(() => {
     setDescription(target?.description ?? "");
-  }, [target?.blockId, target?.description]);
+    resetUpdate();
+  }, [resetUpdate, target?.blockId, target?.description]);
+
+  function closeDetail(): void {
+    if (!update.isPending) onClose();
+  }
 
   function handleSubmit(event: React.FormEvent): void {
     event.preventDefault();
@@ -855,7 +882,7 @@ function TrainingDetailModal({
   return (
     <Modal
       open={target !== null}
-      onClose={onClose}
+      onClose={closeDetail}
       title={t("admin.calendar.detailTitle")}
       footer={
         blockId !== null && target !== null ? (
@@ -923,11 +950,34 @@ function BlockDetailModal({
 }): JSX.Element {
   const { notify } = useToast();
   const update = useUpdateCourtBlockDescription();
+  const remove = useDeleteCourtBlock();
+  const resetUpdate = update.reset;
+  const resetRemove = remove.reset;
   const [description, setDescription] = useState("");
+  const [confirmDelete, setConfirmDelete] = useState(false);
 
   useEffect(() => {
     setDescription(target?.description ?? "");
-  }, [target?.blockId, target?.description]);
+    setConfirmDelete(false);
+    resetUpdate();
+    resetRemove();
+  }, [resetRemove, resetUpdate, target?.blockId, target?.description]);
+
+  function closeDetail(): void {
+    if (!update.isPending) onClose();
+  }
+
+  function closeDeleteConfirmation(): void {
+    if (!remove.isPending) {
+      resetRemove();
+      setConfirmDelete(false);
+    }
+  }
+
+  function openDeleteConfirmation(): void {
+    resetRemove();
+    setConfirmDelete(true);
+  }
 
   function handleSubmit(event: React.FormEvent): void {
     event.preventDefault();
@@ -945,16 +995,76 @@ function BlockDetailModal({
     );
   }
 
+  function handleDelete(): void {
+    if (!target) return;
+    remove.mutate(target.blockId, {
+      onSuccess: () => {
+        notify(t("admin.courtBlocks.deleted"), "success");
+        onClose();
+      }
+    });
+  }
+
+  if (confirmDelete && target) {
+    return (
+      <Modal
+        key="block-delete-confirmation"
+        open
+        onClose={closeDeleteConfirmation}
+        title={t("admin.courtBlocks.deleteTitle")}
+        footer={
+          <div className="cluster">
+            <Button
+              variant="ghost"
+              onClick={closeDeleteConfirmation}
+              disabled={remove.isPending}
+            >
+              {t("admin.courtBlocks.deleteKeep")}
+            </Button>
+            <Button variant="danger" onClick={handleDelete} disabled={remove.isPending}>
+              {remove.isPending
+                ? t("admin.courtBlocks.deleting")
+                : t("admin.courtBlocks.deleteConfirm")}
+            </Button>
+          </div>
+        }
+      >
+        <div className="stack">
+          <p>
+            {t("admin.courtBlocks.deletePrompt", {
+              court: t("admin.courtLoad.courtNumber", { number: target.courtNumber }),
+              start: target.startTime,
+              end: target.endTime
+            })}
+          </p>
+          {remove.error ? (
+            <p className="state state--error" role="alert">
+              {errorText(remove.error, t)}
+            </p>
+          ) : null}
+        </div>
+      </Modal>
+    );
+  }
+
   return (
     <Modal
+      key="block-detail"
       open={target !== null}
-      onClose={onClose}
+      onClose={closeDetail}
       title={t("admin.courtLoad.blockDetailTitle")}
       footer={
         target ? (
           <div className="cluster">
-            <Button variant="ghost" onClick={onClose} disabled={update.isPending}>
+            <Button variant="ghost" onClick={closeDetail} disabled={update.isPending}>
               {t("admin.action.cancel")}
+            </Button>
+            <Button
+              variant="danger"
+              onClick={openDeleteConfirmation}
+              disabled={update.isPending}
+            >
+              {t("admin.action.delete")}
             </Button>
             <Button
               variant="ghost"
@@ -1018,18 +1128,265 @@ function RequestDetailModal({
   onClose: () => void;
   t: Translate;
 }): JSX.Element {
+  const { notify } = useToast();
   const detail = useCourtRequestDetail(requestId);
+  const cancel = useCancelRequest();
+  const reassign = useReassignRequestCourts();
+  const resetCancel = cancel.reset;
+  const resetReassign = reassign.reset;
+  const [mode, setMode] = useState<"detail" | "reassign" | "cancel">("detail");
+  const [pickedCourtIds, setPickedCourtIds] = useState<string[]>([]);
+  const [preselectedFor, setPreselectedFor] = useState<string | null>(null);
+  const view = detail.data ?? null;
+  const freeCourts = useFreeCourts(mode === "reassign" ? requestId : null);
+  const required = view?.courtCount ?? 0;
+  const picked = pickedCourtIds.length;
+  const pickComplete = view !== null && picked === required;
+
+  useEffect(() => {
+    setMode("detail");
+    setPickedCourtIds([]);
+    setPreselectedFor(null);
+    resetCancel();
+    resetReassign();
+  }, [requestId, resetCancel, resetReassign]);
+
+  useEffect(() => {
+    if (mode !== "reassign" || view === null || freeCourts.data === undefined) {
+      return;
+    }
+    if (preselectedFor !== view.id) {
+      const heldNumbers = new Set(view.courtNumbers);
+      setPickedCourtIds(
+        freeCourts.data.filter((court) => heldNumbers.has(court.number)).map((court) => court.id)
+      );
+      setPreselectedFor(view.id);
+      return;
+    }
+
+    const availableCourtIds = new Set(freeCourts.data.map((court) => court.id));
+    setPickedCourtIds((current) => current.filter((courtId) => availableCourtIds.has(courtId)));
+  }, [freeCourts.data, mode, preselectedFor, view]);
+
+  function closeAll(): void {
+    if (!cancel.isPending && !reassign.isPending) onClose();
+  }
+
+  function showDetail(): void {
+    if (cancel.isPending || reassign.isPending) return;
+    cancel.reset();
+    reassign.reset();
+    setMode("detail");
+    setPickedCourtIds([]);
+    setPreselectedFor(null);
+  }
+
+  function openReassign(): void {
+    reassign.reset();
+    setPickedCourtIds([]);
+    setPreselectedFor(null);
+    setMode("reassign");
+  }
+
+  function toggleCourt(courtId: string): void {
+    setPickedCourtIds((current) =>
+      current.includes(courtId)
+        ? current.filter((id) => id !== courtId)
+        : [...current, courtId]
+    );
+  }
+
+  function submitReassign(): void {
+    if (!view || !canReassignRequest(view) || !pickComplete) return;
+    reassign.mutate(
+      { id: view.id, input: { courtIds: pickedCourtIds } },
+      {
+        onSuccess: () => {
+          notify(t("admin.courtRequests.reassigned", { client: view.clientName }), "success");
+          onClose();
+        }
+      }
+    );
+  }
+
+  function submitCancel(): void {
+    if (!view || view.status !== "confirmed") return;
+    cancel.mutate(
+      { id: view.id },
+      {
+        onSuccess: () => {
+          notify(t("admin.courtRequests.cancelled", { client: view.clientName }), "success");
+          onClose();
+        }
+      }
+    );
+  }
+
+  const title =
+    mode === "reassign"
+      ? view
+        ? t("admin.courtRequests.reassignTitleNamed", { client: view.clientName })
+        : t("admin.courtRequests.reassignTitle")
+      : mode === "cancel"
+        ? view
+          ? t("admin.courtRequests.cancelTitleNamed", { client: view.clientName })
+          : t("admin.courtRequests.cancelTitle")
+        : t("admin.courtLoad.detailTitle");
+
+  let footer: JSX.Element | undefined;
+  if (view?.status === "confirmed" && mode === "detail") {
+    footer = (
+      <div className="cluster">
+        <Button variant="danger" onClick={() => setMode("cancel")}>
+          {t("admin.courtRequests.cancelAction")}
+        </Button>
+        {canReassignRequest(view) ? (
+          <Button variant="primary" onClick={openReassign}>
+            {t("admin.courtRequests.reassignAction")}
+          </Button>
+        ) : null}
+      </div>
+    );
+  } else if (view && mode === "reassign") {
+    footer = (
+      <div className="cluster">
+        <Button variant="ghost" onClick={showDetail} disabled={reassign.isPending}>
+          {t("admin.action.cancel")}
+        </Button>
+        <Button
+          variant="primary"
+          onClick={submitReassign}
+          disabled={!canReassignRequest(view) || !pickComplete || reassign.isPending}
+        >
+          {reassign.isPending
+            ? t("admin.action.saving")
+            : t("admin.courtRequests.reassignSubmit")}
+        </Button>
+      </div>
+    );
+  } else if (view && mode === "cancel") {
+    footer = (
+      <div className="cluster">
+        <Button variant="ghost" onClick={showDetail} disabled={cancel.isPending}>
+          {t("admin.action.cancel")}
+        </Button>
+        <Button
+          variant="danger"
+          onClick={submitCancel}
+          disabled={view.status !== "confirmed" || cancel.isPending}
+        >
+          {cancel.isPending
+            ? t("admin.courtRequests.cancelling")
+            : t("admin.courtRequests.cancelAction")}
+        </Button>
+      </div>
+    );
+  }
 
   return (
-    <Modal open={requestId !== null} onClose={onClose} title={t("admin.courtLoad.detailTitle")}>
+    <Modal
+      key={mode}
+      open={requestId !== null}
+      onClose={closeAll}
+      title={title}
+      footer={footer}
+    >
       {detail.isPending ? (
-        <p className="state">{t("admin.courtLoad.detailLoading")}</p>
+        <p className="state" role="status" aria-live="polite">
+          {t("admin.courtLoad.detailLoading")}
+        </p>
       ) : detail.isError ? (
         <p className="state state--error" role="alert">
           {detail.error instanceof Error ? detail.error.message : t("admin.courtLoad.detailError")}
         </p>
-      ) : detail.data ? (
-        <RequestDetailBody view={detail.data} t={t} />
+      ) : view && mode === "detail" ? (
+        <RequestDetailBody view={view} t={t} />
+      ) : view && mode === "cancel" ? (
+        <div className="stack">
+          <p>
+            {t("admin.courtRequests.cancelSummary", {
+              date: view.date,
+              start: view.startTime,
+              end: view.endTime,
+              hours: view.durationHours,
+              count: view.courtCount,
+              price: formatRsd(view.priceRsd)
+            })}
+          </p>
+          {cancel.error ? (
+            <p className="state state--error" role="alert">
+              {requestActionError(cancel.error, t)}
+            </p>
+          ) : null}
+        </div>
+      ) : view && mode === "reassign" ? (
+        <div className="stack">
+          <p>
+            {t("admin.courtRequests.reassignSummary", {
+              date: view.date,
+              start: view.startTime,
+              end: view.endTime,
+              hours: view.durationHours,
+              count: view.courtCount,
+              price: formatRsd(view.priceRsd)
+            })}
+          </p>
+          {freeCourts.isPending ? (
+            <p className="state" role="status" aria-live="polite">
+              {t("admin.courtRequests.freeLoading")}
+            </p>
+          ) : freeCourts.isError ? (
+            <p className="state state--error" role="alert">
+              {requestActionError(freeCourts.error, t)}
+            </p>
+          ) : freeCourts.data.length === 0 ? (
+            <p className="state" role="status">
+              {t("admin.courtRequests.noFreeCourts")}
+            </p>
+          ) : (
+            <fieldset className="stack">
+              <legend>{t("admin.courtRequests.pickCourts", { count: required })}</legend>
+              <p className="state" role="status" aria-live="polite">
+                {t("admin.courtRequests.pickProgress", { picked, count: required })}
+              </p>
+              {!pickComplete ? (
+                <p className="field__error" role="alert">
+                  {t("admin.courtRequests.pickExactError", { picked, count: required })}
+                </p>
+              ) : null}
+              <div className="court-picker">
+                {freeCourts.data.map((court: Court) => {
+                  const checked = pickedCourtIds.includes(court.id);
+                  const atLimit = !checked && pickComplete;
+                  const current = view.courtNumbers.includes(court.number);
+                  return (
+                    <label key={court.id} className="court-picker__tile">
+                      <input
+                        type="checkbox"
+                        name="court-load-reassign-pick"
+                        value={court.id}
+                        checked={checked}
+                        disabled={atLimit || reassign.isPending}
+                        onChange={() => toggleCourt(court.id)}
+                      />
+                      <span>{t("admin.courtRequests.courtOption", { number: court.number })}</span>
+                      {current ? (
+                        <span className="tag tag--info">
+                          {t("admin.courtRequests.currentCourtTag")}
+                        </span>
+                      ) : null}
+                    </label>
+                  );
+                })}
+              </div>
+            </fieldset>
+          )}
+          {reassign.error ? (
+            <p className="state state--error" role="alert">
+              {requestActionError(reassign.error, t)}
+            </p>
+          ) : null}
+        </div>
       ) : null}
     </Modal>
   );

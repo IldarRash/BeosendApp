@@ -163,9 +163,11 @@ export function CourtBlocks(): JSX.Element {
               {t("admin.courtBlocks.changeCourt")}
             </Button>
           ) : null}
-          <Button variant="danger" onClick={() => handleDelete(b)} disabled={remove.isPending}>
-            {t("admin.action.delete")}
-          </Button>
+          {b.groupTrainingId === null ? (
+            <Button variant="danger" onClick={() => handleDelete(b)} disabled={remove.isPending}>
+              {t("admin.action.delete")}
+            </Button>
+          ) : null}
         </div>
       )
     }

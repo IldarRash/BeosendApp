@@ -438,6 +438,24 @@ describe("CourtBlocksService", () => {
     );
   });
 
+  it("rejects deleting a training-linked block without calling deleteById", async () => {
+    const trainingBlock = {
+      id: BLOCK_ID,
+      courtId: COURT_ID,
+      date: "2026-06-10",
+      startTime: "18:00",
+      endTime: "20:00",
+      reason: "Group training",
+      groupTrainingId: "33333333-3333-4333-8333-333333333333"
+    };
+    repo = makeRepo({ findById: vi.fn().mockResolvedValue(trainingBlock) });
+    service = new CourtBlocksService(env, repo, makeSettings());
+
+    await expect(service.deleteBlock(ADMIN, BLOCK_ID)).rejects.toThrow();
+
+    expect(repo.deleteById).not.toHaveBeenCalled();
+  });
+
   describe("listBlocks (multi-day range)", () => {
     it("returns blocks across the whole range in repo order (date then start time)", async () => {
       // Three dates' blocks, already ordered by date then start time by the repo.

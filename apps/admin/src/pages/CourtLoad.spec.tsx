@@ -10,6 +10,7 @@ import type {
   TrainingCalendarItem,
   UnassignedTraining
 } from "@beosand/types";
+import { DEFAULT_LOCALE, getStaticCatalog, t as resolveTranslation } from "@beosand/i18n";
 
 // The data hooks are mocked so the page is unit-tested without the ApiClient/network.
 const useCourtLoad = vi.fn();
@@ -34,9 +35,11 @@ vi.mock("../hooks/useCourtLoad", () => ({
 // The shared move-court dialog reaches for the reassign mutation.
 const useReassignCourtBlock = vi.fn();
 const useUpdateCourtBlockDescription = vi.fn();
+const useDeleteCourtBlock = vi.fn();
 vi.mock("../hooks/useCourtBlocks", () => ({
   useReassignCourtBlock: (...args: unknown[]) => useReassignCourtBlock(...args),
-  useUpdateCourtBlockDescription: (...args: unknown[]) => useUpdateCourtBlockDescription(...args)
+  useUpdateCourtBlockDescription: (...args: unknown[]) => useUpdateCourtBlockDescription(...args),
+  useDeleteCourtBlock: (...args: unknown[]) => useDeleteCourtBlock(...args)
 }));
 
 const useCourts = vi.fn();
@@ -45,8 +48,14 @@ vi.mock("../hooks/useCourts", () => ({
 }));
 
 const useCourtRequestDetail = vi.fn();
+const useFreeCourts = vi.fn();
+const useCancelRequest = vi.fn();
+const useReassignRequestCourts = vi.fn();
 vi.mock("../hooks/useCourtRequests", () => ({
-  useCourtRequestDetail: (...args: unknown[]) => useCourtRequestDetail(...args)
+  useCourtRequestDetail: (...args: unknown[]) => useCourtRequestDetail(...args),
+  useFreeCourts: (...args: unknown[]) => useFreeCourts(...args),
+  useCancelRequest: (...args: unknown[]) => useCancelRequest(...args),
+  useReassignRequestCourts: (...args: unknown[]) => useReassignRequestCourts(...args)
 }));
 
 const useTrainingDetail = vi.fn();
@@ -68,6 +77,11 @@ const REQUEST_ID_ALT = "33333333-3333-4333-8333-333333333334";
 const TRAINING_ID = "66666666-6666-6666-6666-666666666666";
 const TRAINING_BLOCK_ID = "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa";
 const MANUAL_BLOCK_ID = "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb";
+const STATIC_CATALOG = getStaticCatalog(DEFAULT_LOCALE);
+
+function tr(key: string, params?: Record<string, string | number>): string {
+  return resolveTranslation(STATIC_CATALOG, key, params);
+}
 
 /** Build a 30-min cell, defaulting the request/training/block links to null. */
 function cell(
@@ -113,6 +127,12 @@ const COURT: Court = {
 const COURT2: Court = {
   id: "22222222-2222-2222-2222-222222222222",
   number: 2,
+  status: "active"
+};
+
+const COURT3: Court = {
+  id: "33333333-3333-4333-8333-333333333333",
+  number: 3,
   status: "active"
 };
 
@@ -264,6 +284,7 @@ beforeEach(() => {
   useDeleteCourtWorkingHoursDay.mockReturnValue(mutation());
   useReassignCourtBlock.mockReturnValue(mutation());
   useUpdateCourtBlockDescription.mockReturnValue(mutation());
+  useDeleteCourtBlock.mockReturnValue(mutation());
   useCourts.mockReturnValue({
     isPending: false,
     isError: false,
@@ -276,6 +297,14 @@ beforeEach(() => {
     error: null,
     data: DETAIL
   });
+  useFreeCourts.mockReturnValue({
+    isPending: false,
+    isError: false,
+    error: null,
+    data: [COURT, COURT2]
+  });
+  useCancelRequest.mockReturnValue(mutation());
+  useReassignRequestCourts.mockReturnValue(mutation());
   useTrainingDetail.mockReturnValue({
     isPending: false,
     isError: false,
@@ -428,6 +457,306 @@ describe("CourtLoad page", () => {
     expect(within(dialog).getByText("Анна Петрова")).toBeTruthy();
     expect(within(dialog).getByText("987654321")).toBeTruthy();
     expect(within(dialog).getByText("2 000 RSD")).toBeTruthy();
+  });
+
+  it("offers reassign and cancel only for a future confirmed request", () => {
+    useCourtRequestDetail.mockReturnValue({
+      isPending: false,
+      isError: false,
+      error: null,
+      data: { ...DETAIL, date: "2099-06-10" }
+    });
+    const { container } = renderPage();
+
+    fireEvent.click(container.querySelector(".court-event--request") as HTMLElement);
+    const dialog = screen.getByRole("dialog", { name: tr("admin.courtLoad.detailTitle") });
+
+    expect(
+      within(dialog).getByRole("button", { name: tr("admin.courtRequests.reassignAction") })
+    ).toBeTruthy();
+    expect(
+      within(dialog).getByRole("button", { name: tr("admin.courtRequests.cancelAction") })
+    ).toBeTruthy();
+  });
+
+  it("keeps a past confirmed request cancel-only", () => {
+    useCourtRequestDetail.mockReturnValue({
+      isPending: false,
+      isError: false,
+      error: null,
+      data: { ...DETAIL, date: "2000-06-10" }
+    });
+    const { container } = renderPage();
+
+    fireEvent.click(container.querySelector(".court-event--request") as HTMLElement);
+    const dialog = screen.getByRole("dialog", { name: tr("admin.courtLoad.detailTitle") });
+
+    expect(
+      within(dialog).queryByRole("button", { name: tr("admin.courtRequests.reassignAction") })
+    ).toBeNull();
+    expect(
+      within(dialog).getByRole("button", { name: tr("admin.courtRequests.cancelAction") })
+    ).toBeTruthy();
+  });
+
+  it("keeps a pending hold read-only", () => {
+    useCourtRequestDetail.mockReturnValue({
+      isPending: false,
+      isError: false,
+      error: null,
+      data: { ...DETAIL, status: "pending", decidedAt: null, decidedBy: null }
+    });
+    const { container } = renderPage();
+
+    fireEvent.click(container.querySelector(".court-event--hold") as HTMLElement);
+    const dialog = screen.getByRole("dialog", { name: tr("admin.courtLoad.detailTitle") });
+
+    expect(
+      within(dialog).queryByRole("button", { name: tr("admin.courtRequests.reassignAction") })
+    ).toBeNull();
+    expect(
+      within(dialog).queryByRole("button", { name: tr("admin.courtRequests.cancelAction") })
+    ).toBeNull();
+  });
+
+  it("maps current court numbers back to exact ids and submits a complete replacement set", async () => {
+    const mutate = vi.fn();
+    useCourtRequestDetail.mockReturnValue({
+      isPending: false,
+      isError: false,
+      error: null,
+      data: { ...DETAIL, date: "2099-06-10", courtCount: 2, courtNumbers: [3, 1] }
+    });
+    useFreeCourts.mockReturnValue({
+      isPending: false,
+      isError: false,
+      error: null,
+      data: [COURT3, COURT2, COURT]
+    });
+    useReassignRequestCourts.mockReturnValue(mutation({ mutate }));
+    const { container } = renderPage();
+
+    fireEvent.click(container.querySelector(".court-event--request") as HTMLElement);
+    fireEvent.click(
+      within(screen.getByRole("dialog")).getByRole("button", {
+        name: tr("admin.courtRequests.reassignAction")
+      })
+    );
+
+    const dialog = screen.getByRole("dialog", {
+      name: tr("admin.courtRequests.reassignTitleNamed", { client: DETAIL.clientName })
+    });
+    const checkbox1 = within(dialog).getByRole("checkbox", {
+      name: new RegExp(tr("admin.courtRequests.courtOption", { number: 1 }))
+    });
+    const checkbox2 = within(dialog).getByRole("checkbox", {
+      name: tr("admin.courtRequests.courtOption", { number: 2 })
+    });
+    const checkbox3 = within(dialog).getByRole("checkbox", {
+      name: new RegExp(tr("admin.courtRequests.courtOption", { number: 3 }))
+    });
+
+    await waitFor(() => expect(checkbox1).toHaveProperty("checked", true));
+    expect(checkbox3).toHaveProperty("checked", true);
+    expect(checkbox2).toHaveProperty("disabled", true);
+
+    fireEvent.click(checkbox3);
+    expect(
+      within(dialog).getByRole("button", { name: tr("admin.courtRequests.reassignSubmit") })
+    ).toHaveProperty("disabled", true);
+    fireEvent.click(checkbox2);
+    fireEvent.click(
+      within(dialog).getByRole("button", { name: tr("admin.courtRequests.reassignSubmit") })
+    );
+
+    expect(mutate).toHaveBeenCalledTimes(1);
+    expect(mutate.mock.calls[0][0]).toEqual({
+      id: REQUEST_ID,
+      input: { courtIds: [COURT.id, COURT2.id] }
+    });
+  });
+
+  it("prunes a replacement court that disappears after refresh before allowing a new complete set", async () => {
+    const mutate = vi.fn();
+    useCourtRequestDetail.mockReturnValue({
+      isPending: false,
+      isError: false,
+      error: null,
+      data: { ...DETAIL, date: "2099-06-10", courtCount: 2, courtNumbers: [1] }
+    });
+    useFreeCourts.mockReturnValue({
+      isPending: false,
+      isError: false,
+      error: null,
+      data: [COURT, COURT2]
+    });
+    useReassignRequestCourts.mockReturnValue(mutation({ mutate }));
+    const page = renderPage();
+
+    fireEvent.click(page.container.querySelector(".court-event--request") as HTMLElement);
+    fireEvent.click(
+      within(screen.getByRole("dialog")).getByRole("button", {
+        name: tr("admin.courtRequests.reassignAction")
+      })
+    );
+
+    let dialog = screen.getByRole("dialog", {
+      name: tr("admin.courtRequests.reassignTitleNamed", { client: DETAIL.clientName })
+    });
+    const disappearingCourt = within(dialog).getByRole("checkbox", {
+      name: tr("admin.courtRequests.courtOption", { number: 2 })
+    });
+    fireEvent.click(disappearingCourt);
+    expect(
+      within(dialog).getByRole("button", { name: tr("admin.courtRequests.reassignSubmit") })
+    ).toHaveProperty("disabled", false);
+
+    useFreeCourts.mockReturnValue({
+      isPending: false,
+      isError: false,
+      error: null,
+      data: [COURT, COURT3]
+    });
+    page.rerender(
+      <MemoryRouter initialEntries={["/court-load"]}>
+        <ToastProvider>
+          <CourtLoad />
+        </ToastProvider>
+      </MemoryRouter>
+    );
+
+    dialog = screen.getByRole("dialog", {
+      name: tr("admin.courtRequests.reassignTitleNamed", { client: DETAIL.clientName })
+    });
+    await waitFor(() =>
+      expect(
+        within(dialog).getByRole("button", { name: tr("admin.courtRequests.reassignSubmit") })
+      ).toHaveProperty("disabled", true)
+    );
+    expect(
+      within(dialog).getByRole("checkbox", {
+        name: new RegExp(tr("admin.courtRequests.courtOption", { number: 1 }))
+      })
+    ).toHaveProperty("checked", true);
+    expect(
+      within(dialog).queryByRole("checkbox", {
+        name: tr("admin.courtRequests.courtOption", { number: 2 })
+      })
+    ).toBeNull();
+
+    fireEvent.click(
+      within(dialog).getByRole("checkbox", {
+        name: tr("admin.courtRequests.courtOption", { number: 3 })
+      })
+    );
+    fireEvent.click(
+      within(dialog).getByRole("button", { name: tr("admin.courtRequests.reassignSubmit") })
+    );
+
+    expect(mutate).toHaveBeenCalledWith(
+      { id: REQUEST_ID, input: { courtIds: [COURT.id, COURT3.id] } },
+      expect.any(Object)
+    );
+  });
+
+  it("requires request-cancel confirmation, preserves a dismissed action, and surfaces errors", () => {
+    const mutate = vi.fn();
+    useCancelRequest.mockReturnValue(
+      mutation({ mutate, error: new Error("Request changed on the server") })
+    );
+    const { container } = renderPage();
+
+    fireEvent.click(container.querySelector(".court-event--request") as HTMLElement);
+    let dialog = screen.getByRole("dialog", { name: tr("admin.courtLoad.detailTitle") });
+    fireEvent.click(
+      within(dialog).getByRole("button", { name: tr("admin.courtRequests.cancelAction") })
+    );
+
+    dialog = screen.getByRole("dialog", {
+      name: tr("admin.courtRequests.cancelTitleNamed", { client: DETAIL.clientName })
+    });
+    expect(within(dialog).getByRole("alert").textContent).toContain("Request changed on the server");
+    expect(mutate).not.toHaveBeenCalled();
+
+    fireEvent.click(within(dialog).getByRole("button", { name: tr("admin.action.cancel") }));
+    expect(mutate).not.toHaveBeenCalled();
+
+    dialog = screen.getByRole("dialog", { name: tr("admin.courtLoad.detailTitle") });
+    fireEvent.click(
+      within(dialog).getByRole("button", { name: tr("admin.courtRequests.cancelAction") })
+    );
+    dialog = screen.getByRole("dialog", {
+      name: tr("admin.courtRequests.cancelTitleNamed", { client: DETAIL.clientName })
+    });
+    fireEvent.click(
+      within(dialog).getByRole("button", { name: tr("admin.courtRequests.cancelAction") })
+    );
+
+    expect(mutate).toHaveBeenCalledTimes(1);
+    expect(mutate.mock.calls[0][0]).toEqual({ id: REQUEST_ID });
+  });
+
+  it("announces request loading and errors with live semantic roles", () => {
+    useCourtRequestDetail.mockReturnValue({
+      isPending: true,
+      isError: false,
+      error: null,
+      data: undefined
+    });
+    const { container, unmount } = renderPage();
+
+    fireEvent.click(container.querySelector(".court-event--request") as HTMLElement);
+    expect(screen.getByRole("status").textContent).toBe(tr("admin.courtLoad.detailLoading"));
+
+    unmount();
+    useCourtRequestDetail.mockReturnValue({
+      isPending: false,
+      isError: true,
+      error: new Error("Request detail failed"),
+      data: undefined
+    });
+    const second = renderPage();
+    fireEvent.click(second.container.querySelector(".court-event--request") as HTMLElement);
+    expect(screen.getByRole("alert").textContent).toContain("Request detail failed");
+  });
+
+  it("announces free-court loading and errors while reassignment is active", () => {
+    useCourtRequestDetail.mockReturnValue({
+      isPending: false,
+      isError: false,
+      error: null,
+      data: { ...DETAIL, date: "2099-06-10" }
+    });
+    useFreeCourts.mockReturnValue({
+      isPending: true,
+      isError: false,
+      error: null,
+      data: undefined
+    });
+    const { container, unmount } = renderPage();
+    fireEvent.click(container.querySelector(".court-event--request") as HTMLElement);
+    fireEvent.click(
+      within(screen.getByRole("dialog")).getByRole("button", {
+        name: tr("admin.courtRequests.reassignAction")
+      })
+    );
+    expect(screen.getByRole("status").textContent).toBe(tr("admin.courtRequests.freeLoading"));
+
+    unmount();
+    useFreeCourts.mockReturnValue({
+      isPending: false,
+      isError: true,
+      error: new Error("Court availability changed"),
+      data: undefined
+    });
+    const second = renderPage();
+    fireEvent.click(second.container.querySelector(".court-event--request") as HTMLElement);
+    fireEvent.click(
+      within(screen.getByRole("dialog")).getByRole("button", {
+        name: tr("admin.courtRequests.reassignAction")
+      })
+    );
+    expect(screen.getByRole("alert").textContent).toContain("Court availability changed");
   });
 
   it("opens the training detail with the covering training's id when a training segment is clicked", () => {
@@ -661,6 +990,72 @@ describe("CourtLoad page", () => {
 
     expect(mutate).toHaveBeenCalledTimes(1);
     expect(mutate.mock.calls[0][0]).toEqual({ id: MANUAL_BLOCK_ID, description: "" });
+  });
+
+  it("clears a real delete failure on dismissal while preserving an unsaved manual-block description", () => {
+    let deleteError: Error | null = null;
+    const reset = vi.fn(() => {
+      deleteError = null;
+    });
+    const remove = vi.fn(() => {
+      deleteError = new Error("Block overlaps a protected slot");
+    });
+    useDeleteCourtBlock.mockImplementation(() => ({
+      ...mutation({ mutate: remove, reset }),
+      get error() {
+        return deleteError;
+      }
+    }));
+    const page = renderPage();
+
+    fireEvent.click(page.container.querySelector(".court-event--block") as HTMLElement);
+    let dialog = screen.getByRole("dialog", { name: tr("admin.courtLoad.blockDetailTitle") });
+    const description = within(dialog).getByLabelText(tr("admin.courtBlocks.colDescription"));
+    fireEvent.change(description, { target: { value: "Keep this operator note" } });
+    fireEvent.click(within(dialog).getByRole("button", { name: tr("admin.action.delete") }));
+
+    dialog = screen.getByRole("dialog", { name: tr("admin.courtBlocks.deleteTitle") });
+    fireEvent.click(
+      within(dialog).getByRole("button", { name: tr("admin.courtBlocks.deleteConfirm") })
+    );
+    expect(remove).toHaveBeenCalledWith(MANUAL_BLOCK_ID, expect.any(Object));
+    page.rerender(
+      <MemoryRouter initialEntries={["/court-load"]}>
+        <ToastProvider>
+          <CourtLoad />
+        </ToastProvider>
+      </MemoryRouter>
+    );
+
+    dialog = screen.getByRole("dialog", { name: tr("admin.courtBlocks.deleteTitle") });
+    expect(within(dialog).getByRole("alert").textContent).toContain("Block overlaps a protected slot");
+    fireEvent.click(
+      within(dialog).getByRole("button", { name: tr("admin.courtBlocks.deleteKeep") })
+    );
+
+    dialog = screen.getByRole("dialog", { name: tr("admin.courtLoad.blockDetailTitle") });
+    expect(within(dialog).getByLabelText(tr("admin.courtBlocks.colDescription"))).toHaveProperty(
+      "value",
+      "Keep this operator note"
+    );
+    expect(reset).toHaveBeenCalled();
+
+    fireEvent.click(within(dialog).getByRole("button", { name: tr("admin.action.delete") }));
+    dialog = screen.getByRole("dialog", { name: tr("admin.courtBlocks.deleteTitle") });
+    expect(within(dialog).queryByRole("alert")).toBeNull();
+    expect(remove).toHaveBeenCalledTimes(1);
+  });
+
+  it("never offers deletion for a training-linked block", () => {
+    const { container } = renderPage();
+
+    fireEvent.click(container.querySelector(".court-event--training") as HTMLElement);
+    const dialog = screen.getByRole("dialog", { name: tr("admin.calendar.detailTitle") });
+
+    expect(within(dialog).queryByRole("button", { name: tr("admin.action.delete") })).toBeNull();
+    expect(
+      within(dialog).getByRole("button", { name: tr("admin.courtBlocks.changeCourt") })
+    ).toBeTruthy();
   });
 
   it("moves a manual block to another court via reassign when its segment is clicked", () => {

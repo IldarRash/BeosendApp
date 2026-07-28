@@ -40,8 +40,8 @@ Existing tables affected only through existing endpoints:
 - `court_requests`: cancellation changes a confirmed request to `cancelled` and retains its
   decision/history fields.
 - `court_request_courts`: request reassignment atomically replaces the complete assigned court set.
-- `court_blocks`: block reassignment changes `court_id`; manual block cancellation uses the
-  existing hard delete and removes the row.
+- `court_blocks`: block reassignment changes `court_id`; manual block cancellation hard-deletes
+  the row, while a block with a non-null `group_training_id` remains owned by its training.
 - `courts`: read only, to populate active-court choices.
 
 ## API
@@ -58,11 +58,11 @@ React Query hooks already used by the request/block pages.
 | `POST /court-requests/:id/cancel` | Request: `cancelCourtRequestSchema`; response: `courtRequestSchema` | Cancel a confirmed request and release its occupancy. |
 | `GET /courts` | `Court[]` via `courtSchema` | Populate block reassignment choices. |
 | `PATCH /court-blocks/:id` | Request: `reassignCourtBlockSchema`; response: `courtBlockSchema` | Move a manual or training-linked block to another active court. |
-| `DELETE /court-blocks/:id` | `204 No Content` | Hard-delete a manual block after explicit confirmation. |
+| `DELETE /court-blocks/:id` | `204 No Content`; `409 Conflict` for a block linked through `groupTrainingId` | Hard-delete a manual block after explicit confirmation; reject direct deletion of a training-linked block. |
 
-All errors, including stale status, past-request reassignment, inactive courts, overlap, and
-capacity conflicts, are rendered from the existing API error path. The admin does not recompute
-availability.
+All errors, including stale status, past-request reassignment, inactive courts, overlap, capacity
+conflicts, and attempted direct deletion of a training-linked block, are rendered from the existing
+API error path. The admin does not recompute availability.
 
 ## Bot flow
 
@@ -95,8 +95,11 @@ the same selection rules and hooks, but this slice does not refactor or redesign
   `cancelled` status removes the request from pending/confirmed occupancy reads.
 - Pending holds remain visible but read-only on CourtLoad; moderation stays on the existing request
   page.
-- A manual block can be moved or hard-deleted. A training-linked block exposes only reassignment in
-  this CourtLoad detail, so the training-to-block link is not severed by a load-grid action.
+- A manual block can be moved or hard-deleted. `DELETE /court-blocks/:id` enforces this boundary and
+  returns `409 Conflict` when `groupTrainingId` is non-null. A training-linked block exposes only
+  reassignment in CourtLoad and CourtBlocks, so neither admin surface can sever the link.
+- The repository's internal `deleteByGroupTrainingId` path remains reserved for the training
+  cancellation transaction; it is not exposed as a general court-block deletion action.
 - Block reassignment reuses the existing server transaction, date lock, active-court check, overlap
   check, current-block exclusion, and per-slot active-court limit.
 - The UI decides action visibility only from validated load/detail state and sends intent through
@@ -125,14 +128,17 @@ the same selection rules and hooks, but this slice does not refactor or redesign
   both change-court and cancel/delete actions.
 - Confirming manual-block cancellation calls the existing `DELETE /court-blocks/:id` hard-delete
   path; cancelling the confirmation makes no request.
+- Calling that endpoint for a training-linked block returns `409 Conflict`, leaves the linked row
+  intact, and directs removal through training cancellation instead.
 - Clicking a training-linked segment keeps the existing training detail and offers change-court
   only; no delete/cancel control is present.
 - Successful request or block reassignment refreshes the timeline so the whole segment leaves its
   previous court and appears on the selected replacement court set.
 - API conflicts and stale-state responses are shown in the active dialog; request mutations still
   invalidate/refetch on settle so the detail and grid converge on server state.
-- Existing request-page reassignment, request moderation, CourtBlocks page behavior, working-hours
-  editing, orphan-training assignment, bot flows, and Mini App flows are unchanged.
+- Existing request-page reassignment, request moderation, working-hours editing, orphan-training
+  assignment, bot flows, and Mini App flows are unchanged. CourtBlocks preserves its existing
+  layout and reassignment behavior but omits the delete action for training-linked rows.
 - New controls have localized RU/SR/EN labels, accessible names, visible focus, non-color-only state,
   and no mouse-only interaction.
 
@@ -154,8 +160,10 @@ the same selection rules and hooks, but this slice does not refactor or redesign
   load keys on settle, and block reassignment/deletion invalidates block and load keys on success.
 - Keep existing API service/controller specs green for future-only request reassignment, exact
   cardinality, duplicate/inactive/occupied court rejection, confirmed-only cancellation, block
-  overlap/capacity checks, and admin authorization. No new backend test is required unless
-  implementation changes backend behavior unexpectedly.
+  overlap/capacity checks, and admin authorization. Service regression coverage proves a
+  training-linked block returns a conflict and never calls `deleteById`.
+- Admin regression coverage in `apps/admin/src/pages/CourtBlocks.spec.tsx` proves manual rows retain
+  deletion while training-linked rows omit the delete action.
 - Run the repository checks required by the BeoSand definition of done, including admin, types,
   API, i18n, typecheck, lint, tests, and build.
 
@@ -180,8 +188,10 @@ the same selection rules and hooks, but this slice does not refactor or redesign
   multi-court request; it never means editing only the clicked row/court.
 - The existing request-page future-date predicate and backend future-only reassignment rule are
   reused; the current request-page reassignment UI remains unchanged.
-- "Cancel" for a manual block is presented as a destructive UI action but uses the existing
-  `DELETE /court-blocks/:id` hard delete. There is no block status or restore path.
+- "Cancel" for a manual block is presented as a destructive UI action but uses
+  `DELETE /court-blocks/:id` hard delete. The service permits that endpoint only for manual blocks
+  and returns `409 Conflict` for a `groupTrainingId`-linked block. There is no block status or
+  restore path.
 - `block` and `training` load states are sufficient to distinguish manual from training-linked
   blocks for action visibility; no new `groupTrainingId` field is needed in the grid contract.
 - Pending holds are deliberately informational in CourtLoad. Confirm/reject stays in the existing
@@ -192,7 +202,8 @@ the same selection rules and hooks, but this slice does not refactor or redesign
 ## Out of scope
 
 - Redesigning or refactoring `/court-requests`, including its existing reassignment picker.
-- Changing `/court-blocks` page actions or layout.
+- Redesigning `/court-blocks` or changing its layout/actions beyond omitting delete for
+  training-linked rows.
 - Confirming/rejecting pending holds from CourtLoad.
 - Changing request date, start time, duration, price, client, court count, or status other than the
   existing confirmed-request cancellation.
@@ -204,9 +215,9 @@ the same selection rules and hooks, but this slice does not refactor or redesign
 
 ## Rollout & runtime verification
 
-- Implement on a dedicated feature branch/worktree and keep the patch limited to the admin
-  CourtLoad action UI, localized labels, and focused tests unless a concrete implementation blocker
-  is documented.
+- Implement on a dedicated feature branch/worktree and keep the patch limited to the admin context
+  actions, the server-side training-link deletion guard, localized labels, and focused regression
+  tests unless a concrete implementation blocker is documented.
 - No feature flag or data migration is required; deployment uses the existing admin/API release
   path.
 - In a running authenticated admin app, open one date containing a future confirmed request, a

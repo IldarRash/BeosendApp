@@ -724,6 +724,7 @@ export const adminEn: Record<string, string> = {
   "admin.courtRequests.confirmed": "Request confirmed for {client}.",
   "admin.courtRequests.rejected": "Request rejected for {client}.",
   "admin.courtRequests.cancelled": "Request cancelled for {client}.",
+  "admin.courtRequests.cancelling": "Cancelling…",
   "admin.courtRequests.cancelAction": "Cancel request",
   "admin.courtRequests.cancelTitleNamed": "Cancel request — {client}",
   "admin.courtRequests.cancelTitle": "Cancel request",
@@ -785,6 +786,11 @@ export const adminEn: Record<string, string> = {
   "admin.courtBlocks.changeCourtHint": "Current court: {court}, {start}–{end}. The server checks whether the chosen court is free for these slots.",
   "admin.courtBlocks.changeCourtHintSimple": "Current court: {court}. The server checks whether the chosen court is free for the needed slots.",
   "admin.courtBlocks.courtChanged": "Block court changed.",
+  "admin.courtBlocks.deleteTitle": "Delete block",
+  "admin.courtBlocks.deleteKeep": "Keep block",
+  "admin.courtBlocks.deleteConfirm": "Delete block",
+  "admin.courtBlocks.deleting": "Deleting…",
+  "admin.courtBlocks.noAlternativeCourts": "There is no other active court to move this block to.",
   "admin.courtBlocks.opFailed": "Failed to perform the operation.",
 
   // ── Court load page ───────────────────────────────────────────────────────
