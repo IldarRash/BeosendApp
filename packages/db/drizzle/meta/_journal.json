@@ -211,6 +211,13 @@
       "when": 1785270267175,
       "tag": "0029_talented_joshua_kane",
       "breakpoints": true
+    },
+    {
+      "idx": 30,
+      "version": "7",
+      "when": 1785270782557,
+      "tag": "0030_cynical_franklin_richards",
+      "breakpoints": true
     }
   ]
 }

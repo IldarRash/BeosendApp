@@ -53,7 +53,8 @@ export const broadcastAutomationSkipReason = z.enum([
   "cta-invalid",
   "no-qualifying-trainings",
   "no-eligible-recipients",
-  "retry-not-eligible"
+  "retry-not-eligible",
+  "processing-lease-expired"
 ]);
 export type BroadcastAutomationSkipReason = z.infer<typeof broadcastAutomationSkipReason>;
 

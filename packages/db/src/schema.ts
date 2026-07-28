@@ -560,6 +560,18 @@ export const broadcastAutomationRuns = pgTable(
   })
 );
 
+/** Per-automation cursor used to audit occurrences missed while a scheduler was unavailable. */
+export const broadcastAutomationSchedulerStates = pgTable(
+  "broadcast_automation_scheduler_states",
+  {
+    automationId: uuid("automation_id")
+      .primaryKey()
+      .references(() => broadcastAutomations.id),
+    lastEvaluatedAt: timestamp("last_evaluated_at", { withTimezone: true }).notNull(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow()
+  }
+);
+
 /** One message item per training or one digest item per run. */
 export const broadcastAutomationRunItems = pgTable(
   "broadcast_automation_run_items",
@@ -865,6 +877,7 @@ export const schema = {
   broadcastTemplates,
   broadcastAutomations,
   broadcastAutomationRuns,
+  broadcastAutomationSchedulerStates,
   broadcastAutomationRunItems,
   broadcastAutomationRunItemTrainings,
   broadcastAutomationDeliveries,

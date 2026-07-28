@@ -26,13 +26,34 @@ export class BroadcastAutomationsRepository {
   async update(id: string, expectedVersion: number, patch: Partial<Draft>, actor: number, enabled?: boolean): Promise<BroadcastAutomation | undefined> {
     const current = await this.find(id); if (!current || current.version !== expectedVersion) return undefined;
     const next = { ...draft(current), ...patch, trigger: patch.trigger ?? current.trigger, audience: patch.audience ?? current.audience, message: patch.message ?? current.message };
-    const [row] = await this.database.db.update(tables.broadcastAutomations).set({ name: next.name, config: next, ...(enabled === undefined ? {} : { enabled }), version: sql`${tables.broadcastAutomations.version} + 1`, updatedBy: actor, updatedAt: new Date() }).where(and(eq(tables.broadcastAutomations.id, id), eq(tables.broadcastAutomations.version, expectedVersion))).returning();
+    // A changed definition must be previewed and explicitly re-enabled before it can send again.
+    const nextEnabled = enabled ?? (Object.keys(patch).length ? false : current.enabled);
+    const [row] = await this.database.db.update(tables.broadcastAutomations).set({ name: next.name, config: next, enabled: nextEnabled, version: sql`${tables.broadcastAutomations.version} + 1`, updatedBy: actor, updatedAt: new Date() }).where(and(eq(tables.broadcastAutomations.id, id), eq(tables.broadcastAutomations.version, expectedVersion))).returning();
     return row ? toAutomation(row) : undefined;
   }
+  async schedulerCursor(automationId: string): Promise<Date | undefined> {
+    const [row] = await this.database.db.select({ lastEvaluatedAt: tables.broadcastAutomationSchedulerStates.lastEvaluatedAt }).from(tables.broadcastAutomationSchedulerStates).where(eq(tables.broadcastAutomationSchedulerStates.automationId, automationId)).limit(1);
+    return row?.lastEvaluatedAt;
+  }
+  async recordSchedulerCursor(automationId: string, now: Date): Promise<void> {
+    await this.database.db.insert(tables.broadcastAutomationSchedulerStates).values({ automationId, lastEvaluatedAt: now, updatedAt: now }).onConflictDoUpdate({ target: tables.broadcastAutomationSchedulerStates.automationId, set: { lastEvaluatedAt: sql`greatest(${tables.broadcastAutomationSchedulerStates.lastEvaluatedAt}, excluded.last_evaluated_at)`, updatedAt: now } });
+  }
   async listDue(now: Date): Promise<BroadcastAutomationRun[]> { const rows = await this.database.db.select().from(tables.broadcastAutomationRuns).where(and(eq(tables.broadcastAutomationRuns.status, "pending"), lte(tables.broadcastAutomationRuns.dueAt, now))).orderBy(asc(tables.broadcastAutomationRuns.dueAt)).limit(100); return rows.map(toRun); }
-  async createScheduledRun(automation: BroadcastAutomation, scheduledFor: Date): Promise<BroadcastAutomationRun | undefined> { const [row] = await this.database.db.insert(tables.broadcastAutomationRuns).values({ automationId: automation.id, automationVersion: automation.version, triggerKind: "scheduled", scheduledFor, dueAt: scheduledFor, configSnapshot: draft(automation) }).onConflictDoNothing().returning(); return row ? toRun(row) : undefined; }
+  async createScheduledRun(automation: BroadcastAutomation, scheduledFor: Date, status: "pending" | "skipped" = "pending"): Promise<BroadcastAutomationRun | undefined> { const [row] = await this.database.db.insert(tables.broadcastAutomationRuns).values({ automationId: automation.id, automationVersion: automation.version, triggerKind: "scheduled", scheduledFor, dueAt: scheduledFor, status, skipReason: status === "skipped" ? "missed" : null, completedAt: status === "skipped" ? new Date() : null, configSnapshot: draft(automation) }).onConflictDoNothing().returning(); return row ? toRun(row) : undefined; }
   async enqueueEvent(automation: BroadcastAutomation, sourceEventId: string): Promise<BroadcastAutomationRun | undefined> { const dueAt = new Date(Date.now() + 5 * 60_000); const [row] = await this.database.db.insert(tables.broadcastAutomationRuns).values({ automationId: automation.id, automationVersion: automation.version, triggerKind: automation.trigger.kind, sourceEventId, dueAt, configSnapshot: draft(automation) }).onConflictDoNothing().returning(); return row ? toRun(row) : undefined; }
   async claimRun(id: string): Promise<BroadcastAutomationRun | undefined> { const [row] = await this.database.db.update(tables.broadcastAutomationRuns).set({ status: "processing", startedAt: new Date() }).where(and(eq(tables.broadcastAutomationRuns.id, id), eq(tables.broadcastAutomationRuns.status, "pending"))).returning(); return row ? toRun(row) : undefined; }
+  /** A lost worker may have sent after persisting a claim. Preserve that uncertainty; never resend automatically. */
+  async recoverExpiredProcessing(now: Date, leaseStartedBefore: Date): Promise<void> {
+    const stale = await this.database.db.select({ id: tables.broadcastAutomationRuns.id }).from(tables.broadcastAutomationRuns).where(and(eq(tables.broadcastAutomationRuns.status, "processing"), lte(tables.broadcastAutomationRuns.startedAt, leaseStartedBefore)));
+    for (const run of stale) {
+      await this.transaction(async (tx) => {
+        const [current] = await tx.select({ id: tables.broadcastAutomationRuns.id }).from(tables.broadcastAutomationRuns).where(and(eq(tables.broadcastAutomationRuns.id, run.id), eq(tables.broadcastAutomationRuns.status, "processing"), lte(tables.broadcastAutomationRuns.startedAt, leaseStartedBefore))).limit(1);
+        if (!current) return;
+        const ambiguous = await tx.update(tables.broadcastAutomationDeliveries).set({ outcome: "ambiguous", diagnostic: "Delivery claim expired before a terminal Telegram outcome was persisted", attemptedAt: now, completedAt: now }).where(and(eq(tables.broadcastAutomationDeliveries.runId, run.id), eq(tables.broadcastAutomationDeliveries.outcome, "claimed"))).returning({ id: tables.broadcastAutomationDeliveries.id });
+        await tx.update(tables.broadcastAutomationRuns).set({ status: "completed", skipReason: "processing-lease-expired", completedAt: now, ambiguousCount: sql`${tables.broadcastAutomationRuns.ambiguousCount} + ${ambiguous.length}` }).where(eq(tables.broadcastAutomationRuns.id, run.id));
+      });
+    }
+  }
   async completeRun(id: string, counts: Record<string, number>, skipReason: string | null = null): Promise<void> { await this.database.db.update(tables.broadcastAutomationRuns).set({ status: "completed", skipReason, completedAt: new Date(), selectedTrainingsCount: counts.selectedTrainings ?? 0, includedTrainingsCount: counts.includedTrainings ?? 0, skippedTrainingsCount: counts.skippedTrainings ?? 0, recipientsCount: counts.recipients ?? 0, attemptedCount: counts.attempted ?? 0, sentCount: counts.sent ?? 0, failedCount: counts.failed ?? 0, ambiguousCount: counts.ambiguous ?? 0, skippedDeliveriesCount: counts.skippedDeliveries ?? 0 }).where(eq(tables.broadcastAutomationRuns.id, id)); }
   async skipRun(id: string, reason: string): Promise<void> { await this.database.db.update(tables.broadcastAutomationRuns).set({ status: "skipped", skipReason: reason, completedAt: new Date() }).where(eq(tables.broadcastAutomationRuns.id, id)); }
   /** Resolves the single training named by a durable domain-event source id. */
