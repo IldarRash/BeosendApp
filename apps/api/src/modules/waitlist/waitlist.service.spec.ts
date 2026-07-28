@@ -214,6 +214,15 @@ class FakeWaitlistRepository {
       : undefined;
   }
 
+  /** Mirror the repository's active-queue predicate: notified still owns the seat. */
+  async hasActiveEntryForTraining(_tx: Database, trainingId: string): Promise<boolean> {
+    return this.entries.some(
+      (entry) =>
+        entry.trainingId === trainingId &&
+        (entry.status === "waiting" || entry.status === "notified")
+    );
+  }
+
   async setStatus(
     _tx: Database,
     id: string,
@@ -799,12 +808,33 @@ describe("WaitlistService.promoteNext (auto-book + notify)", () => {
     expect(notifications.promoted).toHaveLength(0);
   });
 
-  it("is a no-op when there is no waiting head", async () => {
+  it("returns none when there is no active queue entry", async () => {
     const { service, repo, notifications } = makeService();
     repo.training = openGroupTraining(5);
-    await service.promoteNext(TRAINING_ID);
+    await expect(service.promoteNext(TRAINING_ID)).resolves.toBe("none");
     expect(notifications.promoted).toHaveLength(0);
     expect(repo.bookings).toHaveLength(0);
+  });
+
+  it("returns active for a notified-only queue without consuming its freed-seat claim", async () => {
+    const { service, repo, notifications } = makeService();
+    repo.training = openGroupTraining(5);
+    repo.entries.push({
+      id: "notified-head",
+      clientId: CLIENT_ID,
+      trainingId: TRAINING_ID,
+      position: 1,
+      status: "notified",
+      addedAt: new Date(),
+      notifiedAt: new Date()
+    });
+
+    await expect(service.promoteNext(TRAINING_ID)).resolves.toBe("active");
+
+    expect(repo.entries.find((entry) => entry.id === "notified-head")?.status).toBe("notified");
+    expect(repo.bookings).toHaveLength(0);
+    expect(repo.training).toMatchObject({ bookedCount: 5, status: "open" });
+    expect(notifications.promoted).toHaveLength(0);
   });
 
   it("is a no-op (swallowed) for an individual (group-less) training", async () => {

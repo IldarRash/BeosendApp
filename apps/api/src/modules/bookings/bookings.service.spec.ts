@@ -1766,7 +1766,7 @@ describe("BookingsService.cancelBooking", () => {
     expect(bookingsRepo.training).toMatchObject({ bookedCount: 5, status: "open" });
   });
 
-  it.each(["promoted", "failed"] as const)("suppresses freed-place automation when waitlist outcome is %s", async (outcome) => {
+  it.each(["active", "promoted", "failed"] as const)("suppresses freed-place automation when waitlist outcome is %s", async (outcome) => {
     waitlist = { promoteNext: vi.fn(async () => outcome) } as unknown as WaitlistService;
     service = new BookingsService(
       bookingsRepo as unknown as BookingsRepository,
