@@ -2,7 +2,6 @@ import {
   BadRequestException,
   ConflictException,
   ForbiddenException,
-  Logger,
   NotFoundException
 } from "@nestjs/common";
 import type { Env } from "@beosand/config";
@@ -32,7 +31,6 @@ import type { BookingPriceSnapshot } from "../training-pricing/training-pricing.
 import type { TrainingPricingService } from "../training-pricing/training-pricing.service";
 import type { TrainersRepository } from "../trainers/trainers.repository";
 import type { WaitlistService } from "../waitlist/waitlist.service";
-import type { SameDayFreedSlotDispatcher } from "../broadcasts/same-day-freed-slot-dispatcher.service";
 
 /** No-op notifications double: confirmation/pending sends are fire-and-forget here. */
 const fakeNotifications = {
@@ -1693,7 +1691,7 @@ describe("BookingsService.cancelBooking", () => {
   let clientsRepo: FakeClientsRepository;
   let promotedTrainings: string[];
   let postCommitOrder: string[];
-  let dispatchFreedSlot: ReturnType<typeof vi.fn>;
+  let automationEnqueue: ReturnType<typeof vi.fn>;
   let waitlist: WaitlistService;
   let service: BookingsService;
 
@@ -1707,9 +1705,7 @@ describe("BookingsService.cancelBooking", () => {
     clientsRepo = new FakeClientsRepository();
     promotedTrainings = [];
     postCommitOrder = [];
-    dispatchFreedSlot = vi.fn(async () => {
-      postCommitOrder.push("dispatch");
-    });
+    automationEnqueue = vi.fn(async () => undefined);
     waitlist = {
       promoteNext: async (trainingId: string): Promise<void> => {
         promotedTrainings.push(trainingId);
@@ -1726,7 +1722,7 @@ describe("BookingsService.cancelBooking", () => {
       fakeDomainEvents,
       env,
       fakePricing,
-      { dispatchAfterCancellation: dispatchFreedSlot } as unknown as SameDayFreedSlotDispatcher
+      { enqueueEvent: automationEnqueue } as never
     );
   });
 
@@ -1746,6 +1742,64 @@ describe("BookingsService.cancelBooking", () => {
     ...nullableBookingSnapshot
   });
 
+  it("enqueues freed-place only after a confirmed empty waitlist outcome, after the cancellation commits", async () => {
+    waitlist = {
+      promoteNext: vi.fn(async () => {
+        postCommitOrder.push("promote");
+        return "none";
+      })
+    } as unknown as WaitlistService;
+    service = new BookingsService(
+      bookingsRepo as unknown as BookingsRepository,
+      clientsRepo as unknown as ClientsRepository,
+      new FakeGroupsRepository() as unknown as GroupsRepository,
+      fakeNotifications, waitlist, new FakeTrainersRepository() as unknown as TrainersRepository,
+      fakeDomainEvents, env, fakePricing, { enqueueEvent: automationEnqueue } as never
+    );
+    bookingsRepo.bookings = [booking()];
+    bookingsRepo.training = { id: TRAINING_ID, capacity: 6, bookedCount: 6, status: "full" };
+
+    await service.cancelBooking(OWNER_ID, BOOKING_ID);
+
+    expect(postCommitOrder).toEqual(["promote"]);
+    expect(automationEnqueue).toHaveBeenCalledWith("freed-place", `freed-place:${BOOKING_ID}`);
+    expect(bookingsRepo.training).toMatchObject({ bookedCount: 5, status: "open" });
+  });
+
+  it.each(["promoted", "failed"] as const)("suppresses freed-place automation when waitlist outcome is %s", async (outcome) => {
+    waitlist = { promoteNext: vi.fn(async () => outcome) } as unknown as WaitlistService;
+    service = new BookingsService(
+      bookingsRepo as unknown as BookingsRepository,
+      clientsRepo as unknown as ClientsRepository,
+      new FakeGroupsRepository() as unknown as GroupsRepository,
+      fakeNotifications, waitlist, new FakeTrainersRepository() as unknown as TrainersRepository,
+      fakeDomainEvents, env, fakePricing, { enqueueEvent: automationEnqueue } as never
+    );
+    bookingsRepo.bookings = [booking()];
+    bookingsRepo.training = { id: TRAINING_ID, capacity: 6, bookedCount: 6, status: "full" };
+
+    await service.cancelBooking(OWNER_ID, BOOKING_ID);
+
+    expect(automationEnqueue).not.toHaveBeenCalled();
+  });
+
+  it("suppresses freed-place automation for an individual training even with an empty queue", async () => {
+    waitlist = { promoteNext: vi.fn(async () => "none") } as unknown as WaitlistService;
+    service = new BookingsService(
+      bookingsRepo as unknown as BookingsRepository,
+      clientsRepo as unknown as ClientsRepository,
+      new FakeGroupsRepository() as unknown as GroupsRepository,
+      fakeNotifications, waitlist, new FakeTrainersRepository() as unknown as TrainersRepository,
+      fakeDomainEvents, env, fakePricing, { enqueueEvent: automationEnqueue } as never
+    );
+    bookingsRepo.bookings = [booking()];
+    bookingsRepo.training = { id: TRAINING_ID, groupId: null, capacity: 1, bookedCount: 1, status: "full" };
+
+    await service.cancelBooking(OWNER_ID, BOOKING_ID);
+
+    expect(automationEnqueue).not.toHaveBeenCalled();
+  });
+
   it("frees exactly one seat and flips a full training back to open", async () => {
     bookingsRepo.bookings = [booking()];
     bookingsRepo.training = { id: TRAINING_ID, capacity: 6, bookedCount: 6, status: "full" };
@@ -1756,67 +1810,29 @@ describe("BookingsService.cancelBooking", () => {
     expect(bookingsRepo.training.bookedCount).toBe(5);
     expect(bookingsRepo.training.status).toBe("open");
     expect(promotedTrainings).toEqual([TRAINING_ID]);
-    expect(dispatchFreedSlot).toHaveBeenCalledWith({
-      cancelledBookingId: BOOKING_ID,
-      trainingId: TRAINING_ID,
-      cancellingClientId: CLIENT_ID,
-      selfCancellation: true
-    });
-    expect(postCommitOrder).toEqual(["promote", "dispatch"]);
+    expect(automationEnqueue).not.toHaveBeenCalled();
+    expect(postCommitOrder).toEqual(["promote"]);
   });
 
-  it("dispatches an owner cancellation when the occurrence was already open", async () => {
+  it("does not invoke the retired legacy dispatcher when the occurrence was already open", async () => {
     bookingsRepo.bookings = [booking()];
     bookingsRepo.training = { id: TRAINING_ID, capacity: 6, bookedCount: 4, status: "open" };
 
     await service.cancelBooking(OWNER_ID, BOOKING_ID);
 
-    expect(dispatchFreedSlot).toHaveBeenCalledWith(
-      expect.objectContaining({ selfCancellation: true })
-    );
+    expect(automationEnqueue).not.toHaveBeenCalled();
   });
 
-  it("keeps the committed cancellation and logs only a bounded sanitized dispatcher failure", async () => {
+  it("never invokes the retired legacy dispatcher after a cancellation", async () => {
     bookingsRepo.bookings = [booking()];
     bookingsRepo.training = { id: TRAINING_ID, capacity: 6, bookedCount: 6, status: "full" };
-    const rawToken = "123456789:AAUnsafeTelegramToken_abcdefghijklmnopqrstuvwxyz";
-    const rawChatId = "-1001234567890";
-    const rawUrl =
-      `https://api.telegram.org/bot${rawToken}/sendMessage?chat_id=${rawChatId}`;
-    const controlContent = "\u0000\u0009\u000a\u007f\u0085";
-    dispatchFreedSlot.mockRejectedValue(
-      new Error(
-        `POST ${rawUrl} failed; bot_token=${rawToken}; chat_id=${rawChatId}; ` +
-          `controls=${controlContent}; ${"x".repeat(1_000)}`
-      )
-    );
-    const errorSpy = vi.spyOn(Logger.prototype, "error").mockImplementation(() => undefined);
-
-    try {
-      await expect(service.cancelBooking(OWNER_ID, BOOKING_ID)).resolves.toMatchObject({
-        status: "cancelled"
-      });
-
-      const logText = errorSpy.mock.calls[0]?.map(String).join(" ") ?? "";
-      const prefix = "Same-day freed-slot dispatch failed (cancellation stands): ";
-      expect(logText).toContain(prefix);
-      expect(logText).not.toContain(rawToken);
-      expect(logText).not.toContain(rawUrl);
-      expect(logText).not.toContain(rawChatId);
-      expect(
-        Array.from(logText).every((character) => {
-          const codePoint = character.charCodeAt(0);
-          return codePoint > 0x1f && (codePoint < 0x7f || codePoint > 0x9f);
-        })
-      ).toBe(true);
-      expect(logText.slice(logText.indexOf(prefix) + prefix.length).length).toBeLessThanOrEqual(500);
-    } finally {
-      errorSpy.mockRestore();
-    }
+    await expect(service.cancelBooking(OWNER_ID, BOOKING_ID)).resolves.toMatchObject({
+      status: "cancelled"
+    });
 
     expect(bookingsRepo.training).toMatchObject({ bookedCount: 5, status: "open" });
     expect(postCommitOrder).toEqual(["promote"]);
-    expect(dispatchFreedSlot).toHaveBeenCalledTimes(1);
+    expect(automationEnqueue).not.toHaveBeenCalled();
   });
 
   it("cancelling one group date leaves siblings sharing the subscription booked", async () => {
@@ -1877,12 +1893,7 @@ describe("BookingsService.cancelBooking", () => {
     const result = await service.cancelBooking(ADMIN_ID, BOOKING_ID);
     expect(result.status).toBe("cancelled");
     expect(bookingsRepo.training.bookedCount).toBe(1);
-    expect(dispatchFreedSlot).toHaveBeenCalledWith(
-      expect.objectContaining({
-        cancellingClientId: OTHER_CLIENT_ID,
-        selfCancellation: false
-      })
-    );
+    expect(automationEnqueue).not.toHaveBeenCalled();
   });
 
   it("rejects a client-scoped admin cancelling another client's booking", async () => {
@@ -1906,9 +1917,7 @@ describe("BookingsService.cancelBooking", () => {
 
     expect(result.status).toBe("cancelled");
     expect(bookingsRepo.training.bookedCount).toBe(1);
-    expect(dispatchFreedSlot).toHaveBeenCalledWith(
-      expect.objectContaining({ selfCancellation: true })
-    );
+    expect(automationEnqueue).not.toHaveBeenCalled();
   });
 
   it("rejects cancelling a non-booked booking with a 409", async () => {

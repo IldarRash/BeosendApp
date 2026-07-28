@@ -109,6 +109,13 @@ function makeClientsRepo(overrides: Partial<ClientsRepository> = {}): ClientsRep
         telegramPhotoUrl: identity.telegramPhotoUrl
       })
     ),
+    recordMiniAppAccess: vi.fn(async (telegramId: number, accessedAt: Date) => ({
+      ...existingClient,
+      telegramId,
+      telegramUsername: null,
+      telegramPhotoUrl: null,
+      miniAppLastAccessAt: accessedAt.toISOString()
+    })),
     ...overrides
   } as unknown as ClientsRepository;
 }
@@ -282,6 +289,52 @@ describe("ClientsService", () => {
       }),
       expect.anything()
     );
+  });
+
+  it("initializes Mini App activity in the same onboarding insert after consented Mini App onboarding", async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date("2026-07-28T10:15:00.000Z"));
+
+    await service.onboard(
+      TELEGRAM_ID,
+      { telegramId: TELEGRAM_ID, name: "Ana", levelId: LEVEL_ID },
+      { telegramUsername: "verified_ana", telegramPhotoUrl: PHOTO_URL }
+    );
+
+    expect(clientsRepo.insertIgnoreConflict).toHaveBeenCalledWith(
+      expect.objectContaining({
+        consentGivenAt: new Date("2026-07-28T10:15:00.000Z"),
+        miniAppLastAccessAt: new Date("2026-07-28T10:15:00.000Z")
+      }),
+      expect.anything()
+    );
+    expect(clientsRepo.recordMiniAppAccess).not.toHaveBeenCalled();
+    vi.useRealTimers();
+  });
+
+  it("does not assign Mini App activity to an abandoned bot onboarding", async () => {
+    await service.onboard(TELEGRAM_ID, { telegramId: TELEGRAM_ID, name: "Ana", levelId: LEVEL_ID });
+
+    expect(clientsRepo.insertIgnoreConflict).toHaveBeenCalledWith(
+      expect.not.objectContaining({ miniAppLastAccessAt: expect.anything() }),
+      expect.anything()
+    );
+  });
+
+  it("fails closed when an existing Mini App onboarding cannot persist its access timestamp", async () => {
+    clientsRepo = makeClientsRepo({
+      findByTelegramId: vi.fn(async () => existingClient),
+      recordMiniAppAccess: vi.fn(async () => undefined)
+    });
+    service = new ClientsService(clientsRepo, levelsRepo, makeDatabase(), makeStaffLinking(), env);
+
+    await expect(
+      service.onboard(TELEGRAM_ID, { telegramId: TELEGRAM_ID, name: "Ana" }, {
+        telegramUsername: "ana",
+        telegramPhotoUrl: PHOTO_URL
+      })
+    ).rejects.toBeInstanceOf(NotFoundException);
+    expect(clientsRepo.insertIgnoreConflict).not.toHaveBeenCalled();
   });
 
   it("does not trust body username when verified Mini App identity omits it on first onboard", async () => {

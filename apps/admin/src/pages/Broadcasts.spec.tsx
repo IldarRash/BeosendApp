@@ -1,516 +1,105 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { cleanup, fireEvent, render, screen } from "@testing-library/react";
-import type {
-  Broadcast,
-  BroadcastPreview,
-  BroadcastTemplate,
-  BroadcastTemplateVariable,
-  Level
-} from "@beosand/types";
-import { DEFAULT_LOCALE, getStaticCatalog, t } from "@beosand/i18n";
+import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import type { BroadcastAutomation, BroadcastAutomationPreview, BroadcastTemplate, Level } from "@beosand/types";
 import { MemoryRouter } from "react-router-dom";
+import { DEFAULT_LOCALE, getStaticCatalog, t } from "@beosand/i18n";
 
-// --- Mocks ---------------------------------------------------------------
-
-const notify = vi.fn();
-vi.mock("../ui/Toast", () => ({
-  useToast: () => ({ notify })
-}));
-
-// AppShell pulls session hooks/router context we don't exercise here.
-vi.mock("../ui/AppShell", () => ({
-  AppShell: ({ children }: { children: React.ReactNode }) => <div>{children}</div>
-}));
-
+vi.mock("../ui/AppShell", () => ({ AppShell: ({ children }: { children: React.ReactNode }) => <div>{children}</div> }));
 vi.mock("../i18n/LanguageProvider", async () => import("../i18n/test-utils"));
 
 const useLevels = vi.fn();
-vi.mock("../hooks/useLevels", () => ({
-  useLevels: () => useLevels()
+vi.mock("../hooks/useLevels", () => ({ useLevels: () => useLevels() }));
+const automations = vi.fn(); const runs = vi.fn(); const run = vi.fn(); const actions = vi.fn();
+vi.mock("../hooks/useBroadcastAutomations", () => ({
+  useBroadcastAutomations: () => automations(), useBroadcastAutomationRuns: () => runs(),
+  useBroadcastAutomationRun: (id: string | null) => run(id), useAutomationActions: () => actions()
 }));
-
-const useBroadcastPreview = vi.fn();
-const useBroadcastTemplates = vi.fn();
-const useBroadcastTemplateVariables = vi.fn();
-const useCreateBroadcastTemplate = vi.fn();
-const useUpdateBroadcastTemplate = vi.fn();
-const useSendBroadcast = vi.fn();
-const useSameDayFreedSlotAutomationSettings = vi.fn();
-const useUpdateSameDayFreedSlotAutomationSettings = vi.fn();
-const sendMutate = vi.fn();
-const updateAutomationMutate = vi.fn();
-const createTemplateMutate = vi.fn();
-const updateTemplateMutate = vi.fn();
+const useBroadcastPreview = vi.fn(); const useBroadcastTemplates = vi.fn(); const useSendBroadcast = vi.fn();
 vi.mock("../hooks/useBroadcasts", () => ({
   useBroadcastPreview: (...args: unknown[]) => useBroadcastPreview(...args),
   useBroadcastTemplates: (...args: unknown[]) => useBroadcastTemplates(...args),
-  useBroadcastTemplateVariables: (...args: unknown[]) => useBroadcastTemplateVariables(...args),
-  useCreateBroadcastTemplate: () => useCreateBroadcastTemplate(),
-  useUpdateBroadcastTemplate: () => useUpdateBroadcastTemplate(),
-  useSendBroadcast: () => useSendBroadcast(),
-  useSameDayFreedSlotAutomationSettings: () => useSameDayFreedSlotAutomationSettings(),
-  useUpdateSameDayFreedSlotAutomationSettings: () =>
-    useUpdateSameDayFreedSlotAutomationSettings()
+  useSendBroadcast: () => useSendBroadcast()
 }));
 
 import { Broadcasts } from "./Broadcasts";
 
-function renderPage(): void {
-  render(
-    <MemoryRouter>
-      <Broadcasts />
-    </MemoryRouter>
-  );
-}
-
 const catalog = getStaticCatalog(DEFAULT_LOCALE);
-const tr = (key: string, params?: Record<string, string | number>): string =>
-  t(catalog, key, params);
+const tr = (key: string, params?: Record<string, string | number>) => t(catalog, key, params);
+const ID = "11111111-1111-4111-8111-111111111111";
+const RUN_ID = "22222222-2222-4222-8222-222222222222";
+const level: Level = { id: ID, name: "Beginner", status: "active" };
+const template: BroadcastTemplate = { id: "33333333-3333-4333-8333-333333333333", name: "Existing", broadcastType: "tomorrow", status: "active", bodyTemplate: "x", slotLineTemplate: "x", emptyBodyTemplate: "x", version: 2, createdAt: "2026-07-01T00:00:00.000Z", updatedAt: "2026-07-01T00:00:00.000Z", updatedBy: 1 };
+const automation: BroadcastAutomation = { id: ID, name: "Tomorrow", enabled: false, trigger: { kind: "scheduled", recurrence: "daily", time: "10:00", trainingWindow: "tomorrow" }, audience: { levelIds: [ID], activity: "active" }, message: { bodies: { ru: "Здравствуйте" }, defaultLanguage: "ru", outputMode: "per-training", ctaMode: "booking" }, version: 3, createdBy: 1, updatedBy: 1, createdAt: "2026-07-01T00:00:00.000Z", updatedAt: "2026-07-01T00:00:00.000Z" };
+const preview: BroadcastAutomationPreview = { automationId: ID, version: 3, previewToken: "preview-token-is-long-enough", trainings: [], renderedItems: [{ trainingIds: [ID], requestedLanguage: "ru", resolvedLanguage: "ru", usedFallback: false, text: "Server rendered", ctaMode: "booking", bookingTrainingId: ID }], recipientCount: 1, selectedLanguages: ["ru"], fallbackLanguages: [], warnings: [] };
+const create = vi.fn(); const update = vi.fn(); const previewMutation = vi.fn(); const enable = vi.fn(); const retry = vi.fn(); const send = vi.fn();
 
-function getManualAudienceSelect(): HTMLElement {
-  return screen.getAllByLabelText(tr("admin.broadcasts.fieldAudience")).at(-1)!;
-}
-
-const templateNameLabel = /Название шаблона|admin\.broadcasts\.templateName/;
-const templateBodyLabel = /Основной текст|admin\.broadcasts\.templateBody/;
-const templateSlotLineLabel = /Строка слота|admin\.broadcasts\.templateSlotLine/;
-const templateEmptyLabel =
-  /Текст без свободных слотов|admin\.broadcasts\.templateEmpty/;
-
-function getTemplateSelect(): HTMLElement {
-  return screen.getByRole("combobox", { name: "Шаблон" });
-}
-
-const sampleLevels: Level[] = [
-  { id: "11111111-1111-1111-1111-111111111111", name: "Начинающий", status: "active" },
-  { id: "22222222-2222-2222-2222-222222222222", name: "Продвинутый", status: "active" }
-];
-
-const samplePreview: BroadcastPreview = {
-  type: "today",
-  text: "Свободные места сегодня!",
-  recipientsCount: 42,
-  slots: [
-    {
-      trainingId: "33333333-3333-3333-3333-333333333333",
-      date: "2026-06-04",
-      dayOfWeek: 4,
-      startTime: "18:00",
-      endTime: "19:30",
-      trainerName: "Анна",
-      groupName: "Beach Start",
-      levelName: "Начинающий",
-      freeSeats: 3,
-      priceSingleRsd: 1500
-    }
-  ]
-};
-
-const sampleTemplate: BroadcastTemplate = {
-  id: "55555555-5555-4555-8555-555555555555",
-  name: "Weekend push",
-  broadcastType: "today",
-  status: "active",
-  bodyTemplate: "Body {groupName}",
-  slotLineTemplate: "{date} {startTime} {groupName}",
-  emptyBodyTemplate: "No slots",
-  version: 2,
-  createdAt: "2026-06-04T09:00:00.000Z",
-  updatedAt: "2026-06-04T09:30:00.000Z",
-  updatedBy: 1
-};
-
-const sampleVariables: BroadcastTemplateVariable[] = [
-  {
-    key: "groupName",
-    placeholder: "{groupName}",
-    label: "Group name",
-    description: "Full group name resolved by the server.",
-    example: "Beach Start",
-    valueType: "string"
-  },
-  {
-    key: "freeSeats",
-    placeholder: "{freeSeats}",
-    label: "Free seats",
-    description: "Server-computed remaining capacity.",
-    example: "3",
-    valueType: "integer"
-  }
-];
-
-const sentBroadcast: Broadcast = {
-  id: "44444444-4444-4444-4444-444444444444",
-  type: "today",
-  payload: "Свободные места сегодня!",
-  createdBy: 1,
-  sentAt: "2026-06-04T10:00:00.000Z",
-  recipientsCount: 42
-};
+function renderPage() { render(<MemoryRouter><Broadcasts /></MemoryRouter>); }
 
 beforeEach(() => {
-  notify.mockReset();
-  sendMutate.mockReset();
-  updateAutomationMutate.mockReset();
-  createTemplateMutate.mockReset();
-  updateTemplateMutate.mockReset();
-  useLevels.mockReturnValue({ isLoading: false, isError: false, data: sampleLevels });
-  useBroadcastTemplates.mockReturnValue({
-    isLoading: false,
-    isError: false,
-    error: null,
-    data: [sampleTemplate]
-  });
-  useBroadcastTemplateVariables.mockReturnValue({
-    isLoading: false,
-    isError: false,
-    error: null,
-    data: sampleVariables
-  });
-  useCreateBroadcastTemplate.mockReturnValue({
-    mutate: createTemplateMutate,
-    isPending: false,
-    error: null
-  });
-  useUpdateBroadcastTemplate.mockReturnValue({
-    mutate: updateTemplateMutate,
-    isPending: false,
-    error: null
-  });
-  useBroadcastPreview.mockReturnValue({
-    isLoading: false,
-    isFetching: false,
-    isError: false,
-    error: null,
-    data: samplePreview
-  });
-  useSendBroadcast.mockReturnValue({ mutate: sendMutate, isPending: false, error: null });
-  useSameDayFreedSlotAutomationSettings.mockReturnValue({
-    isLoading: false,
-    isError: false,
-    error: null,
-    data: { enabled: false, audience: null },
-    refetch: vi.fn()
-  });
-  useUpdateSameDayFreedSlotAutomationSettings.mockReturnValue({
-    mutate: updateAutomationMutate,
-    reset: vi.fn(),
-    isPending: false,
-    isError: false,
-    isSuccess: false,
-    error: null
-  });
+  useLevels.mockReturnValue({ data: [level], isLoading: false });
+  automations.mockReturnValue({ data: { items: [automation], nextCursor: null }, isLoading: false, isError: false });
+  runs.mockReturnValue({ data: { items: [{ id: RUN_ID, triggerKind: "scheduled", status: "completed", counts: { sent: 1, failed: 1, ambiguous: 1 }, createdAt: "2026-07-01T00:00:00.000Z" }], nextCursor: null }, isLoading: false });
+  run.mockReturnValue({ data: undefined, isLoading: false });
+  actions.mockReturnValue({ create: { mutateAsync: create, isPending: false, isError: false }, update: { mutateAsync: update, isPending: false, isError: false }, preview: { mutateAsync: previewMutation, isPending: false }, enable: { mutateAsync: enable, isPending: false, isError: false }, disable: { mutate: vi.fn() }, retry: { mutate: retry } });
+  useBroadcastTemplates.mockReturnValue({ data: [template], isLoading: false, isError: false });
+  useBroadcastPreview.mockReturnValue({ data: { type: "tomorrow", text: "Legacy server preview", recipientsCount: 2, previewToken: "preview-token", slots: [] }, isLoading: false, isFetching: false, isError: false });
+  useSendBroadcast.mockReturnValue({ mutate: send, isPending: false, isError: false });
+  create.mockReset(); update.mockReset(); previewMutation.mockReset(); enable.mockReset(); retry.mockReset(); send.mockReset();
 });
-
 afterEach(cleanup);
 
-describe("same-day freed-slot automation workspace", () => {
-  it("renders the persisted disabled status and unconfigured audience placeholder", () => {
+describe("Broadcast automation builder", () => {
+  it("keeps enable preview-token gated and sends the preview-bound version", async () => {
+    enable.mockResolvedValueOnce({ ...automation, enabled: true });
     renderPage();
-
-    expect(screen.getByText(tr("admin.broadcasts.automationStatusDisabled"))).toBeTruthy();
-    expect(
-      screen.getByRole("option", {
-        name: tr("admin.broadcasts.automationAudiencePlaceholder")
-      })
-    ).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: tr("admin.action.edit") }));
+    expect(screen.getByRole("button", { name: tr("admin.broadcasts.enable") }).hasAttribute("disabled")).toBe(true);
+    previewMutation.mockResolvedValueOnce(preview);
+    fireEvent.click(screen.getByRole("button", { name: tr("admin.broadcasts.preview") }));
+    await waitFor(() => expect(screen.getByText("Server rendered")).toBeTruthy());
+    fireEvent.click(screen.getByRole("button", { name: tr("admin.broadcasts.enable") }));
+    await waitFor(() => expect(enable).toHaveBeenCalledWith({ id: ID, input: { expectedVersion: 3, previewToken: preview.previewToken } }));
   });
 
-  it("shows load failure and retries the settings query", () => {
-    const refetch = vi.fn();
-    useSameDayFreedSlotAutomationSettings.mockReturnValue({
-      isLoading: false,
-      isError: true,
-      error: new Error("offline"),
-      data: undefined,
-      refetch
-    });
-
+  it("renders a stale-version enable error returned by the server", () => {
+    actions.mockReturnValue({ create: { mutateAsync: create, isPending: false, isError: false }, update: { mutateAsync: update, isPending: false, isError: false }, preview: { mutateAsync: previewMutation, isPending: false }, enable: { mutateAsync: enable, isPending: false, isError: true, error: new Error("stale version") }, disable: { mutate: vi.fn() }, retry: { mutate: retry } });
     renderPage();
-
-    expect(screen.getByRole("alert").textContent).toContain("offline");
-    fireEvent.click(
-      screen.getByRole("button", { name: tr("admin.broadcasts.automationRetry") })
-    );
-    expect(refetch).toHaveBeenCalledOnce();
+    expect(screen.getByRole("alert").textContent).toContain("stale version");
   });
 
-  it("blocks enabling until a complete audience is selected", () => {
+  it("collects scheduled weekly/date forms, event trigger, and prevents a digest booking CTA", () => {
     renderPage();
-
-    fireEvent.click(
-      screen.getByRole("checkbox", { name: tr("admin.broadcasts.automationEnable") })
-    );
-
-    expect(screen.getByText(tr("admin.broadcasts.automationIncomplete"))).toBeTruthy();
-    expect(
-      screen
-        .getByRole("button", { name: tr("admin.broadcasts.automationSave") })
-        .hasAttribute("disabled")
-    ).toBe(true);
-    expect(updateAutomationMutate).not.toHaveBeenCalled();
+    const trigger = screen.getByLabelText(tr("admin.broadcasts.trigger"));
+    fireEvent.change(trigger, { target: { value: "scheduled" } });
+    fireEvent.change(screen.getByLabelText(tr("admin.broadcasts.recurrence")), { target: { value: "weekly" } });
+    expect(screen.getByLabelText(tr("admin.broadcasts.weekdays"))).toBeTruthy();
+    fireEvent.change(screen.getByLabelText(tr("admin.broadcasts.recurrence")), { target: { value: "one-time" } });
+    expect(screen.getByLabelText(tr("admin.broadcasts.date"))).toBeTruthy();
+    fireEvent.change(screen.getByLabelText(tr("admin.broadcasts.output")), { target: { value: "digest" } });
+    expect(screen.getByLabelText(tr("admin.broadcasts.cta")).hasAttribute("disabled")).toBe(true);
+    fireEvent.change(trigger, { target: { value: "freed-place" } });
+    expect(screen.getByText(tr("admin.broadcasts.eventDelay"))).toBeTruthy();
   });
 
-  it("saves a complete policy and reports the persisted result", () => {
-    updateAutomationMutate.mockImplementation(
-      (_input, options?: { onSuccess?: (value: unknown) => void }) =>
-        options?.onSuccess?.({ enabled: true, audience: { kind: "all" } })
-    );
+  it("opens run history and only retries ambiguous deliveries after explicit acknowledgement", () => {
+    run.mockReturnValue({ data: { run: { counts: { sent: 1, failed: 1, ambiguous: 1 } }, items: [], trainings: [], deliveries: [] }, isLoading: false });
     renderPage();
-
-    fireEvent.change(screen.getAllByLabelText(tr("admin.broadcasts.fieldAudience"))[0], {
-      target: { value: "all" }
-    });
-    fireEvent.click(
-      screen.getByRole("checkbox", { name: tr("admin.broadcasts.automationEnable") })
-    );
-    fireEvent.click(
-      screen.getByRole("button", { name: tr("admin.broadcasts.automationSave") })
-    );
-
-    expect(updateAutomationMutate.mock.calls[0]?.[0]).toEqual({
-      enabled: true,
-      audience: { kind: "all" }
-    });
-    expect(notify).toHaveBeenCalledWith(tr("admin.broadcasts.automationSaved"), "success");
+    fireEvent.click(screen.getByRole("button", { name: tr("admin.action.view") }));
+    fireEvent.click(screen.getByRole("button", { name: tr("admin.broadcasts.retry") }));
+    expect(retry).toHaveBeenLastCalledWith({ runId: RUN_ID, input: { includeAmbiguous: false } });
+    fireEvent.click(screen.getByRole("checkbox", { name: tr("admin.broadcasts.retryAmbiguous") }));
+    expect(screen.getByText(tr("admin.broadcasts.duplicateWarning"))).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: tr("admin.broadcasts.retry") }));
+    expect(retry).toHaveBeenLastCalledWith({ runId: RUN_ID, input: { includeAmbiguous: true, acknowledgeAmbiguous: true } });
   });
 
-  it("renders save errors without changing the manual composer", () => {
-    useUpdateSameDayFreedSlotAutomationSettings.mockReturnValue({
-      mutate: updateAutomationMutate,
-      reset: vi.fn(),
-      isPending: false,
-      isError: true,
-      isSuccess: false,
-      error: new Error("save failed")
-    });
-
+  it("keeps legacy selection, server preview and manual send, without legacy creation or auto-switch controls", () => {
     renderPage();
-
-    expect(screen.getAllByRole("alert").some((node) => node.textContent?.includes("save failed"))).toBe(
-      true
-    );
-    expect(useBroadcastPreview).toHaveBeenCalledWith("today", { kind: "all" }, null);
-  });
-});
-
-describe("Broadcasts composer", () => {
-  it("requests the preview with the default type, all audience, and no template", () => {
-    renderPage();
-    const [type, audience, templateId] = useBroadcastPreview.mock.calls.at(-1) as [
-      string,
-      unknown,
-      unknown
-    ];
-    expect(type).toBe("today");
-    expect(audience).toEqual({ kind: "all" });
-    expect(templateId).toBeNull();
-  });
-
-  it("renders the API recipient count, composed message, variables and slot metadata verbatim", () => {
-    renderPage();
-    expect(screen.getByText("42")).toBeTruthy();
-    const previewText = screen.getByText(samplePreview.text);
-    expect(previewText.textContent).toBe(samplePreview.text);
-    // Slot card details come straight from the preview.
-    expect(screen.getByText("Beach Start")).toBeTruthy();
-    expect(screen.getByText(/Анна/)).toBeTruthy();
-    expect(screen.getByText(/1[\s ]?500\s*RSD/)).toBeTruthy();
-    expect(screen.getByText("{groupName}")).toBeTruthy();
-    expect(screen.getByText("{freeSeats}")).toBeTruthy();
-  });
-
-  it("builds a level audience when the level kind and level are chosen", () => {
-    renderPage();
-    fireEvent.change(getManualAudienceSelect(), { target: { value: "level" } });
-    fireEvent.change(screen.getByLabelText("Уровень"), {
-      target: { value: sampleLevels[1].id }
-    });
-    const [, audience] = useBroadcastPreview.mock.calls.at(-1) as [string, unknown];
-    expect(audience).toEqual({ kind: "level", levelId: sampleLevels[1].id });
-  });
-
-  it("gates the preview (null audience) until a level is picked", () => {
-    renderPage();
-    fireEvent.change(getManualAudienceSelect(), { target: { value: "level" } });
-    const [, audience] = useBroadcastPreview.mock.calls.at(-1) as [string, unknown];
-    expect(audience).toBeNull();
-  });
-
-  it("does not send when level audience is selected without a level", () => {
-    renderPage();
-    fireEvent.change(getManualAudienceSelect(), { target: { value: "level" } });
-
-    const sendButton = screen.getByRole("button", { name: "Отправить" });
-    expect(sendButton.hasAttribute("disabled")).toBe(true);
-    fireEvent.click(sendButton);
-
-    const [, audience] = useBroadcastPreview.mock.calls.at(-1) as [string, unknown];
-    expect(audience).toBeNull();
-    expect(sendMutate).not.toHaveBeenCalled();
-  });
-
-  it("builds an active-days audience from the days field", () => {
-    renderPage();
-    fireEvent.change(getManualAudienceSelect(), { target: { value: "active" } });
-    fireEvent.change(screen.getByLabelText("Период, дней"), { target: { value: "30" } });
-    const [, audience] = useBroadcastPreview.mock.calls.at(-1) as [string, unknown];
-    expect(audience).toEqual({ kind: "active", days: 30 });
-  });
-
-  it("sends the previewed fixed broadcast with { type, audience }", () => {
-    renderPage();
-    fireEvent.click(screen.getByRole("button", { name: "Отправить" }));
-    expect(sendMutate).toHaveBeenCalledTimes(1);
-    expect(sendMutate.mock.calls[0][0]).toEqual({ type: "today", audience: { kind: "all" } });
-  });
-
-  it("passes selected templateId to preview and sends templateId with previewToken", () => {
-    useBroadcastPreview.mockReturnValue({
-      isLoading: false,
-      isFetching: false,
-      isError: false,
-      error: null,
-      data: {
-        ...samplePreview,
-        templateId: sampleTemplate.id,
-        templateVersion: 2,
-        previewToken: "preview-token",
-        templateVariables: sampleVariables
-      }
-    });
-
-    renderPage();
-    fireEvent.change(getTemplateSelect(), {
-      target: { value: sampleTemplate.id }
-    });
-
-    const [, , templateId] = useBroadcastPreview.mock.calls.at(-1) as [
-      string,
-      unknown,
-      string
-    ];
-    expect(templateId).toBe(sampleTemplate.id);
-
-    fireEvent.click(screen.getByRole("button", { name: "Отправить" }));
-    expect(sendMutate.mock.calls[0][0]).toEqual({
-      type: "today",
-      audience: { kind: "all" },
-      templateId: sampleTemplate.id,
-      previewToken: "preview-token"
-    });
-  });
-
-  it("requires a fresh preview token before templated send", () => {
-    renderPage();
-    fireEvent.change(getTemplateSelect(), {
-      target: { value: sampleTemplate.id }
-    });
-    fireEvent.click(screen.getByRole("button", { name: "Отправить" }));
-
-    expect(sendMutate).not.toHaveBeenCalled();
-    expect(notify).toHaveBeenCalledWith(expect.any(String), "error");
-  });
-
-  it("creates a new template from the editor form", () => {
-    renderPage();
-    fireEvent.change(getTemplateSelect(), { target: { value: "__new__" } });
-    fireEvent.change(screen.getByLabelText(templateNameLabel), { target: { value: "Fresh copy" } });
-    fireEvent.change(screen.getByLabelText(templateBodyLabel), {
-      target: { value: "Body {groupName}" }
-    });
-    fireEvent.change(screen.getByLabelText(templateSlotLineLabel), {
-      target: { value: "{date} {startTime}" }
-    });
-    fireEvent.change(screen.getByLabelText(templateEmptyLabel), {
-      target: { value: "No slots" }
-    });
-    fireEvent.click(screen.getByRole("button", { name: "Сохранить" }));
-
-    expect(createTemplateMutate.mock.calls[0][0]).toEqual({
-      name: "Fresh copy",
-      broadcastType: "today",
-      bodyTemplate: "Body {groupName}",
-      slotLineTemplate: "{date} {startTime}",
-      emptyBodyTemplate: "No slots"
-    });
-  });
-
-  it("updates an existing template from the editor form", () => {
-    renderPage();
-    fireEvent.change(getTemplateSelect(), {
-      target: { value: sampleTemplate.id }
-    });
-    fireEvent.change(screen.getByLabelText(templateNameLabel), { target: { value: "Updated" } });
-    fireEvent.click(screen.getByRole("button", { name: "Сохранить" }));
-
-    expect(updateTemplateMutate.mock.calls[0][0]).toEqual({
-      id: sampleTemplate.id,
-      input: {
-        name: "Updated",
-        bodyTemplate: sampleTemplate.bodyTemplate,
-        slotLineTemplate: sampleTemplate.slotLineTemplate,
-        emptyBodyTemplate: sampleTemplate.emptyBodyTemplate
-      }
-    });
-  });
-
-  it("toasts the persisted recipients reached on a successful send", () => {
-    sendMutate.mockImplementation(
-      (_input, opts?: { onSuccess?: (b: Broadcast) => void }) => opts?.onSuccess?.(sentBroadcast)
-    );
-    renderPage();
-    fireEvent.click(screen.getByRole("button", { name: "Отправить" }));
-    expect(notify).toHaveBeenCalledTimes(1);
-    expect(notify.mock.calls[0][0]).toContain("42");
-    expect(notify.mock.calls[0][1]).toBe("success");
-  });
-
-  it("surfaces a send error via a toast", () => {
-    sendMutate.mockImplementation(
-      (_input, opts?: { onError?: (e: Error) => void }) => opts?.onError?.(new Error("boom"))
-    );
-    renderPage();
-    fireEvent.click(screen.getByRole("button", { name: "Отправить" }));
-    expect(notify).toHaveBeenCalledTimes(1);
-    expect(notify.mock.calls[0][0]).toContain("boom");
-    expect(notify.mock.calls[0][1]).toBe("error");
-  });
-
-  it("disables send until a preview exists", () => {
-    useBroadcastPreview.mockReturnValue({
-      isLoading: true,
-      isFetching: true,
-      isError: false,
-      error: null,
-      data: undefined
-    });
-    renderPage();
-    const sendButton = screen.getByRole("button", { name: "Отправить" });
-    expect(sendButton.hasAttribute("disabled")).toBe(true);
-  });
-
-  it("shows a loading state while the preview is computing", () => {
-    useBroadcastPreview.mockReturnValue({
-      isLoading: true,
-      isFetching: true,
-      isError: false,
-      error: null,
-      data: undefined
-    });
-    renderPage();
-    expect(screen.getByText("Расчёт охвата…")).toBeTruthy();
-  });
-
-  it("surfaces a preview error", () => {
-    useBroadcastPreview.mockReturnValue({
-      isLoading: false,
-      isFetching: false,
-      isError: true,
-      error: new Error("nope"),
-      data: undefined
-    });
-    renderPage();
-    expect(screen.getByRole("alert").textContent).toContain("nope");
+    expect(screen.getByRole("option", { name: tr("admin.broadcasts.templateOption", { name: template.name, version: template.version }) })).toBeTruthy();
+    expect(screen.getByText("Legacy server preview")).toBeTruthy();
+    fireEvent.change(screen.getByLabelText(tr("admin.broadcasts.templateField")), { target: { value: template.id } });
+    fireEvent.click(screen.getByRole("button", { name: tr("admin.broadcasts.send") }));
+    expect(send).toHaveBeenCalledWith({ type: "tomorrow", audience: { kind: "all" }, templateId: template.id, previewToken: "preview-token" });
+    expect(screen.queryByText(/create template|edit template|automatic notifications/i)).toBeNull();
   });
 });

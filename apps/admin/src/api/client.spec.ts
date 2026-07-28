@@ -265,6 +265,45 @@ describe("ApiClient broadcast templates", () => {
   });
 });
 
+describe("ApiClient broadcast automation builder", () => {
+  afterEach(() => vi.unstubAllGlobals());
+
+  const automationId = "77777777-7777-4777-8777-777777777777";
+  const runId = "99999999-9999-4999-8999-999999999999";
+  const automation = {
+    id: automationId, name: "Tomorrow", enabled: false,
+    trigger: { kind: "scheduled" as const, recurrence: "daily" as const, time: "10:00", trainingWindow: "tomorrow" as const },
+    audience: { levelIds: ["88888888-8888-4888-8888-888888888888"], activity: "active" as const },
+    message: { bodies: { ru: "Здравствуйте" }, defaultLanguage: "ru" as const, outputMode: "per-training" as const, ctaMode: "none" as const },
+    version: 3, createdBy: 1, updatedBy: 1, createdAt: "2026-07-01T00:00:00.000Z", updatedAt: "2026-07-01T00:00:00.000Z"
+  };
+
+  it("uses versioned builder paths for create, preview and preview-token enable", async () => {
+    const calls = mockFetchOnce(automation);
+    const client = new ApiClient("http://api.test");
+    const draft = { name: automation.name, trigger: automation.trigger, audience: automation.audience, message: automation.message };
+
+    await client.createBroadcastAutomation(draft);
+    expect(calls[0]?.url).toBe("http://api.test/broadcast-automations");
+    expect(calls[0]?.init?.method).toBe("POST");
+    expect(JSON.parse(calls[0]?.init?.body as string)).toEqual(draft);
+  });
+
+  it("rejects unsafe enable without a preview token before it can make a request", () => {
+    const fetch = vi.fn();
+    vi.stubGlobal("fetch", fetch);
+    expect(() => new ApiClient("http://api.test").enableBroadcastAutomation(automationId, { expectedVersion: 3, previewToken: "stale" })).toThrow();
+    expect(fetch).not.toHaveBeenCalled();
+  });
+
+  it("sends the explicit ambiguous-delivery acknowledgement only on the retry path", async () => {
+    const calls = mockFetchOnce({ run: { id: runId, automationId, automationVersion: 3, triggerKind: "scheduled", sourceEventId: null, scheduledFor: null, dueAt: "2026-07-01T00:00:00.000Z", status: "completed", skipReason: null, originalRunId: null, configSnapshot: { name: automation.name, trigger: automation.trigger, audience: automation.audience, message: automation.message }, counts: { selectedTrainings: 0, includedTrainings: 0, skippedTrainings: 0, recipients: 0, attempted: 0, sent: 0, failed: 0, ambiguous: 0, skippedDeliveries: 0 }, createdAt: "2026-07-01T00:00:00.000Z", startedAt: null, completedAt: null }, selectedDeliveryCount: 1 });
+    await new ApiClient("http://api.test").retryBroadcastAutomationFailures(runId, { includeAmbiguous: true, acknowledgeAmbiguous: true });
+    expect(calls[0]?.url).toBe(`http://api.test/broadcast-automation-runs/${runId}/retry-failures`);
+    expect(JSON.parse(calls[0]?.init?.body as string)).toEqual({ includeAmbiguous: true, acknowledgeAmbiguous: true });
+  });
+});
+
 describe("ApiClient session", () => {
   beforeEach(() => {
     sessionStorage.clear();

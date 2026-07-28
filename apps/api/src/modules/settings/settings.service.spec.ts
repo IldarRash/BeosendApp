@@ -1,4 +1,4 @@
-import { ForbiddenException } from "@nestjs/common";
+import { ForbiddenException, GoneException } from "@nestjs/common";
 import type { Env } from "@beosand/config";
 import { describe, expect, it, vi } from "vitest";
 import { SettingsRepository } from "./settings.repository";
@@ -196,19 +196,15 @@ describe("SettingsService same-day freed-slot automation", () => {
     expect(settingsRepo.findValue).toHaveBeenCalledWith("same_day_freed_slot_automation");
   });
 
-  it("round-trips a validated global policy through app_settings", async () => {
+  it("rejects mutation of the retired global policy without writing app_settings", async () => {
     const settingsRepo = repo();
     const service = new SettingsService(settingsRepo, env());
     const input = { enabled: true, audience: { kind: "active" as const, days: 30 } };
 
-    await expect(
-      service.updateSameDayFreedSlotAutomationSettings(ADMIN_ID, input)
-    ).resolves.toEqual(input);
-    expect(settingsRepo.upsertValue).toHaveBeenCalledWith(
-      "same_day_freed_slot_automation",
-      JSON.stringify(input),
-      ADMIN_ID
+    await expect(service.updateSameDayFreedSlotAutomationSettings(ADMIN_ID, input)).rejects.toBeInstanceOf(
+      GoneException
     );
+    expect(settingsRepo.upsertValue).not.toHaveBeenCalled();
   });
 
   it.each([
