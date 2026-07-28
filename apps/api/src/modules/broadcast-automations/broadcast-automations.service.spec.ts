@@ -40,7 +40,7 @@ function repo() {
     skipRun: vi.fn(), claimRun: vi.fn(), qualifyingTrainings: vi.fn(async () => []),
     audience: vi.fn<(audience: BroadcastAutomation["audience"], now: Date) => Promise<AutomationRecipient[]>>(async () => []), retrySource: vi.fn(async () => []), detail: vi.fn(), createRetryRun: vi.fn(),
     update: vi.fn(), claimDelivery: vi.fn(), createItem: vi.fn(), addTraining: vi.fn(), completeRun: vi.fn(), finishDelivery: vi.fn(), skipDelivery: vi.fn(),
-    eventTraining: vi.fn(), eligibleTrainings: vi.fn(), recipientStillEligible: vi.fn(), hasFreedPlaceExclusion: vi.fn(),
+    eventTraining: vi.fn(), eligibleTrainings: vi.fn(), recipientStillEligible: vi.fn(async (): Promise<AutomationRecipient | undefined> => recipient), hasFreedPlaceExclusion: vi.fn(),
     eventCoveredTrainingIdsSince: vi.fn(async () => new Map<string, string>())
   };
 }
@@ -232,6 +232,45 @@ describe("BroadcastAutomationsService", () => {
     expect(sender.sendMessageWithOutcome).toHaveBeenCalledWith(123, "Snapshot Original", undefined);
   });
 
+  it("rechecks a claimed recipient immediately and records an ineligible recipient without sending", async () => {
+    const claimed = { ...run, configSnapshot: { name: automation.name, trigger: automation.trigger, audience: automation.audience, message: automation.message } };
+    r.listDue.mockResolvedValue([claimed]);
+    r.claimRun.mockResolvedValue(claimed);
+    r.qualifyingTrainings.mockResolvedValue([{ trainingId: ID, date: "2026-10-25", startTime: "18:00", endTime: "19:00", groupName: "One", levelName: "L", trainerName: "T", freeSeats: 1 }] as never);
+    r.audience.mockResolvedValue([recipient]);
+    r.createItem.mockResolvedValue({ id: ITEM });
+    r.claimDelivery.mockResolvedValue({ id: DELIVERY });
+    r.recipientStillEligible.mockResolvedValue(undefined);
+    const sender = (service as unknown as { sender: { sendMessageWithOutcome: ReturnType<typeof vi.fn> } }).sender;
+
+    await service.sweep(now);
+
+    expect(r.claimDelivery).toHaveBeenCalledWith(RUN, ITEM, recipient, expect.any(Object));
+    expect(r.recipientStillEligible).toHaveBeenCalledWith(recipient.clientId, automation.audience, expect.any(Date));
+    expect(r.skipDelivery).toHaveBeenCalledWith(DELIVERY, "audience-no-longer-eligible");
+    expect(sender.sendMessageWithOutcome).not.toHaveBeenCalled();
+    expect(r.completeRun).toHaveBeenCalledWith(RUN, expect.objectContaining({ attempted: 0, skippedDeliveries: 1 }));
+  });
+
+  it("uses the Telegram id returned by the post-claim eligibility recheck", async () => {
+    const claimed = { ...run, configSnapshot: { name: automation.name, trigger: automation.trigger, audience: automation.audience, message: automation.message } };
+    const currentRecipient = { ...recipient, telegramId: 456 };
+    r.listDue.mockResolvedValue([claimed]);
+    r.claimRun.mockResolvedValue(claimed);
+    r.qualifyingTrainings.mockResolvedValue([{ trainingId: ID, date: "2026-10-25", startTime: "18:00", endTime: "19:00", groupName: "One", levelName: "L", trainerName: "T", freeSeats: 1 }] as never);
+    r.audience.mockResolvedValue([recipient]);
+    r.createItem.mockResolvedValue({ id: ITEM });
+    r.claimDelivery.mockResolvedValue({ id: DELIVERY });
+    r.recipientStillEligible.mockResolvedValue(currentRecipient);
+    const sender = (service as unknown as { sender: { sendMessageWithOutcome: ReturnType<typeof vi.fn> } }).sender;
+    sender.sendMessageWithOutcome.mockResolvedValue({ kind: "sent" });
+
+    await service.sweep(now);
+
+    expect(sender.sendMessageWithOutcome).toHaveBeenCalledWith(456, "One", undefined);
+    expect(sender.sendMessageWithOutcome).not.toHaveBeenCalledWith(123, expect.anything(), expect.anything());
+  });
+
   it("records each per-training item against only its own training evidence", async () => {
     const other = "77777777-7777-4777-8777-777777777777";
     const claimed = { ...run, configSnapshot: { name: automation.name, trigger: automation.trigger, audience: automation.audience, message: automation.message } };
@@ -283,6 +322,9 @@ describe("BroadcastAutomationsService", () => {
     await service.sweep(now);
 
     expect(r.skipDelivery).toHaveBeenCalledWith(DELIVERY, "mandatory-exclusion");
+    expect(r.recipientStillEligible).toHaveBeenCalledWith(recipient.clientId, automation.audience, expect.any(Date));
+    expect(r.hasFreedPlaceExclusion).toHaveBeenCalledWith("freed-place:booking-1", recipient.clientId, [ID]);
+    expect(r.recipientStillEligible.mock.invocationCallOrder[0]).toBeLessThan(r.hasFreedPlaceExclusion.mock.invocationCallOrder[0] ?? Infinity);
     expect(sender.sendMessageWithOutcome).not.toHaveBeenCalled();
     expect(r.completeRun).toHaveBeenCalledWith(RUN, expect.objectContaining({ attempted: 0, skippedDeliveries: 1 }));
   });

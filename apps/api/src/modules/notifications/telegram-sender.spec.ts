@@ -1,6 +1,6 @@
 import type { Env } from "@beosand/config";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { TelegramSender } from "./telegram-sender";
+import { sanitizeTelegramDiagnostic, TelegramSender } from "./telegram-sender";
 
 const SECRET_TOKEN = "123456:SUPER-SECRET-BOT-TOKEN";
 
@@ -89,5 +89,24 @@ describe("TelegramSender", () => {
     await expect(sender.sendMessage(7, "x")).rejects.toThrow();
     const message = await sender.sendMessage(7, "x").catch((e: Error) => e.message);
     expect(message).not.toContain(SECRET_TOKEN);
+  });
+
+  it("redacts persisted diagnostics without relying on a long recipient id", () => {
+    const diagnostic = sanitizeTelegramDiagnostic(
+      "chat 1234 and 7654321 @alice bot123456:BOT_SECRET 654321:PLAIN_SECRET https://api.telegram.org/bot123456:URL_SECRET/sendMessage\nnext\u0000tail",
+      1234
+    );
+
+    expect(diagnostic).toBe("chat [id] and [id] [username] [token] [token] [url] next tail");
+    expect(diagnostic).not.toContain("1234");
+    expect(diagnostic).not.toContain("7654321");
+    expect(diagnostic).not.toContain("alice");
+    expect(diagnostic).not.toContain("SECRET");
+    expect(diagnostic).not.toContain("api.telegram.org");
+    expect(diagnostic).not.toMatch(/[\p{Cc}]/u);
+  });
+
+  it("bounds redacted persisted diagnostics to 1024 characters", () => {
+    expect(sanitizeTelegramDiagnostic("x".repeat(1100))).toHaveLength(1024);
   });
 });
