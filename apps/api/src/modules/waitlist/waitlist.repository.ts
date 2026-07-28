@@ -258,6 +258,26 @@ export class WaitlistRepository {
     return row;
   }
 
+  /**
+   * Whether this training still has an ACTIVE queue entry. `notified` is active
+   * too: it retains the freed-seat claim and must suppress any broad fallback.
+   * Called while the training is locked FOR UPDATE, which serializes joins and
+   * promotion decisions for that training.
+   */
+  async hasActiveEntryForTraining(tx: Database, trainingId: string): Promise<boolean> {
+    const [row] = await tx
+      .select({ id: tables.waitlist.id })
+      .from(tables.waitlist)
+      .where(
+        and(
+          eq(tables.waitlist.trainingId, trainingId),
+          inArray(tables.waitlist.status, ["waiting", "notified"])
+        )
+      )
+      .limit(1);
+    return row !== undefined;
+  }
+
   /** Set an entry's status (e.g. `promoted` / `cancelled`) inside the caller's transaction. */
   async setStatus(tx: Database, id: string, status: WaitlistStatus): Promise<WaitlistEntry> {
     const [row] = await tx

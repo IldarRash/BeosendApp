@@ -49,7 +49,7 @@ import { sanitizeTelegramDiagnostic } from "../notifications/telegram-sender";
 import { type BookingPriceSnapshot } from "../training-pricing/training-pricing.repository";
 import { TrainingPricingService } from "../training-pricing/training-pricing.service";
 import { TrainersRepository } from "../trainers/trainers.repository";
-import { WaitlistService } from "../waitlist/waitlist.service";
+import { type WaitlistPromotionOutcome, WaitlistService } from "../waitlist/waitlist.service";
 import { BookingsRepository, type TrainingLockRow } from "./bookings.repository";
 
 interface CreateSingleInput {
@@ -1333,7 +1333,7 @@ export class BookingsService {
    */
   private async promoteWaitlistSafely(
     trainingId: string
-  ): Promise<"none" | "promoted" | "failed"> {
+  ): Promise<WaitlistPromotionOutcome> {
     try {
       return await this.waitlist.promoteNext(trainingId);
     } catch (error) {

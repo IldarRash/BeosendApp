@@ -44,7 +44,12 @@ interface ClientOwnershipOptions {
 }
 
 /** Post-commit result used by seat-freeing callers to preserve waitlist priority. */
-export type WaitlistPromotionOutcome = "none" | "promoted" | "failed";
+/**
+ * `none` is an authoritative empty ACTIVE queue; `active` means an active
+ * (`waiting`|`notified`) queue entry still has exclusivity even though this call
+ * did not create a booking (for example, a legacy `notified` entry).
+ */
+export type WaitlistPromotionOutcome = "none" | "active" | "promoted" | "failed";
 
 /**
  * Owns the waitlist domain logic (frictionless waitlist). Invariants live here:
@@ -578,12 +583,14 @@ export class WaitlistService {
    * minutely sweep). In one transaction: lock the training FOR UPDATE; if it is a
    * group training, still bookable, and a head `waiting` entry exists, run the
    * shared promote core (group-aware booking insert, +1, recompute open ⇔ full,
-   * mark entry `promoted`). After commit, notify the promoted client. Idempotent
-   * and self-tolerant: an individual training, no free seat, no head, or a Telegram
-   * failure is logged/swallowed — never undoes the committed cancel.
+   * mark entry `promoted`). A `notified` entry is also active: it blocks broad
+   * freed-seat automation even though it is not auto-promoted. After commit,
+   * notify the promoted client. Idempotent and self-tolerant: an individual
+   * training, no free seat, no head, or a Telegram failure is logged/swallowed —
+   * never undoes the committed cancel.
    */
   async promoteNext(trainingId: string): Promise<WaitlistPromotionOutcome> {
-    let promoted: BookingRow | undefined;
+    let promoted: BookingRow | "active" | undefined;
     try {
       promoted = await this.waitlist.transaction(async (tx) => {
         const training = await this.waitlist.findTrainingForUpdate(tx, trainingId);
@@ -598,12 +605,17 @@ export class WaitlistService {
             status: training.status
           })
         ) {
-          // The seat was re-taken before we could promote; nothing to do.
-          return undefined;
+          // The seat was re-taken before we could promote. An active queue still
+          // owns exclusivity, so the caller must not fall back to a broad notice.
+          return (await this.waitlist.hasActiveEntryForTraining(tx, trainingId))
+            ? "active"
+            : undefined;
         }
         const head = await this.waitlist.findHeadWaitingForUpdate(tx, trainingId);
         if (!head) {
-          return undefined;
+          return (await this.waitlist.hasActiveEntryForTraining(tx, trainingId))
+            ? "active"
+            : undefined;
         }
         // Auto-promote → source "telegram" (the freed-seat decision is system-made).
         return this.promoteIntoFreeSeat(tx, head, training, "telegram");
@@ -616,6 +628,9 @@ export class WaitlistService {
       return "failed";
     }
 
+    if (promoted === "active") {
+      return "active";
+    }
     if (!promoted) {
       return "none";
     }
