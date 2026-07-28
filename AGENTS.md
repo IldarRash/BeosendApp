@@ -18,9 +18,9 @@ Role agents live in `.codex/agents/*.toml`.
 
 | Agent | BeoSand responsibility |
 | --- | --- |
-| `prompt-polisher` | Rewrite the raw user request into a clear, complete, implementation-ready prompt without changing intent. |
-| `planner` | Clarify scope, pick the smallest correct slice, and write the feature brief under `docs/product/features/<slug>.md`. |
-| `analyst` | Analyze BeoSand behavior, edge cases, user flows, acceptance criteria, and product risks. |
+| `prompt-polisher` | Own the global pre-plan clarification loop, including starting/resuming the analyst and returning the ready-for-planner package without changing user intent. |
+| `planner` | Start only from the ready-for-planner package, write and present the feature brief under `docs/product/features/<slug>.md`, and ask whether to run the full agent flow. |
+| `analyst` | Run only when invoked by the prompt-polisher to analyze BeoSand behavior, edge cases, user flows, acceptance criteria, and product risks. |
 | `architect` | Analyze contracts, data model, integrations, migration needs, and split work into agent-ready subtasks. |
 | `github-bot` | Create the GitHub issue in the correct project, prepare the implementation worktree, open the pull request, and clean up. |
 | `backend-implementer` | Own `apps/api` modules, `packages/types` contracts, and `packages/db` schema/migrations. |
@@ -34,7 +34,12 @@ Role agents live in `.codex/agents/*.toml`.
 
 ## Project workflow rules
 
-- Feature planning reads the polished prompt plus `docs/architecture/*`.
+- Feature planning inherits the global pre-plan clarification state machine and starts only from its
+  ready-for-planner package: the final polished request, completed analysis, and resolved material
+  questions. It also reads the relevant `docs/architecture/*`.
+- If planning reveals a new material ambiguity, return it through the retained prompt-polisher and
+  analyst handles before continuing. The planner does not start analyst, architect, implementer, or
+  other later-flow roles.
 - Feature briefs live in `docs/product/features/<slug>.md` and must include goal, contracts/tables
   touched, API endpoints, bot flow, acceptance criteria, tests, and dependencies.
 - Contracts are the source of truth: add or adjust Zod contracts in `packages/types` and schema in

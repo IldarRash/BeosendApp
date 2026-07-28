@@ -1,4 +1,6 @@
 name = "reviewer"
+model = "gpt-5.6-sol"
+model_reasoning_effort = "xhigh"
 description = "Reviews a BeoSand diff for correctness and invariant adherence before it ships. Use on completed feature work prior to security review and run-verification."
 developer_instructions = """
 You review BeoSand changes for correctness.\r

@@ -1,0 +1,1633 @@
+<!doctype html>
+<html lang="ru">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>BeoSand Dispatch Desk</title>
+  <style>
+    :root {
+      --sand-50: #faf6ef;
+      --sand-100: #f2eadd;
+      --sand-200: #e7dbc7;
+      --sand-300: #d8c9af;
+      --paper: #fffdf8;
+      --ink-900: #211c15;
+      --ink-800: #332b21;
+      --ink-700: #4b4339;
+      --ink-500: #766b5f;
+      --border: #ddd0bc;
+      --border-strong: #c6b596;
+      --coral: #d9573f;
+      --coral-ink: #9f351f;
+      --coral-soft: #f9e1d8;
+      --teal: #17877c;
+      --teal-ink: #0e625a;
+      --teal-soft: #dcefeb;
+      --amber: #bc7d0b;
+      --amber-ink: #7a4e06;
+      --amber-soft: #f4e5c4;
+      --indigo: #4968ad;
+      --indigo-soft: #e5e9f5;
+      --danger: #b83f2d;
+      --focus: #2c6fb0;
+      --font-sans: "Segoe UI", "Helvetica Neue", Arial, ui-sans-serif, sans-serif;
+      --font-serif: "Iowan Old Style", "Palatino Linotype", Georgia, serif;
+      --font-mono: "Cascadia Code", Consolas, ui-monospace, monospace;
+      --radius: 8px;
+      --sidebar: 278px;
+      --inspector: 354px;
+      --topbar: 58px;
+    }
+
+    * { box-sizing: border-box; }
+    html { min-height: 100%; }
+    body {
+      min-height: 100%;
+      margin: 0;
+      background: var(--sand-100);
+      color: var(--ink-900);
+      font-family: var(--font-sans);
+      font-size: 14px;
+      line-height: 1.45;
+      -webkit-font-smoothing: antialiased;
+      text-rendering: optimizeLegibility;
+    }
+    button, input, select, textarea { font: inherit; }
+    button { cursor: pointer; }
+    button:disabled { cursor: not-allowed; opacity: .52; }
+    :focus-visible { outline: 2px solid var(--focus); outline-offset: 2px; }
+    h1, h2, h3, p { margin: 0; }
+    h1, h2, h3 { text-wrap: balance; }
+    .mono, .num { font-family: var(--font-mono); font-variant-numeric: tabular-nums; }
+    .sr-only {
+      position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px;
+      overflow: hidden; clip: rect(0, 0, 0, 0); white-space: nowrap; border: 0;
+    }
+
+    .app {
+      min-height: 100vh;
+      display: grid;
+      grid-template-columns: var(--sidebar) minmax(0, 1fr) var(--inspector);
+      background: var(--sand-50);
+    }
+    .mobile-top {
+      display: none;
+      position: sticky;
+      top: 0;
+      z-index: 50;
+      height: var(--topbar);
+      align-items: center;
+      gap: 10px;
+      padding: 8px 12px;
+      background: var(--ink-900);
+      color: var(--sand-50);
+      border-bottom: 1px solid rgba(255,255,255,.14);
+    }
+    .icon-btn {
+      width: 38px;
+      height: 38px;
+      display: grid;
+      place-items: center;
+      border: 1px solid var(--border-strong);
+      border-radius: var(--radius);
+      background: var(--paper);
+      color: var(--ink-900);
+    }
+    .mobile-top .icon-btn {
+      background: rgba(255,255,255,.08);
+      color: var(--sand-50);
+      border-color: rgba(255,255,255,.22);
+    }
+    .brand {
+      display: flex;
+      align-items: baseline;
+      gap: 4px;
+      color: inherit;
+      min-width: 0;
+    }
+    .brand strong {
+      font: 700 25px/1 var(--font-serif);
+      letter-spacing: -.01em;
+    }
+    .brand em {
+      color: var(--coral);
+      font-style: normal;
+    }
+    .brand span {
+      font: 700 10px/1 var(--font-mono);
+      letter-spacing: .12em;
+      text-transform: uppercase;
+      color: inherit;
+      opacity: .68;
+      white-space: nowrap;
+    }
+
+    .sidebar {
+      position: sticky;
+      top: 0;
+      height: 100vh;
+      min-width: 0;
+      overflow-y: auto;
+      background: var(--ink-900);
+      color: var(--sand-50);
+      border-right: 1px solid #463a2b;
+      z-index: 40;
+    }
+    .sidebar-head {
+      padding: 22px 18px 16px;
+      border-bottom: 1px solid rgba(255,255,255,.12);
+    }
+    .desk-status {
+      margin-top: 16px;
+      display: grid;
+      grid-template-columns: 1fr auto;
+      gap: 6px 10px;
+      padding: 10px;
+      border: 1px solid rgba(255,255,255,.14);
+      border-radius: var(--radius);
+      background: rgba(255,255,255,.06);
+      font: 600 11px/1.3 var(--font-mono);
+      color: rgba(250,246,239,.78);
+    }
+    .desk-status b { color: var(--sand-50); }
+    .nav {
+      padding: 10px 10px 18px;
+      display: flex;
+      flex-direction: column;
+      gap: 2px;
+    }
+    .nav-group {
+      margin: 14px 8px 5px;
+      font: 700 10px/1 var(--font-mono);
+      letter-spacing: .11em;
+      text-transform: uppercase;
+      color: rgba(250,246,239,.46);
+    }
+    .nav button {
+      width: 100%;
+      min-height: 36px;
+      display: grid;
+      grid-template-columns: 24px minmax(0, 1fr) auto;
+      align-items: center;
+      gap: 8px;
+      border: 0;
+      border-radius: 7px;
+      background: transparent;
+      color: rgba(250,246,239,.78);
+      text-align: left;
+      padding: 7px 8px;
+    }
+    .nav button:hover { background: rgba(255,255,255,.08); color: var(--sand-50); }
+    .nav button[aria-current="page"] {
+      background: var(--paper);
+      color: var(--coral-ink);
+      font-weight: 700;
+    }
+    .nav .badge {
+      min-width: 22px;
+      padding: 1px 6px;
+      border-radius: 999px;
+      background: rgba(255,255,255,.12);
+      color: inherit;
+      text-align: center;
+      font: 700 11px/1.4 var(--font-mono);
+    }
+    .nav button[aria-current="page"] .badge { background: var(--coral-soft); }
+    .nav-symbol {
+      width: 20px;
+      text-align: center;
+      font-family: var(--font-mono);
+      font-weight: 800;
+      opacity: .9;
+    }
+
+    .main {
+      min-width: 0;
+      display: flex;
+      flex-direction: column;
+    }
+    .topline {
+      position: sticky;
+      top: 0;
+      z-index: 30;
+      min-height: 46px;
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      padding: 8px 22px;
+      background: color-mix(in srgb, var(--paper) 88%, var(--sand-100));
+      border-bottom: 1px solid var(--border);
+    }
+    .topline .crumb {
+      font: 700 11px/1 var(--font-mono);
+      color: var(--ink-500);
+      letter-spacing: .08em;
+      text-transform: uppercase;
+    }
+    .topline strong { font-size: 13px; }
+    .topline-actions {
+      margin-left: auto;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      min-width: 0;
+    }
+    .content {
+      min-width: 0;
+      padding: 24px 22px 54px;
+      display: flex;
+      flex-direction: column;
+      gap: 18px;
+    }
+    .page-head {
+      display: flex;
+      align-items: flex-end;
+      justify-content: space-between;
+      gap: 18px;
+      padding-bottom: 16px;
+      border-bottom: 1px solid var(--border);
+    }
+    .page-title h1 {
+      font: 700 28px/1.08 var(--font-serif);
+      letter-spacing: -.01em;
+    }
+    .page-title p {
+      max-width: 70ch;
+      margin-top: 6px;
+      color: var(--ink-500);
+    }
+    .cluster { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+    .btn {
+      min-height: 36px;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      gap: 7px;
+      padding: 0 12px;
+      border-radius: 7px;
+      border: 1px solid var(--border-strong);
+      background: var(--paper);
+      color: var(--ink-900);
+      font-weight: 700;
+      white-space: nowrap;
+    }
+    .btn:hover:not(:disabled) { background: var(--sand-100); }
+    .btn.primary {
+      background: var(--coral);
+      border-color: var(--coral);
+      color: white;
+    }
+    .btn.primary:hover:not(:disabled) { background: var(--coral-ink); }
+    .btn.danger {
+      color: var(--danger);
+      border-color: color-mix(in srgb, var(--danger) 42%, var(--border));
+      background: color-mix(in srgb, var(--coral-soft) 42%, var(--paper));
+    }
+    .btn[aria-pressed="true"] {
+      border-color: var(--coral);
+      background: var(--coral-soft);
+      color: var(--coral-ink);
+    }
+    .btn.small { min-height: 30px; padding: 0 9px; font-size: 12px; }
+    .select, .input {
+      min-height: 36px;
+      border: 1px solid var(--border-strong);
+      border-radius: 7px;
+      background: var(--paper);
+      color: var(--ink-900);
+      padding: 0 10px;
+    }
+    .input[data-active="true"], .select[data-active="true"] {
+      border-color: var(--coral);
+      box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--coral) 38%, transparent);
+    }
+    .filter-summary {
+      min-height: 30px;
+      display: inline-flex;
+      align-items: center;
+      padding: 4px 9px;
+      border: 1px solid var(--border);
+      border-radius: 999px;
+      background: var(--sand-50);
+      color: var(--ink-700);
+      font: 700 11px/1.3 var(--font-mono);
+    }
+
+    .workspace {
+      border: 1px solid var(--border-strong);
+      border-radius: var(--radius);
+      background: var(--paper);
+      overflow: hidden;
+    }
+    .workspace-bar {
+      min-height: 45px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 12px;
+      padding: 8px 12px;
+      background: var(--ink-900);
+      color: var(--sand-50);
+      border-bottom: 1px solid var(--border-strong);
+    }
+    .workspace-bar h2 {
+      font: 700 11px/1 var(--font-mono);
+      letter-spacing: .08em;
+      text-transform: uppercase;
+      color: rgba(250,246,239,.76);
+    }
+    .workspace-body { padding: 14px; }
+
+    .queue-grid {
+      display: grid;
+      grid-template-columns: repeat(5, minmax(160px, 1fr));
+      gap: 10px;
+    }
+    .queue-tile {
+      min-height: 118px;
+      text-align: left;
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      background: color-mix(in srgb, var(--paper) 86%, var(--sand-50));
+      padding: 12px;
+      display: grid;
+      grid-template-rows: auto 1fr auto;
+      gap: 7px;
+      color: var(--ink-900);
+    }
+    .queue-tile:hover, .queue-tile.active { border-color: var(--coral); background: var(--coral-soft); }
+    .queue-label {
+      font: 700 11px/1.25 var(--font-mono);
+      color: var(--ink-700);
+      text-transform: uppercase;
+      letter-spacing: .06em;
+    }
+    .queue-count { font: 700 30px/1 var(--font-mono); }
+    .queue-hint { color: var(--ink-500); font-size: 12px; }
+
+    .split {
+      display: grid;
+      grid-template-columns: minmax(0, 1.45fr) minmax(280px, .75fr);
+      gap: 14px;
+      align-items: start;
+    }
+    .panel {
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      background: var(--paper);
+      overflow: hidden;
+    }
+    .panel-head {
+      min-height: 42px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 10px;
+      padding: 10px 12px;
+      border-bottom: 1px solid var(--border);
+      background: var(--sand-50);
+    }
+    .panel-head h2, .panel-head h3 { font: 700 15px/1.2 var(--font-sans); }
+    .panel-body { padding: 12px; }
+    .stack { display: grid; gap: 12px; }
+
+    .table-wrap {
+      width: 100%;
+      overflow-x: auto;
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      background: var(--paper);
+    }
+    table {
+      width: 100%;
+      min-width: 760px;
+      border-collapse: collapse;
+      font-size: 13px;
+    }
+    caption {
+      text-align: left;
+      padding: 10px 12px;
+      color: var(--ink-500);
+      font: 700 11px/1 var(--font-mono);
+      letter-spacing: .08em;
+      text-transform: uppercase;
+      background: var(--sand-50);
+      border-bottom: 1px solid var(--border);
+    }
+    th, td {
+      padding: 9px 10px;
+      border-bottom: 1px solid var(--border);
+      vertical-align: top;
+      text-align: left;
+      white-space: nowrap;
+    }
+    th {
+      font: 700 11px/1 var(--font-mono);
+      color: var(--ink-500);
+      text-transform: uppercase;
+      letter-spacing: .06em;
+      background: color-mix(in srgb, var(--sand-50) 72%, var(--paper));
+    }
+    tbody tr:hover { background: color-mix(in srgb, var(--teal-soft) 28%, var(--paper)); }
+    tbody tr.selected { background: color-mix(in srgb, var(--coral-soft) 52%, var(--paper)); }
+    td.actions { text-align: right; }
+
+    .tag {
+      display: inline-flex;
+      align-items: center;
+      gap: 5px;
+      min-height: 22px;
+      padding: 2px 8px;
+      border-radius: 999px;
+      border: 1px solid var(--border);
+      background: var(--sand-50);
+      color: var(--ink-700);
+      font: 700 11px/1.2 var(--font-mono);
+      white-space: nowrap;
+    }
+    .tag::before {
+      content: "";
+      width: 6px;
+      height: 6px;
+      border-radius: 50%;
+      background: currentColor;
+      opacity: .7;
+    }
+    .tag.ok { background: var(--teal-soft); border-color: color-mix(in srgb, var(--teal) 40%, var(--border)); color: var(--teal-ink); }
+    .tag.warn { background: var(--amber-soft); border-color: color-mix(in srgb, var(--amber) 40%, var(--border)); color: var(--amber-ink); }
+    .tag.bad { background: var(--coral-soft); border-color: color-mix(in srgb, var(--danger) 36%, var(--border)); color: var(--danger); }
+    .tag.info { background: var(--indigo-soft); border-color: color-mix(in srgb, var(--indigo) 36%, var(--border)); color: var(--indigo); }
+
+    .mini-panels {
+      display: grid;
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+      gap: 10px;
+    }
+    .mini-card {
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      background: color-mix(in srgb, var(--paper) 86%, var(--sand-50));
+      padding: 11px;
+      display: grid;
+      gap: 7px;
+    }
+    .mini-card h3 {
+      font: 700 13px/1.2 var(--font-sans);
+    }
+    .mini-card p { color: var(--ink-500); font-size: 12.5px; }
+    .mini-card .mono { color: var(--ink-800); }
+
+    .timeline {
+      min-width: 860px;
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      overflow: hidden;
+      background: var(--paper);
+    }
+    .timeline-row, .timeline-head {
+      display: grid;
+      grid-template-columns: 96px repeat(14, 56px);
+      min-height: 46px;
+      align-items: stretch;
+    }
+    .timeline-head {
+      background: var(--sand-50);
+      font: 700 11px/1 var(--font-mono);
+      color: var(--ink-500);
+    }
+    .timeline-head span, .court-label {
+      display: grid;
+      place-items: center;
+      border-right: 1px solid var(--border);
+      border-bottom: 1px solid var(--border);
+    }
+    .timeline-lane {
+      grid-column: span 14;
+      position: relative;
+      min-height: 46px;
+      border-bottom: 1px solid var(--border);
+      background:
+        repeating-linear-gradient(to right, transparent 0 55px, var(--sand-200) 55px 56px),
+        var(--paper);
+    }
+    .event {
+      position: absolute;
+      top: 8px;
+      height: 30px;
+      border: 1px solid var(--teal);
+      border-radius: 6px;
+      background: var(--teal-soft);
+      color: var(--teal-ink);
+      display: flex;
+      align-items: center;
+      min-width: 42px;
+      padding: 0 8px;
+      font: 700 11px/1 var(--font-mono);
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+    .event.request { border-color: var(--coral); background: var(--coral-soft); color: var(--coral-ink); }
+    .event.training { border-color: var(--indigo); background: var(--indigo-soft); color: var(--indigo); }
+    .event.block { border-color: var(--amber); background: var(--amber-soft); color: var(--amber-ink); }
+
+    .inspector {
+      position: sticky;
+      top: 0;
+      height: 100vh;
+      overflow-y: auto;
+      background: color-mix(in srgb, var(--paper) 92%, var(--sand-100));
+      border-left: 1px solid var(--border-strong);
+      padding: 16px;
+      z-index: 35;
+    }
+    .inspector-head {
+      display: flex;
+      align-items: start;
+      justify-content: space-between;
+      gap: 10px;
+      padding-bottom: 12px;
+      border-bottom: 1px solid var(--border);
+    }
+    .inspector h2 {
+      font: 700 22px/1.1 var(--font-serif);
+    }
+    .inspector .muted { color: var(--ink-500); font-size: 12.5px; margin-top: 4px; }
+    .detail-list {
+      display: grid;
+      gap: 0;
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      overflow: hidden;
+      background: var(--paper);
+    }
+    .detail-row {
+      display: flex;
+      justify-content: space-between;
+      gap: 14px;
+      padding: 9px 10px;
+      border-bottom: 1px solid var(--border);
+    }
+    .detail-row:last-child { border-bottom: 0; }
+    .detail-row dt { color: var(--ink-500); }
+    .detail-row dd { margin: 0; text-align: right; font-weight: 700; }
+    .chip-row { display: flex; flex-wrap: wrap; gap: 6px; }
+
+    .empty {
+      min-height: 134px;
+      display: grid;
+      place-items: center;
+      padding: 22px;
+      color: var(--ink-500);
+      text-align: center;
+      border: 1px dashed var(--border-strong);
+      border-radius: var(--radius);
+      background: var(--sand-50);
+    }
+    .empty strong { display: block; color: var(--ink-800); margin-bottom: 4px; }
+    .state-board {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(210px, 1fr));
+      gap: 10px;
+    }
+    .state-card {
+      min-height: 126px;
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      background: color-mix(in srgb, var(--paper) 88%, var(--sand-50));
+      padding: 12px;
+      display: grid;
+      gap: 8px;
+      align-content: start;
+    }
+    .state-card h3 {
+      font: 700 13px/1.2 var(--font-sans);
+    }
+    .state-card p { color: var(--ink-500); font-size: 12.5px; }
+    .state-card.error {
+      border-color: color-mix(in srgb, var(--danger) 44%, var(--border));
+      background: color-mix(in srgb, var(--coral-soft) 58%, var(--paper));
+    }
+    .state-card.disabled {
+      color: var(--ink-500);
+      background: var(--sand-50);
+    }
+    .skeleton {
+      display: grid;
+      gap: 7px;
+      padding-top: 2px;
+    }
+    .skeleton span {
+      height: 10px;
+      border-radius: 999px;
+      background: color-mix(in srgb, var(--sand-300) 48%, var(--paper));
+    }
+    .skeleton span:nth-child(2) { width: 82%; }
+    .skeleton span:nth-child(3) { width: 58%; }
+
+    .login-screen {
+      min-height: 100vh;
+      display: grid;
+      grid-template-columns: minmax(260px, .9fr) minmax(300px, 1.1fr);
+      background: var(--sand-50);
+    }
+    .login-rail {
+      padding: 34px;
+      background: var(--ink-900);
+      color: var(--sand-50);
+      display: flex;
+      flex-direction: column;
+      justify-content: space-between;
+      gap: 32px;
+    }
+    .login-rail h1 {
+      font: 700 42px/1.02 var(--font-serif);
+      letter-spacing: -.01em;
+      max-width: 10ch;
+      margin-top: 34px;
+    }
+    .login-panel {
+      display: grid;
+      align-content: center;
+      gap: 18px;
+      padding: 34px;
+    }
+    .gate-box {
+      max-width: 760px;
+      border: 1px solid var(--border-strong);
+      border-radius: var(--radius);
+      background: var(--paper);
+      padding: 22px;
+      display: grid;
+      gap: 14px;
+    }
+    .login-states {
+      display: grid;
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+      gap: 10px;
+    }
+
+    .toast {
+      position: fixed;
+      right: 16px;
+      bottom: 16px;
+      z-index: 90;
+      width: min(420px, calc(100vw - 32px));
+      display: grid;
+      gap: 8px;
+    }
+    .toast-item {
+      border: 1px solid var(--border-strong);
+      border-radius: var(--radius);
+      background: var(--ink-900);
+      color: var(--sand-50);
+      padding: 10px 12px;
+      font-weight: 700;
+      display: grid;
+      grid-template-columns: minmax(0, 1fr) auto;
+      gap: 10px;
+      align-items: start;
+    }
+    .toast-item button {
+      width: 24px;
+      height: 24px;
+      border: 1px solid rgba(255,255,255,.25);
+      border-radius: 6px;
+      background: rgba(255,255,255,.08);
+      color: var(--sand-50);
+      line-height: 1;
+    }
+    .dialog-backdrop {
+      position: fixed;
+      inset: 0;
+      z-index: 80;
+      display: none;
+      align-items: center;
+      justify-content: center;
+      padding: 16px;
+      background: rgba(33, 28, 21, .42);
+    }
+    .dialog-backdrop.open { display: flex; }
+    .dialog {
+      width: min(520px, 100%);
+      border: 1px solid var(--border-strong);
+      border-radius: var(--radius);
+      background: var(--paper);
+      color: var(--ink-900);
+      overflow: hidden;
+    }
+    .dialog header, .dialog footer { padding: 12px 14px; background: var(--sand-50); }
+    .dialog header { border-bottom: 1px solid var(--border); }
+    .dialog footer {
+      border-top: 1px solid var(--border);
+      display: flex;
+      justify-content: flex-end;
+      gap: 8px;
+    }
+    .dialog .body { padding: 14px; color: var(--ink-700); }
+
+    @media (max-width: 1180px) {
+      .app { grid-template-columns: var(--sidebar) minmax(0, 1fr); }
+      .inspector {
+        position: fixed;
+        top: 0;
+        right: 0;
+        width: min(390px, 92vw);
+        transform: translateX(100%);
+        transition: transform 180ms ease-out;
+        box-shadow: -16px 0 34px rgba(33,28,21,.18);
+      }
+      .inspector.open { transform: none; }
+      .queue-grid { grid-template-columns: repeat(2, minmax(160px, 1fr)); }
+      .split { grid-template-columns: 1fr; }
+    }
+    @media (max-width: 820px) {
+      .mobile-top { display: flex; }
+      .app { display: block; }
+      .sidebar {
+        position: fixed;
+        width: min(304px, 88vw);
+        transform: translateX(-100%);
+        transition: transform 190ms ease-out;
+      }
+      .sidebar.open { transform: none; }
+      .topline { top: var(--topbar); padding: 8px 14px; overflow-x: auto; }
+      .content { padding: 18px 14px 42px; }
+      .page-head { align-items: start; flex-direction: column; }
+      .page-title h1 { font-size: 23px; }
+      .topline-actions { margin-left: 0; }
+      .queue-grid, .mini-panels { grid-template-columns: 1fr; }
+      .workspace-bar { align-items: start; flex-direction: column; }
+      .login-screen { grid-template-columns: 1fr; }
+      .login-rail { min-height: 260px; padding: 24px; }
+      .login-rail h1 { font-size: 32px; }
+      .login-panel { padding: 18px; align-content: start; }
+      .login-states { grid-template-columns: 1fr; }
+    }
+    @media (prefers-reduced-motion: reduce) {
+      *, *::before, *::after {
+        animation-duration: 1ms !important;
+        transition-duration: 1ms !important;
+        scroll-behavior: auto !important;
+      }
+    }
+  </style>
+</head>
+<body>
+  <div id="root"></div>
+  <div class="toast" aria-live="polite" aria-atomic="true" id="toast"></div>
+  <div class="dialog-backdrop" id="dialog" role="presentation">
+    <div class="dialog" role="dialog" aria-modal="true" aria-labelledby="dialog-title">
+      <header><h2 id="dialog-title">Действие</h2></header>
+      <div class="body" id="dialog-body"></div>
+      <footer>
+        <button class="btn small" type="button" data-dialog-close>Закрыть</button>
+        <button class="btn primary small" type="button" data-dialog-ok>Понятно</button>
+      </footer>
+    </div>
+  </div>
+  <script>
+    const routes = [
+      { path: "/", label: "Сегодня", group: "Today", symbol: "D", badge: 8 },
+      { path: "/court-requests", label: "Заявки на корты", group: "Queues", symbol: "Q", badge: 4 },
+      { path: "/attendance", label: "Посещаемость", group: "Queues", symbol: "A", badge: 3 },
+      { path: "/groups", label: "Группы", group: "Schedule", symbol: "G" },
+      { path: "/trainings", label: "Тренировки", group: "Schedule", symbol: "T", badge: 2 },
+      { path: "/trainers", label: "Тренеры", group: "Schedule", symbol: "R" },
+      { path: "/managers", label: "Администраторы", group: "Schedule", symbol: "M" },
+      { path: "/court-load", label: "Загрузка кортов", group: "Courts", symbol: "L", badge: 1 },
+      { path: "/court-blocks", label: "Блокировки кортов", group: "Courts", symbol: "B" },
+      { path: "/clients", label: "Клиенты", group: "Clients/Money", symbol: "C", badge: 1 },
+      { path: "/subscriptions", label: "Абонементы", group: "Clients/Money", symbol: "S", badge: 5 },
+      { path: "/broadcasts", label: "Рассылки", group: "Communications", symbol: "N", badge: 2 },
+      { path: "/analytics", label: "Аналитика", group: "Communications", symbol: "%" },
+      { path: "/labels", label: "Тексты", group: "Settings/Catalogs", symbol: "I" },
+      { path: "/levels", label: "Уровни", group: "Settings/Catalogs", symbol: "V" },
+      { path: "/notification-templates", label: "Шаблоны уведомлений", group: "Settings/Catalogs", symbol: "P" },
+      { path: "/connectors", label: "Коннекторы", group: "Settings/Catalogs", symbol: "K" },
+      { path: "/login", label: "Вход", group: "Settings/Catalogs", symbol: "O" }
+    ];
+
+    const queueItems = [
+      { id: "court-q-17", route: "/court-requests", label: "Заявки на корты", count: 4, hint: "2 ждут подтверждения больше 20 минут", tone: "bad" },
+      { id: "training-u-3", route: "/trainings", label: "Тренировки без корта", count: 2, hint: "Сегодня 18:00 и 19:30", tone: "warn" },
+      { id: "subs-p-8", route: "/subscriptions", label: "Неоплачено/частично", count: 5, hint: "118 000 RSD в строках периода", tone: "warn" },
+      { id: "broadcast-f-2", route: "/broadcasts", label: "Сбои рассылок", count: 2, hint: "Повторить после проверки сегмента", tone: "bad" },
+      { id: "conflict-s-1", route: "/court-load", label: "Конфликты расписания", count: 1, hint: "Корт 2, 19:00 перекрытие 30 минут", tone: "info" }
+    ];
+
+    const rows = {
+      trainings: [
+        ["tr-841", "Сегодня 18:00", "Beach Fit A", "Никола", "7/8", "Корт не назначен", "Открыта"],
+        ["tr-842", "Сегодня 19:30", "Индивидуальная: Аня", "Марина", "1/1", "Корт 3", "Полная"],
+        ["tr-843", "Завтра 08:00", "Beginners 1", "Иван", "5/8", "Корт 1", "Открыта"]
+      ],
+      requests: [
+        ["cr-219", "Милош Петрович", "@milos", "2026-07-07", "18:00-20:00", "2 ч", "12 000 RSD", "Ожидает"],
+        ["cr-220", "Елена Ристич", "@elena_r", "2026-07-07", "19:00-20:00", "1 ч", "6 000 RSD", "Ожидает"],
+        ["cr-217", "Алексей Волков", "@alexv", "2026-07-08", "08:00-09:30", "1.5 ч", "9 000 RSD", "Подтверждена"]
+      ],
+      clients: [
+        ["cl-118", "Аня Ковач", "@anya", "Intermediate", "Активен", "2", "согласие есть"],
+        ["cl-119", "Деян Маркович", "@dejan", "Beginner", "Активен", "0", "нет согласия"],
+        ["cl-120", "Мария Станкович", "@maria", "Advanced", "Неактивен", "1", "согласие есть"]
+      ],
+      subscriptions: [
+        ["sub-501", "Аня Ковач", "Beach Fit A", "2026-07", "3/8", "2 исключено", "42 000 RSD", "Частично"],
+        ["sub-502", "Игор Симић", "Beginners 1", "2026-07", "0/8", "0 исключено", "56 000 RSD", "Не оплачено"],
+        ["sub-503", "Милена Вук", "Advanced", "2026-07", "8/8", "1 waitlist", "64 000 RSD", "Оплачено"]
+      ],
+      broadcasts: [
+        ["bc-73", "Свободные места сегодня", "Активные 14 дней", "184", "3", "2 ошибки"],
+        ["bc-74", "Освободилось место", "Intermediate", "42", "1", "готово"],
+        ["bc-75", "Неделя вперед", "Все клиенты", "517", "16", "черновик"]
+      ],
+      analytics: [
+        ["Заполняемость", "82%", "+4 п.п.", "7 дней"],
+        ["Отмены", "11%", "-2 п.п.", "7 дней"],
+        ["No-show", "5%", "+1 п.п.", "7 дней"],
+        ["Из рассылок", "28", "+6", "72 часа"]
+      ],
+      groups: [
+        ["grp-beach-a", "Beach Fit A", "Intermediate", "Пн/Ср 18:00", "7/8", "Опубликована", "расписание месяца"],
+        ["grp-beg-1", "Beginners 1", "Beginner", "Вт/Чт 08:00", "5/8", "Черновик", "ручное обновление"],
+        ["grp-adv", "Advanced Rally", "Advanced", "Сб 10:00", "8/8", "Пауза", "админская правка"]
+      ],
+      trainers: [
+        ["trn-nikola", "Никола", "Beach Fit A", "18 ч/нед", "доступен", "серверный профиль"],
+        ["trn-marina", "Марина", "Индивидуальные", "12 ч/нед", "замена 09.07", "операторская заметка"],
+        ["trn-ivan", "Иван", "Beginners 1", "8 ч/нед", "не ставить вечером", "расписание"]
+      ],
+      managers: [
+        ["mgr-01", "Ольга", "owner", "все разделы", "2FA проверен", "ручное назначение"],
+        ["mgr-02", "Алекс", "manager", "смена + клиенты", "ожидает ревью", "Telegram ID"],
+        ["mgr-03", "Дежурный", "readonly", "просмотр", "заморожен", "архивный доступ"]
+      ],
+      levels: [
+        ["lvl-beg", "Beginner", "открытая группа", "используется", "Mini App фильтр"],
+        ["lvl-int", "Intermediate", "матчинг состава", "используется", "расписание"],
+        ["lvl-adv", "Advanced", "ручное подтверждение", "требует описания", "админский каталог"]
+      ],
+      attendance: [
+        ["att-101", "Beach Fit A", "18:00", "7 пришли", "1 no-show", "тренер Никола"],
+        ["att-102", "Индивидуальная: Аня", "19:30", "ожидает отметки", "нет данных", "после занятия"],
+        ["att-103", "Beginners 1", "08:00", "5 пришли", "0 no-show", "синхронизировано"]
+      ],
+      courtBlocks: [
+        ["blk-31", "Корт 2", "19:00-19:30", "ремонт сетки", "пересекает тренировку", "ручной блок"],
+        ["blk-32", "Корт 4", "07:00-09:00", "закрыто до уборки", "активен", "рабочие часы"],
+        ["blk-33", "Корт 1", "21:00-22:00", "не bookable", "автоматический", "дневные часы"]
+      ],
+      labels: [
+        ["lbl-cancel", "training.cancel.confirm", "RU", "обновлен", "клиентский текст"],
+        ["lbl-waitlist", "waitlist.promote", "RU/SR", "требует ревью", "Mini App"],
+        ["lbl-admin-note", "admin.shift.note", "RU", "черновик", "операторская строка"]
+      ],
+      templates: [
+        ["tpl-free-slots", "Свободные места", "active_14_days", "184", "2 ошибки", "ручной запуск"],
+        ["tpl-waitlist", "Место освободилось", "waitlist", "17", "готов", "серверный шаблон"],
+        ["tpl-payment", "Оплата абонемента", "unpaid_subs", "5", "черновик", "снимок суммы"]
+      ],
+      connectors: [
+        ["conn-telegram", "Telegram bot", "подключен", "09:42", "client messaging", "секреты не показаны"],
+        ["conn-calendar", "Calendar export", "пауза", "вчера 21:10", "только утвержденные слоты", "ручной переключатель"],
+        ["conn-webhook", "Admin webhook", "ошибка", "09:38", "3 ретрая", "системный журнал"]
+      ]
+    };
+
+    const details = {
+      "court-q-17": { title: "Очередь заявок", sub: "4 открытых решения", kind: "court" },
+      "training-u-3": { title: "Тренировки без корта", sub: "Назначение требуется до публикации", kind: "roster" },
+      "subs-p-8": { title: "Абонементы к оплате", sub: "Снимки цен уже сохранены", kind: "pricing" },
+      "broadcast-f-2": { title: "Сбои рассылок", sub: "Повтор только после проверки аудитории", kind: "broadcast" },
+      "conflict-s-1": { title: "Конфликт расписания", sub: "Корт 2, 19:00-19:30", kind: "calendar" },
+      "grp-beach-a": { title: "Beach Fit A", sub: "Опубликованная группа с 7 участниками", kind: "catalog" },
+      "trn-nikola": { title: "Тренер Никола", sub: "Рабочие назначения и замены", kind: "staff" },
+      "mgr-01": { title: "Доступ администратора", sub: "Роль и границы доступа", kind: "access" },
+      "lvl-int": { title: "Уровень Intermediate", sub: "Каталог для расписания и сегментов", kind: "catalog" },
+      "att-102": { title: "Отметка посещаемости", sub: "Ожидает ввода после занятия", kind: "attendance" },
+      "blk-31": { title: "Блокировка корта", sub: "Пересечение с тренировкой", kind: "calendar" },
+      "lbl-waitlist": { title: "Строка waitlist.promote", sub: "Клиентский текст требует ревью", kind: "content" },
+      "tpl-free-slots": { title: "Шаблон свободных мест", sub: "Предпросмотр аудитории и текста", kind: "broadcast" },
+      "conn-webhook": { title: "Admin webhook", sub: "Ошибка доставки, 3 ретрая", kind: "connector" }
+    };
+
+    const state = {
+      route: "/",
+      selectedId: "court-q-17",
+      drawer: false,
+      inspector: false,
+      requestStatus: "pending",
+      trainingView: "table",
+      decisionFilter: "all",
+      trainingDate: "2026-07-07",
+      trainingGroup: "all",
+      clientSearch: "@",
+      loginId: "admin-operator",
+      analyticsRange: "7",
+      checks: {
+        serverDecision: true,
+        snapshotStored: true,
+        clientPreview: false
+      }
+    };
+
+    const root = document.getElementById("root");
+    const toastEl = document.getElementById("toast");
+    const dialogEl = document.getElementById("dialog");
+
+    function cls(value) { return value ? " " + value : ""; }
+    function selected(current, value) { return current === value ? " selected" : ""; }
+    function checked(value) { return value ? " checked" : ""; }
+
+    function shell(inner) {
+      if (state.route === "/login") return login();
+      return `
+        <div class="mobile-top">
+          <button class="icon-btn" type="button" data-toggle-nav aria-label="Открыть навигацию">☰</button>
+          <div class="brand"><strong>Beo<em>Sand</em></strong><span>Dispatch Desk</span></div>
+          <button class="icon-btn" type="button" data-toggle-inspector aria-label="Открыть инспектор">⌁</button>
+        </div>
+        <div class="app">
+          ${sidebar()}
+          <main class="main" id="main">
+            <div class="topline">
+              <span class="crumb">Операторская смена</span>
+              <strong>${routeLabel(state.route)}</strong>
+              <div class="topline-actions">
+                <button class="btn small" type="button" data-toast="Смена зафиксирована как тестовый сценарий">Смена 07.07</button>
+                <button class="btn primary small" type="button" data-dialog="Быстрое действие|В рабочей версии здесь будет единый командный ввод для заявки, клиента или тренировки.">Команда</button>
+              </div>
+            </div>
+            <div class="content">${inner}</div>
+          </main>
+          ${inspector()}
+        </div>`;
+    }
+
+    function sidebar() {
+      const groups = ["Today", "Queues", "Schedule", "Courts", "Clients/Money", "Communications", "Settings/Catalogs"];
+      const groupLabels = {
+        "Today": "Сегодня",
+        "Queues": "Очереди",
+        "Schedule": "Расписание",
+        "Courts": "Корты",
+        "Clients/Money": "Клиенты / деньги",
+        "Communications": "Коммуникации",
+        "Settings/Catalogs": "Настройки / каталоги"
+      };
+      return `<aside class="sidebar${cls(state.drawer ? "open" : "")}" aria-label="Разделы администратора">
+        <div class="sidebar-head">
+          <div class="brand"><strong>Beo<em>Sand</em></strong><span>Dispatch Desk</span></div>
+          <div class="desk-status">
+            <span>Очередь</span><b>8</b>
+            <span>Смена</span><b>Admin</b>
+          </div>
+        </div>
+        <nav class="nav" aria-label="Маршруты прототипа">
+          ${groups.map(group => `
+            <div class="nav-group">${groupLabels[group]}</div>
+            ${routes.filter(r => r.group === group).map(r => `
+              <button type="button" data-route="${r.path}" aria-current="${state.route === r.path ? "page" : "false"}">
+                <span class="nav-symbol" aria-hidden="true">${r.symbol}</span>
+                <span>${r.label}</span>
+                ${r.badge ? `<span class="badge">${r.badge}</span>` : ""}
+              </button>`).join("")}
+          `).join("")}
+        </nav>
+      </aside>`;
+    }
+
+    function login() {
+      return `<main class="login-screen">
+        <section class="login-rail" aria-label="BeoSand admin">
+          <div class="brand"><strong>Beo<em>Sand</em></strong><span>Dispatch Desk</span></div>
+          <h1>Вход в операторскую консоль</h1>
+          <p>Теплый рабочий стол для расписания, кортов, оплат и сообщений. Состояния ниже показывают макеты без сетевых запросов.</p>
+        </section>
+        <section class="login-panel" aria-labelledby="gate-title">
+          <div class="gate-box">
+            <span class="tag info">Прототип · вход не настоящий</span>
+            <h2 id="gate-title">Диспетчерский доступ</h2>
+            <p>Экран показывает форму входа и сразу дает перейти в рабочую оболочку, чтобы проверить маршруты и состояния.</p>
+            <label>Telegram ID
+              <input class="input" value="${state.loginId}" data-field="loginId" data-active="${state.loginId !== "admin-operator"}" aria-label="Telegram ID">
+            </label>
+            <div class="cluster">
+              <button class="btn primary" type="button" data-route="/">Открыть Dispatch Desk</button>
+              <button class="btn" type="button" data-toast="Код входа смоделирован, сетевых обращений нет">Проверить код</button>
+              <button class="btn" type="button" data-dialog="Вход через бота|Макет показывает нормальный сценарий: бот доступен, оператор найден, сессия будет открыта только в рабочей версии.">Нормальный вход</button>
+            </div>
+            <div class="login-states" aria-label="Состояния входа">
+              <article class="state-card">
+                <span class="tag ok">normal</span>
+                <h3>Готово к входу</h3>
+                <p>Оператор найден в списке администраторов; следующий шаг открывает консоль.</p>
+                <button class="btn small" type="button" data-toast="Макет: нормальный вход готов">Проверить</button>
+              </article>
+              <article class="state-card error">
+                <span class="tag bad">bot/config</span>
+                <h3>Бот или конфигурация не готовы</h3>
+                <p>Панель показывает, что вход заблокирован до настройки канала авторизации. Секреты и системные переменные не раскрываются.</p>
+                <button class="btn small" type="button" data-dialog="Конфигурация входа|Макет: администратор увидит понятное сообщение и ссылку на внутреннюю инструкцию, без показа секретов.">Открыть сообщение</button>
+              </article>
+              <article class="state-card">
+                <span class="tag warn">loading</span>
+                <h3>Проверка кода</h3>
+                <div class="skeleton" aria-label="Макет загрузки"><span></span><span></span><span></span></div>
+                <button class="btn small" type="button" data-toast="Макет загрузки показан статически">Показать тост</button>
+              </article>
+              <article class="state-card error">
+                <span class="tag bad">error</span>
+                <h3>Код не принят</h3>
+                <p>Ошибка видима рядом с формой; повтор не меняет данные в прототипе.</p>
+                <button class="btn small" type="button" data-toast="Макет ошибки входа: повторите код">Повторить</button>
+              </article>
+            </div>
+          </div>
+        </section>
+      </main>`;
+    }
+
+    function pageHead(title, lead, actions = "") {
+      return `<header class="page-head">
+        <div class="page-title"><h1>${title}</h1><p>${lead}</p></div>
+        <div class="cluster">${actions}</div>
+      </header>`;
+    }
+
+    function today() {
+      return shell(`
+        ${pageHead("Сегодня: очередь решений", "Первый экран для администратора: что требует решения сейчас, что увидит клиент, и где есть риск ошибки.", `<button class="btn primary" data-select="court-q-17">Разобрать очередь</button>`)}
+        <section class="workspace" aria-labelledby="queues-title">
+          <div class="workspace-bar"><h2 id="queues-title">Операционные очереди</h2><span class="tag bad">8 решений</span></div>
+          <div class="workspace-body">
+            <div class="queue-grid">
+              ${queueItems.map(item => `<button class="queue-tile${state.selectedId === item.id ? " active" : ""}" type="button" data-route="${item.route}" data-select="${item.id}">
+                <span class="queue-label">${item.label}</span>
+                <span class="queue-count">${item.count}</span>
+                <span class="queue-hint">${item.hint}</span>
+              </button>`).join("")}
+            </div>
+          </div>
+        </section>
+        <div class="split">
+          <section class="panel" aria-labelledby="decision-title">
+            <div class="panel-head"><h2 id="decision-title">Лента решений</h2><div class="cluster" role="tablist" aria-label="Фильтр решений"><button class="btn small" data-filter="urgent" aria-pressed="${state.decisionFilter === "urgent"}">Только срочные</button><button class="btn small" data-filter="all" aria-pressed="${state.decisionFilter === "all"}">Все</button></div></div>
+            <div class="panel-body">${decisionTable()}</div>
+          </section>
+          <section class="panel" aria-labelledby="mini-title">
+            <div class="panel-head"><h2 id="mini-title">Контекст Mini App</h2></div>
+            <div class="panel-body">${miniPanels()}</div>
+          </section>
+        </div>
+        ${sharedStatesPanel()}
+      `);
+    }
+
+    function decisionTable() {
+      const items = [
+        ["Заявка", "Корт 2 · 18:00", "Милош", "14 мин", `<span class="tag bad">конфликт</span>`, btns("court-q-17")],
+        ["Тренировка", "Beach Fit A", "7 участников", "до 17:00", `<span class="tag warn">нет корта</span>`, btns("training-u-3")],
+        ["Оплата", "2026-07 · Аня", "3/8 дат", "сегодня", `<span class="tag warn">частично</span>`, btns("subs-p-8")],
+        ["Рассылка", "Свободные места", "184 адресата", "повтор", `<span class="tag bad">2 сбоя</span>`, btns("broadcast-f-2")]
+      ];
+      const visible = state.decisionFilter === "urgent" ? items.filter((_, index) => index < 2) : items;
+      return table("Очередь решений на сегодня", ["Тип", "Объект", "Клиент", "Срок", "Риск", ""], visible);
+    }
+
+    function btns(id) {
+      return `<button class="btn small" type="button" data-select="${id}">Открыть</button>`;
+    }
+
+    function sharedStatesPanel() {
+      return `<section class="panel" aria-labelledby="states-title">
+        <div class="panel-head"><h2 id="states-title">Общие состояния прототипа</h2><span class="tag info">reachable</span></div>
+        <div class="panel-body">
+          <div class="state-board">
+            <article class="state-card">
+              <span class="tag warn">loading</span>
+              <h3>Загрузка данных</h3>
+              <div class="skeleton" aria-label="Статический скелетон"><span></span><span></span><span></span></div>
+            </article>
+            <article class="state-card">
+              <span class="tag info">empty</span>
+              <h3>Пустая выборка</h3>
+              <div class="empty"><span><strong>Нет строк за фильтр</strong>Сбросьте дату или статус, чтобы увидеть данные.</span></div>
+            </article>
+            <article class="state-card error">
+              <span class="tag bad">api error</span>
+              <h3>Ошибка ответа</h3>
+              <p>Макет показывает отказ загрузки без реального сетевого обращения.</p>
+              <button class="btn small" type="button" data-toast="Макет: повтор загрузки не выполняет запрос">Повторить</button>
+            </article>
+            <article class="state-card disabled">
+              <span class="tag warn">disabled</span>
+              <h3>Действие недоступно</h3>
+              <p>Кнопка заблокирована, пока нет серверного решения.</p>
+              <button class="btn small" type="button" disabled aria-disabled="true">Недоступно</button>
+            </article>
+            <article class="state-card error">
+              <span class="tag bad">destructive</span>
+              <h3>Опасное действие</h3>
+              <p>Подтверждение открывается как макет и не меняет строки.</p>
+              <button class="btn danger small" type="button" data-dialog="Удалить строку?|Это только макет разрушительного подтверждения: данные не удаляются, запрос не отправляется.">Показать подтверждение</button>
+            </article>
+          </div>
+        </div>
+      </section>`;
+    }
+
+    function trainings() {
+      return shell(`
+        ${pageHead("Тренировки", "Плотный список и календарь: фронтенд показывает статусы, вместимость и цену как уже решенные сервером.", `
+          <button class="btn small" data-view="table" aria-pressed="${state.trainingView === "table"}">Таблица</button>
+          <button class="btn small" data-view="calendar" aria-pressed="${state.trainingView === "calendar"}">Календарь</button>
+          <button class="btn primary" data-dialog="Создать тренировку|В прототипе действие открывает макет подтверждения без сохранения.">Создать</button>`)}
+        <section class="workspace">
+          <div class="workspace-bar"><h2>Расписание месяца</h2><span class="tag warn">2 без корта</span></div>
+          <div class="workspace-body stack">
+            <div class="cluster">
+              <input class="input" type="date" value="${state.trainingDate}" data-field="trainingDate" data-active="${state.trainingDate !== "2026-07-07"}" aria-label="Дата с">
+              <select class="select" data-field="trainingGroup" data-active="${state.trainingGroup !== "all"}" aria-label="Группа"><option value="all"${selected(state.trainingGroup, "all")}>Все группы</option><option value="beach"${selected(state.trainingGroup, "beach")}>Beach Fit A</option><option value="individual"${selected(state.trainingGroup, "individual")}>Индивидуальные</option></select>
+              <button class="btn small" data-toast="Показаны завершенные и отмененные строки">Показать завершенные</button>
+              <span class="filter-summary">Фильтр: ${state.trainingDate} · ${state.trainingGroup === "all" ? "все группы" : state.trainingGroup === "beach" ? "Beach Fit A" : "индивидуальные"}</span>
+            </div>
+            ${state.trainingView === "calendar" ? trainingCalendar() : table("Тренировки", ["Время", "Группа", "Тренер", "Места", "Корт", "Статус", ""], rows.trainings.map(r => [...r.slice(1), btns("training-u-3")]))}
+          </div>
+        </section>
+        ${miniPanels("roster")}
+      `);
+    }
+
+    function trainingCalendar() {
+      return `<div class="table-wrap"><div class="timeline" role="img" aria-label="Календарный вид тренировок">
+        <div class="timeline-head"><span>День</span>${["08", "09", "10", "11", "12", "13", "14", "15", "16", "17", "18", "19", "20", "21"].map(h => `<span>${h}:00</span>`).join("")}</div>
+        ${["Пн 06", "Вт 07", "Ср 08"].map((day, index) => `<div class="timeline-row">
+          <div class="court-label">${day}</div><div class="timeline-lane">
+            <button class="event training" style="left:${index ? 560 : 560}px;width:${index ? 112 : 168}px" data-select="training-u-3">Beach Fit A</button>
+          </div></div>`).join("")}
+      </div></div>`;
+    }
+
+    function courtRequests() {
+      const filtered = rows.requests.filter(r => state.requestStatus === "all" || r[7] === (state.requestStatus === "pending" ? "Ожидает" : "Подтверждена"));
+      return shell(`
+        ${pageHead("Заявки на корты", "Модерация аренды: выбрать корты можно только как операторское решение, финальная доступность остается за сервером.", `<button class="btn primary" data-select="court-q-17">Открыть первую</button>`)}
+        <section class="workspace">
+          <div class="workspace-bar">
+            <h2>Очередь заявок</h2>
+            <div class="cluster" role="tablist" aria-label="Статус заявок">
+              <button class="btn small" data-status="pending" aria-pressed="${state.requestStatus === "pending"}">Ожидают</button>
+              <button class="btn small" data-status="confirmed" aria-pressed="${state.requestStatus === "confirmed"}">Подтверждены</button>
+              <button class="btn small" data-status="all" aria-pressed="${state.requestStatus === "all"}">Все</button>
+            </div>
+          </div>
+          <div class="workspace-body">${table("Заявки на корты", ["Клиент", "Telegram", "Дата", "Время", "Длительность", "Цена", "Статус", ""], filtered.map(r => [...r.slice(1, 7), statusTag(r[7]), btns("court-q-17")]))}</div>
+        </section>
+        ${miniPanels("court")}
+      `);
+    }
+
+    function courtLoad() {
+      return shell(`
+        ${pageHead("Загрузка кортов", "Таймлайн показывает заявки, удержания, блокировки и тренировки в одной сетке с горизонтальной прокруткой.", `<button class="btn primary" data-select="conflict-s-1">Показать конфликт</button>`)}
+        <section class="workspace">
+          <div class="workspace-bar"><h2>2026-07-07 · 07:00-21:00</h2><span class="tag info">Источник: дневные часы</span></div>
+          <div class="workspace-body">
+            <div class="table-wrap">${courtTimeline()}</div>
+          </div>
+        </section>
+        <section class="panel"><div class="panel-head"><h2>Без назначенного корта</h2><button class="btn small" data-toast="Макет автоназначения: 1 предложен, 1 пропущен; данные не изменены">Предпросмотр автоназначения</button></div><div class="panel-body">${table("Тренировки без корта", ["Время", "Группа", "Уровень", ""], [["18:00-19:00", "Beach Fit A", "Intermediate", btns("training-u-3")], ["19:30-20:30", "One-off", "Advanced", btns("conflict-s-1")]])}</div></section>
+      `);
+    }
+
+    function courtTimeline() {
+      const courts = [1,2,3,4];
+      return `<div class="timeline" role="img" aria-label="Загрузка кортов по времени">
+        <div class="timeline-head"><span>Корт</span>${["07","08","09","10","11","12","13","14","15","16","17","18","19","20"].map(h => `<span>${h}:00</span>`).join("")}</div>
+        ${courts.map(n => `<div class="timeline-row"><div class="court-label">№ ${n}</div><div class="timeline-lane">
+          ${n === 1 ? `<button class="event request" style="left:616px;width:112px" data-select="court-q-17">Заявка</button>` : ""}
+          ${n === 2 ? `<button class="event training" style="left:616px;width:168px" data-select="conflict-s-1">Beach Fit A</button><button class="event block" style="left:672px;width:56px" data-select="conflict-s-1">Блок</button>` : ""}
+          ${n === 3 ? `<button class="event training" style="left:700px;width:84px" data-select="training-u-3">Инд.</button>` : ""}
+        </div></div>`).join("")}
+      </div>`;
+    }
+
+    function clients() {
+      return shell(`
+        ${pageHead("Клиенты", "Поиск и карточки клиентов: идентичность, уровень, согласие и бонусы отображаются без локальной бизнес-логики.", `<button class="btn primary" data-dialog="Новый клиент|Форма онбординга в прототипе не сохраняет данные.">Добавить клиента</button>`)}
+        <section class="workspace"><div class="workspace-bar"><h2>Реестр клиентов</h2><div class="cluster"><input class="input" aria-label="Поиск" data-field="clientSearch" data-active="${state.clientSearch !== "@"}" value="${state.clientSearch}" /><span class="filter-summary">Поиск: ${state.clientSearch || "пусто"}</span></div></div><div class="workspace-body">${table("Клиенты", ["Имя", "Telegram", "Уровень", "Статус", "Бонусы", "Согласие", ""], rows.clients.map(r => [...r.slice(1, 6), r[6], btns("court-q-17")]))}</div></section>
+      `);
+    }
+
+    function subscriptions() {
+      return shell(`
+        ${pageHead("Абонементы", "Денежный экран показывает готовые суммы и снимки цен: цена, исключения и состояние оплаты приходят как данные.", `<button class="btn primary" data-select="subs-p-8">Проверить оплату</button>`)}
+        <section class="workspace"><div class="workspace-bar"><h2>Платежи за месяц</h2><span class="tag warn">5 требуют решения</span></div><div class="workspace-body">${table("Абонементы", ["Клиент", "Группа", "Месяц", "Даты", "Исключения", "Сумма", "Оплата", ""], rows.subscriptions.map(r => [...r.slice(1, 7), statusTag(r[7]), btns("subs-p-8")]))}</div></section>
+        ${miniPanels("calendar")}
+      `);
+    }
+
+    function broadcasts() {
+      return shell(`
+        ${pageHead("Рассылки", "Превью перед отправкой: аудитория, текст и ошибки показаны рядом, чтобы оператор не отправлял вслепую.", `<button class="btn primary" data-dialog="Предпросмотр отправки|Макет требует сначала посмотреть превью и подтвердить аудиторию; сообщение не отправляется.">Макет отправки</button>`)}
+        <div class="split">
+          <section class="workspace"><div class="workspace-bar"><h2>Последние кампании</h2><button class="btn small" data-select="broadcast-f-2">Разобрать сбои</button></div><div class="workspace-body">${table("Рассылки", ["Тип", "Аудитория", "Получатели", "Слоты", "Статус", ""], rows.broadcasts.map(r => [...r.slice(1), btns("broadcast-f-2")]))}</div></section>
+          <section class="panel"><div class="panel-head"><h2>Превью сообщения</h2><span class="tag info">клиентский текст</span></div><div class="panel-body stack"><p>Сегодня есть 3 свободных места на тренировки Beach Fit. Записаться можно в Mini App.</p><button class="btn small" data-toast="Превью пересчитано статически">Пересчитать превью</button></div></section>
+        </div>
+      `);
+    }
+
+    function analytics() {
+      return shell(`
+        ${pageHead("Аналитика", "Отчеты для менеджера: заполняемость, отмены, no-show и вклад рассылок без скрытых пересчетов в браузере.", `<button class="btn" data-range="7" aria-pressed="${state.analyticsRange === "7"}">7 дней</button><button class="btn" data-range="30" aria-pressed="${state.analyticsRange === "30"}">30 дней</button>`)}
+        <section class="workspace"><div class="workspace-bar"><h2>Сводка</h2><span class="tag ok">обновлено 09:40</span></div><div class="workspace-body">${table("Аналитика", ["Метрика", "Значение", "Динамика", "Период"], rows.analytics.map(r => [r[0], r[1], r[2], state.analyticsRange === "30" ? "30 дней" : r[3]]))}</div></section>
+      `);
+    }
+
+    function routeWorkspace(config) {
+      return shell(`
+        ${pageHead(config.title, config.lead, config.actions)}
+        <div class="split">
+          <section class="workspace">
+            <div class="workspace-bar"><h2>${config.workspace}</h2><span class="tag ${config.tone || "info"}">${config.badge}</span></div>
+            <div class="workspace-body stack">${config.body}</div>
+          </section>
+          <section class="panel">
+            <div class="panel-head"><h2>${config.sideTitle}</h2>${config.sideTag || ""}</div>
+            <div class="panel-body stack">${config.side}</div>
+          </section>
+        </div>
+      `);
+    }
+
+    function groups() {
+      return routeWorkspace({
+        title: "Группы",
+        lead: "Каталог групп показывает расписание, вместимость и публикацию как готовое состояние; фронтенд не считает места сам.",
+        actions: `<button class="btn primary" data-dialog="Новая группа|Макет создания группы: в прототипе данные не сохраняются.">Новая группа</button>`,
+        workspace: "Группы и публикация",
+        badge: "3 активных",
+        body: table("Группы", ["Группа", "Уровень", "Расписание", "Места", "Статус", "Происхождение", ""], rows.groups.map(r => [r[1], r[2], r[3], r[4], statusTag(r[5]), r[6], btns(r[0])])),
+        sideTitle: "Публикация",
+        sideTag: `<span class="tag ok">Mini App</span>`,
+        side: `<p>Оператор видит, какие группы уже опубликованы клиентам, а какие остаются черновиком.</p>
+          ${table("Источники", ["Поле", "Откуда видно"], [["Расписание", "серверный календарь"], ["Места", "готовая вместимость"], ["Статус", "публикационный флаг"]])}`
+      });
+    }
+
+    function trainers() {
+      return routeWorkspace({
+        title: "Тренеры",
+        lead: "Рабочая сетка тренеров: назначения, ограничения смены и источник записи видны рядом с действиями.",
+        actions: `<button class="btn primary" data-dialog="Добавить тренера|Макет справочника: профиль не создается, расписание не меняется.">Добавить тренера</button>`,
+        workspace: "Справочник тренеров",
+        badge: "рабочая неделя",
+        body: table("Тренеры", ["Тренер", "Основной поток", "Нагрузка", "Ограничение", "Источник", ""], rows.trainers.map(r => [r[1], r[2], r[3], statusTag(r[4]), r[5], btns(r[0])])),
+        sideTitle: "Замены",
+        sideTag: `<span class="tag warn">2 заметки</span>`,
+        side: `<article class="mini-card"><h3>Марина вместо Николы</h3><p>Четверг 18:00, только как операторский макет замены.</p><button class="btn small" data-toast="Макет замены тренера: данные не изменены">Показать макет</button></article>
+          <article class="mini-card"><h3>Ограничение Ивана</h3><p>Не ставить после 18:00; источник - заметка расписания.</p><span class="mono">trainer-note-18</span></article>`
+      });
+    }
+
+    function managers() {
+      return routeWorkspace({
+        title: "Администраторы",
+        lead: "Доступы операторов показаны как справочник ролей и проверок; изменение прав в прототипе только открывает макет подтверждения.",
+        actions: `<button class="btn primary" data-dialog="Пригласить администратора|Макет приглашения: права не выдаются, сообщение не отправляется.">Пригласить</button>`,
+        workspace: "Роли и границы доступа",
+        badge: "3 роли",
+        body: table("Администраторы", ["Имя", "Роль", "Доступ", "Проверка", "Источник", ""], rows.managers.map(r => [r[1], r[2], r[3], statusTag(r[4]), r[5], btns(r[0])])),
+        sideTitle: "Контроль доступа",
+        sideTag: `<span class="tag bad">high integrity</span>`,
+        side: `<p>Любое изменение роли должно быть подтверждено сервером; здесь показан только интерфейсный сценарий.</p>
+          <button class="btn danger" data-dialog="Отозвать доступ?|Разрушительное действие смоделировано: права не меняются, запись не удаляется.">Макет отзыва доступа</button>
+          <button class="btn" disabled aria-disabled="true">Сохранить без проверки нельзя</button>`
+      });
+    }
+
+    function levels() {
+      return routeWorkspace({
+        title: "Уровни",
+        lead: "Каталог уровней связывает расписание, клиентские фильтры и сегменты рассылок без локальных пересчетов.",
+        actions: `<button class="btn primary" data-dialog="Новый уровень|Макет добавления уровня: каталог остается статичным.">Новый уровень</button>`,
+        workspace: "Каталог уровней",
+        badge: "3 уровня",
+        body: table("Уровни", ["Ключ", "Описание", "Использование", "Состояние", "Источник", ""], rows.levels.map(r => [r[0], r[1], r[2], statusTag(r[3]), r[4], btns(r[0])])),
+        sideTitle: "Пустой сегмент",
+        sideTag: `<span class="tag info">empty</span>`,
+        side: `<div class="empty"><span><strong>Нет клиентов уровня Pro</strong>В прототипе это видимый empty-state для будущего фильтра.</span></div>
+          <button class="btn small" data-toast="Макет сегмента уровня открыт">Открыть сегмент</button>`
+      });
+    }
+
+    function attendance() {
+      return routeWorkspace({
+        title: "Посещаемость",
+        lead: "Очередь отметок после занятий: пришел, no-show и источник отметки видны до любой ручной правки.",
+        actions: `<button class="btn primary" data-dialog="Закрыть смену|Макет закрытия смены: отметки не записываются.">Закрыть смену</button>`,
+        workspace: "Отметки за сегодня",
+        badge: "1 ожидает",
+        tone: "warn",
+        body: table("Посещаемость", ["Тренировка", "Время", "Пришли", "No-show", "Источник", ""], rows.attendance.map(r => [r[1], r[2], statusTag(r[3]), r[4], r[5], btns(r[0])])),
+        sideTitle: "Проверка перед записью",
+        sideTag: `<span class="tag warn">loading/error</span>`,
+        side: `<article class="state-card"><span class="tag warn">loading</span><h3>Сверка состава</h3><div class="skeleton"><span></span><span></span><span></span></div></article>
+          <article class="state-card error"><span class="tag bad">error</span><h3>Отметки не загружены</h3><p>Макет ошибки API; повтор показывает тост.</p><button class="btn small" data-toast="Макет повторной загрузки посещаемости">Повторить</button></article>`
+      });
+    }
+
+    function courtBlocks() {
+      return routeWorkspace({
+        title: "Блокировки кортов",
+        lead: "Рабочие окна, ремонты и ручные блокировки показаны рядом с конфликтами, чтобы оператор не закрывал слот вслепую.",
+        actions: `<button class="btn primary" data-dialog="Новая блокировка|Макет блокировки: корт не закрывается, конфликт не создается.">Новая блокировка</button>`,
+        workspace: "Блокировки и пересечения",
+        badge: "1 конфликт",
+        tone: "warn",
+        body: table("Блокировки", ["Ключ", "Корт", "Время", "Причина", "Состояние", "Источник", ""], rows.courtBlocks.map(r => [r[0], r[1], r[2], r[3], statusTag(r[4]), r[5], btns(r[0])])),
+        sideTitle: "Опасная правка",
+        sideTag: `<span class="tag bad">confirmation</span>`,
+        side: `<p>Удаление блока может открыть слот клиенту; прототип показывает только подтверждение.</p>
+          <button class="btn danger" data-dialog="Удалить блокировку?|Макет разрушительного подтверждения: блокировка остается на месте.">Макет удаления</button>
+          <button class="btn small" data-select="conflict-s-1">Показать конфликт</button>`
+      });
+    }
+
+    function labels() {
+      return routeWorkspace({
+        title: "Тексты",
+        lead: "Редактор клиентских и админских строк показывает ключ, язык, состояние ревью и область показа.",
+        actions: `<button class="btn primary" data-dialog="Новая строка|Макет добавления текста: каталог не меняется.">Новая строка</button>`,
+        workspace: "Каталог текстов",
+        badge: "1 требует ревью",
+        tone: "warn",
+        body: table("Тексты интерфейса", ["Ключ", "Язык", "Состояние", "Область", ""], rows.labels.map(r => [r[1], r[2], statusTag(r[3]), r[4], btns(r[0])])),
+        sideTitle: "Предпросмотр строки",
+        sideTag: `<span class="tag info">client copy</span>`,
+        side: `<article class="mini-card"><h3>waitlist.promote</h3><p>Освободилось место. Подтвердите участие в течение 30 минут.</p><span class="mono">RU/SR pending review</span></article>
+          <button class="btn small" data-toast="Макет предпросмотра строки обновлен">Обновить предпросмотр</button>`
+      });
+    }
+
+    function notificationTemplates() {
+      return routeWorkspace({
+        title: "Шаблоны уведомлений",
+        lead: "Telegram-шаблоны показаны с аудиторией, количеством получателей, ошибками и источником суммы или слота.",
+        actions: `<button class="btn primary" data-dialog="Сохранить шаблон|Макет сохранения: текст и аудитория не меняются.">Сохранить макет</button>`,
+        workspace: "Шаблоны сообщений",
+        badge: "2 готовы",
+        body: table("Шаблоны", ["Шаблон", "Аудитория", "Получатели", "Состояние", "Источник", ""], rows.templates.map(r => [r[1], r[2], r[3], statusTag(r[4]), r[5], btns(r[0])])),
+        sideTitle: "Превью сообщения",
+        sideTag: `<span class="tag info">Telegram</span>`,
+        side: `<article class="mini-card"><h3>Свободные места</h3><p>Сегодня есть 3 свободных места на Beach Fit A. Запись доступна в Mini App.</p><span class="mono">audience: active_14_days</span></article>
+          <button class="btn small" data-toast="Макет предпросмотра шаблона обновлен">Пересчитать макет</button>`
+      });
+    }
+
+    function connectors() {
+      return routeWorkspace({
+        title: "Коннекторы",
+        lead: "Интеграции показаны как эксплуатационная панель: статус, последняя проверка, назначение и безопасная заметка без секретов.",
+        actions: `<button class="btn primary" data-dialog="Проверить интеграции|Макет проверки: внешние системы не вызываются.">Проверить макет</button>`,
+        workspace: "Состояние интеграций",
+        badge: "1 ошибка",
+        tone: "bad",
+        body: table("Коннекторы", ["Сервис", "Статус", "Последняя проверка", "Назначение", "Заметка", ""], rows.connectors.map(r => [r[1], statusTag(r[2]), r[3], r[4], r[5], btns(r[0])])),
+        sideTitle: "Безопасность",
+        sideTag: `<span class="tag bad">no secrets</span>`,
+        side: `<article class="state-card error"><span class="tag bad">api error</span><h3>Webhook не отвечает</h3><p>Макет показывает ошибку доставки и ретраи без раскрытия конфигурации.</p><button class="btn small" data-toast="Макет ретрая коннектора показан">Повторить проверку</button></article>
+          <article class="state-card disabled"><span class="tag warn">disabled</span><h3>Переключатель заблокирован</h3><p>Нельзя выключить канал, пока есть активные рассылки.</p><button class="btn small" disabled aria-disabled="true">Выключить нельзя</button></article>`
+      });
+    }
+
+    function miniPanels(mode = "all") {
+      const list = [
+        ["court", "Подтверждение корта", "Клиент видит дату, время, цену и назначенные корты после решения.", "Корт №2 · 18:00 · 12 000 RSD"],
+        ["roster", "Видимость тренировки", "Состав открыт при публичном превью или активной записи; приватные поля не выводятся.", "7 участников · 1 waitlist"],
+        ["waitlist", "Отмена и waitlist", "При отмене клиент видит статус, а очередь получает шанс на повышение.", "1 кандидат · окно 30 мин"],
+        ["calendar", "Календарная запись", "Внешняя запись показывает только утвержденное время и название занятия.", "2026-07-07 18:00"]
+      ].filter(item => mode === "all" || item[0] === mode || (mode === "court" && item[0] === "calendar") || (mode === "roster" && item[0] === "waitlist") || (mode === "calendar" && item[0] === "waitlist"));
+      return `<div class="mini-panels">${list.map(item => `<article class="mini-card"><h3>${item[1]}</h3><p>${item[2]}</p><span class="mono">${item[3]}</span><button class="btn small" data-toast="Открыт Mini App контекст: ${item[1]}">Показать</button></article>`).join("")}</div>`;
+    }
+
+    function table(caption, headers, bodyRows) {
+      const body = bodyRows.length
+        ? bodyRows.map((r, i) => `<tr${i === 0 ? " class=\"selected\"" : ""}>${r.map((c, idx) => `<td${idx === r.length - 1 ? " class=\"actions\"" : ""}>${c}</td>`).join("")}</tr>`).join("")
+        : `<tr><td colspan="${headers.length}"><div class="empty"><span><strong>Нет строк за выбранный фильтр</strong>Сбросьте фильтр или откройте другой маршрут прототипа.</span></div></td></tr>`;
+      return `<div class="table-wrap"><table><caption>${caption}</caption><thead><tr>${headers.map(h => `<th>${h}</th>`).join("")}</tr></thead><tbody>${body}</tbody></table></div>`;
+    }
+
+    function statusTag(text) {
+      const tone = text.includes("Оплач") || text.includes("Подтверж") || text.includes("Актив") ? "ok" : text.includes("Ожида") || text.includes("Част") || text.includes("Не оп") ? "warn" : "info";
+      return `<span class="tag ${tone}">${text}</span>`;
+    }
+
+    function inspector() {
+      const d = details[state.selectedId] || { title: "Выбранная строка", sub: `Макет инспектора для ${state.selectedId}`, kind: "catalog" };
+      const chips = provenance(d.kind);
+      return `<aside class="inspector${cls(state.inspector ? "open" : "")}" aria-label="Инспектор выбранной строки">
+        <div class="inspector-head">
+          <div><h2>${d.title}</h2><p class="muted">${d.sub}</p></div>
+          <button class="icon-btn" type="button" data-toggle-inspector aria-label="Закрыть инспектор">×</button>
+        </div>
+        <div class="stack" style="margin-top:14px">
+          <div class="chip-row">${chips.map(c => `<span class="tag ${c[1]}">${c[0]}</span>`).join("")}</div>
+          <dl class="detail-list">
+            <div class="detail-row"><dt>ID</dt><dd class="mono">${state.selectedId}</dd></div>
+            <div class="detail-row"><dt>Ответственный</dt><dd>Администратор</dd></div>
+            <div class="detail-row"><dt>Клиент видит</dt><dd>${clientFacing(d.kind)}</dd></div>
+            <div class="detail-row"><dt>Следующее действие</dt><dd>${nextAction(d.kind)}</dd></div>
+          </dl>
+          <div class="panel"><div class="panel-head"><h3>Проверка перед действием</h3></div><div class="panel-body stack">
+            <label><input type="checkbox" data-check="serverDecision"${checked(state.checks.serverDecision)}> Решение пришло с сервера</label>
+            <label><input type="checkbox" data-check="snapshotStored"${checked(state.checks.snapshotStored)}> Снимок цены/мест сохранен</label>
+            <label><input type="checkbox" data-check="clientPreview"${checked(state.checks.clientPreview)}> Клиентское сообщение просмотрено</label>
+          </div></div>
+          <div class="cluster">
+            <button class="btn primary" type="button" data-dialog="Подтвердить действие|Это статический прототип: действие покажет уведомление, но не изменит данные.">Подтвердить</button>
+            <button class="btn" type="button" data-toast="Макет назначения ответственному: данные не изменены">Назначить (макет)</button>
+            <button class="btn danger" type="button" data-toast="Отклонение смоделировано">Отклонить</button>
+          </div>
+        </div>
+      </aside>`;
+    }
+
+    function provenance(kind) {
+      const base = [["server decision", "info"], ["client sees this in Mini App", "ok"]];
+      if (kind === "pricing") return [["stored snapshot", "warn"], ["excluded count", "info"], ...base];
+      if (kind === "roster") return [["visibility gate", "info"], ["excluded count", "warn"], ...base];
+      if (kind === "court") return [["free-court read", "info"], ["server decision", "info"], ["client sees this in Mini App", "ok"]];
+      return base;
+    }
+
+    function clientFacing(kind) {
+      return kind === "pricing" ? "Сумма и статус оплаты" : kind === "roster" ? "Состав и waitlist" : kind === "calendar" ? "Календарная запись" : "Подтверждение";
+    }
+
+    function nextAction(kind) {
+      return kind === "pricing" ? "Предпросмотр отметки оплаты" : kind === "roster" ? "Предпросмотр назначения корта" : kind === "broadcast" ? "Макет повтора отправки" : "Проверить и подтвердить макет";
+    }
+
+    function routeLabel(path) {
+      return (routes.find(r => r.path === path) || routes[0]).label;
+    }
+
+    function render() {
+      const map = {
+        "/": today,
+        "/trainings": trainings,
+        "/court-requests": courtRequests,
+        "/court-load": courtLoad,
+        "/clients": clients,
+        "/subscriptions": subscriptions,
+        "/broadcasts": broadcasts,
+        "/analytics": analytics,
+        "/groups": groups,
+        "/trainers": trainers,
+        "/managers": managers,
+        "/levels": levels,
+        "/attendance": attendance,
+        "/court-blocks": courtBlocks,
+        "/labels": labels,
+        "/notification-templates": notificationTemplates,
+        "/connectors": connectors
+      };
+      root.innerHTML = (map[state.route] || today)();
+      root.querySelectorAll("button:disabled").forEach((button) => {
+        if (!button.getAttribute("title")) {
+          button.setAttribute("title", button.textContent.trim() || "Действие недоступно в макете");
+        }
+        if (!button.getAttribute("aria-label")) {
+          button.setAttribute("aria-label", `${button.textContent.trim()} — действие недоступно в макете`);
+        }
+      });
+    }
+
+    function showToast(message) {
+      const node = document.createElement("div");
+      node.className = "toast-item";
+      node.setAttribute("role", "status");
+      const text = document.createElement("span");
+      text.textContent = message;
+      const close = document.createElement("button");
+      close.type = "button";
+      close.setAttribute("aria-label", "Закрыть уведомление");
+      close.dataset.toastDismiss = "true";
+      close.textContent = "x";
+      node.append(text, close);
+      toastEl.appendChild(node);
+      window.setTimeout(() => node.remove(), 2600);
+    }
+
+    function openDialog(title, body) {
+      document.getElementById("dialog-title").textContent = title;
+      document.getElementById("dialog-body").textContent = body;
+      dialogEl.classList.add("open");
+      dialogEl.querySelector("[data-dialog-close]").focus();
+    }
+
+    document.addEventListener("click", (event) => {
+      const target = event.target.closest("button, a");
+      if (!target) return;
+      if (target.dataset.toastDismiss !== undefined) {
+        target.closest(".toast-item")?.remove();
+        return;
+      }
+      if (target.dataset.route) {
+        if (target.dataset.select) {
+          state.selectedId = target.dataset.select;
+          state.inspector = true;
+        }
+        state.route = target.dataset.route;
+        state.drawer = false;
+        render();
+        return;
+      }
+      if (target.dataset.select) {
+        state.selectedId = target.dataset.select;
+        state.inspector = true;
+        render();
+        return;
+      }
+      if (target.dataset.toggleNav !== undefined) {
+        state.drawer = !state.drawer;
+        render();
+        return;
+      }
+      if (target.dataset.toggleInspector !== undefined) {
+        state.inspector = !state.inspector;
+        render();
+        return;
+      }
+      if (target.dataset.status) {
+        state.requestStatus = target.dataset.status;
+        showToast(`Макет фильтра заявок: ${target.textContent.trim()}`);
+        render();
+        return;
+      }
+      if (target.dataset.view) {
+        state.trainingView = target.dataset.view;
+        showToast(`Вид расписания: ${target.textContent.trim()}`);
+        render();
+        return;
+      }
+      if (target.dataset.filter) {
+        state.decisionFilter = target.dataset.filter;
+        showToast(`Фильтр очереди: ${target.textContent.trim()}`);
+        render();
+        return;
+      }
+      if (target.dataset.range) {
+        state.analyticsRange = target.dataset.range;
+        showToast(`Диапазон аналитики: ${target.textContent.trim()}`);
+        render();
+        return;
+      }
+      if (target.dataset.toast) {
+        showToast(target.dataset.toast);
+        return;
+      }
+      if (target.dataset.dialog) {
+        const parts = target.dataset.dialog.split("|");
+        openDialog(parts[0], parts[1] || "Действие смоделировано.");
+        return;
+      }
+      if (target.dataset.dialogClose !== undefined || target.dataset.dialogOk !== undefined) {
+        dialogEl.classList.remove("open");
+      }
+    });
+
+    document.addEventListener("change", (event) => {
+      const target = event.target;
+      if (!(target instanceof HTMLInputElement || target instanceof HTMLSelectElement)) return;
+      if (target.dataset.field) {
+        state[target.dataset.field] = target.value;
+        showToast(`Макет фильтра: ${target.getAttribute("aria-label") || "поле"} = ${target.value || "пусто"}`);
+        render();
+        return;
+      }
+      if (target.dataset.check) {
+        state.checks[target.dataset.check] = target.checked;
+        showToast(`${target.checked ? "Отмечено" : "Снято"}: ${target.parentElement.textContent.trim()}`);
+        render();
+      }
+    });
+
+    document.addEventListener("keydown", (event) => {
+      if (event.key === "Escape") {
+        dialogEl.classList.remove("open");
+        if (state.drawer || state.inspector) {
+          state.drawer = false;
+          state.inspector = false;
+          render();
+        }
+      }
+    });
+
+    render();
+  </script>
+</body>
+</html>

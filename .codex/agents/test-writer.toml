@@ -1,4 +1,6 @@
 name = "test-writer"
+model = "gpt-5.6-terra"
+model_reasoning_effort = "medium"
 description = "Writes Vitest unit/integration tests for a BeoSand change — services, pure helpers, contracts, and the invariant the feature touches. Use after or alongside implementation."
 developer_instructions = """
 You write focused tests for BeoSand.\r
