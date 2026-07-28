@@ -34,7 +34,42 @@ export class BroadcastAutomationsService {
   }
   async enqueueEvent(trigger: "training-created" | "training-time-changed" | "freed-place", sourceEventId: string): Promise<number> { const automations = await this.repo.list({limit:100,enabled:true}); let count=0; for(const automation of automations) if(automation.trigger.kind===trigger && await this.repo.enqueueEvent(automation,sourceEventId)) count++; return count; }
   async sweep(now = new Date()): Promise<void> { await this.repo.recoverExpiredProcessing?.(now,new Date(now.getTime()-PROCESSING_LEASE_MS)); const automations=await this.repo.list({limit:100,enabled:true}); for(const automation of automations) if(automation.trigger.kind==="scheduled"){ const cursor=await this.repo.schedulerCursor?.(automation.id); for(const occurrence of scheduledOccurrences(automation,cursor ?? belgradeDayStart(now),now)) await this.repo.createScheduledRun(automation,occurrence,now.getTime()-occurrence.getTime()>=SCHEDULE_GRACE_MS?"skipped":"pending"); await this.repo.recordSchedulerCursor?.(automation.id,now); } for(const run of await this.repo.listDue(now)){ if(now.getTime()-new Date(run.dueAt).getTime()>WINDOW_MS){await this.repo.skipRun(run.id,"missed");continue;} const claimed=await this.repo.claimRun(run.id); if(claimed) await this.deliver(claimed,now); } }
-  private async deliver(run:any,now:Date):Promise<void>{ const automation=await this.must(run.automationId); if(!automation.enabled){await this.repo.skipRun(run.id,"disabled");return;} const config=run.configSnapshot, trigger=config.trigger, eventTraining=trigger.kind==="scheduled"?undefined:await this.repo.eventTraining(trigger.kind,run.sourceEventId ?? ""), trainings=trigger.kind==="scheduled"?await this.repo.qualifyingTrainings(trigger.trainingWindow,belgradeDate(now)):eventTraining?[eventTraining]:[]; if(!trainings.length){await this.repo.skipRun(run.id,"no-qualifying-trainings");return;} const recipients=await this.repo.audience(config.audience,now); if(!recipients.length){await this.repo.skipRun(run.id,"no-eligible-recipients");return;} const rendered=this.render(config,trainings,config.message.defaultLanguage); let attempted=0,sent=0,failed=0,ambiguous=0; for(const item of rendered){const dbItem=await this.repo.createItem(run.id,item.ordinal,config.message.outputMode,config.message.ctaMode,item.payload); for(const tr of trainings) await this.repo.addTraining(run.id,dbItem.id,tr.trainingId,tr,run.sourceEventId ?? undefined); for(const recipient of recipients){const payload=this.render(config,trainings,recipient.language)[Math.min(item.ordinal-1,rendered.length-1)].payload, delivery=await this.repo.claimDelivery(run.id,dbItem.id,recipient,payload); if(!delivery)continue; attempted++; const result=await this.sender.sendMessageWithOutcome(recipient.telegramId,payload.text,keyboard(payload)); if(result.kind==="sent"){sent++;await this.repo.finishDelivery(delivery.id,"sent",null);}else{if(result.kind==="failed")failed++;else ambiguous++;await this.repo.finishDelivery(delivery.id,result.kind,sanitizeTelegramDiagnostic(result.diagnostic));}}} await this.repo.completeRun(run.id,{selectedTrainings:trainings.length,includedTrainings:trainings.length,recipients:recipients.length,attempted,sent,failed,ambiguous}); }
+  private async deliver(run:any,now:Date):Promise<void>{
+    const automation=await this.must(run.automationId);
+    if(!automation.enabled){await this.repo.skipRun(run.id,"disabled");return;}
+    const config=run.configSnapshot, trigger=config.trigger, eventTraining=trigger.kind==="scheduled"?undefined:await this.repo.eventTraining(trigger.kind,run.sourceEventId ?? ""), trainings=trigger.kind==="scheduled"?await this.repo.qualifyingTrainings(trigger.trainingWindow,belgradeDate(now)):eventTraining?[eventTraining]:[];
+    if(!trainings.length){await this.repo.skipRun(run.id,"no-qualifying-trainings");return;}
+    const recipients=await this.repo.audience(config.audience,now);
+    if(!recipients.length){await this.repo.skipRun(run.id,"no-eligible-recipients");return;}
+    const covered=trigger.kind==="scheduled"&&config.message.outputMode==="digest"?await this.repo.eventCoveredTrainingIdsSince(run.automationId,new Date(run.scheduledFor ?? now),new Date(automation.createdAt),trainings.map((training:TrainingRow)=>training.trainingId)):new Set<string>();
+    const included=trainings.filter((training:TrainingRow)=>!covered.has(training.trainingId));
+    const rendered=this.render(config,included,config.message.defaultLanguage);
+    let attempted=0,sent=0,failed=0,ambiguous=0,skippedDeliveries=0;
+    const sendItem=async(dbItemId:string,ordinal:number,itemTrainings:TrainingRow[])=>{
+      for(const recipient of recipients){
+        const payload=this.render(config,itemTrainings,recipient.language)[Math.min(ordinal-1,this.render(config,itemTrainings,recipient.language).length-1)].payload;
+        const delivery=await this.repo.claimDelivery(run.id,dbItemId,recipient,payload);
+        if(!delivery)continue;
+        if(trigger.kind==="freed-place"&&await this.repo.hasFreedPlaceExclusion(run.sourceEventId,recipient.clientId,payload.trainingIds)){skippedDeliveries++;await this.repo.skipDelivery(delivery.id,"mandatory-exclusion");continue;}
+        attempted++;
+        const result=await this.sender.sendMessageWithOutcome(recipient.telegramId,payload.text,keyboard(payload));
+        if(result.kind==="sent"){sent++;await this.repo.finishDelivery(delivery.id,"sent",null);}else{if(result.kind==="failed")failed++;else ambiguous++;await this.repo.finishDelivery(delivery.id,result.kind,sanitizeTelegramDiagnostic(result.diagnostic));}
+      }
+    };
+    if(trigger.kind==="scheduled"&&config.message.outputMode==="digest"&&covered.size){
+      const evidence=this.render(config,included.length?included:trainings,config.message.defaultLanguage)[0];
+      const dbItem=await this.repo.createItem(run.id,evidence.ordinal,config.message.outputMode,config.message.ctaMode,evidence.payload);
+      for(const training of included)await this.repo.addTraining(run.id,dbItem.id,training.trainingId,training);
+      for(const training of trainings.filter((candidate:TrainingRow)=>covered.has(candidate.trainingId)))await this.repo.addTraining(run.id,dbItem.id,training.trainingId,training,undefined,"skipped","training-covered-by-event");
+      if(included.length)await sendItem(dbItem.id,evidence.ordinal,included);
+    }else for(const item of rendered){
+      const itemTrainings=included.filter((training:TrainingRow)=>item.payload.trainingIds.includes(training.trainingId));
+      const dbItem=await this.repo.createItem(run.id,item.ordinal,config.message.outputMode,config.message.ctaMode,item.payload);
+      for(const training of itemTrainings)await this.repo.addTraining(run.id,dbItem.id,training.trainingId,training,run.sourceEventId ?? undefined);
+      await sendItem(dbItem.id,item.ordinal,itemTrainings);
+    }
+    await this.repo.completeRun(run.id,{selectedTrainings:trainings.length,includedTrainings:included.length,skippedTrainings:covered.size,recipients:recipients.length,attempted,sent,failed,ambiguous,skippedDeliveries});
+  }
   private render(automation:Pick<BroadcastAutomation,"name"|"trigger"|"audience"|"message">,trainings:TrainingRow[],language:"ru"|"sr"|"en"){const resolved=automation.message.bodies[language]?language:automation.message.defaultLanguage;const make=(set:TrainingRow[],ordinal:number)=>({ordinal,payload:{trainingIds:set.map(t=>t.trainingId),requestedLanguage:language,resolvedLanguage:resolved,usedFallback:resolved!==language,text:renderBody(automation.message.bodies[resolved] ?? "",set),ctaMode:automation.message.ctaMode,bookingTrainingId:automation.message.ctaMode==="booking"?set[0]?.trainingId ?? null:null}});return automation.message.outputMode==="digest"?(trainings.length?[make(trainings,1)]:[]):trainings.map((t,i)=>make([t],i+1));}
   private async must(id:string){const row=await this.repo.find(id);if(!row)throw new NotFoundException("Automation not found");return row;}
   private async rootSourceEventId(run:{sourceEventId:string|null;originalRunId:string|null}):Promise<string|null>{let current=run;while(!current.sourceEventId&&current.originalRunId){const detail=await this.repo.detail(current.originalRunId);if(!detail)break;current=detail.run;}return current.sourceEventId;}
