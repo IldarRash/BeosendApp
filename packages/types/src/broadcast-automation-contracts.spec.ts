@@ -32,6 +32,25 @@ describe("broadcast automation contracts", () => {
     expect(broadcastAutomationRenderedItemSchema.safeParse({ trainingIds: [LEVEL, LEVEL], requestedLanguage: "ru", resolvedLanguage: "ru", usedFallback: false, text: "x", ctaMode: "booking", bookingTrainingId: LEVEL }).success).toBe(false);
   });
 
+  it("rejects unknown template placeholders before an automation can be saved", () => {
+    expect(
+      broadcastAutomationMessageSchema.safeParse({
+        bodies: { ru: "Привет, {{clientSecret}}" },
+        defaultLanguage: "ru",
+        outputMode: "per-training",
+        ctaMode: "none"
+      }).success
+    ).toBe(false);
+    expect(
+      broadcastAutomationMessageSchema.safeParse({
+        bodies: { ru: "{groupName} — {freeSeats}" },
+        defaultLanguage: "ru",
+        outputMode: "per-training",
+        ctaMode: "none"
+      }).success
+    ).toBe(true);
+  });
+
   it("enforces stale-edit guards and explicit ambiguous retry acknowledgement", () => {
     expect(updateBroadcastAutomationSchema.safeParse({ expectedVersion: 2 }).success).toBe(false);
     expect(updateBroadcastAutomationSchema.safeParse({ expectedVersion: 2, name: "Edited", extra: true }).success).toBe(false);

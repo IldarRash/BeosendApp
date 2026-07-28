@@ -53,9 +53,9 @@ describe("TelegramSender", () => {
     await expect(sender.sendMessage(1, "ok")).resolves.toBeUndefined();
   });
 
-  // Security invariant: the bot token lives only in the request URL and must
-  // never appear in a thrown error (which the service logs verbatim).
-  it("throws on a non-OK response WITHOUT leaking the token or the URL", async () => {
+  // Security invariant: diagnostics may be persisted/logged, so they cannot
+  // contain request secrets, URLs, or recipient identifiers.
+  it("throws on a non-OK response WITHOUT leaking the token, URL, or chat id", async () => {
     fetchMock.mockResolvedValue(
       response({ ok: false, status: 403, body: { description: "Forbidden: bot was blocked" } })
     );
@@ -71,10 +71,10 @@ describe("TelegramSender", () => {
     const message = (caught as Error).message;
     expect(message).not.toContain(SECRET_TOKEN);
     expect(message).not.toContain("api.telegram.org");
+    expect(message).not.toContain("555");
     // The status/description are surfaced so the failure is diagnosable.
     expect(message).toContain("403");
     expect(message).toContain("Forbidden: bot was blocked");
-    expect(message).toContain("555");
   });
 
   it("tolerates a non-JSON error body and still hides the token", async () => {
