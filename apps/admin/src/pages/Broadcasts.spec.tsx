@@ -34,8 +34,8 @@ const preview: BroadcastAutomationPreview = { automationId: ID, version: 3, prev
 const runDetail: BroadcastAutomationRunDetail = {
   run: { id: RUN_ID, automationId: ID, automationVersion: 3, triggerKind: "scheduled", sourceEventId: null, scheduledFor: null, dueAt: "2026-07-01T00:00:00.000Z", status: "completed", skipReason: null, originalRunId: "33333333-3333-4333-8333-333333333333", configSnapshot: { name: automation.name, trigger: automation.trigger, audience: automation.audience, message: automation.message }, counts: { selectedTrainings: 1, includedTrainings: 1, skippedTrainings: 0, recipients: 1, attempted: 1, sent: 1, failed: 0, ambiguous: 0, skippedDeliveries: 0 }, createdAt: "2026-07-01T00:00:00.000Z", startedAt: "2026-07-01T00:00:00.000Z", completedAt: "2026-07-01T00:01:00.000Z" },
   items: [{ id: "44444444-4444-4444-8444-444444444444", runId: RUN_ID, ordinal: 1, outputMode: "per-training", ctaMode: "booking", itemSnapshot: { trainingIds: [ID], requestedLanguage: "ru", resolvedLanguage: "sr", usedFallback: true, text: "Saved message", ctaMode: "booking", bookingTrainingId: ID }, createdAt: "2026-07-01T00:00:00.000Z" }],
-  trainings: [{ id: "55555555-5555-4555-8555-555555555555", runId: RUN_ID, runItemId: "44444444-4444-4444-8444-444444444444", trainingId: ID, outcome: "skipped", skipReason: "training-ineligible", trainingSnapshot: { trainingId: ID, date: "2026-07-02", startTime: "10:00", endTime: "11:00", groupName: "Morning", levelName: "Beginner", trainerName: "Ana", freeSeats: 2 }, createdAt: "2026-07-01T00:00:00.000Z" }],
-  deliveries: [{ id: "66666666-6666-4666-8666-666666666666", runId: RUN_ID, runItemId: "44444444-4444-4444-8444-444444444444", clientId: ID, telegramId: 123, requestedLanguage: "ru", resolvedLanguage: "sr", outcome: "ambiguous", skipReason: "retry-not-eligible", retryOfDeliveryId: "77777777-7777-4777-8777-777777777777", isAutomatic: true, payloadSnapshot: { trainingIds: [ID], requestedLanguage: "ru", resolvedLanguage: "sr", usedFallback: true, text: "Delivery payload", ctaMode: "booking", bookingTrainingId: ID }, attemptedAt: "2026-07-01T00:00:00.000Z", completedAt: null, diagnostic: "Telegram timeout" }]
+  trainings: [{ id: "55555555-5555-4555-8555-555555555555", runId: RUN_ID, runItemId: "44444444-4444-4444-8444-444444444444", trainingId: ID, outcome: "skipped", skipReason: "training-ineligible", trainingSnapshot: { trainingId: ID, date: "2026-07-02", startTime: "10:00", endTime: "11:00", groupName: "Morning", levelName: "Beginner", trainerName: "Ana", freeSeats: 2, priceSingleRsd: 1500 }, createdAt: "2026-07-01T00:00:00.000Z" }],
+  deliveries: [{ id: "66666666-6666-4666-8666-666666666666", runId: RUN_ID, runItemId: "44444444-4444-4444-8444-444444444444", clientId: ID, telegramId: 123, requestedLanguage: "ru", resolvedLanguage: "sr", outcome: "ambiguous", skipReason: "retry-not-eligible", retryOfDeliveryId: "77777777-7777-4777-8777-777777777777", isAutomatic: true, payloadSnapshot: { trainingIds: [ID], requestedLanguage: "ru", resolvedLanguage: "sr", usedFallback: true, text: "Delivery payload", ctaMode: "booking", bookingTrainingId: ID }, attemptedAt: "2026-07-01T00:00:00.000Z", completedAt: null, diagnostic: "Telegram timeout" }, { id: "88888888-8888-4888-8888-888888888888", runId: RUN_ID, runItemId: "44444444-4444-4444-8444-444444444444", clientId: ID, telegramId: 456, requestedLanguage: "ru", resolvedLanguage: "ru", outcome: "failed", skipReason: null, retryOfDeliveryId: null, isAutomatic: true, payloadSnapshot: { trainingIds: [ID], requestedLanguage: "ru", resolvedLanguage: "ru", usedFallback: false, text: "Failed delivery payload", ctaMode: "booking", bookingTrainingId: ID }, attemptedAt: "2026-07-01T00:00:00.000Z", completedAt: "2026-07-01T00:00:01.000Z", diagnostic: "Telegram rejected" }]
 };
 const create = vi.fn(); const update = vi.fn(); const previewMutation = vi.fn(); const enable = vi.fn(); const retry = vi.fn(); const send = vi.fn();
 
@@ -44,7 +44,7 @@ function renderPage() { render(<MemoryRouter><Broadcasts /></MemoryRouter>); }
 beforeEach(() => {
   useLevels.mockReturnValue({ data: [level], isLoading: false });
   automations.mockReturnValue({ data: { items: [automation], nextCursor: null }, isLoading: false, isError: false });
-  runs.mockReturnValue({ data: { items: [{ id: RUN_ID, triggerKind: "scheduled", status: "completed", counts: { sent: 1, failed: 1, ambiguous: 1 }, createdAt: "2026-07-01T00:00:00.000Z" }], nextCursor: null }, isLoading: false });
+  runs.mockReturnValue({ data: { pages: [{ items: [{ id: RUN_ID, triggerKind: "scheduled", status: "completed", counts: { sent: 1, failed: 1, ambiguous: 1 }, createdAt: "2026-07-01T00:00:00.000Z" }], nextCursor: null }] }, isLoading: false, isError: false, hasNextPage: false });
   run.mockReturnValue({ data: undefined, isLoading: false });
   actions.mockReturnValue({ create: { mutateAsync: create, isPending: false, isError: false }, update: { mutateAsync: update, isPending: false, isError: false }, preview: { mutateAsync: previewMutation, isPending: false }, enable: { mutateAsync: enable, isPending: false, isError: false }, disable: { mutate: vi.fn() }, retry: { mutateAsync: retry, isPending: false, error: null } });
   useBroadcastTemplates.mockReturnValue({ data: [template], isLoading: false, isError: false });
@@ -98,13 +98,17 @@ describe("Broadcast automation builder", () => {
     expect(screen.getByText("Telegram timeout")).toBeTruthy();
     expect(screen.getByText(/77777777-7777-4777-8777-777777777777/)).toBeTruthy();
     expect(screen.getByRole("button", { name: tr("admin.broadcasts.openOriginalRun") })).toBeTruthy();
+    fireEvent.click(screen.getByRole("checkbox", { name: tr("admin.broadcasts.retrySelect") }));
     fireEvent.click(screen.getByRole("button", { name: tr("admin.broadcasts.retry") }));
-    await waitFor(() => expect(retry).toHaveBeenLastCalledWith({ runId: RUN_ID, input: { includeAmbiguous: false } }));
+    await waitFor(() => expect(retry).toHaveBeenLastCalledWith({ runId: RUN_ID, input: { deliveryIds: ["88888888-8888-4888-8888-888888888888"], includeAmbiguous: false } }));
     await waitFor(() => expect(screen.getByRole("status").textContent).toContain("2"));
     fireEvent.click(screen.getByRole("checkbox", { name: tr("admin.broadcasts.retryAmbiguous") }));
     expect(screen.getByText(tr("admin.broadcasts.duplicateWarning"))).toBeTruthy();
+    await waitFor(() => expect(screen.getAllByRole("checkbox", { name: tr("admin.broadcasts.retrySelect") })).toHaveLength(2));
+    fireEvent.click(screen.getAllByRole("checkbox", { name: tr("admin.broadcasts.retrySelect") })[0]!);
+    await waitFor(() => expect((screen.getAllByRole("checkbox", { name: tr("admin.broadcasts.retrySelect") })[0] as HTMLInputElement).checked).toBe(true));
     fireEvent.click(screen.getByRole("button", { name: tr("admin.broadcasts.retry") }));
-    expect(retry).toHaveBeenLastCalledWith({ runId: RUN_ID, input: { includeAmbiguous: true, acknowledgeAmbiguous: true } });
+    await waitFor(() => expect(retry).toHaveBeenLastCalledWith({ runId: RUN_ID, input: { deliveryIds: ["88888888-8888-4888-8888-888888888888", "66666666-6666-4666-8666-666666666666"], includeAmbiguous: true, acknowledgeAmbiguous: true } }));
   });
 
   it("keeps legacy selection, server preview and manual send, without legacy creation or auto-switch controls", () => {

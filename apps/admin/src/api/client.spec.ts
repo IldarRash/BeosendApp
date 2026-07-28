@@ -296,11 +296,16 @@ describe("ApiClient broadcast automation builder", () => {
     expect(fetch).not.toHaveBeenCalled();
   });
 
-  it("sends the explicit ambiguous-delivery acknowledgement only on the retry path", async () => {
+  it("sends selected delivery ids with the explicit ambiguous-delivery acknowledgement", async () => {
     const calls = mockFetchOnce({ run: { id: runId, automationId, automationVersion: 3, triggerKind: "scheduled", sourceEventId: null, scheduledFor: null, dueAt: "2026-07-01T00:00:00.000Z", status: "completed", skipReason: null, originalRunId: null, configSnapshot: { name: automation.name, trigger: automation.trigger, audience: automation.audience, message: automation.message }, counts: { selectedTrainings: 0, includedTrainings: 0, skippedTrainings: 0, recipients: 0, attempted: 0, sent: 0, failed: 0, ambiguous: 0, skippedDeliveries: 0 }, createdAt: "2026-07-01T00:00:00.000Z", startedAt: null, completedAt: null }, selectedDeliveryCount: 1 });
-    await new ApiClient("http://api.test").retryBroadcastAutomationFailures(runId, { includeAmbiguous: true, acknowledgeAmbiguous: true });
+    await new ApiClient("http://api.test").retryBroadcastAutomationFailures(runId, { deliveryIds: ["88888888-8888-4888-8888-888888888888"], includeAmbiguous: true, acknowledgeAmbiguous: true });
     expect(calls[0]?.url).toBe(`http://api.test/broadcast-automation-runs/${runId}/retry-failures`);
-    expect(JSON.parse(calls[0]?.init?.body as string)).toEqual({ includeAmbiguous: true, acknowledgeAmbiguous: true });
+    expect(JSON.parse(calls[0]?.init?.body as string)).toEqual({ deliveryIds: ["88888888-8888-4888-8888-888888888888"], includeAmbiguous: true, acknowledgeAmbiguous: true });
+  });
+
+  it("rejects a malformed retry response before it can reach the page", async () => {
+    mockFetchOnce({ run: { id: runId }, selectedDeliveryCount: "one" });
+    await expect(new ApiClient("http://api.test").retryBroadcastAutomationFailures(runId, { deliveryIds: ["88888888-8888-4888-8888-888888888888"], includeAmbiguous: false })).rejects.toThrow();
   });
 });
 

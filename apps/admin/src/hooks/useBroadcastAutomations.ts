@@ -1,10 +1,11 @@
-import { useMutation, useQuery, useQueryClient, type UseQueryResult } from "@tanstack/react-query";
+import { useInfiniteQuery, useMutation, useQuery, useQueryClient, type UseQueryResult } from "@tanstack/react-query";
 import type {
   BroadcastAutomation,
   BroadcastAutomationRunDetail,
   BroadcastAutomationRunList,
   CreateBroadcastAutomationInput,
   EnableBroadcastAutomationInput,
+  ListBroadcastAutomationRunsQuery,
   RetryBroadcastAutomationFailuresInput,
   UpdateBroadcastAutomationInput
 } from "@beosand/types";
@@ -17,9 +18,16 @@ export function useBroadcastAutomations(): UseQueryResult<{ items: BroadcastAuto
   return useQuery({ queryKey: KEY, queryFn: () => api.listBroadcastAutomations({ limit: 100 }) });
 }
 
-export function useBroadcastAutomationRuns(): UseQueryResult<BroadcastAutomationRunList, Error> {
+export function useBroadcastAutomationRuns(
+  query: Omit<ListBroadcastAutomationRunsQuery, "cursor" | "limit">
+) {
   const api = useApiClient();
-  return useQuery({ queryKey: [...KEY, "runs"], queryFn: () => api.listBroadcastAutomationRuns({ limit: 50 }) });
+  return useInfiniteQuery({
+    queryKey: [...KEY, "runs", query],
+    initialPageParam: undefined as string | undefined,
+    queryFn: ({ pageParam }) => api.listBroadcastAutomationRuns({ ...query, cursor: pageParam, limit: 50 }),
+    getNextPageParam: (page: BroadcastAutomationRunList) => page.nextCursor ?? undefined
+  });
 }
 
 export function useBroadcastAutomationRun(id: string | null): UseQueryResult<BroadcastAutomationRunDetail, Error> {
