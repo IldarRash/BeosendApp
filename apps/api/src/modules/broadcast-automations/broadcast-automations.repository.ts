@@ -1,17 +1,20 @@
 /* eslint-disable @typescript-eslint/no-explicit-any -- JSONB rows are validated on service return. */
 import { Injectable } from "@nestjs/common";
 import { and, asc, desc, eq, gte, inArray, isNotNull, isNull, lt, lte, or, sql } from "drizzle-orm";
-import { tables } from "@beosand/db";
+import { type Database, tables } from "@beosand/db";
 import type { BroadcastAutomation, BroadcastAutomationAudience, BroadcastAutomationDelivery, BroadcastAutomationRun, BroadcastAutomationRunDetail, BroadcastAutomationRunItem, BroadcastAutomationRunTraining, CreateBroadcastAutomationInput, ListBroadcastAutomationRunsQuery, ListBroadcastAutomationsQuery } from "@beosand/types";
 import { DatabaseService } from "../../db/database.service";
 
 type Draft = Pick<CreateBroadcastAutomationInput, "name" | "trigger" | "audience" | "message">;
 export type AutomationRecipient = { clientId: string; telegramId: number; language: "ru" | "sr" | "en" };
 export type TrainingRow = { trainingId: string; date: string; startTime: string; endTime: string; groupName: string; levelName: string; trainerName: string; freeSeats: number };
+export type RetryRunPlan = { run: BroadcastAutomationRun; deliveries: BroadcastAutomationDelivery[] };
 
 @Injectable()
 export class BroadcastAutomationsRepository {
   constructor(private readonly database: DatabaseService) {}
+
+  transaction<T>(work: (tx: Database) => Promise<T>): Promise<T> { return this.database.db.transaction(work); }
 
   async list(input: ListBroadcastAutomationsQuery): Promise<BroadcastAutomation[]> {
     const conditions = [input.enabled === undefined ? undefined : eq(tables.broadcastAutomations.enabled, input.enabled), input.cursor ? lt(tables.broadcastAutomations.id, input.cursor) : undefined].filter(Boolean);
@@ -42,13 +45,55 @@ export class BroadcastAutomationsRepository {
   async qualifyingTrainings(window: "today" | "tomorrow" | "week", today: string): Promise<TrainingRow[]> { const end = window === "today" ? today : addDays(today, window === "tomorrow" ? 1 : 6); const start = window === "tomorrow" ? addDays(today, 1) : today; const rows = await this.database.db.select({ trainingId: tables.trainings.id, date: tables.trainings.date, startTime: tables.trainings.startTime, endTime: tables.trainings.endTime, groupName: tables.groups.name, levelName: tables.levels.name, trainerName: tables.trainers.name, capacity: tables.trainings.capacity, bookedCount: tables.trainings.bookedCount }).from(tables.trainings).innerJoin(tables.groups, eq(tables.trainings.groupId, tables.groups.id)).innerJoin(tables.levels, eq(tables.groups.levelId, tables.levels.id)).innerJoin(tables.trainers, eq(tables.trainings.trainerId, tables.trainers.id)).where(and(gte(tables.trainings.date, start), lte(tables.trainings.date, end), eq(tables.trainings.status, "open"), eq(tables.groups.status, "active"), eq(tables.levels.status, "active"), eq(tables.trainers.status, "active"), eq(tables.groups.hidden, false)));
     return rows.filter(r => r.capacity > r.bookedCount).map(toTrainingRow); }
   async audience(audience: BroadcastAutomationAudience, now: Date): Promise<AutomationRecipient[]> { const cutoff = new Date(now.getTime() - 7 * 24 * 60 * 60_000); const activity = audience.activity === "active" ? isNotNull(tables.clients.miniAppLastAccessAt) && gte(tables.clients.miniAppLastAccessAt, cutoff) : or(isNull(tables.clients.miniAppLastAccessAt), lt(tables.clients.miniAppLastAccessAt, cutoff)); const rows = await this.database.db.select({ clientId: tables.clients.id, telegramId: tables.clients.telegramId, language: tables.clients.language }).from(tables.clients).where(and(eq(tables.clients.status, "active"), inArray(tables.clients.levelId, audience.levelIds), isNotNull(tables.clients.telegramId), activity)); return rows.filter((r): r is AutomationRecipient => r.telegramId !== null); }
+  async recipientStillEligible(clientId: string, audience: BroadcastAutomationAudience, now: Date): Promise<AutomationRecipient | undefined> {
+    return (await this.audience(audience, now)).find((recipient) => recipient.clientId === clientId);
+  }
+  async eligibleTrainings(trainingIds: string[]): Promise<TrainingRow[]> {
+    if (!trainingIds.length) return [];
+    const rows = await this.database.db.select({ trainingId: tables.trainings.id, date: tables.trainings.date, startTime: tables.trainings.startTime, endTime: tables.trainings.endTime, groupName: tables.groups.name, levelName: tables.levels.name, trainerName: tables.trainers.name, capacity: tables.trainings.capacity, bookedCount: tables.trainings.bookedCount }).from(tables.trainings).innerJoin(tables.groups, eq(tables.trainings.groupId, tables.groups.id)).innerJoin(tables.levels, eq(tables.groups.levelId, tables.levels.id)).innerJoin(tables.trainers, eq(tables.trainings.trainerId, tables.trainers.id)).where(and(inArray(tables.trainings.id, trainingIds), eq(tables.trainings.status, "open"), eq(tables.groups.status, "active"), eq(tables.levels.status, "active"), eq(tables.trainers.status, "active"), eq(tables.groups.hidden, false)));
+    return rows.filter((row) => row.capacity > row.bookedCount).map(toTrainingRow);
+  }
+  async hasFreedPlaceExclusion(sourceEventId: string | null, clientId: string, trainingIds: string[]): Promise<boolean> {
+    if (!sourceEventId?.startsWith("freed-place:") || !trainingIds.length) return false;
+    const cancelledBookingId = sourceEventId.slice("freed-place:".length);
+    const [cancelled] = await this.database.db.select({ clientId: tables.bookings.clientId }).from(tables.bookings).where(eq(tables.bookings.id, cancelledBookingId)).limit(1);
+    if (cancelled?.clientId === clientId) return true;
+    const [booking] = await this.database.db.select({ id: tables.bookings.id }).from(tables.bookings).where(and(eq(tables.bookings.clientId, clientId), inArray(tables.bookings.trainingId, trainingIds), inArray(tables.bookings.status, ["booked", "pending"]))).limit(1);
+    if (booking) return true;
+    const [waiting] = await this.database.db.select({ id: tables.waitlist.id }).from(tables.waitlist).where(and(eq(tables.waitlist.clientId, clientId), inArray(tables.waitlist.trainingId, trainingIds), inArray(tables.waitlist.status, ["waiting", "notified"]))).limit(1);
+    return Boolean(waiting);
+  }
   async createItem(runId: string, ordinal: number, outputMode: "per-training" | "digest", ctaMode: "none" | "booking", snapshot: unknown): Promise<BroadcastAutomationRunItem> { const [row] = await this.database.db.insert(tables.broadcastAutomationRunItems).values({ runId, ordinal, outputMode, ctaMode, itemSnapshot: snapshot }).returning(); return toItem(row); }
   async addTraining(runId: string, itemId: string, trainingId: string, snapshot: unknown, sourceEventId?: string): Promise<void> { await this.database.db.insert(tables.broadcastAutomationRunItemTrainings).values({ runId, runItemId: itemId, trainingId, trainingSnapshot: snapshot, sourceEventId, outcome: "included" }).onConflictDoNothing(); }
   async claimDelivery(runId: string, itemId: string, recipient: AutomationRecipient, payload: unknown, automatic = true, retryOfDeliveryId?: string): Promise<BroadcastAutomationDelivery | undefined> { const [row] = await this.database.db.insert(tables.broadcastAutomationDeliveries).values({ runId, runItemId: itemId, clientId: recipient.clientId, telegramId: recipient.telegramId, requestedLanguage: recipient.language, resolvedLanguage: (payload as any).resolvedLanguage, payloadSnapshot: payload, isAutomatic: automatic, retryOfDeliveryId }).onConflictDoNothing().returning(); return row ? toDelivery(row) : undefined; }
   async finishDelivery(id: string, outcome: "sent" | "failed" | "ambiguous", diagnostic: string | null): Promise<void> { await this.database.db.update(tables.broadcastAutomationDeliveries).set({ outcome, diagnostic, attemptedAt: new Date(), completedAt: new Date() }).where(and(eq(tables.broadcastAutomationDeliveries.id, id), eq(tables.broadcastAutomationDeliveries.outcome, "claimed"))); }
+  async skipDelivery(id: string, reason: "disabled" | "training-ineligible" | "training-no-longer-in-window" | "audience-no-longer-eligible" | "mandatory-exclusion" | "cta-invalid" | "retry-not-eligible"): Promise<void> { await this.database.db.update(tables.broadcastAutomationDeliveries).set({ outcome: "skipped", skipReason: reason, completedAt: new Date() }).where(and(eq(tables.broadcastAutomationDeliveries.id, id), eq(tables.broadcastAutomationDeliveries.outcome, "claimed"))); }
   async listRuns(q: ListBroadcastAutomationRunsQuery): Promise<BroadcastAutomationRun[]> { const rows = await this.database.db.select().from(tables.broadcastAutomationRuns).where(q.automationId ? eq(tables.broadcastAutomationRuns.automationId, q.automationId) : undefined).orderBy(desc(tables.broadcastAutomationRuns.createdAt)).limit(q.limit + 1); return rows.map(toRun); }
   async detail(id: string): Promise<BroadcastAutomationRunDetail | undefined> { const [run] = await this.database.db.select().from(tables.broadcastAutomationRuns).where(eq(tables.broadcastAutomationRuns.id, id)); if (!run) return undefined; const [items, trainings, deliveries] = await Promise.all([this.database.db.select().from(tables.broadcastAutomationRunItems).where(eq(tables.broadcastAutomationRunItems.runId, id)), this.database.db.select().from(tables.broadcastAutomationRunItemTrainings).where(eq(tables.broadcastAutomationRunItemTrainings.runId, id)), this.database.db.select().from(tables.broadcastAutomationDeliveries).where(eq(tables.broadcastAutomationDeliveries.runId, id))]); return { run: toRun(run), items: items.map(toItem), trainings: trainings.map(toTraining), deliveries: deliveries.map(toDelivery) }; }
   async retrySource(runId: string, ids?: string[], ambiguous = false): Promise<BroadcastAutomationDelivery[]> { const where = [eq(tables.broadcastAutomationDeliveries.runId, runId), ids?.length ? inArray(tables.broadcastAutomationDeliveries.id, ids) : undefined, ambiguous ? inArray(tables.broadcastAutomationDeliveries.outcome, ["failed", "ambiguous"]) : eq(tables.broadcastAutomationDeliveries.outcome, "failed")].filter(Boolean); return (await this.database.db.select().from(tables.broadcastAutomationDeliveries).where(and(...where))).map(toDelivery); }
+  /** Atomically materializes only the administrator-selected historical attempts and their evidence. */
+  async createRetryRun(original: BroadcastAutomationRun, ids?: string[], includeAmbiguous = false): Promise<RetryRunPlan | undefined> {
+    return this.transaction(async (tx) => {
+      const conditions = [eq(tables.broadcastAutomationDeliveries.runId, original.id), ids?.length ? inArray(tables.broadcastAutomationDeliveries.id, ids) : undefined, includeAmbiguous ? inArray(tables.broadcastAutomationDeliveries.outcome, ["failed", "ambiguous"]) : eq(tables.broadcastAutomationDeliveries.outcome, "failed")].filter(Boolean);
+      const source = await tx.select().from(tables.broadcastAutomationDeliveries).where(and(...conditions));
+      if (!source.length) return undefined;
+      const sourceItems = await tx.select().from(tables.broadcastAutomationRunItems).where(inArray(tables.broadcastAutomationRunItems.id, source.map((delivery) => delivery.runItemId)));
+      const sourceTrainings = await tx.select().from(tables.broadcastAutomationRunItemTrainings).where(and(eq(tables.broadcastAutomationRunItemTrainings.runId, original.id), inArray(tables.broadcastAutomationRunItemTrainings.runItemId, sourceItems.map((item) => item.id))));
+      const [run] = await tx.insert(tables.broadcastAutomationRuns).values({ automationId: original.automationId, automationVersion: original.automationVersion, triggerKind: "manual-retry", sourceEventId: null, dueAt: new Date(), status: "processing", startedAt: new Date(), originalRunId: original.id, configSnapshot: original.configSnapshot }).returning();
+      const itemIds = new Map<string, string>();
+      for (const sourceItem of sourceItems) {
+        const [item] = await tx.insert(tables.broadcastAutomationRunItems).values({ runId: run.id, ordinal: sourceItem.ordinal, outputMode: sourceItem.outputMode, ctaMode: sourceItem.ctaMode, itemSnapshot: sourceItem.itemSnapshot }).returning();
+        itemIds.set(sourceItem.id, item.id);
+      }
+      for (const training of sourceTrainings) await tx.insert(tables.broadcastAutomationRunItemTrainings).values({ runId: run.id, runItemId: itemIds.get(training.runItemId)!, trainingId: training.trainingId, sourceEventId: training.sourceEventId, outcome: training.outcome, skipReason: training.skipReason, trainingSnapshot: training.trainingSnapshot });
+      const retries = [];
+      for (const delivery of source) {
+        const [retry] = await tx.insert(tables.broadcastAutomationDeliveries).values({ runId: run.id, runItemId: itemIds.get(delivery.runItemId)!, clientId: delivery.clientId, telegramId: delivery.telegramId, requestedLanguage: delivery.requestedLanguage, resolvedLanguage: delivery.resolvedLanguage, payloadSnapshot: delivery.payloadSnapshot, isAutomatic: false, retryOfDeliveryId: delivery.id }).returning();
+        retries.push(toDelivery(retry));
+      }
+      return { run: toRun(run), deliveries: retries };
+    });
+  }
   private async trainingIdForCancelledBooking(sourceEventId: string): Promise<string | undefined> {
     const bookingId = sourceEventId.startsWith("freed-place:") ? sourceEventId.slice("freed-place:".length) : undefined;
     if (!bookingId) return undefined;

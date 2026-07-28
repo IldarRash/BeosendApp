@@ -7,7 +7,8 @@ export const broadcastAutomationTriggerKind = z.enum([
   "scheduled",
   "training-created",
   "training-time-changed",
-  "freed-place"
+  "freed-place",
+  "manual-retry"
 ]);
 export type BroadcastAutomationTriggerKind = z.infer<typeof broadcastAutomationTriggerKind>;
 

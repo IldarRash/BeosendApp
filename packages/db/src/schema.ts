@@ -69,7 +69,8 @@ export const broadcastAutomationTriggerKind = pgEnum("broadcast_automation_trigg
   "scheduled",
   "training-created",
   "training-time-changed",
-  "freed-place"
+  "freed-place",
+  "manual-retry"
 ]);
 export const broadcastAutomationRunStatus = pgEnum("broadcast_automation_run_status", [
   "pending",
