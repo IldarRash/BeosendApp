@@ -39,11 +39,17 @@ export class BroadcastAutomationsService {
   private async deliver(run:any,now:Date):Promise<void>{
     const automation=await this.must(run.automationId);
     if(!automation.enabled){await this.repo.skipRun(run.id,"disabled");return;}
-    const config=run.configSnapshot, trigger=config.trigger, eventTraining=trigger.kind==="scheduled"?undefined:await this.repo.eventTraining(trigger.kind,run.sourceEventId ?? ""), trainings=trigger.kind==="scheduled"?await this.repo.qualifyingTrainings(trigger.trainingWindow,belgradeDate(now)):eventTraining?[eventTraining]:[];
+    const config=run.configSnapshot, trigger=config.trigger, eventResolution=trigger.kind==="scheduled"?undefined:await this.repo.eventTraining(trigger.kind,run.sourceEventId ?? ""), legacyEventTraining=legacyTraining(eventResolution)?eventResolution:undefined, eventTraining=legacyEventTraining ?? eventResolution?.training, trainings=trigger.kind==="scheduled"?await this.repo.qualifyingTrainings(trigger.trainingWindow,belgradeDate(now)):eventTraining?[eventTraining]:[];
+    const eventSkip = trigger.kind === "scheduled" ? undefined : legacyEventTraining ? legacyEventTraining.freeSeats <= 0 ? { snapshot: legacyEventTraining, skipReason: "training-full" as const } : undefined : eventResolution?.skipReason ? { snapshot: eventResolution.snapshot, skipReason: eventResolution.skipReason } : undefined;
+    if(eventSkip){
+      if(eventSkip.snapshot){ const evidence=this.render(config,[eventSkip.snapshot],config.message.defaultLanguage)[0]; const item=await this.repo.createItem(run.id,evidence.ordinal,config.message.outputMode,config.message.ctaMode,evidence.payload); await this.repo.addTraining(run.id,item.id,eventSkip.snapshot.trainingId,eventSkip.snapshot,run.sourceEventId ?? undefined,"skipped",eventSkip.skipReason); await this.repo.completeRun(run.id,{selectedTrainings:1,skippedTrainings:1},eventSkip.skipReason); }
+      else await this.repo.skipRun(run.id,eventSkip.skipReason);
+      return;
+    }
     if(!trainings.length){await this.repo.skipRun(run.id,"no-qualifying-trainings");return;}
     const recipients=await this.repo.audience(config.audience,now);
     if(!recipients.length){await this.repo.skipRun(run.id,"no-eligible-recipients");return;}
-    const covered=trigger.kind==="scheduled"&&config.message.outputMode==="digest"?await this.repo.eventCoveredTrainingIdsSince(run.automationId,new Date(run.scheduledFor ?? now),new Date(automation.createdAt),trainings.map((training:TrainingRow)=>training.trainingId)):new Set<string>();
+    const covered=trigger.kind==="scheduled"&&config.message.outputMode==="digest"?await this.repo.eventCoveredTrainingIdsSince(run.automationId,new Date(run.scheduledFor ?? now),new Date(automation.createdAt),trainings.map((training:TrainingRow)=>training.trainingId)):new Map<string,string>();
     const included=trainings.filter((training:TrainingRow)=>!covered.has(training.trainingId));
     const rendered=this.render(config,included,config.message.defaultLanguage);
     let attempted=0,sent=0,failed=0,ambiguous=0,skippedDeliveries=0;
@@ -62,7 +68,7 @@ export class BroadcastAutomationsService {
       const evidence=this.render(config,included.length?included:trainings,config.message.defaultLanguage)[0];
       const dbItem=await this.repo.createItem(run.id,evidence.ordinal,config.message.outputMode,config.message.ctaMode,evidence.payload);
       for(const training of included)await this.repo.addTraining(run.id,dbItem.id,training.trainingId,training);
-      for(const training of trainings.filter((candidate:TrainingRow)=>covered.has(candidate.trainingId)))await this.repo.addTraining(run.id,dbItem.id,training.trainingId,training,undefined,"skipped","training-covered-by-event");
+      for(const training of trainings.filter((candidate:TrainingRow)=>covered.has(candidate.trainingId)))await this.repo.addTraining(run.id,dbItem.id,training.trainingId,training,covered instanceof Map ? covered.get(training.trainingId) : undefined,"skipped","training-covered-by-event");
       if(included.length)await sendItem(dbItem.id,evidence.ordinal,included);
     }else for(const item of rendered){
       const itemTrainings=included.filter((training:TrainingRow)=>item.payload.trainingIds.includes(training.trainingId));
@@ -80,6 +86,7 @@ export class BroadcastAutomationsService {
   private admin(id:number){if(!isAdmin(this.env,id))throw new ForbiddenException("Admin privileges required");}
 }
 function keyboard(payload:{ctaMode:"none"|"booking";bookingTrainingId:string|null;resolvedLanguage:"ru"|"sr"|"en"},training:TrainingRow|undefined){return payload.ctaMode==="booking"&&training?bookSlotsKeyboard(payload.resolvedLanguage,[{trainingId:training.trainingId,startTime:training.startTime,levelName:training.levelName,groupName:training.groupName}]):undefined;}
+function legacyTraining(value: unknown): value is TrainingRow { return typeof value === "object" && value !== null && "trainingId" in value && "freeSeats" in value; }
 function renderBody(body:string,trainings:TrainingRow[]):string{const training=trainings[0];const values:Record<string,string>={freeSeats:String(training?.freeSeats ?? ""),date:training?.date ?? "",startTime:training?.startTime ?? "",endTime:training?.endTime ?? "",trainer:training?.trainerName ?? "",level:training?.levelName ?? "",price:training?`${training.priceSingleRsd} RSD`:"",groupName:training?.groupName ?? ""};return body.replace(/\{(freeSeats|date|startTime|endTime|trainer|level|price|groupName)\}/g,(_,key)=>values[key] ?? "");}
 function token(a:BroadcastAutomation){return Buffer.from(`${a.id}:${a.version}:${a.updatedAt}`).toString("base64url");}
 function belgradeDate(now:Date){return localParts(now).date;}
