@@ -3,8 +3,12 @@ import {
   broadcastAutomationAudienceSchema,
   broadcastAutomationMessageSchema,
   broadcastAutomationRenderedItemSchema,
+  broadcastAutomationRunDetailSchema,
   broadcastAutomationTriggerSchema,
+  broadcastAutomationTrainingSummarySchema,
+  broadcastAutomationPreviewSchema,
   enableBroadcastAutomationSchema,
+  listBroadcastAutomationsQuerySchema,
   retryBroadcastAutomationFailuresSchema,
   updateBroadcastAutomationSchema
 } from "./broadcast-automation-contracts";
@@ -81,5 +85,32 @@ describe("broadcast automation contracts", () => {
     expect(enableBroadcastAutomationSchema.safeParse({ expectedVersion: 2, previewToken: "short" }).success).toBe(false);
     expect(retryBroadcastAutomationFailuresSchema.safeParse({ includeAmbiguous: true }).success).toBe(false);
     expect(retryBroadcastAutomationFailuresSchema.safeParse({ includeAmbiguous: true, acknowledgeAmbiguous: true }).success).toBe(true);
+  });
+
+  it("keeps the actual single-training price in preview and durable run evidence", () => {
+    const training = {
+      trainingId: LEVEL, date: "2026-08-01", startTime: "09:30", endTime: "10:30",
+      groupName: "Morning", levelName: "Beginner", trainerName: "Ana", freeSeats: 3,
+      priceSingleRsd: 1800
+    };
+    expect(broadcastAutomationTrainingSummarySchema.parse(training)).toMatchObject({ priceSingleRsd: 1800 });
+    expect(broadcastAutomationPreviewSchema.parse({
+      automationId: LEVEL, version: 1, previewToken: "a".repeat(16), trainings: [training], renderedItems: [],
+      recipientCount: 0, selectedLanguages: [], fallbackLanguages: [], warnings: []
+    }).trainings[0]).toMatchObject({ priceSingleRsd: 1800 });
+    expect(broadcastAutomationRunDetailSchema.parse({
+      run: {
+        id: "22222222-2222-4222-8222-222222222222", automationId: LEVEL, automationVersion: 1,
+        triggerKind: "scheduled", sourceEventId: null, scheduledFor: null, dueAt: "2026-08-01T07:30:00.000Z",
+        status: "completed", skipReason: null, originalRunId: null,
+        configSnapshot: { name: "Morning", trigger: { kind: "scheduled", recurrence: "daily", time: "09:30", trainingWindow: "today" }, audience: { levelIds: [LEVEL], activity: "active" }, message: { bodies: { ru: "x" }, defaultLanguage: "ru", outputMode: "per-training", ctaMode: "none" } },
+        counts: { selectedTrainings: 1, includedTrainings: 1, skippedTrainings: 0, recipients: 0, attempted: 0, sent: 0, failed: 0, ambiguous: 0, skippedDeliveries: 0 },
+        createdAt: "2026-08-01T07:30:00.000Z", startedAt: null, completedAt: "2026-08-01T07:30:00.000Z"
+      }, items: [], trainings: [{ id: "33333333-3333-4333-8333-333333333333", runId: "22222222-2222-4222-8222-222222222222", runItemId: "44444444-4444-4444-8444-444444444444", trainingId: LEVEL, outcome: "included", skipReason: null, trainingSnapshot: training, createdAt: "2026-08-01T07:30:00.000Z" }], deliveries: []
+    }).trainings[0]?.trainingSnapshot).toMatchObject({ priceSingleRsd: 1800 });
+  });
+
+  it("parses an explicit enabled=false filter without coercing it away", () => {
+    expect(listBroadcastAutomationsQuerySchema.parse({ enabled: "false" })).toMatchObject({ enabled: false, limit: 25 });
   });
 });

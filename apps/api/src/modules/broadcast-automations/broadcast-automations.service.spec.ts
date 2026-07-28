@@ -1,9 +1,9 @@
-import { ConflictException, ForbiddenException } from "@nestjs/common";
+import { BadRequestException, ConflictException, ForbiddenException } from "@nestjs/common";
 import type { Env } from "@beosand/config";
-import type { BroadcastAutomation, BroadcastAutomationRun } from "@beosand/types";
+import type { BroadcastAutomation, BroadcastAutomationRun, ListBroadcastAutomationsQuery } from "@beosand/types";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { TelegramSender } from "../notifications/telegram-sender";
-import type { BroadcastAutomationsRepository } from "./broadcast-automations.repository";
+import type { AutomationRecipient, BroadcastAutomationsRepository } from "./broadcast-automations.repository";
 import { BroadcastAutomationsService } from "./broadcast-automations.service";
 
 const ADMIN = 99;
@@ -12,6 +12,7 @@ const RUN = "22222222-2222-4222-8222-222222222222";
 const DELIVERY = "33333333-3333-4333-8333-333333333333";
 const ITEM = "44444444-4444-4444-8444-444444444444";
 const now = new Date("2026-10-25T08:30:00.000Z");
+const recipient: AutomationRecipient = { clientId: DELIVERY, telegramId: 123, language: "ru" };
 
 const automation: BroadcastAutomation = {
   id: ID, name: "Morning", enabled: true, version: 1, createdBy: ADMIN, updatedBy: ADMIN,
@@ -30,16 +31,17 @@ const run: BroadcastAutomationRun = {
 
 function repo() {
   return {
-    list: vi.fn(async (): Promise<BroadcastAutomation[]> => [automation]),
+    list: vi.fn<(query: ListBroadcastAutomationsQuery) => Promise<BroadcastAutomation[]>>(async () => [automation]),
     find: vi.fn(async (): Promise<BroadcastAutomation> => automation),
     create: vi.fn(),
+    schedulerCursor: vi.fn(), recordSchedulerCursor: vi.fn(),
     listDue: vi.fn(async (): Promise<BroadcastAutomationRun[]> => []),
     createScheduledRun: vi.fn(), enqueueEvent: vi.fn(async (): Promise<BroadcastAutomationRun | undefined> => run),
     skipRun: vi.fn(), claimRun: vi.fn(), qualifyingTrainings: vi.fn(async () => []),
-    audience: vi.fn(async () => []), retrySource: vi.fn(async () => []), detail: vi.fn(), createRetryRun: vi.fn(),
+    audience: vi.fn<(audience: BroadcastAutomation["audience"], now: Date) => Promise<AutomationRecipient[]>>(async () => []), retrySource: vi.fn(async () => []), detail: vi.fn(), createRetryRun: vi.fn(),
     update: vi.fn(), claimDelivery: vi.fn(), createItem: vi.fn(), addTraining: vi.fn(), completeRun: vi.fn(), finishDelivery: vi.fn(), skipDelivery: vi.fn(),
     eventTraining: vi.fn(), eligibleTrainings: vi.fn(), recipientStillEligible: vi.fn(), hasFreedPlaceExclusion: vi.fn(),
-    eventCoveredTrainingIdsSince: vi.fn(async () => new Set<string>())
+    eventCoveredTrainingIdsSince: vi.fn(async () => new Map<string, string>())
   };
 }
 
@@ -63,6 +65,19 @@ describe("BroadcastAutomationsService", () => {
     expect(r.create).not.toHaveBeenCalled();
     expect(r.list).not.toHaveBeenCalled();
     expect(r.find).not.toHaveBeenCalled();
+  });
+
+  it.each([
+    ["invalid calendar date", { kind: "scheduled" as const, recurrence: "one-time" as const, date: "2026-02-30", time: "09:30", trainingWindow: "today" as const }],
+    ["past", { kind: "scheduled" as const, recurrence: "one-time" as const, date: "2026-10-24", time: "09:30", trainingWindow: "today" as const }],
+    ["DST spring gap", { kind: "scheduled" as const, recurrence: "one-time" as const, date: "2026-03-29", time: "02:30", trainingWindow: "today" as const }]
+  ])("rejects a %s one-time instant before create or update persists it", async (_label, trigger) => {
+    r.create.mockResolvedValue(automation);
+    r.update.mockResolvedValue(automation);
+    await expect(service.create(ADMIN, { ...automation, trigger })).rejects.toBeInstanceOf(BadRequestException);
+    await expect(service.update(ADMIN, ID, { expectedVersion: 1, trigger })).rejects.toBeInstanceOf(BadRequestException);
+    expect(r.create).not.toHaveBeenCalled();
+    expect(r.update).not.toHaveBeenCalled();
   });
 
   it("materializes a Belgrade daily occurrence once and skips missed work without catch-up", async () => {
@@ -95,6 +110,17 @@ describe("BroadcastAutomationsService", () => {
     expect(firstOccurrence).toEqual(new Date("2026-10-25T00:30:00.000Z"));
   });
 
+  it("audits the nonexistent Belgrade DST spring-gap occurrence as skipped rather than materializing it", async () => {
+    const gap = { ...automation, trigger: { kind: "scheduled" as const, recurrence: "daily" as const, time: "02:30", trainingWindow: "today" as const } };
+    r.list.mockResolvedValue([gap]);
+    r.schedulerCursor.mockResolvedValue(new Date("2026-03-29T00:00:00.000Z"));
+
+    await service.sweep(new Date("2026-03-29T03:30:00.000Z"));
+
+    expect(r.createScheduledRun).toHaveBeenCalledWith(gap, expect.any(Date), "skipped");
+    expect(r.createScheduledRun).not.toHaveBeenCalledWith(gap, expect.any(Date), "pending");
+  }, 10_000);
+
   it("creates at most one event run per matching enabled automation", async () => {
     r.list.mockResolvedValue([{ ...automation, trigger: { kind: "freed-place" } }]);
     r.enqueueEvent.mockResolvedValueOnce(run).mockResolvedValueOnce(undefined);
@@ -102,6 +128,25 @@ describe("BroadcastAutomationsService", () => {
     expect(r.enqueueEvent).toHaveBeenCalledWith(
       expect.objectContaining({ trigger: { kind: "freed-place" } }), "cancel:1"
     );
+  });
+
+  it("pages all enabled automations when enqueueing an event and sweeping schedules", async () => {
+    const all = Array.from({ length: 101 }, (_, index) => ({
+      ...automation,
+      id: `11111111-1111-4111-8111-${String(index + 1).padStart(12, "0")}`,
+      trigger: { kind: "freed-place" as const }
+    }));
+    r.list.mockImplementation(async (query: ListBroadcastAutomationsQuery) => query.cursor ? all.slice(100) : all.slice(0, query.limit));
+    r.enqueueEvent.mockResolvedValue(run);
+
+    await expect(service.enqueueEvent("freed-place", "cancel:all")).resolves.toBe(101);
+    expect(r.enqueueEvent).toHaveBeenCalledTimes(101);
+
+    const scheduled = all.map((row) => ({ ...row, trigger: { kind: "scheduled" as const, recurrence: "daily" as const, time: "09:30", trainingWindow: "today" as const } }));
+    r.list.mockImplementation(async (query: ListBroadcastAutomationsQuery) => query.cursor ? scheduled.slice(100) : scheduled.slice(0, query.limit));
+    r.schedulerCursor.mockResolvedValue(now);
+    await service.sweep(now);
+    expect(r.recordSchedulerCursor).toHaveBeenCalledTimes(101);
   });
 
   it("retries only explicitly selected failed deliveries, and links the retry to its source run", async () => {
@@ -176,7 +221,7 @@ describe("BroadcastAutomationsService", () => {
     r.listDue.mockResolvedValue([claimed]);
     r.claimRun.mockResolvedValue(claimed);
     r.qualifyingTrainings.mockResolvedValue([{ trainingId: ID, date: "2026-10-25", startTime: "18:00", endTime: "19:00", groupName: "Original", levelName: "L", trainerName: "T", freeSeats: 1 }] as never);
-    r.audience.mockResolvedValue([{ clientId: DELIVERY, telegramId: 123, language: "ru" }] as never);
+    r.audience.mockResolvedValue([recipient]);
     r.createItem.mockResolvedValue({ id: ITEM });
     r.claimDelivery.mockResolvedValue({ id: DELIVERY });
     const sender = (service as unknown as { sender: { sendMessageWithOutcome: ReturnType<typeof vi.fn> } }).sender;
@@ -196,7 +241,7 @@ describe("BroadcastAutomationsService", () => {
       { trainingId: ID, date: "2026-10-25", startTime: "18:00", endTime: "19:00", groupName: "One", levelName: "L", trainerName: "T", freeSeats: 1 },
       { trainingId: other, date: "2026-10-25", startTime: "19:00", endTime: "20:00", groupName: "Two", levelName: "L", trainerName: "T", freeSeats: 2 }
     ] as never);
-    r.audience.mockResolvedValue([{ clientId: DELIVERY, telegramId: 123, language: "ru" }] as never);
+    r.audience.mockResolvedValue([recipient]);
     r.createItem
       .mockResolvedValueOnce({ id: ITEM })
       .mockResolvedValueOnce({ id: "88888888-8888-4888-8888-888888888888" });
@@ -229,7 +274,7 @@ describe("BroadcastAutomationsService", () => {
     r.listDue.mockResolvedValue([freed]);
     r.claimRun.mockResolvedValue(freed);
     r.eventTraining.mockResolvedValue(training);
-    r.audience.mockResolvedValue([{ clientId: DELIVERY, telegramId: 123, language: "ru" }] as never);
+    r.audience.mockResolvedValue([recipient]);
     r.createItem.mockResolvedValue({ id: ITEM });
     r.claimDelivery.mockResolvedValue({ id: DELIVERY });
     r.hasFreedPlaceExclusion.mockResolvedValue(true);
@@ -240,6 +285,21 @@ describe("BroadcastAutomationsService", () => {
     expect(r.skipDelivery).toHaveBeenCalledWith(DELIVERY, "mandatory-exclusion");
     expect(sender.sendMessageWithOutcome).not.toHaveBeenCalled();
     expect(r.completeRun).toHaveBeenCalledWith(RUN, expect.objectContaining({ attempted: 0, skippedDeliveries: 1 }));
+  });
+
+  it("records the named event training as skipped when it becomes ineligible before delivery", async () => {
+    const eventRun = { ...run, sourceEventId: `training-created:${ID}`, configSnapshot: { ...run.configSnapshot, trigger: { kind: "training-created" as const } } };
+    r.listDue.mockResolvedValue([eventRun]);
+    r.claimRun.mockResolvedValue(eventRun);
+    const snapshot = { trainingId: ID, date: "2026-10-25", startTime: "18:00", endTime: "19:00", groupName: "Closed", levelName: "L", trainerName: "T", priceSingleRsd: 1800, freeSeats: 0 };
+    r.eventTraining.mockResolvedValue({ snapshot, skipReason: "training-full" });
+    r.createItem.mockResolvedValue({ id: ITEM });
+
+    await service.sweep(now);
+
+    expect(r.createItem).toHaveBeenCalledWith(RUN, 1, "per-training", "none", expect.objectContaining({ trainingIds: [ID] }));
+    expect(r.addTraining).toHaveBeenCalledWith(RUN, ITEM, ID, snapshot, `training-created:${ID}`, "skipped", "training-full");
+    expect(r.completeRun).toHaveBeenCalledWith(RUN, { selectedTrainings: 1, skippedTrainings: 1 }, "training-full");
   });
 
   it("omits event-covered trainings from a digest while retaining skipped evidence", async () => {
@@ -256,15 +316,15 @@ describe("BroadcastAutomationsService", () => {
     r.listDue.mockResolvedValue([digest]);
     r.claimRun.mockResolvedValue(digest);
     r.qualifyingTrainings.mockResolvedValue([first, covered] as never);
-    r.audience.mockResolvedValue([{ clientId: DELIVERY, telegramId: 123, language: "ru" }] as never);
-    r.eventCoveredTrainingIdsSince.mockResolvedValue(new Set([coveredId]));
+    r.audience.mockResolvedValue([recipient]);
+    r.eventCoveredTrainingIdsSince.mockResolvedValue(new Map([[coveredId, "training-created:source-1"]]));
     r.createItem.mockResolvedValue({ id: ITEM });
     r.claimDelivery.mockResolvedValue(undefined);
 
     await service.sweep(now);
 
     expect(r.addTraining).toHaveBeenNthCalledWith(1, RUN, ITEM, ID, first);
-    expect(r.addTraining).toHaveBeenNthCalledWith(2, RUN, ITEM, coveredId, covered, undefined, "skipped", "training-covered-by-event");
+    expect(r.addTraining).toHaveBeenNthCalledWith(2, RUN, ITEM, coveredId, covered, "training-created:source-1", "skipped", "training-covered-by-event");
     expect(r.completeRun).toHaveBeenCalledWith(RUN, expect.objectContaining({ includedTrainings: 1, skippedTrainings: 1 }));
   });
 });

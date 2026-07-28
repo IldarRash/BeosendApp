@@ -84,17 +84,18 @@ describe("BroadcastAutomationsRepository query invariants", () => {
 
   it("counts event coverage only from a durable sent delivery after the previous scheduled cutoff", async () => {
     const previous = new Date("2026-07-10T08:00:00.000Z");
-    const state = selectDb([[{ scheduledFor: previous }], [{ trainingId: "training-covered" }]]);
+    const state = selectDb([[{ scheduledFor: previous }], [{ trainingId: "training-covered", sourceEventId: "training-created:source-1" }]]);
     const covered = await repo(state.db).eventCoveredTrainingIdsSince(
       "automation-a", new Date("2026-07-10T12:00:00.000Z"), new Date("2026-07-01T00:00:00.000Z"),
       ["training-covered", "training-not-covered"]
     );
 
-    expect(covered).toEqual(new Set(["training-covered"]));
+    expect(covered).toEqual(new Map([["training-covered", "training-created:source-1"]]));
     const sql = render(state.where.at(-1));
     expect(sql).toContain('"broadcast_automation_deliveries"."outcome" =');
     expect(sql).toContain('"broadcast_automation_deliveries"."completed_at" is not null');
     expect(sql).toContain('"broadcast_automation_deliveries"."completed_at" >');
+    expect(sql).toContain('"broadcast_automation_deliveries"."completed_at" <=');
     expect(sql).toContain('"broadcast_automation_run_item_trainings"."source_event_id" is not null');
   });
 
@@ -170,9 +171,16 @@ describe("BroadcastAutomationsRepository retry and recovery safety", () => {
       };
       return builder;
     };
+    const aggregateRows = [
+      [{ id: "run-stale" }],
+      [{ selectedTrainings: "2", includedTrainings: "1", skippedTrainings: "1" }],
+      [{ recipients: "3", attempted: "3", sent: "1", failed: "0", ambiguous: "2", skippedDeliveries: "0" }]
+    ];
+    let aggregateSelect = 0;
     const tx = {
       select: () => {
-        const builder = { from: () => builder, where: () => builder, limit: async () => [{ id: "run-stale" }] };
+        const rows = aggregateRows[aggregateSelect++] ?? [];
+        const builder = { from: () => builder, where: () => builder, limit: async () => rows, then: <T>(resolve: (value: unknown[]) => T | PromiseLike<T>) => Promise.resolve(rows).then(resolve) };
         return builder;
       },
       update
@@ -189,6 +197,6 @@ describe("BroadcastAutomationsRepository retry and recovery safety", () => {
     await repo(db).recoverExpiredProcessing(now, new Date("2026-07-10T11:55:00.000Z"));
 
     expect(patches[0]).toMatchObject({ outcome: "ambiguous", diagnostic: expect.stringContaining("claim expired") });
-    expect(patches[1]).toMatchObject({ status: "completed", skipReason: "processing-lease-expired", completedAt: now });
+    expect(patches[1]).toMatchObject({ status: "completed", skipReason: "processing-lease-expired", completedAt: now, selectedTrainingsCount: 2, includedTrainingsCount: 1, skippedTrainingsCount: 1, recipientsCount: 3, attemptedCount: 3, sentCount: 1, failedCount: 0, ambiguousCount: 2, skippedDeliveriesCount: 0 });
   });
 });
