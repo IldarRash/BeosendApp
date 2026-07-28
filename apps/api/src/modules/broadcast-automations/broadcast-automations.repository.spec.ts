@@ -168,9 +168,65 @@ describe("BroadcastAutomationsRepository retry and recovery safety", () => {
     expect(state.inserted).toEqual([]);
   });
 
+  it("refuses to retry a failed ancestor when an ambiguous descendant makes the lineage unsafe", async () => {
+    const state = retryDb([
+      [delivery("delivery-original", "failed")],
+      [],
+      [{ id: "delivery-ambiguous" }]
+    ]);
+
+    await expect(repo(state.database.db).createRetryRun(runRow("run-original", now) as never)).resolves.toBeUndefined();
+
+    expect(state.locks).toHaveLength(1);
+    expect(state.inserted).toEqual([]);
+  });
+
+  it("allows an explicitly selected ambiguous source to be retried", async () => {
+    const state = retryDb([
+      [delivery("delivery-ambiguous", "ambiguous", { isAutomatic: false })],
+      [],
+      [],
+      [{ id: "item-old", ordinal: 1, outputMode: "per-training", ctaMode: "booking", itemSnapshot: {} }],
+      []
+    ]);
+
+    const result = await repo(state.database.db).createRetryRun(
+      runRow("run-ambiguous", now) as never,
+      ["delivery-ambiguous"],
+      true
+    );
+
+    expect(result?.deliveries).toHaveLength(1);
+    expect(state.inserted.at(-1)).toMatchObject({
+      retryOfDeliveryId: "delivery-ambiguous",
+      rootDeliveryId: root,
+      isAutomatic: false
+    });
+  });
+
+  it("creates at most one child when multiple selected failures share a retry root", async () => {
+    const state = retryDb([
+      [delivery("delivery-first", "failed"), delivery("delivery-second", "failed")],
+      [], [],
+      [], [],
+      [{ id: "item-old", ordinal: 1, outputMode: "per-training", ctaMode: "booking", itemSnapshot: {} }],
+      []
+    ]);
+
+    const result = await repo(state.database.db).createRetryRun(
+      runRow("run-original", now) as never,
+      ["delivery-first", "delivery-second"]
+    );
+
+    expect(state.locks).toHaveLength(2);
+    expect(result?.deliveries).toHaveLength(1);
+    expect(state.inserted.filter((row) => row.retryOfDeliveryId)).toHaveLength(1);
+  });
+
   it("allows a failed descendant to be explicitly retried and preserves its root delivery id", async () => {
     const state = retryDb([
       [delivery("delivery-child-failed", "failed", { isAutomatic: false, retryOfDeliveryId: "delivery-original" })],
+      [],
       [],
       [{ id: "item-old", ordinal: 1, outputMode: "per-training", ctaMode: "booking", itemSnapshot: {} }],
       []
