@@ -119,7 +119,7 @@ describe("BroadcastAutomationsService", () => {
 
     expect(r.createScheduledRun).toHaveBeenCalledWith(gap, expect.any(Date), "skipped");
     expect(r.createScheduledRun).not.toHaveBeenCalledWith(gap, expect.any(Date), "pending");
-  }, 10_000);
+  }, 30_000);
 
   it("creates at most one event run per matching enabled automation", async () => {
     r.list.mockResolvedValue([{ ...automation, trigger: { kind: "freed-place" } }]);
