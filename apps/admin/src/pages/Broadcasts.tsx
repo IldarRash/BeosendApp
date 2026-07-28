@@ -1,951 +1,146 @@
-import { useEffect, useMemo, useState, type FormEvent } from "react";
-import type {
-  BroadcastAudience,
-  BroadcastPreview,
-  BroadcastTemplate,
-  BroadcastTemplateVariable,
-  BroadcastType,
-  DayOfWeek,
-  SameDayFreedSlotAutomationSettings,
-  SlotCard
-} from "@beosand/types";
+import { useMemo, useState } from "react";
+import type { BroadcastAudience, BroadcastAutomation, BroadcastAutomationPreview, BroadcastType, Locale } from "@beosand/types";
 import { AppShell } from "../ui/AppShell";
 import { Button } from "../ui/Button";
 import { DataTable, type Column } from "../ui/DataTable";
-import { SelectField, NumberField, TextField } from "../ui/Field";
-import { StatCard } from "../ui/StatCard";
-import { useToast } from "../ui/Toast";
+import { DayOfWeekPicker } from "../ui/DayOfWeekPicker";
+import { SelectField, TextAreaField, TextField, TimeField } from "../ui/Field";
+import { Modal } from "../ui/Modal";
 import { useT } from "../i18n/LanguageProvider";
 import { useLevels } from "../hooks/useLevels";
-import {
-  useBroadcastPreview,
-  useBroadcastTemplateVariables,
-  useBroadcastTemplates,
-  useCreateBroadcastTemplate,
-  useSameDayFreedSlotAutomationSettings,
-  useSendBroadcast,
-  useUpdateSameDayFreedSlotAutomationSettings,
-  useUpdateBroadcastTemplate
-} from "../hooks/useBroadcasts";
-import { formatRsd } from "../lib/format";
+import { useAutomationActions, useBroadcastAutomationRun, useBroadcastAutomationRuns, useBroadcastAutomations } from "../hooks/useBroadcastAutomations";
+import { useBroadcastPreview, useBroadcastTemplates, useSendBroadcast } from "../hooks/useBroadcasts";
 
-const DEFAULT_TEMPLATE_ID = "__default__";
-const NEW_TEMPLATE_ID = "__new__";
+type Draft = Pick<BroadcastAutomation, "name" | "trigger" | "audience" | "message">;
+const LOCALES: Locale[] = ["ru", "sr", "en"];
 
-/** Catalog key for a broadcast type. The server owns the composed message text. */
-const TYPE_KEY: Record<BroadcastType, string> = {
-  today: "admin.broadcasts.typeToday",
-  tomorrow: "admin.broadcasts.typeTomorrow",
-  week: "admin.broadcasts.typeWeek",
-  "freed-up": "admin.broadcasts.typeFreedUp"
-};
-
-/** The audience selector kinds, kept separate from the API union so the screen can
- * hold a partial selection (e.g. "level" chosen before a level is picked). */
-type AudienceKind = BroadcastAudience["kind"];
-
-const AUDIENCE_KEY: Record<AudienceKind, string> = {
-  all: "admin.broadcasts.audAll",
-  level: "admin.broadcasts.audLevel",
-  active: "admin.broadcasts.audActive",
-  lapsed: "admin.broadcasts.audLapsed"
-};
-
-interface TemplateFormState {
-  name: string;
-  bodyTemplate: string;
-  slotLineTemplate: string;
-  emptyBodyTemplate: string;
+function initialDraft(): Draft {
+  return { name: "", trigger: { kind: "scheduled", recurrence: "daily", time: "10:00", trainingWindow: "tomorrow" }, audience: { levelIds: [], activity: "active" }, message: { bodies: { ru: "" }, defaultLanguage: "ru", outputMode: "per-training", ctaMode: "none" } };
 }
 
-const EMPTY_TEMPLATE_FORM: TemplateFormState = {
-  name: "",
-  bodyTemplate: "",
-  slotLineTemplate: "",
-  emptyBodyTemplate: ""
-};
-
-/**
- * Build the API audience union from the picker selection. Returns `null` while the
- * selection is incomplete (a "level"/"active"/"lapsed" kind without its extra
- * value) so the preview stays gated until a valid segment exists. The browser does
- * no segmentation math - it only assembles the chosen segment descriptor.
- */
-function buildAudience(
-  kind: AudienceKind | "",
-  levelId: string,
-  days: number | null
-): BroadcastAudience | null {
-  switch (kind) {
-    case "all":
-      return { kind: "all" };
-    case "level":
-      return levelId ? { kind: "level", levelId } : null;
-    case "active":
-      return days !== null ? { kind: "active", days } : null;
-    case "lapsed":
-      return days !== null ? { kind: "lapsed", days } : null;
-    default:
-      return null;
-  }
-}
-
-interface AudienceFieldsProps {
-  idPrefix: string;
-  kind: AudienceKind | "";
-  levelId: string;
-  days: number | null;
-  levelOptions: Array<{ value: string; label: string }>;
-  levelsLoading: boolean;
-  levelsError: string | null;
-  disabled?: boolean;
-  allowUnconfigured?: boolean;
-  onKindChange: (kind: AudienceKind | "") => void;
-  onLevelIdChange: (levelId: string) => void;
-  onDaysChange: (days: number | null) => void;
-}
-
-/** Shared audience descriptor controls; API-side recipient resolution remains authoritative. */
-function AudienceFields({
-  idPrefix,
-  kind,
-  levelId,
-  days,
-  levelOptions,
-  levelsLoading,
-  levelsError,
-  disabled = false,
-  allowUnconfigured = false,
-  onKindChange,
-  onLevelIdChange,
-  onDaysChange
-}: AudienceFieldsProps): JSX.Element {
-  const t = useT();
-  const audienceOptions = useMemo(
-    () => [
-      ...(allowUnconfigured
-        ? [{ value: "", label: t("admin.broadcasts.automationAudiencePlaceholder") }]
-        : []),
-      ...(Object.keys(AUDIENCE_KEY) as AudienceKind[]).map((value) => ({
-        value,
-        label: t(AUDIENCE_KEY[value])
-      }))
-    ],
-    [allowUnconfigured, t]
-  );
-  const detailId = `${idPrefix}-audience-detail`;
-
-  return (
-    <>
-      <SelectField
-        label={t("admin.broadcasts.fieldAudience")}
-        value={kind}
-        disabled={disabled}
-        onChange={(event) => onKindChange(event.target.value as AudienceKind | "")}
-        options={audienceOptions}
-        aria-controls={detailId}
-      />
-
-      <div id={detailId}>
-        {kind === "level" ? (
-          levelsLoading ? (
-            <p className="state state--loading">{t("admin.broadcasts.levelsLoading")}</p>
-          ) : levelsError ? (
-            <p className="state state--error" role="alert">
-              {t("admin.broadcasts.levelsError", { message: levelsError })}
-            </p>
-          ) : (
-            <SelectField
-              label={t("admin.broadcasts.fieldLevel")}
-              value={levelId}
-              disabled={disabled}
-              onChange={(event) => onLevelIdChange(event.target.value)}
-              options={[{ value: "", label: t("admin.broadcasts.pickLevel") }, ...levelOptions]}
-              hint={t("admin.broadcasts.levelHint")}
-            />
-          )
-        ) : null}
-
-        {kind === "active" || kind === "lapsed" ? (
-          <NumberField
-            label={t("admin.broadcasts.fieldDays")}
-            value={days}
-            disabled={disabled}
-            onValueChange={onDaysChange}
-            min={1}
-            max={365}
-            hint={
-              kind === "active"
-                ? t("admin.broadcasts.daysActiveHint")
-                : t("admin.broadcasts.daysLapsedHint")
-            }
-          />
-        ) : null}
-      </div>
-    </>
-  );
-}
-
-interface AutomationDraft {
-  enabled: boolean;
-  kind: AudienceKind | "";
-  levelId: string;
-  days: number | null;
-}
-
-const EMPTY_AUTOMATION_DRAFT: AutomationDraft = {
-  enabled: false,
-  kind: "",
-  levelId: "",
-  days: 7
-};
-
-function draftFromSettings(settings: SameDayFreedSlotAutomationSettings): AutomationDraft {
-  const audience = settings.audience;
-  if (audience === null) return { ...EMPTY_AUTOMATION_DRAFT, enabled: settings.enabled };
-  if (audience.kind === "level") {
-    return { enabled: settings.enabled, kind: audience.kind, levelId: audience.levelId, days: 7 };
-  }
-  if (audience.kind === "active" || audience.kind === "lapsed") {
-    return { enabled: settings.enabled, kind: audience.kind, levelId: "", days: audience.days };
-  }
-  return { enabled: settings.enabled, kind: "all", levelId: "", days: 7 };
-}
-
-interface AutomationWorkspaceProps {
-  levelOptions: Array<{ value: string; label: string }>;
-  levelsLoading: boolean;
-  levelsError: string | null;
-}
-
-function AutomationWorkspace({
-  levelOptions,
-  levelsLoading,
-  levelsError
-}: AutomationWorkspaceProps): JSX.Element {
-  const t = useT();
-  const toast = useToast();
-  const settings = useSameDayFreedSlotAutomationSettings();
-  const update = useUpdateSameDayFreedSlotAutomationSettings();
-  const [draft, setDraft] = useState<AutomationDraft>(EMPTY_AUTOMATION_DRAFT);
-  const draftAudience = useMemo(
-    () => buildAudience(draft.kind, draft.levelId, draft.days),
-    [draft.days, draft.kind, draft.levelId]
-  );
-
-  useEffect(() => {
-    if (settings.data) setDraft(draftFromSettings(settings.data));
-  }, [settings.data]);
-
-  const dirty =
-    settings.data !== undefined &&
-    (settings.data.enabled !== draft.enabled ||
-      JSON.stringify(settings.data.audience) !== JSON.stringify(draftAudience));
-  const incomplete = draft.enabled && draftAudience === null;
-
-  function changeDraft(patch: Partial<AutomationDraft>): void {
-    update.reset();
-    setDraft((current) => ({ ...current, ...patch }));
-  }
-
-  function handleSubmit(event: FormEvent<HTMLFormElement>): void {
-    event.preventDefault();
-    if (incomplete) return;
-    update.mutate(
-      { enabled: draft.enabled, audience: draftAudience },
-      {
-        onSuccess: (persisted) => {
-          setDraft(draftFromSettings(persisted));
-          toast.notify(t("admin.broadcasts.automationSaved"), "success");
-        },
-        onError: (error) =>
-          toast.notify(t("admin.broadcasts.automationSaveFailed", { message: error.message }), "error")
-      }
-    );
-  }
-
-  const statusEnabled = settings.data?.enabled === true;
-
-  return (
-    <section className="workspace" aria-labelledby="freed-slot-automation-title">
-      <div className="workspace__bar cluster">
-        <div>
-          <h2 id="freed-slot-automation-title">{t("admin.broadcasts.automationTitle")}</h2>
-          <p className="field__hint">{t("admin.broadcasts.automationLead")}</p>
-        </div>
-        <span className={statusEnabled ? "tag tag--ok" : "tag tag--muted"} aria-live="polite">
-          <span className="dot" aria-hidden="true" />
-          {settings.data === undefined
-            ? t("admin.broadcasts.automationStatusUnavailable")
-            : statusEnabled
-              ? t("admin.broadcasts.automationStatusEnabled")
-              : t("admin.broadcasts.automationStatusDisabled")}
-        </span>
-      </div>
-
-      <div className="workspace__body">
-        {settings.isLoading ? (
-          <p className="state state--loading">{t("admin.broadcasts.automationLoading")}</p>
-        ) : settings.isError || settings.data === undefined ? (
-          <div className="stack">
-            <p className="state state--error" role="alert">
-              {t("admin.broadcasts.automationLoadFailed", {
-                message: settings.error?.message ?? ""
-              })}
-            </p>
-            <div>
-              <Button variant="ghost" className="btn--compact" onClick={() => void settings.refetch()}>
-                {t("admin.broadcasts.automationRetry")}
-              </Button>
-            </div>
-          </div>
-        ) : (
-          <form className="form" aria-busy={update.isPending} onSubmit={handleSubmit}>
-            <label className="cluster" htmlFor="freed-slot-automation-enabled">
-              <input
-                id="freed-slot-automation-enabled"
-                type="checkbox"
-                checked={draft.enabled}
-                disabled={update.isPending}
-                aria-describedby="freed-slot-automation-safety freed-slot-automation-separation"
-                onChange={(event) => changeDraft({ enabled: event.currentTarget.checked })}
-              />
-              <span className="field__label">{t("admin.broadcasts.automationEnable")}</span>
-            </label>
-
-            <AudienceFields
-              idPrefix="freed-slot-automation"
-              kind={draft.kind}
-              levelId={draft.levelId}
-              days={draft.days}
-              levelOptions={levelOptions}
-              levelsLoading={levelsLoading}
-              levelsError={levelsError}
-              disabled={update.isPending}
-              allowUnconfigured
-              onKindChange={(kind) => changeDraft({ kind })}
-              onLevelIdChange={(levelId) => changeDraft({ levelId })}
-              onDaysChange={(days) => changeDraft({ days })}
-            />
-
-            {draft.kind === "" ? (
-              <p className="field__hint">{t("admin.broadcasts.automationAudienceUnconfigured")}</p>
-            ) : null}
-            <p id="freed-slot-automation-safety" className="field__hint">
-              {t("admin.broadcasts.automationSafety")}
-            </p>
-            <p id="freed-slot-automation-separation" className="field__hint">
-              {t("admin.broadcasts.automationSeparation")}
-            </p>
-
-            {incomplete ? (
-              <p className="state state--error" role="alert">
-                {t("admin.broadcasts.automationIncomplete")}
-              </p>
-            ) : null}
-            {update.isError ? (
-              <p className="state state--error" role="alert">
-                {t("admin.broadcasts.automationSaveFailed", { message: update.error.message })}
-              </p>
-            ) : null}
-
-            <div className="cluster" aria-live="polite">
-              <Button type="submit" disabled={!dirty || incomplete || update.isPending}>
-                {update.isPending
-                  ? t("admin.broadcasts.automationSaving")
-                  : t("admin.broadcasts.automationSave")}
-              </Button>
-              {update.isSuccess && !dirty ? (
-                <span className="state">{t("admin.broadcasts.automationSaved")}</span>
-              ) : null}
-            </div>
-          </form>
-        )}
-      </div>
-    </section>
-  );
-}
-
-function formFromTemplate(template: BroadcastTemplate): TemplateFormState {
-  return {
-    name: template.name,
-    bodyTemplate: template.bodyTemplate,
-    slotLineTemplate: template.slotLineTemplate,
-    emptyBodyTemplate: template.emptyBodyTemplate
-  };
-}
-
-function trimmedTemplateForm(form: TemplateFormState): TemplateFormState {
-  return {
-    name: form.name.trim(),
-    bodyTemplate: form.bodyTemplate.trim(),
-    slotLineTemplate: form.slotLineTemplate.trim(),
-    emptyBodyTemplate: form.emptyBodyTemplate.trim()
-  };
-}
-
-/**
- * M4 - Broadcasts: compose a free-slot broadcast, preview the API-decided recipient
- * count and composed message, then send. The preview always renders before the
- * send action; recipient counts and message text come only from the API.
- */
 export function Broadcasts(): JSX.Element {
   const t = useT();
-  const toast = useToast();
   const levels = useLevels();
-  const [type, setType] = useState<BroadcastType>("today");
-  const [audienceKind, setAudienceKind] = useState<AudienceKind>("all");
-  const [levelId, setLevelId] = useState("");
-  const [days, setDays] = useState<number | null>(7);
-  const [selectedTemplateId, setSelectedTemplateId] = useState(DEFAULT_TEMPLATE_ID);
-  const [templateForm, setTemplateForm] = useState<TemplateFormState>(EMPTY_TEMPLATE_FORM);
+  const automations = useBroadcastAutomations();
+  const runs = useBroadcastAutomationRuns();
+  const actions = useAutomationActions();
+  const [selected, setSelected] = useState<BroadcastAutomation | null>(null);
+  const [draft, setDraft] = useState<Draft>(initialDraft);
+  const [preview, setPreview] = useState<BroadcastAutomationPreview | null>(null);
+  const [runId, setRunId] = useState<string | null>(null);
+  const [ambiguous, setAmbiguous] = useState(false);
+  const selectedRun = useBroadcastAutomationRun(runId);
+  const levelOptions = useMemo(() => levels.data ?? [], [levels.data]);
+  const valid = draft.name.trim() !== "" && draft.audience.levelIds.length > 0 && Boolean(draft.message.bodies[draft.message.defaultLanguage]);
 
-  const templates = useBroadcastTemplates(type);
-  const variables = useBroadcastTemplateVariables(type);
-  const createTemplate = useCreateBroadcastTemplate();
-  const updateTemplate = useUpdateBroadcastTemplate();
+  const edit = (automation: BroadcastAutomation) => { setSelected(automation); setDraft({ name: automation.name, trigger: automation.trigger, audience: automation.audience, message: automation.message }); setPreview(null); };
+  const newAutomation = () => { setSelected(null); setDraft(initialDraft()); setPreview(null); };
+  const save = async () => {
+    if (!valid) return;
+    const saved = selected
+      ? await actions.update.mutateAsync({ id: selected.id, input: { ...draft, expectedVersion: selected.version } })
+      : await actions.create.mutateAsync(draft);
+    setSelected(saved); setDraft({ name: saved.name, trigger: saved.trigger, audience: saved.audience, message: saved.message }); setPreview(null);
+  };
+  const requestPreview = async () => { if (selected) setPreview(await actions.preview.mutateAsync({ id: selected.id, version: selected.version })); };
+  const enable = async () => { if (selected && preview) { const next = await actions.enable.mutateAsync({ id: selected.id, input: { expectedVersion: selected.version, previewToken: preview.previewToken } }); setSelected(next); } };
 
-  const selectedTemplate = useMemo(
-    () => templates.data?.find((template) => template.id === selectedTemplateId),
-    [selectedTemplateId, templates.data]
-  );
-  const selectedTemplateIdForApi =
-    selectedTemplateId !== DEFAULT_TEMPLATE_ID && selectedTemplateId !== NEW_TEMPLATE_ID
-      ? selectedTemplateId
-      : null;
-
-  useEffect(() => {
-    if (selectedTemplate) {
-      setTemplateForm(formFromTemplate(selectedTemplate));
-      return;
-    }
-    if (selectedTemplateId === NEW_TEMPLATE_ID) {
-      setTemplateForm(EMPTY_TEMPLATE_FORM);
-    }
-  }, [selectedTemplate, selectedTemplateId]);
-
-  const audience = useMemo(
-    () => buildAudience(audienceKind, levelId, days),
-    [audienceKind, levelId, days]
-  );
-
-  const preview = useBroadcastPreview(type, audience, selectedTemplateIdForApi);
-  const send = useSendBroadcast();
-
-  const hasPreview = audience !== null && preview.data !== undefined;
-
-  const typeOptions = useMemo(
-    () =>
-      (Object.keys(TYPE_KEY) as BroadcastType[]).map((value) => ({
-        value,
-        label: t(TYPE_KEY[value])
-      })),
-    [t]
-  );
-  function handleTypeChange(nextType: BroadcastType): void {
-    setType(nextType);
-    setSelectedTemplateId(DEFAULT_TEMPLATE_ID);
-    setTemplateForm(EMPTY_TEMPLATE_FORM);
-  }
-
-  function handleTemplateSave(): void {
-    const input = { ...trimmedTemplateForm(templateForm), broadcastType: type };
-    if (selectedTemplateIdForApi) {
-      updateTemplate.mutate(
-        {
-          id: selectedTemplateIdForApi,
-          input: {
-            name: input.name,
-            bodyTemplate: input.bodyTemplate,
-            slotLineTemplate: input.slotLineTemplate,
-            emptyBodyTemplate: input.emptyBodyTemplate
-          }
-        },
-        {
-          onSuccess: (template) => {
-            setTemplateForm(formFromTemplate(template));
-            toast.notify(t("admin.broadcasts.templateSaved"), "success");
-          },
-          onError: (error) =>
-            toast.notify(t("admin.broadcasts.templateSaveFailed", { message: error.message }), "error")
-        }
-      );
-      return;
-    }
-    createTemplate.mutate(input, {
-      onSuccess: (template) => {
-        setSelectedTemplateId(template.id);
-        setTemplateForm(formFromTemplate(template));
-        toast.notify(t("admin.broadcasts.templateCreated"), "success");
-      },
-      onError: (error) =>
-        toast.notify(t("admin.broadcasts.templateSaveFailed", { message: error.message }), "error")
-    });
-  }
-
-  function handleTemplateArchive(): void {
-    if (!selectedTemplateIdForApi) return;
-    updateTemplate.mutate(
-      { id: selectedTemplateIdForApi, input: { status: "inactive" } },
-      {
-        onSuccess: () => {
-          setSelectedTemplateId(DEFAULT_TEMPLATE_ID);
-          setTemplateForm(EMPTY_TEMPLATE_FORM);
-          toast.notify(t("admin.broadcasts.templateArchived"), "success");
-        },
-        onError: (error) =>
-          toast.notify(t("admin.broadcasts.templateSaveFailed", { message: error.message }), "error")
-      }
-    );
-  }
-
-  function handleSend(): void {
-    if (audience === null) {
-      toast.notify(t("admin.broadcasts.completeAudience"), "error");
-      return;
-    }
-    const previewToken = preview.data?.previewToken;
-    if (selectedTemplateIdForApi && !previewToken) {
-      toast.notify(t("admin.broadcasts.previewTokenMissing"), "error");
-      return;
-    }
-    send.mutate(
-      {
-        type,
-        audience,
-        ...(selectedTemplateIdForApi
-          ? { templateId: selectedTemplateIdForApi, previewToken }
-          : {})
-      },
-      {
-        onSuccess: (broadcast) => {
-          toast.notify(
-            t("admin.broadcasts.sent", {
-              count: broadcast.recipientsCount.toLocaleString("ru-RU")
-            }),
-            "success"
-          );
-        },
-        onError: (error) => {
-          toast.notify(t("admin.broadcasts.sendFailed", { message: error.message }), "error");
-        }
-      }
-    );
-  }
-
-  const levelOptions = useMemo(
-    () => (levels.data ?? []).map((level) => ({ value: level.id, label: level.name })),
-    [levels.data]
-  );
-
-  return (
-    <AppShell>
-      <header className="page-head">
-        <div>
-          <h1>{t("admin.broadcasts.title")}</h1>
-          <p>{t("admin.broadcasts.lead")}</p>
-        </div>
-      </header>
-
-      <AutomationWorkspace
-        levelOptions={levelOptions}
-        levelsLoading={levels.isLoading}
-        levelsError={levels.isError ? levels.error.message : null}
-      />
-
-      <section className="workspace" aria-label={t("admin.broadcasts.paramsLabel")}>
-        <div className="workspace__bar">
-          <form className="form" aria-label={t("admin.broadcasts.paramsLabel")}>
-            <SelectField
-              label={t("admin.broadcasts.fieldType")}
-              value={type}
-              onChange={(event) => handleTypeChange(event.target.value as BroadcastType)}
-              options={typeOptions}
-              hint={t("admin.broadcasts.typeHint")}
-            />
-
-            <AudienceFields
-              idPrefix="manual-broadcast"
-              kind={audienceKind}
-              levelId={levelId}
-              days={days}
-              levelOptions={levelOptions}
-              levelsLoading={levels.isLoading}
-              levelsError={levels.isError ? levels.error.message : null}
-              onKindChange={(kind) => setAudienceKind(kind as AudienceKind)}
-              onLevelIdChange={setLevelId}
-              onDaysChange={setDays}
-            />
-          </form>
-        </div>
-
-        <div className="workspace__body stack">
-          <BroadcastTemplatePanel
-            templates={templates.data ?? []}
-            templatesLoading={templates.isLoading}
-            templatesError={templates.isError ? templates.error.message : null}
-            variables={variables.data ?? preview.data?.templateVariables ?? []}
-            variablesLoading={variables.isLoading}
-            variablesError={variables.isError ? variables.error.message : null}
-            selectedTemplateId={selectedTemplateId}
-            selectedTemplate={selectedTemplate}
-            form={templateForm}
-            isSaving={createTemplate.isPending || updateTemplate.isPending}
-            onSelectedTemplateIdChange={setSelectedTemplateId}
-            onFormChange={setTemplateForm}
-            onSave={handleTemplateSave}
-            onArchive={handleTemplateArchive}
-          />
-
-          <BroadcastPreviewPanel
-            isLoading={preview.isLoading || preview.isFetching}
-            isError={preview.isError}
-            errorMessage={preview.error?.message}
-            incompleteAudience={audience === null}
-            preview={preview.data}
-          />
-
-          <div className="cluster">
-            <Button
-              variant="primary"
-              onClick={handleSend}
-              disabled={audience === null || !hasPreview || preview.isFetching || send.isPending}
-              aria-disabled={audience === null || !hasPreview || preview.isFetching || send.isPending}
-            >
-              {send.isPending ? t("admin.broadcasts.sending") : t("admin.broadcasts.send")}
-            </Button>
-            {!hasPreview ? (
-              <span className="field__hint">{t("admin.broadcasts.previewFirst")}</span>
-            ) : null}
-          </div>
-        </div>
-      </section>
-    </AppShell>
-  );
-}
-
-interface BroadcastTemplatePanelProps {
-  templates: BroadcastTemplate[];
-  templatesLoading: boolean;
-  templatesError: string | null;
-  variables: BroadcastTemplateVariable[];
-  variablesLoading: boolean;
-  variablesError: string | null;
-  selectedTemplateId: string;
-  selectedTemplate?: BroadcastTemplate;
-  form: TemplateFormState;
-  isSaving: boolean;
-  onSelectedTemplateIdChange: (value: string) => void;
-  onFormChange: (value: TemplateFormState) => void;
-  onSave: () => void;
-  onArchive: () => void;
-}
-
-function BroadcastTemplatePanel({
-  templates,
-  templatesLoading,
-  templatesError,
-  variables,
-  variablesLoading,
-  variablesError,
-  selectedTemplateId,
-  selectedTemplate,
-  form,
-  isSaving,
-  onSelectedTemplateIdChange,
-  onFormChange,
-  onSave,
-  onArchive
-}: BroadcastTemplatePanelProps): JSX.Element {
-  const t = useT();
-  const isEditing = selectedTemplateId !== DEFAULT_TEMPLATE_ID;
-  const templateOptions = [
-    { value: DEFAULT_TEMPLATE_ID, label: t("admin.broadcasts.templateDefault") },
-    ...templates.map((template) => ({
-      value: template.id,
-      label: t("admin.broadcasts.templateOption", {
-        name: template.name,
-        version: template.version
-      })
-    })),
-    { value: NEW_TEMPLATE_ID, label: t("admin.broadcasts.templateNew") }
-  ];
-
-  return (
-    <article className="card" aria-label={t("admin.broadcasts.templatePanelLabel")}>
-      <div className="tpl-card__head">
-        <div className="tpl-card__heading">
-          <h2 className="tpl-card__title">{t("admin.broadcasts.templateTitle")}</h2>
-          <span className="tpl-card__key">
-            {selectedTemplate
-              ? t("admin.broadcasts.templateVersion", { version: selectedTemplate.version })
-              : t("admin.broadcasts.templateDefaultHint")}
-          </span>
-        </div>
+  return <AppShell>
+    <header className="page-head"><div><h1>{t("admin.broadcasts.builderTitle")}</h1><p>{t("admin.broadcasts.builderLead")}</p></div><Button variant="primary" onClick={newAutomation}>{t("admin.broadcasts.newAutomation")}</Button></header>
+    <section className="workspace broadcast-builder" aria-label={t("admin.broadcasts.automationList")}>
+      <div className="workspace__bar"><h2>{t("admin.broadcasts.automationList")}</h2></div>
+      {automations.isLoading ? <p className="state state--loading">{t("admin.broadcasts.loading")}</p> : automations.isError ? <p className="state state--error" role="alert">{t("admin.broadcasts.loadFailed", { message: automations.error.message })}</p> : <AutomationTable items={automations.data?.items ?? []} onEdit={edit} onToggle={(a) => a.enabled ? actions.disable.mutate({ id: a.id, version: a.version }) : edit(a)} />}
+    </section>
+    <section className="workspace broadcast-builder" aria-label={t("admin.broadcasts.editorTitle")}>
+      <div className="workspace__bar"><div><h2>{t("admin.broadcasts.editorTitle")}</h2><p>{selected ? t("admin.broadcasts.version", { version: selected.version }) : t("admin.broadcasts.newDisabled")}</p></div></div>
+      <div className="workspace__body broadcast-builder__grid"><AutomationEditor draft={draft} levels={levelOptions} levelsLoading={levels.isLoading} onChange={(next) => { setDraft(next); setPreview(null); }} />
+        <aside className="stack" aria-label={t("admin.broadcasts.previewTitle")}>
+          <div className="cluster"><Button variant="primary" onClick={() => void save()} disabled={!valid || actions.create.isPending || actions.update.isPending}>{t("admin.broadcasts.saveDraft")}</Button><Button variant="ghost" onClick={() => void requestPreview()} disabled={!selected || actions.preview.isPending}>{t("admin.broadcasts.preview")}</Button>{selected?.enabled ? <Button variant="ghost" onClick={() => actions.disable.mutate({ id: selected.id, version: selected.version })}>{t("admin.broadcasts.disable")}</Button> : <Button variant="primary" onClick={() => void enable()} disabled={!preview || preview.version !== selected?.version}>{t("admin.broadcasts.enable")}</Button>}</div>
+          {actions.update.isError || actions.create.isError || actions.enable.isError ? <p className="state state--error" role="alert">{t("admin.broadcasts.saveFailed", { message: (actions.update.error ?? actions.create.error ?? actions.enable.error)?.message ?? "" })}</p> : null}
+          <Preview preview={preview} loading={actions.preview.isPending} />
+        </aside>
       </div>
-
-      <SelectField
-        label={t("admin.broadcasts.templateField")}
-        value={selectedTemplateId}
-        onChange={(event) => onSelectedTemplateIdChange(event.target.value)}
-        options={templateOptions}
-        hint={templatesLoading ? t("admin.broadcasts.templatesLoading") : undefined}
-      />
-
-      {templatesError ? (
-        <p className="state state--error" role="alert">
-          {t("admin.broadcasts.templatesError", { message: templatesError })}
-        </p>
-      ) : null}
-
-      <VariableChips
-        variables={variables}
-        isLoading={variablesLoading}
-        errorMessage={variablesError}
-      />
-
-      {isEditing ? (
-        <form
-          className="form"
-          aria-label={t("admin.broadcasts.templateEditorLabel")}
-          onSubmit={(event) => {
-            event.preventDefault();
-            onSave();
-          }}
-        >
-          <TextField
-            label={t("admin.broadcasts.templateName")}
-            value={form.name}
-            onChange={(event) => onFormChange({ ...form, name: event.target.value })}
-            hint={t("admin.broadcasts.templateNameHint")}
-          />
-
-          <TemplateTextarea
-            id="broadcast-template-body"
-            label={t("admin.broadcasts.templateBody")}
-            value={form.bodyTemplate}
-            rows={5}
-            onChange={(value) => onFormChange({ ...form, bodyTemplate: value })}
-          />
-          <TemplateTextarea
-            id="broadcast-template-slot-line"
-            label={t("admin.broadcasts.templateSlotLine")}
-            value={form.slotLineTemplate}
-            rows={3}
-            onChange={(value) => onFormChange({ ...form, slotLineTemplate: value })}
-          />
-          <TemplateTextarea
-            id="broadcast-template-empty"
-            label={t("admin.broadcasts.templateEmpty")}
-            value={form.emptyBodyTemplate}
-            rows={3}
-            onChange={(value) => onFormChange({ ...form, emptyBodyTemplate: value })}
-          />
-
-          <div className="tpl-card__actions">
-            {selectedTemplate ? (
-              <Button
-                variant="ghost"
-                onClick={onArchive}
-                disabled={isSaving}
-                aria-disabled={isSaving}
-              >
-                {t("admin.broadcasts.templateArchive")}
-              </Button>
-            ) : null}
-            <Button variant="primary" type="submit" disabled={isSaving} aria-disabled={isSaving}>
-              {isSaving ? t("admin.action.saving") : t("admin.action.save")}
-            </Button>
-          </div>
-        </form>
-      ) : null}
-    </article>
-  );
+    </section>
+    <section className="workspace" aria-label={t("admin.broadcasts.historyTitle")}><div className="workspace__bar"><h2>{t("admin.broadcasts.historyTitle")}</h2></div>{runs.isLoading ? <p className="state state--loading">{t("admin.broadcasts.loading")}</p> : <History items={runs.data?.items ?? []} onOpen={setRunId} />}</section>
+    <LegacyManualSend levels={levelOptions} />
+    <RunDetail detail={selectedRun.data} loading={selectedRun.isLoading} onClose={() => setRunId(null)} onRetry={() => { if (runId) actions.retry.mutate({ runId, input: ambiguous ? { includeAmbiguous: true, acknowledgeAmbiguous: true } : { includeAmbiguous: false } }); }} ambiguous={ambiguous} onAmbiguous={setAmbiguous} />
+  </AppShell>;
 }
 
-interface TemplateTextareaProps {
-  id: string;
-  label: string;
-  value: string;
-  rows: number;
-  onChange: (value: string) => void;
+function AutomationTable({ items, onEdit, onToggle }: { items: BroadcastAutomation[]; onEdit: (a: BroadcastAutomation) => void; onToggle: (a: BroadcastAutomation) => void }): JSX.Element {
+  const t = useT(); const columns: Column<BroadcastAutomation>[] = [
+    { key: "name", header: t("admin.broadcasts.name"), render: (a) => a.name },
+    { key: "trigger", header: t("admin.broadcasts.trigger"), render: (a) => a.trigger.kind === "scheduled" ? `${a.trigger.recurrence} · ${a.trigger.time}` : a.trigger.kind },
+    { key: "status", header: t("admin.broadcasts.status"), render: (a) => <span className={a.enabled ? "status status--ok" : "status"}>{a.enabled ? t("admin.broadcasts.enabled") : t("admin.broadcasts.disabled")}</span> },
+    { key: "actions", header: t("admin.broadcasts.actions"), render: (a) => <div className="cluster"><Button variant="ghost" onClick={() => onEdit(a)}>{t("admin.action.edit")}</Button><Button variant="ghost" onClick={() => onToggle(a)}>{a.enabled ? t("admin.broadcasts.disable") : t("admin.broadcasts.editToEnable")}</Button></div> }
+  ]; return <DataTable caption={t("admin.broadcasts.automationList")} columns={columns} rows={items} rowKey={(a) => a.id} emptyLabel={t("admin.broadcasts.empty")} />;
 }
 
-function TemplateTextarea({ id, label, value, rows, onChange }: TemplateTextareaProps): JSX.Element {
-  return (
-    <div className="field">
-      <label className="field__label" htmlFor={id}>
-        {label}
-      </label>
-      <textarea
-        id={id}
-        className="input tpl-card__textarea"
-        rows={rows}
-        value={value}
-        onChange={(event) => onChange(event.target.value)}
-      />
-    </div>
-  );
+function AutomationEditor({ draft, levels, levelsLoading, onChange }: { draft: Draft; levels: Array<{ id: string; name: string }>; levelsLoading: boolean; onChange: (draft: Draft) => void }): JSX.Element {
+  const t = useT(); const scheduled = draft.trigger.kind === "scheduled";
+  const scheduledTrigger = draft.trigger as Extract<BroadcastAutomation["trigger"], { kind: "scheduled" }>;
+  const updateMessage = (part: Partial<Draft["message"]>) => onChange({ ...draft, message: { ...draft.message, ...part } });
+  const toggleLevel = (id: string) => onChange({ ...draft, audience: { ...draft.audience, levelIds: draft.audience.levelIds.includes(id) ? draft.audience.levelIds.filter((x) => x !== id) : [...draft.audience.levelIds, id] } });
+  return <form className="form" onSubmit={(event) => event.preventDefault()}>
+    <TextField label={t("admin.broadcasts.name")} value={draft.name} onChange={(e) => onChange({ ...draft, name: e.target.value })} />
+    <SelectField label={t("admin.broadcasts.trigger")} value={draft.trigger.kind} onChange={(e) => { const kind = e.target.value; onChange({ ...draft, trigger: kind === "scheduled" ? { kind, recurrence: "daily", time: "10:00", trainingWindow: "tomorrow" } : { kind: kind as "training-created" | "training-time-changed" | "freed-place" } }); }} options={[{ value: "scheduled", label: t("admin.broadcasts.triggerScheduled") }, { value: "training-created", label: t("admin.broadcasts.triggerCreated") }, { value: "training-time-changed", label: t("admin.broadcasts.triggerChanged") }, { value: "freed-place", label: t("admin.broadcasts.triggerFreed") }]} />
+    {scheduled ? <><SelectField label={t("admin.broadcasts.recurrence")} value={scheduledTrigger.recurrence} onChange={(e) => onChange({ ...draft, trigger: { ...scheduledTrigger, recurrence: e.target.value as "one-time" | "daily" | "weekly", ...(e.target.value === "weekly" ? { weekdays: [] } : {}), ...(e.target.value === "one-time" ? { date: "" } : {}) } })} options={[{ value: "one-time", label: t("admin.broadcasts.once") }, { value: "daily", label: t("admin.broadcasts.daily") }, { value: "weekly", label: t("admin.broadcasts.weekly") }]} /><TimeField label={t("admin.broadcasts.time")} value={scheduledTrigger.time} onChange={(e) => onChange({ ...draft, trigger: { ...scheduledTrigger, time: e.target.value } })} />{scheduledTrigger.recurrence === "weekly" ? <DayOfWeekPicker label={t("admin.broadcasts.weekdays")} value={scheduledTrigger.weekdays ?? []} onChange={(weekdays) => onChange({ ...draft, trigger: { ...scheduledTrigger, weekdays } })} /> : null}{scheduledTrigger.recurrence === "one-time" ? <TextField type="date" label={t("admin.broadcasts.date")} value={scheduledTrigger.date ?? ""} onChange={(e) => onChange({ ...draft, trigger: { ...scheduledTrigger, date: e.target.value } })} /> : null}<SelectField label={t("admin.broadcasts.window")} value={scheduledTrigger.trainingWindow} onChange={(e) => onChange({ ...draft, trigger: { ...scheduledTrigger, trainingWindow: e.target.value as "today" | "tomorrow" | "week" } })} options={[{ value: "today", label: t("admin.broadcasts.typeToday") }, { value: "tomorrow", label: t("admin.broadcasts.typeTomorrow") }, { value: "week", label: t("admin.broadcasts.typeWeek") }]} /></> : <p className="field__hint">{t("admin.broadcasts.eventDelay")}</p>}
+    <fieldset className="field"><legend className="field__label">{t("admin.broadcasts.levels")}</legend>{levelsLoading ? t("admin.broadcasts.loading") : levels.map((level) => <label key={level.id} className="check"><input type="checkbox" checked={draft.audience.levelIds.includes(level.id)} onChange={() => toggleLevel(level.id)} /> {level.name}</label>)}</fieldset>
+    <SelectField label={t("admin.broadcasts.activity")} hint={t("admin.broadcasts.activityHint")} value={draft.audience.activity} onChange={(e) => onChange({ ...draft, audience: { ...draft.audience, activity: e.target.value as "active" | "inactive" } })} options={[{ value: "active", label: t("admin.broadcasts.activityActive") }, { value: "inactive", label: t("admin.broadcasts.activityInactive") }]} />
+    <SelectField label={t("admin.broadcasts.output")} value={draft.message.outputMode} onChange={(e) => updateMessage({ outputMode: e.target.value as "per-training" | "digest", ctaMode: e.target.value === "digest" ? "none" : draft.message.ctaMode })} options={[{ value: "per-training", label: t("admin.broadcasts.perTraining") }, { value: "digest", label: t("admin.broadcasts.digest") }]} />
+    <SelectField label={t("admin.broadcasts.cta")} value={draft.message.ctaMode} disabled={draft.message.outputMode === "digest"} onChange={(e) => updateMessage({ ctaMode: e.target.value as "none" | "booking" })} options={[{ value: "none", label: t("admin.broadcasts.ctaNone") }, { value: "booking", label: t("admin.broadcasts.ctaBooking") }]} />
+    <SelectField label={t("admin.broadcasts.defaultLanguage")} value={draft.message.defaultLanguage} onChange={(e) => updateMessage({ defaultLanguage: e.target.value as Locale })} options={LOCALES.map((locale) => ({ value: locale, label: locale.toUpperCase() }))} />
+    {LOCALES.map((locale) => <TextAreaField key={locale} label={`${t("admin.broadcasts.message")} · ${locale.toUpperCase()}`} value={draft.message.bodies[locale] ?? ""} onChange={(e) => updateMessage({ bodies: { ...draft.message.bodies, [locale]: e.target.value } })} rows={4} hint={locale === draft.message.defaultLanguage ? t("admin.broadcasts.defaultRequired") : undefined} />)}
+  </form>;
 }
 
-interface VariableChipsProps {
-  variables: BroadcastTemplateVariable[];
-  isLoading: boolean;
-  errorMessage: string | null;
-}
-
-function VariableChips({ variables, isLoading, errorMessage }: VariableChipsProps): JSX.Element {
-  const t = useT();
-  if (isLoading) {
-    return <p className="state state--loading">{t("admin.broadcasts.variablesLoading")}</p>;
-  }
-  if (errorMessage) {
-    return (
-      <p className="state state--error" role="alert">
-        {t("admin.broadcasts.variablesError", { message: errorMessage })}
-      </p>
-    );
-  }
-  if (variables.length === 0) {
-    return <p className="field__hint">{t("admin.broadcasts.variablesEmpty")}</p>;
-  }
-  return (
-    <div className="tpl-chips" aria-label={t("admin.broadcasts.variablesLabel")}>
-      <span className="tpl-chips__label">{t("admin.broadcasts.variablesLabel")}</span>
-      {variables.map((variable) => (
-        <span
-          key={variable.key}
-          className="tpl-chip"
-          title={`${variable.label}: ${variable.description} ${t("admin.broadcasts.variableExample", {
-            example: variable.example
-          })}`}
-        >
-          {variable.placeholder}
-        </span>
-      ))}
-    </div>
-  );
-}
-
-interface BroadcastPreviewPanelProps {
-  isLoading: boolean;
-  isError: boolean;
-  errorMessage?: string;
-  /** True when the audience selection is still incomplete (no preview requested). */
-  incompleteAudience: boolean;
-  preview?: BroadcastPreview;
-}
+function Preview({ preview, loading }: { preview: BroadcastAutomationPreview | null; loading: boolean }): JSX.Element { const t = useT(); if (loading) return <p className="state state--loading">{t("admin.broadcasts.previewing")}</p>; if (!preview) return <p className="field__hint">{t("admin.broadcasts.previewHint")}</p>; return <article className="card"><h3>{t("admin.broadcasts.previewTitle")}</h3><p>{t("admin.broadcasts.recipients", { count: preview.recipientCount })}</p>{preview.warnings.map((warning) => <p key={warning} className="state state--warning">{warning}</p>)}{preview.renderedItems.map((item, index) => <pre key={index} className="broadcast-preview__text">{item.text}</pre>)}</article>; }
 
 /**
- * Renders the API's preview verbatim: the recipient count, composed message text,
- * and the bookable slot cards it advertises. No counts or segments are computed
- * here - every figure comes from {@link BroadcastPreview}.
+ * The legacy sender deliberately exposes only persisted templates and the existing
+ * preview/send endpoints. It never creates or edits a legacy definition: the API
+ * still owns audience resolution, composition and send-time checks.
  */
-function BroadcastPreviewPanel({
-  isLoading,
-  isError,
-  errorMessage,
-  incompleteAudience,
-  preview
-}: BroadcastPreviewPanelProps): JSX.Element {
+function LegacyManualSend({ levels }: { levels: Array<{ id: string; name: string }> }): JSX.Element {
   const t = useT();
-  const weekdayLabel = (day: DayOfWeek): string => t(`admin.day.short.${day}`);
-
-  if (incompleteAudience) {
-    return (
-      <section className="stack" aria-label={t("admin.broadcasts.previewLabel")}>
-        <p className="state state--loading">{t("admin.broadcasts.completeAudience")}</p>
-      </section>
-    );
-  }
-  if (isLoading) {
-    return (
-      <section className="stack" aria-label={t("admin.broadcasts.previewLabel")}>
-        <p className="state state--loading">{t("admin.broadcasts.calculating")}</p>
-      </section>
-    );
-  }
-  if (isError) {
-    return (
-      <section className="stack" aria-label={t("admin.broadcasts.previewLabel")}>
-        <p className="state state--error" role="alert">
-          {t("admin.broadcasts.calcError", { message: errorMessage ?? "" })}
-        </p>
-      </section>
-    );
-  }
-  if (!preview) {
-    return (
-      <section className="stack" aria-label={t("admin.broadcasts.previewLabel")}>
-        <p className="state state--loading">{t("admin.broadcasts.previewUnavailable")}</p>
-      </section>
-    );
-  }
-
-  const slotColumns: Column<SlotCard>[] = [
-    {
-      key: "when",
-      header: t("admin.broadcasts.colWhen"),
-      render: (slot) =>
-        t("admin.broadcasts.slotWhen", {
-          day: weekdayLabel(slot.dayOfWeek),
-          date: slot.date,
-          start: slot.startTime,
-          end: slot.endTime
-        })
-    },
-    { key: "group", header: t("admin.broadcasts.colGroup"), render: (slot) => slot.groupName },
-    { key: "level", header: t("admin.broadcasts.colLevel"), render: (slot) => slot.levelName },
-    { key: "trainer", header: t("admin.broadcasts.colTrainer"), render: (slot) => slot.trainerName },
-    {
-      key: "freeSeats",
-      header: t("admin.broadcasts.colFreeSeats"),
-      numeric: true,
-      render: (slot) => slot.freeSeats.toLocaleString("ru-RU")
-    },
-    {
-      key: "price",
-      header: t("admin.broadcasts.colPrice"),
-      numeric: true,
-      render: (slot) => formatRsd(slot.priceSingleRsd)
-    }
-  ];
-
-  return (
-    <section className="stack" aria-label={t("admin.broadcasts.previewLabel")}>
-      <div className="metric-strip">
-        <StatCard
-          label={t("admin.broadcasts.cardRecipients")}
-          value={preview.recipientsCount.toLocaleString("ru-RU")}
-          hint={t("admin.broadcasts.cardRecipientsHint")}
-        />
-        <StatCard
-          label={t("admin.broadcasts.cardFreeSlots")}
-          value={preview.slots.length.toLocaleString("ru-RU")}
-        />
-        {preview.templateVersion ? (
-          <StatCard
-            label={t("admin.broadcasts.cardTemplate")}
-            value={String(preview.templateVersion)}
-            hint={t("admin.broadcasts.cardTemplateHint")}
-          />
-        ) : null}
-      </div>
-
-      <article className="card">
-        <span className="card__label">{t("admin.broadcasts.cardMessage")}</span>
-        <p className="broadcast-preview__text" style={{ whiteSpace: "pre-wrap" }}>
-          {preview.text}
-        </p>
-      </article>
-
-      <DataTable
-        caption={t("admin.broadcasts.slotsCaption")}
-        columns={slotColumns}
-        rows={preview.slots}
-        rowKey={(slot) => slot.trainingId}
-        emptyLabel={t("admin.broadcasts.slotsEmpty")}
-      />
-    </section>
-  );
+  const [type, setType] = useState<BroadcastType>("tomorrow");
+  const [audienceKind, setAudienceKind] = useState<BroadcastAudience["kind"]>("all");
+  const [levelId, setLevelId] = useState("");
+  const [days, setDays] = useState("7");
+  const [templateId, setTemplateId] = useState("");
+  const templates = useBroadcastTemplates(type);
+  const send = useSendBroadcast();
+  const audience: BroadcastAudience | null = audienceKind === "all"
+    ? { kind: "all" }
+    : audienceKind === "level"
+      ? levelId ? { kind: "level", levelId } : null
+      : Number.isInteger(Number(days)) && Number(days) > 0
+        ? { kind: audienceKind, days: Number(days) }
+        : null;
+  const preview = useBroadcastPreview(type, audience, templateId || null);
+  const templateOptions = [{ value: "", label: t("admin.broadcasts.templateDefault") }, ...(templates.data ?? []).map((template) => ({ value: template.id, label: t("admin.broadcasts.templateOption", { name: template.name, version: template.version }) }))];
+  const typeOptions = (["today", "tomorrow", "week", "freed-up"] as BroadcastType[]).map((value) => ({ value, label: t({ today: "admin.broadcasts.typeToday", tomorrow: "admin.broadcasts.typeTomorrow", week: "admin.broadcasts.typeWeek", "freed-up": "admin.broadcasts.typeFreedUp" }[value]) }));
+  const sendLegacy = () => {
+    if (!audience || !preview.data) return;
+    send.mutate({ type, audience, ...(templateId ? { templateId, previewToken: preview.data.previewToken } : {}) });
+  };
+  return <section className="workspace" aria-label={t("admin.broadcasts.legacyTitle")}>
+    <div className="workspace__bar"><div><h2>{t("admin.broadcasts.legacyTitle")}</h2><p>{t("admin.broadcasts.legacyLead")}</p></div></div>
+    <div className="workspace__body broadcast-builder__grid"><form className="form" onSubmit={(event) => event.preventDefault()}>
+      <SelectField label={t("admin.broadcasts.fieldType")} value={type} onChange={(event) => { setType(event.target.value as BroadcastType); setTemplateId(""); }} options={typeOptions} />
+      <SelectField label={t("admin.broadcasts.templateField")} value={templateId} onChange={(event) => setTemplateId(event.target.value)} options={templateOptions} hint={templates.isLoading ? t("admin.broadcasts.templatesLoading") : undefined} />
+      {templates.isError ? <p className="state state--error" role="alert">{t("admin.broadcasts.templatesError", { message: templates.error.message })}</p> : null}
+      <SelectField label={t("admin.broadcasts.fieldAudience")} value={audienceKind} onChange={(event) => setAudienceKind(event.target.value as BroadcastAudience["kind"])} options={[{ value: "all", label: t("admin.broadcasts.audAll") }, { value: "level", label: t("admin.broadcasts.audLevel") }, { value: "active", label: t("admin.broadcasts.audActive") }, { value: "lapsed", label: t("admin.broadcasts.audLapsed") }]} />
+      {audienceKind === "level" ? <SelectField label={t("admin.broadcasts.fieldLevel")} value={levelId} onChange={(event) => setLevelId(event.target.value)} options={[{ value: "", label: t("admin.broadcasts.pickLevel") }, ...levels.map((level) => ({ value: level.id, label: level.name }))]} /> : null}
+      {audienceKind === "active" || audienceKind === "lapsed" ? <TextField type="number" min="1" label={t("admin.broadcasts.fieldDays")} value={days} onChange={(event) => setDays(event.target.value)} /> : null}
+    </form><aside className="stack" aria-label={t("admin.broadcasts.previewLabel")}>
+      {!audience ? <p className="state state--loading">{t("admin.broadcasts.completeAudience")}</p> : preview.isLoading ? <p className="state state--loading">{t("admin.broadcasts.calculating")}</p> : preview.isError ? <p className="state state--error" role="alert">{t("admin.broadcasts.calcError", { message: preview.error.message })}</p> : preview.data ? <article className="card"><span className="card__label">{t("admin.broadcasts.cardRecipients")}: {preview.data.recipientsCount}</span><p className="broadcast-preview__text" style={{ whiteSpace: "pre-wrap" }}>{preview.data.text}</p></article> : null}
+      <Button variant="primary" onClick={sendLegacy} disabled={!audience || !preview.data || preview.isFetching || send.isPending}>{send.isPending ? t("admin.broadcasts.sending") : t("admin.broadcasts.send")}</Button>
+      {send.isError ? <p className="state state--error" role="alert">{t("admin.broadcasts.sendFailed", { message: send.error.message })}</p> : null}
+    </aside></div>
+  </section>;
 }
+
+function History({ items, onOpen }: { items: Array<{ id: string; triggerKind: string; status: string; counts: { sent: number; failed: number; ambiguous: number }; createdAt: string }>; onOpen: (id: string) => void }): JSX.Element { const t = useT(); const columns: Column<(typeof items)[number]>[] = [{ key: "when", header: t("admin.broadcasts.when"), render: (row) => new Date(row.createdAt).toLocaleString() }, { key: "trigger", header: t("admin.broadcasts.trigger"), render: (row) => row.triggerKind }, { key: "status", header: t("admin.broadcasts.status"), render: (row) => row.status }, { key: "results", header: t("admin.broadcasts.results"), render: (row) => `${row.counts.sent}/${row.counts.failed}/${row.counts.ambiguous}` }, { key: "open", header: t("admin.broadcasts.actions"), render: (row) => <Button variant="ghost" onClick={() => onOpen(row.id)}>{t("admin.action.view")}</Button> }]; return <DataTable caption={t("admin.broadcasts.historyTitle")} columns={columns} rows={items} rowKey={(row) => row.id} emptyLabel={t("admin.broadcasts.historyEmpty")} />; }
+
+function RunDetail({ detail, loading, onClose, onRetry, ambiguous, onAmbiguous }: { detail: ReturnType<typeof useBroadcastAutomationRun>["data"]; loading: boolean; onClose: () => void; onRetry: () => void; ambiguous: boolean; onAmbiguous: (value: boolean) => void }): JSX.Element | null { const t = useT(); if (!detail && !loading) return null; return <Modal open onClose={onClose} title={t("admin.broadcasts.runDetail")}>{loading || !detail ? <p className="state state--loading">{t("admin.broadcasts.loading")}</p> : <div className="stack"><p>{t("admin.broadcasts.results")}: {detail.run.counts.sent}/{detail.run.counts.failed}/{detail.run.counts.ambiguous}</p><p className="field__hint">{t("admin.broadcasts.retryHint")}</p><label className="check"><input type="checkbox" checked={ambiguous} onChange={(e) => onAmbiguous(e.target.checked)} /> {t("admin.broadcasts.retryAmbiguous")}</label>{ambiguous ? <p className="state state--warning">{t("admin.broadcasts.duplicateWarning")}</p> : null}<Button variant="primary" onClick={onRetry}>{t("admin.broadcasts.retry")}</Button></div>}</Modal>; }

@@ -19,6 +19,18 @@ import {
   broadcastSchema,
   broadcastTemplateSchema,
   broadcastTemplateVariableSchema,
+  broadcastAutomationListSchema,
+  broadcastAutomationPreviewSchema,
+  broadcastAutomationRunDetailSchema,
+  broadcastAutomationRunListSchema,
+  broadcastAutomationSchema,
+  createBroadcastAutomationSchema,
+  disableBroadcastAutomationSchema,
+  enableBroadcastAutomationSchema,
+  previewBroadcastAutomationSchema,
+  retryBroadcastAutomationFailuresResultSchema,
+  retryBroadcastAutomationFailuresSchema,
+  updateBroadcastAutomationSchema,
   cancellationStatsSchema,
   clientActivitySchema,
   clientSchema,
@@ -97,6 +109,19 @@ import {
   type BroadcastTemplate,
   type BroadcastTemplateVariable,
   type BroadcastType,
+  type BroadcastAutomation,
+  type BroadcastAutomationList,
+  type BroadcastAutomationPreview,
+  type BroadcastAutomationRunDetail,
+  type BroadcastAutomationRunList,
+  type CreateBroadcastAutomationInput,
+  type EnableBroadcastAutomationInput,
+  type ListBroadcastAutomationRunsQuery,
+  type ListBroadcastAutomationsQuery,
+  type RetryBroadcastAutomationFailuresInput,
+  type RetryBroadcastAutomationFailuresResult,
+  type SetBroadcastAutomationEnabledInput,
+  type UpdateBroadcastAutomationInput,
   type CancellationStats,
   type ClientActivity,
   type Client,
@@ -1292,6 +1317,76 @@ export class ApiClient {
     return this.request("/broadcasts/send", broadcastSchema, {
       method: "POST",
       body: JSON.stringify(sendBroadcastSchema.parse(input))
+    });
+  }
+
+  /** Builder-owned automations. Every response is validated before UI rendering. */
+  listBroadcastAutomations(query: ListBroadcastAutomationsQuery = { limit: 25 }): Promise<BroadcastAutomationList> {
+    const params = new URLSearchParams();
+    if (query.cursor) params.set("cursor", query.cursor);
+    if (query.limit) params.set("limit", String(query.limit));
+    if (query.enabled !== undefined) params.set("enabled", String(query.enabled));
+    const suffix = params.size ? `?${params.toString()}` : "";
+    return this.request(`/broadcast-automations${suffix}`, broadcastAutomationListSchema);
+  }
+
+  getBroadcastAutomation(id: string): Promise<BroadcastAutomation> {
+    return this.request(`/broadcast-automations/${id}`, broadcastAutomationSchema);
+  }
+
+  createBroadcastAutomation(input: CreateBroadcastAutomationInput): Promise<BroadcastAutomation> {
+    return this.request("/broadcast-automations", broadcastAutomationSchema, {
+      method: "POST",
+      body: JSON.stringify(createBroadcastAutomationSchema.parse(input))
+    });
+  }
+
+  updateBroadcastAutomation(id: string, input: UpdateBroadcastAutomationInput): Promise<BroadcastAutomation> {
+    return this.request(`/broadcast-automations/${id}`, broadcastAutomationSchema, {
+      method: "PATCH",
+      body: JSON.stringify(updateBroadcastAutomationSchema.parse(input))
+    });
+  }
+
+  previewBroadcastAutomation(id: string, expectedVersion: number): Promise<BroadcastAutomationPreview> {
+    return this.request(`/broadcast-automations/${id}/preview`, broadcastAutomationPreviewSchema, {
+      method: "POST",
+      body: JSON.stringify(previewBroadcastAutomationSchema.parse({ expectedVersion }))
+    });
+  }
+
+  enableBroadcastAutomation(id: string, input: EnableBroadcastAutomationInput): Promise<BroadcastAutomation> {
+    return this.request(`/broadcast-automations/${id}/enable`, broadcastAutomationSchema, {
+      method: "POST",
+      body: JSON.stringify(enableBroadcastAutomationSchema.parse(input))
+    });
+  }
+
+  disableBroadcastAutomation(id: string, input: SetBroadcastAutomationEnabledInput): Promise<BroadcastAutomation> {
+    return this.request(`/broadcast-automations/${id}/disable`, broadcastAutomationSchema, {
+      method: "POST",
+      body: JSON.stringify(disableBroadcastAutomationSchema.parse(input))
+    });
+  }
+
+  listBroadcastAutomationRuns(query: ListBroadcastAutomationRunsQuery = { limit: 25 }): Promise<BroadcastAutomationRunList> {
+    const params = new URLSearchParams();
+    for (const [key, value] of Object.entries(query)) if (value !== undefined) params.set(key, String(value));
+    const suffix = params.size ? `?${params.toString()}` : "";
+    return this.request(`/broadcast-automation-runs${suffix}`, broadcastAutomationRunListSchema);
+  }
+
+  getBroadcastAutomationRun(id: string): Promise<BroadcastAutomationRunDetail> {
+    return this.request(`/broadcast-automation-runs/${id}`, broadcastAutomationRunDetailSchema);
+  }
+
+  retryBroadcastAutomationFailures(
+    runId: string,
+    input: RetryBroadcastAutomationFailuresInput
+  ): Promise<RetryBroadcastAutomationFailuresResult> {
+    return this.request(`/broadcast-automation-runs/${runId}/retry-failures`, retryBroadcastAutomationFailuresResultSchema, {
+      method: "POST",
+      body: JSON.stringify(retryBroadcastAutomationFailuresSchema.parse(input))
     });
   }
 
