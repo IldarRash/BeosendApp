@@ -1,5 +1,10 @@
 # Same-day freed-slot automatic broadcast
 
+## Status
+
+Completed and merged in PR #60 on 2026-07-17. Retained as the historical implementation handoff
+for the global automation policy, occurrence-level deduplication, and one-shot delivery audit.
+
 ## Goal
 
 Automatically notify a manager-selected Telegram audience when a booking owner explicitly cancels their own booking and leaves usable capacity in a public group training later that same Europe/Belgrade calendar day. The training does not need to have been full before the cancellation. The automation is disabled until a manager configures and enables it, and the existing manual `freed-up` broadcast is unchanged.
@@ -161,7 +166,7 @@ The message is informational: it is not a reservation or capacity promise.
 
 No dependency exists on a retry worker, periodic sweep, exactly-once delivery mechanism, changing waitlist behavior, or changing manual `freed-up` semantics.
 
-## Open questions and chosen defaults
+## Decisions & outcomes
 
 - **Where does the policy live?** Decision: the global `app_settings` singleton.
 - **Which API owns it?** Decision: `GET/PATCH /settings/freed-slot-automation` under the existing manager/admin settings guard.
@@ -176,4 +181,4 @@ No dependency exists on a retry worker, periodic sweep, exactly-once delivery me
 - **What happens when a CTA is stale?** Decision: the existing booking flow reports unavailable/full or offers/applies the existing waitlist behavior.
 - **Does this alter manual `freed-up`?** Decision: no; manual behavior remains unchanged.
 - **Should the full agent flow run?** Decision: yes; the user approved the full analyst/architect/implementer/test/review/run flow.
-- **May implementation begin?** Decision: not yet. The implementation plan must be presented to and approved by the user before any implementer, tester, reviewer, migration, cleanup, or app-runner work starts.
+- **Did implementation land?** Decision: yes, in merged PR #60.

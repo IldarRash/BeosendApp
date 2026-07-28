@@ -1,5 +1,10 @@
 # Admin Dispatch Desk Redesign
 
+## Status
+
+Completed and merged in PR #58 on 2026-07-08. Retained as the historical implementation handoff
+for the production admin shell, login, dashboard, and shared-primitives redesign.
+
 ## Goal
 
 Move the production admin console toward the approved "BeoSand Dispatch Desk" direction with the smallest visible runtime slice: login, app shell, shared UI primitives, and dashboard framing. The slice must make daily operations feel queue-first while preserving all existing routes and keeping domain facts server-owned.
@@ -134,31 +139,12 @@ Bot commands, keyboards, client booking flows, and notification copy are unchang
 - Separate implementation worktree after approval. No branch/worktree is created during this planning step.
 - Follow-on body redesign slices for Trainings, CourtRequests, CourtLoad, Subscriptions, Broadcasts, Analytics, and setup pages.
 
-## Open questions
+## Decisions & outcome
 
-- Should the first production slice regroup the nav into Dispatch, Schedule, Courts, Clients & Money, Comms, and Setup?
-  - Default: yes for shell metadata/chrome, while preserving all existing paths and labels through i18n.
-- Should route body redesigns be bundled into this slice?
-  - Default: no. Only dashboard framing and shared primitive improvements land first; every route remains reachable.
-- Should the shell add new queue counts beyond pending court requests?
-  - Default: no. Reuse existing API reads only; add a later contract if new counts are required.
-- Should pricing editor mobile layout be fixed now?
-  - Default: no unless shared CSS changes touch it. Track as a follow-on body issue.
-- Should calendar semantics be changed in this slice?
-  - Default: verify if touched; otherwise leave behavior unchanged and document the follow-on.
-- Should implementation start now?
-  - Default: no. Wait for user approval of the full agent flow and then create the requested separate worktree.
-
-## Agent flow approval gate
-
-Do you want to run the full agent flow for this admin redesign slice?
-
-Planned roles/subtasks after approval:
-
-- `planner`: keep this brief current and enforce scope boundaries.
-- `ui-designer`: translate Dispatch Desk direction into production component/page guidance.
-- `frontend-implementer`: implement login, shell, shared primitives, dashboard framing, labels, and route reachability in a separate worktree.
-- `test-writer`: add focused component/static/accessibility tests.
-- `reviewer`: check correctness, scope, and design-system consistency.
-- `security-reviewer`: verify auth/session boundaries and no secret/domain-logic leaks.
-- `app-runner`: run admin and verify login/shell/dashboard/route reachability.
+- Navigation is grouped into Dispatch, Schedule, Courts, Clients & Money, Comms, and Setup while
+  preserving every existing route.
+- The implemented slice focuses on login, shell, dashboard framing, and shared primitives; dense
+  route-body redesigns remain separate work.
+- No new queue-count contract was introduced.
+- Pricing-editor mobile pressure and untouched calendar semantics remain follow-on concerns.
+- The approved implementation landed in combined PR #58.

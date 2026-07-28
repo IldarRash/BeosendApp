@@ -1,5 +1,10 @@
 # Broadcast Template Variables
 
+## Status
+
+Completed and merged in PR #58 on 2026-07-08. Retained as the historical implementation handoff
+for the broadcast-template catalog, strict server variables, and preview-token/version rule.
+
 ## Goal
 
 Add admin-managed custom templates for existing free-slot broadcasts, with server-defined variables resolved by the API into exact preview/send text. Keep this separate from notification templates and from the admin Dispatch Desk redesign.
@@ -7,7 +12,8 @@ Add admin-managed custom templates for existing free-slot broadcasts, with serve
 ## Spec refs
 
 - User request: add a separate feature for custom broadcast templates with parameters such as free seats and other variables resolved automatically.
-- Existing broadcast brief: `docs/product/features/broadcast-group-name.md` covers the known `groupName` gap and preview fidelity for current free-slot broadcasts.
+- Existing broadcast brief: `docs/product/features/broadcast-group-and-block-description.md` covers
+  the implemented `groupName` contract and preview fidelity for current free-slot broadcasts.
 - Existing contracts: `packages/types/src/training-contracts.ts` defines fixed broadcast types, audience narrowing, `BroadcastPreview`, and `SlotCard`.
 - Existing notification template contracts: `packages/types/src/notification-template-contracts.ts` are event-key overrides with permissive placeholders; this feature must not reuse that table/model for custom broadcasts.
 - Existing DB schema: `broadcasts` audit rows and `notification_templates` override rows are separate.
@@ -51,7 +57,8 @@ Contracts:
   - `{trainer}` from trainer display name.
   - `{level}` from level display name.
   - `{price}` from server-owned RSD price display.
-  - `{groupName}` only after or alongside the `groupName` SlotCard/repository gap from `broadcast-group-name.md`.
+  - `{groupName}` after or alongside the `groupName` SlotCard/repository gap from
+    `broadcast-group-and-block-description.md`.
 - Unlike current notification templates, broadcast templates should reject unknown placeholders by default. Unknown tokens in broadcast messages are operational errors, not literal output.
 
 Tables:
@@ -120,7 +127,9 @@ Recipient flow remains the existing broadcast booking path:
 3. Recipient taps `book:slot:<trainingId>`.
 4. Existing bot booking flow re-checks availability and continues through current confirmation/waitlist behavior.
 
-Bot implementation should only change if button label data needs `groupName` from the existing `broadcast-group-name` dependency. Callback data remains `book:slot:<trainingId>`.
+Bot implementation should only change if button label data needs `groupName` from the existing
+`broadcast-group-and-block-description` dependency. Callback data remains
+`book:slot:<trainingId>`.
 
 ## Invariants
 
@@ -187,42 +196,28 @@ Bot implementation should only change if button label data needs `groupName` fro
 - Existing broadcasts preview/send module and `Broadcasts.tsx`.
 - Existing `broadcasts` audit table.
 - Existing audience narrowing and active-client recipient resolution.
-- `broadcast-group-name.md` should land before or alongside this feature if `{groupName}` is included in the first variable set.
+- `broadcast-group-and-block-description.md` supplies the implemented `{groupName}` dependency.
 - New DB migration for `broadcast_templates`.
 - No dependency on the admin Dispatch Desk redesign.
 - No worktree or branch is created during this planning step; use a separate implementation worktree after approval.
 
-## Open questions
+## Decisions & outcome
 
 - Should custom broadcast templates reuse `notification_templates`?
-  - Default: no. Use a separate `broadcast_templates` catalog because notification templates are event-key overrides with permissive placeholders, while broadcasts need reusable free-slot templates with strict variables.
+  - Decision: no. The implementation uses a separate `broadcast_templates` catalog with strict
+    variables.
 - Should unknown broadcast placeholders be left literal like notification templates?
-  - Default: no. Reject unknown placeholders server-side so managers do not send broken broadcast copy.
+  - Decision: no. Unknown placeholders are rejected server-side.
 - Should sends use the exact preview snapshot or re-render at send time?
-  - Default: use a preview token with same template version, then re-render current slots at send time. This protects availability while preventing silent template edits between preview and send.
+  - Decision: use a preview token with the same template version, then re-render current slots at
+    send time.
 - Should `{groupName}` ship in the first template variable set?
-  - Default: yes only if the `broadcast-group-name` contract gap lands before or alongside this feature; otherwise hide/reject `{groupName}` until the server can provide it.
+  - Decision: yes. The `broadcast-group-and-block-description` slice supplied the shared
+    `groupName` contract before this feature merged.
 - Should templates be localized by RU/SR/EN?
-  - Default: no for the first slice. Current broadcast body is RU-oriented; add locale dimension later if product asks for localized broadcasts.
+  - Decision: no locale dimension in this slice.
 - Should this add scheduled broadcasts or new recipient audiences?
-  - Default: no. Existing free-slot broadcast types and audiences only.
+  - Decision: no. Existing free-slot broadcast types and audiences only.
 - Should admin page layout be redesigned as part of this work?
-  - Default: no. Add only the controls required for templates and variables; leave broader Broadcasts page redesign to the Dispatch Desk/body redesign track.
-- Should implementation start now?
-  - Default: no. Wait for user approval of the full agent flow and then create the requested separate worktree.
-
-## Agent flow approval gate
-
-Do you want to run the full agent flow for this broadcast-template-variables slice?
-
-Planned roles/subtasks after approval:
-
-- `planner`: keep this brief current and enforce separation from admin redesign.
-- `architect`: finalize contracts, table shape, preview-token/version rule, and migration boundaries.
-- `backend-implementer`: add contracts, schema/migration, repository/service/controller, and message renderer.
-- `frontend-implementer`: add admin API client methods, hooks, and focused Broadcasts page controls.
-- `bot-implementer`: adjust button data only if required by `groupName` label changes.
-- `test-writer`: cover contracts, repository, service, message rendering, admin UI, and unsafe paths.
-- `reviewer`: check correctness and scope.
-- `security-reviewer`: verify admin authz, token integrity, validation, availability, and no secret leaks.
-- `app-runner`: verify preview/send in the running app stack.
+  - Decision: no broader page redesign; only template and variable controls were added.
+- Implementation landed in combined PR #58.
