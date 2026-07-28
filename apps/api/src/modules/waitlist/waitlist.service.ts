@@ -43,6 +43,9 @@ interface ClientOwnershipOptions {
   allowAdmin?: boolean;
 }
 
+/** Post-commit result used by seat-freeing callers to preserve waitlist priority. */
+export type WaitlistPromotionOutcome = "none" | "promoted" | "failed";
+
 /**
  * Owns the waitlist domain logic (frictionless waitlist). Invariants live here:
  * - GROUP trainings only: a training with a null groupId never enters any waitlist
@@ -579,7 +582,7 @@ export class WaitlistService {
    * and self-tolerant: an individual training, no free seat, no head, or a Telegram
    * failure is logged/swallowed — never undoes the committed cancel.
    */
-  async promoteNext(trainingId: string): Promise<void> {
+  async promoteNext(trainingId: string): Promise<WaitlistPromotionOutcome> {
     let promoted: BookingRow | undefined;
     try {
       promoted = await this.waitlist.transaction(async (tx) => {
@@ -610,14 +613,15 @@ export class WaitlistService {
         `promoteNext for training ${trainingId} failed: ` +
           (error instanceof Error ? error.message : String(error))
       );
-      return;
+      return "failed";
     }
 
     if (!promoted) {
-      return;
+      return "none";
     }
 
     await this.notifyPromotedSafely(promoted.clientId, promoted.trainingId);
+    return "promoted";
   }
 
   /**
