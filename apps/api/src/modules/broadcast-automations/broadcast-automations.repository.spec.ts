@@ -123,42 +123,84 @@ describe("BroadcastAutomationsRepository query invariants", () => {
 });
 
 describe("BroadcastAutomationsRepository retry and recovery safety", () => {
-  it("selects only failed deliveries for a default retry, preserving the original run and delivery links", async () => {
-    const selections = [
-      [{ id: "delivery-failed", runItemId: "item-old", clientId: "client-a", telegramId: 1, requestedLanguage: "sr", resolvedLanguage: "sr", payloadSnapshot: {}, isAutomatic: true, outcome: "failed" }],
-      [{ id: "item-old", ordinal: 1, outputMode: "per-training", ctaMode: "booking", itemSnapshot: {} }],
-      []
-    ];
+  const now = new Date("2026-07-10T12:00:00.000Z");
+  const root = "11111111-1111-4111-8111-111111111111";
+  const delivery = (id: string, outcome: string, overrides: Partial<Row> = {}): Row => ({
+    id, rootDeliveryId: root, runItemId: "item-old", clientId: "client-a", telegramId: 1,
+    requestedLanguage: "sr", resolvedLanguage: "sr", payloadSnapshot: {}, isAutomatic: true, outcome,
+    ...overrides
+  });
+
+  function retryDb(selections: unknown[][]) {
     const inserted: Row[] = [];
-    let id = 0;
-    let selectIndex = 0;
-    let sourceCondition: unknown;
+    const locks: unknown[] = [];
     const select = () => {
       const rows = selections.shift() ?? [];
-      const index = selectIndex++;
-      const builder = { from: () => builder, where: (condition: unknown) => {
-        if (index === 0) sourceCondition = condition;
-        return Promise.resolve(rows);
-      } };
-      return builder;
-    };
-    const insert = () => {
       const builder = {
-        values: (values: Row) => { inserted.push(values); return builder; },
-        returning: async () => [{ id: `new-${++id}`, createdAt: new Date("2026-07-10T12:00:00.000Z"), dueAt: new Date("2026-07-10T12:00:00.000Z"), status: "processing", automationId: "automation-a", automationVersion: 1, triggerKind: "manual-retry", sourceEventId: null, scheduledFor: null, skipReason: null, originalRunId: "run-original", configSnapshot: {}, selectedTrainingsCount: 0, includedTrainingsCount: 0, skippedTrainingsCount: 0, recipientsCount: 0, attemptedCount: 0, sentCount: 0, failedCount: 0, ambiguousCount: 0, skippedDeliveriesCount: 0, startedAt: new Date("2026-07-10T12:00:00.000Z"), completedAt: null }]
+        from: () => builder,
+        where: () => builder,
+        limit: async () => rows,
+        then: <T>(resolve: (value: unknown[]) => T | PromiseLike<T>) => Promise.resolve(rows).then(resolve)
       };
       return builder;
     };
-    const tx = { select, insert } as unknown as Database;
-    const database = { db: { transaction: async (work: (value: Database) => Promise<unknown>) => work(tx) } };
-    const original = runRow("run-original", new Date("2026-07-10T09:00:00.000Z")) as never;
-    const result = await repo(database.db).createRetryRun(original);
+    let insertId = 0;
+    const insert = () => {
+      const builder = {
+        values: (values: Row) => { inserted.push(values); return builder; },
+        returning: async () => [{
+          ...runRow(`run-${++insertId}`, now, { status: "processing", triggerKind: "manual-retry", originalRunId: "run-original", startedAt: now, completedAt: null }),
+          ...inserted.at(-1)
+        }]
+      };
+      return builder;
+    };
+    const tx = { select, insert, execute: async (query: unknown) => { locks.push(query); } } as unknown as Database;
+    return { database: { db: { transaction: async (work: (value: Database) => Promise<unknown>) => work(tx) } }, inserted, locks };
+  }
 
-    expect(result?.run.originalRunId).toBe("run-original");
-    expect(inserted[0]).toMatchObject({ triggerKind: "manual-retry", originalRunId: "run-original" });
-    expect(inserted.at(-1)).toMatchObject({ retryOfDeliveryId: "delivery-failed", isAutomatic: false });
-    expect(render(sourceCondition)).toContain('"broadcast_automation_deliveries"."outcome" =');
-    expect(new PgDialect().sqlToQuery(sourceCondition as never).params).toContain("failed");
+  it.each(["sent", "claimed"])("refuses to retry an original failure after a %s descendant exists", async (outcome) => {
+    const state = retryDb([[delivery("delivery-original", "failed")], [{ id: `delivery-${outcome}` }]]);
+
+    await expect(repo(state.database.db).createRetryRun(runRow("run-original", now) as never)).resolves.toBeUndefined();
+
+    expect(state.locks).toHaveLength(1);
+    expect(state.inserted).toEqual([]);
+  });
+
+  it("allows a failed descendant to be explicitly retried and preserves its root delivery id", async () => {
+    const state = retryDb([
+      [delivery("delivery-child-failed", "failed", { isAutomatic: false, retryOfDeliveryId: "delivery-original" })],
+      [],
+      [{ id: "item-old", ordinal: 1, outputMode: "per-training", ctaMode: "booking", itemSnapshot: {} }],
+      []
+    ]);
+
+    const result = await repo(state.database.db).createRetryRun(runRow("run-child", now) as never, ["delivery-child-failed"]);
+
+    expect(result?.deliveries).toHaveLength(1);
+    expect(state.inserted[0]).toMatchObject({ triggerKind: "manual-retry", originalRunId: "run-child" });
+    expect(state.inserted.at(-1)).toMatchObject({ retryOfDeliveryId: "delivery-child-failed", rootDeliveryId: root, isAutomatic: false });
+  });
+
+  it("assigns a root delivery id to a first delivery claim", async () => {
+    let inserted: Row | undefined;
+    const db = {
+      insert: () => {
+        const builder = {
+          values: (values: Row) => { inserted = values; return builder; },
+          onConflictDoNothing: () => builder,
+          returning: async () => [{ ...inserted, createdAt: now, attemptedAt: null, completedAt: null, diagnostic: null, skipReason: null }]
+        };
+        return builder;
+      }
+    };
+
+    const result = await repo(db).claimDelivery("run-a", "item-a", { clientId: "client-a", telegramId: 1, language: "sr" }, { resolvedLanguage: "sr" });
+
+    expect(inserted).toMatchObject({ id: expect.any(String), rootDeliveryId: expect.any(String) });
+    expect(inserted?.rootDeliveryId).toBe(inserted?.id);
+    expect(result?.rootDeliveryId).toBe(inserted?.id);
   });
 
   it("turns stale claimed deliveries ambiguous and completes the run instead of making it sendable again", async () => {

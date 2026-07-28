@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
   broadcastAutomationAudienceSchema,
+  broadcastAutomationDeliverySchema,
   broadcastAutomationMessageSchema,
   broadcastAutomationRenderedItemSchema,
   broadcastAutomationRunDetailSchema,
@@ -85,6 +86,21 @@ describe("broadcast automation contracts", () => {
     expect(enableBroadcastAutomationSchema.safeParse({ expectedVersion: 2, previewToken: "short" }).success).toBe(false);
     expect(retryBroadcastAutomationFailuresSchema.safeParse({ includeAmbiguous: true }).success).toBe(false);
     expect(retryBroadcastAutomationFailuresSchema.safeParse({ includeAmbiguous: true, acknowledgeAmbiguous: true }).success).toBe(true);
+  });
+
+  it("requires the durable root delivery id used to protect a retry lineage", () => {
+    const delivery = {
+      id: "22222222-2222-4222-8222-222222222222", runId: "33333333-3333-4333-8333-333333333333",
+      runItemId: "44444444-4444-4444-8444-444444444444", clientId: "55555555-5555-4555-8555-555555555555",
+      telegramId: 42, requestedLanguage: "sr", resolvedLanguage: "sr", outcome: "failed", skipReason: null,
+      retryOfDeliveryId: null, rootDeliveryId: "22222222-2222-4222-8222-222222222222", isAutomatic: true,
+      payloadSnapshot: { trainingIds: [LEVEL], requestedLanguage: "sr", resolvedLanguage: "sr", usedFallback: false, text: "x", ctaMode: "none", bookingTrainingId: null },
+      attemptedAt: null, completedAt: null, diagnostic: null
+    };
+
+    expect(broadcastAutomationDeliverySchema.safeParse(delivery).success).toBe(true);
+    const { rootDeliveryId: _rootDeliveryId, ...missingRoot } = delivery;
+    expect(broadcastAutomationDeliverySchema.safeParse(missingRoot).success).toBe(false);
   });
 
   it("keeps the actual single-training price in preview and durable run evidence", () => {
