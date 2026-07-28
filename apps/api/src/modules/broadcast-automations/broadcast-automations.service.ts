@@ -58,10 +58,12 @@ export class BroadcastAutomationsService {
         const payload=this.render(config,itemTrainings,recipient.language)[Math.min(ordinal-1,this.render(config,itemTrainings,recipient.language).length-1)].payload;
         const delivery=await this.repo.claimDelivery(run.id,dbItemId,recipient,payload);
         if(!delivery)continue;
-        if(trigger.kind==="freed-place"&&await this.repo.hasFreedPlaceExclusion(run.sourceEventId,recipient.clientId,payload.trainingIds)){skippedDeliveries++;await this.repo.skipDelivery(delivery.id,"mandatory-exclusion");continue;}
+        const currentRecipient=await this.repo.recipientStillEligible(recipient.clientId,config.audience,new Date());
+        if(!currentRecipient){skippedDeliveries++;await this.repo.skipDelivery(delivery.id,"audience-no-longer-eligible");continue;}
+        if(trigger.kind==="freed-place"&&await this.repo.hasFreedPlaceExclusion(run.sourceEventId,currentRecipient.clientId,payload.trainingIds)){skippedDeliveries++;await this.repo.skipDelivery(delivery.id,"mandatory-exclusion");continue;}
         attempted++;
-        const result=await this.sender.sendMessageWithOutcome(recipient.telegramId,payload.text,keyboard(payload,itemTrainings.find((training)=>training.trainingId===payload.bookingTrainingId)));
-        if(result.kind==="sent"){sent++;await this.repo.finishDelivery(delivery.id,"sent",null);}else{if(result.kind==="failed")failed++;else ambiguous++;await this.repo.finishDelivery(delivery.id,result.kind,sanitizeTelegramDiagnostic(result.diagnostic));}
+        const result=await this.sender.sendMessageWithOutcome(currentRecipient.telegramId,payload.text,keyboard(payload,itemTrainings.find((training)=>training.trainingId===payload.bookingTrainingId)));
+        if(result.kind==="sent"){sent++;await this.repo.finishDelivery(delivery.id,"sent",null);}else{if(result.kind==="failed")failed++;else ambiguous++;await this.repo.finishDelivery(delivery.id,result.kind,sanitizeTelegramDiagnostic(result.diagnostic,currentRecipient.telegramId));}
       }
     };
     if(trigger.kind==="scheduled"&&config.message.outputMode==="digest"&&covered.size){

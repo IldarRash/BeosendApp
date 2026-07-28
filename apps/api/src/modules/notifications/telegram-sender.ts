@@ -82,14 +82,14 @@ export class TelegramSender {
         })
       });
     } catch (error) {
-      return { kind: "ambiguous", diagnostic: sanitizeTelegramDiagnostic(error) };
+      return { kind: "ambiguous", diagnostic: sanitizeTelegramDiagnostic(error, telegramId) };
     }
 
     if (!response.ok) {
       const description = await safeDescription(response);
       return {
         kind: "failed",
-        diagnostic: sanitizeTelegramDiagnostic(`Telegram sendMessage failed: ${response.status} ${description}`)
+        diagnostic: sanitizeTelegramDiagnostic(`Telegram sendMessage failed: ${response.status} ${description}`, telegramId)
       };
     }
     return { kind: "sent" };
@@ -107,13 +107,22 @@ async function safeDescription(response: Response): Promise<string> {
 }
 
 /** Safe for durable audit fields: no URL, chat id, token-shaped value, or controls. */
-export function sanitizeTelegramDiagnostic(value: unknown): string {
+export function sanitizeTelegramDiagnostic(value: unknown, telegramId?: number): string {
   const raw = value instanceof Error ? value.message : String(value);
+  const knownTelegramId = telegramId === undefined
+    ? undefined
+    : new RegExp(`(?<!\\d)${escapeRegExp(String(telegramId))}(?!\\d)`, "g");
   return raw
-    .replace(/https?:\/\/\S+/gi, "[url]")
-    .replace(/bot\d{6,}:[A-Za-z0-9_-]+/g, "[token]")
+    .replace(/\p{Cc}+/gu, " ")
+    .replace(/https?:\/\/[^\s]+/gi, "[url]")
+    .replace(/(?:bot)?\d{6,}:[A-Za-z0-9_-]+/gi, "[token]")
+    .replace(/@[A-Za-z0-9_]+/g, "[username]")
+    .replace(knownTelegramId ?? /$^/, "[id]")
     .replace(/\b\d{7,}\b/g, "[id]")
-    .replace(/[\r\n\t]+/g, " ")
     .trim()
     .slice(0, 1024);
+}
+
+function escapeRegExp(value: string): string {
+  return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 }
