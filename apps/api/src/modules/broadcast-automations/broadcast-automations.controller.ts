@@ -1,6 +1,6 @@
 /* eslint-disable @typescript-eslint/no-explicit-any -- Zod default inference is optional at this boundary. */
 import { BadRequestException, Body, Controller, Get, Headers, Param, Patch, Post, Query } from "@nestjs/common";
-import { z, type ZodSchema } from "zod";
+import { z } from "zod";
 import { createBroadcastAutomationSchema, updateBroadcastAutomationSchema, enableBroadcastAutomationSchema, disableBroadcastAutomationSchema, previewBroadcastAutomationSchema, listBroadcastAutomationsQuerySchema, listBroadcastAutomationRunsQuerySchema, retryBroadcastAutomationFailuresSchema } from "@beosand/types";
 import { BroadcastAutomationsService } from "./broadcast-automations.service";
 
@@ -23,4 +23,4 @@ export class BroadcastAutomationRunsController {
   @Post(":id/retry-failures") retry(@Headers("x-telegram-id") h: string | undefined, @Param("id") id: string, @Body() b: unknown) { return this.service.retry(actor(h), valid(z.string().uuid(), id), valid(retryBroadcastAutomationFailuresSchema, b ?? {}) as any); }
 }
 function actor(header: string | undefined): number { const value = Number(header); if (!header || !Number.isInteger(value)) throw new BadRequestException("Missing or invalid x-telegram-id header"); return value; }
-function valid<T>(schema: ZodSchema<T>, value: unknown): T { const parsed = schema.safeParse(value); if (!parsed.success) throw new BadRequestException(parsed.error.issues.map(x => x.message).join("; ")); return parsed.data; }
+function valid<T>(schema: z.ZodType<T, z.ZodTypeDef, unknown>, value: unknown): T { const parsed = schema.safeParse(value); if (!parsed.success) throw new BadRequestException(parsed.error.issues.map(x => x.message).join("; ")); return parsed.data; }

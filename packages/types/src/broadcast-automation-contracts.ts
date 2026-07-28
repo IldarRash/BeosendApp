@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { dateString, dayOfWeek, timeString, uuid } from "./common";
+import { dateString, dayOfWeek, rsd, timeString, uuid } from "./common";
 import { localeSchema } from "./i18n-contracts";
 import { findUnknownBroadcastTemplatePlaceholders } from "./broadcast-template-contracts";
 
@@ -195,6 +195,7 @@ export const broadcastAutomationTrainingSummarySchema = z
     groupName: z.string(),
     levelName: z.string(),
     trainerName: z.string(),
+    priceSingleRsd: rsd,
     freeSeats: nonnegativeInt
   })
   .strict();
@@ -328,7 +329,7 @@ const cursorPaginationSchema = z
   .object({ cursor: uuid.optional(), limit: z.coerce.number().int().min(1).max(100).default(25) })
   .strict();
 export const listBroadcastAutomationsQuerySchema = cursorPaginationSchema.extend({
-  enabled: z.coerce.boolean().optional()
+  enabled: z.enum(["true", "false"]).transform((value) => value === "true").optional()
 });
 export type ListBroadcastAutomationsQuery = z.infer<typeof listBroadcastAutomationsQuerySchema>;
 export const broadcastAutomationListSchema = z
