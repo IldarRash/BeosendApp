@@ -611,6 +611,12 @@ export class WaitlistService {
             ? "active"
             : undefined;
         }
+        // A notified entry owns the freed seat until it resolves. Its priority
+        // is independent of position, so a later (or even earlier) waiting
+        // entry must never be auto-promoted while one remains active.
+        if (await this.waitlist.hasNotifiedEntryForTraining(tx, trainingId)) {
+          return "active";
+        }
         const head = await this.waitlist.findHeadWaitingForUpdate(tx, trainingId);
         if (!head) {
           return (await this.waitlist.hasActiveEntryForTraining(tx, trainingId))

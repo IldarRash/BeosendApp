@@ -1,7 +1,7 @@
 import { Injectable } from "@nestjs/common";
 import { type Database, tables } from "@beosand/db";
 import type { BookingStatus, TrainingStatus, WaitlistEntry, WaitlistStatus } from "@beosand/types";
-import { type SQL, and, asc, eq, gte, inArray, isNotNull, lte, sql } from "drizzle-orm";
+import { type SQL, and, asc, eq, gte, inArray, isNotNull, lte, notExists, sql } from "drizzle-orm";
 import { DatabaseService } from "../../db/database.service";
 
 type WaitlistRow = typeof tables.waitlist.$inferSelect;
@@ -278,6 +278,25 @@ export class WaitlistRepository {
     return row !== undefined;
   }
 
+  /**
+   * Whether a notified entry still holds this training's freed seat. A notified
+   * entry has priority over every waiting entry, regardless of queue position,
+   * until it is accepted, expired, or cancelled.
+   */
+  async hasNotifiedEntryForTraining(tx: Database, trainingId: string): Promise<boolean> {
+    const [row] = await tx
+      .select({ id: tables.waitlist.id })
+      .from(tables.waitlist)
+      .where(
+        and(
+          eq(tables.waitlist.trainingId, trainingId),
+          eq(tables.waitlist.status, "notified")
+        )
+      )
+      .limit(1);
+    return row !== undefined;
+  }
+
   /** Set an entry's status (e.g. `promoted` / `cancelled`) inside the caller's transaction. */
   async setStatus(tx: Database, id: string, status: WaitlistStatus): Promise<WaitlistEntry> {
     const [row] = await tx
@@ -386,7 +405,20 @@ export class WaitlistRepository {
           eq(tables.waitlist.status, "waiting"),
           isNotNull(tables.trainings.groupId),
           eq(tables.trainings.status, "open"),
-          sql`${tables.trainings.bookedCount} < ${tables.trainings.capacity}`
+          sql`${tables.trainings.bookedCount} < ${tables.trainings.capacity}`,
+          // A notified entry owns the freed seat. Skip this training entirely;
+          // promoteNext repeats the same guard under the training lock.
+          notExists(
+            this.database.db
+              .select({ id: tables.waitlist.id })
+              .from(tables.waitlist)
+              .where(
+                and(
+                  eq(tables.waitlist.trainingId, tables.trainings.id),
+                  eq(tables.waitlist.status, "notified")
+                )
+              )
+          )
         )
       );
     return rows.map((row) => row.trainingId);
