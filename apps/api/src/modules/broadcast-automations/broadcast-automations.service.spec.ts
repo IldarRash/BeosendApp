@@ -18,7 +18,7 @@ const automation: BroadcastAutomation = {
   createdAt: now.toISOString(), updatedAt: now.toISOString(),
   trigger: { kind: "scheduled", recurrence: "daily", time: "09:30", trainingWindow: "today" },
   audience: { levelIds: [ID], activity: "active" },
-  message: { bodies: { ru: "{{groupName}}" }, defaultLanguage: "ru", outputMode: "per-training", ctaMode: "none" }
+  message: { bodies: { ru: "{groupName}" }, defaultLanguage: "ru", outputMode: "per-training", ctaMode: "none" }
 };
 const run: BroadcastAutomationRun = {
   id: RUN, automationId: ID, automationVersion: 1, triggerKind: "scheduled", sourceEventId: null,

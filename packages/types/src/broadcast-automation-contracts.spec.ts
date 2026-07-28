@@ -32,7 +32,18 @@ describe("broadcast automation contracts", () => {
     expect(broadcastAutomationRenderedItemSchema.safeParse({ trainingIds: [LEVEL, LEVEL], requestedLanguage: "ru", resolvedLanguage: "ru", usedFallback: false, text: "x", ctaMode: "booking", bookingTrainingId: LEVEL }).success).toBe(false);
   });
 
-  it("rejects unknown template placeholders before an automation can be saved", () => {
+  it("accepts the canonical broadcast-template placeholders", () => {
+    expect(
+      broadcastAutomationMessageSchema.safeParse({
+        bodies: { ru: "{groupName} {date} {startTime} {endTime} {freeSeats} {trainer} {level} {price}" },
+        defaultLanguage: "ru",
+        outputMode: "per-training",
+        ctaMode: "none"
+      }).success
+    ).toBe(true);
+  });
+
+  it("rejects unknown and malformed broadcast-template placeholders before an automation can be saved", () => {
     expect(
       broadcastAutomationMessageSchema.safeParse({
         bodies: { ru: "Привет, {{clientSecret}}" },
@@ -49,6 +60,19 @@ describe("broadcast automation contracts", () => {
         ctaMode: "none"
       }).success
     ).toBe(true);
+  });
+
+  it("rejects malformed and stray broadcast-template delimiters", () => {
+    for (const body of ["{groupName", "{groupName}}", "{unknown}", "{}"]) {
+      expect(
+        broadcastAutomationMessageSchema.safeParse({
+          bodies: { ru: body },
+          defaultLanguage: "ru",
+          outputMode: "per-training",
+          ctaMode: "none"
+        }).success
+      ).toBe(false);
+    }
   });
 
   it("enforces stale-edit guards and explicit ambiguous retry acknowledgement", () => {
