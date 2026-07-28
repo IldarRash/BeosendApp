@@ -223,6 +223,13 @@ class FakeWaitlistRepository {
     );
   }
 
+  /** A notified entry holds the free-seat claim ahead of every waiting entry. */
+  async hasNotifiedEntryForTraining(_tx: Database, trainingId: string): Promise<boolean> {
+    return this.entries.some(
+      (entry) => entry.trainingId === trainingId && entry.status === "notified"
+    );
+  }
+
   async setStatus(
     _tx: Database,
     id: string,
@@ -407,7 +414,10 @@ class FakeWaitlistRepository {
         training.id === e.trainingId &&
         training.groupId !== null &&
         training.status === "open" &&
-        training.bookedCount < training.capacity
+        training.bookedCount < training.capacity &&
+        !this.entries.some(
+          (entry) => entry.trainingId === e.trainingId && entry.status === "notified"
+        )
       ) {
         ids.add(e.trainingId);
       }
@@ -837,6 +847,41 @@ describe("WaitlistService.promoteNext (auto-book + notify)", () => {
     expect(notifications.promoted).toHaveLength(0);
   });
 
+  it("returns active and leaves a waiting entry untouched while a notified claim is active", async () => {
+    const { service, repo, notifications } = makeService();
+    repo.training = openGroupTraining(5);
+    repo.entries.push(
+      {
+        id: "notified-claim",
+        clientId: CLIENT_ID,
+        trainingId: TRAINING_ID,
+        position: 2,
+        status: "notified",
+        addedAt: new Date(),
+        notifiedAt: new Date()
+      },
+      {
+        id: "waiting-head",
+        clientId: OTHER_CLIENT_ID,
+        trainingId: TRAINING_ID,
+        position: 1,
+        status: "waiting",
+        addedAt: new Date(),
+        notifiedAt: null
+      }
+    );
+
+    await expect(service.promoteNext(TRAINING_ID)).resolves.toBe("active");
+
+    expect(repo.entries.map(({ id, status }) => ({ id, status }))).toEqual([
+      { id: "notified-claim", status: "notified" },
+      { id: "waiting-head", status: "waiting" }
+    ]);
+    expect(repo.bookings).toHaveLength(0);
+    expect(repo.training).toMatchObject({ bookedCount: 5, status: "open" });
+    expect(notifications.promoted).toHaveLength(0);
+  });
+
   it("is a no-op (swallowed) for an individual (group-less) training", async () => {
     const { service, repo, notifications } = makeService();
     repo.training = { id: TRAINING_ID, groupId: null, capacity: 6, bookedCount: 5, status: "open" };
@@ -913,6 +958,41 @@ describe("WaitlistService.sweepPromotable", () => {
       notifiedAt: null
     });
     expect(await service.sweepPromotable()).toBe(0);
+  });
+
+  it("does not select a waiting entry when a notified entry owns the free seat", async () => {
+    const { service, repo, notifications } = makeService();
+    repo.training = openGroupTraining(5);
+    repo.entries.push(
+      {
+        id: "notified-claim",
+        clientId: CLIENT_ID,
+        trainingId: TRAINING_ID,
+        position: 2,
+        status: "notified",
+        addedAt: new Date(),
+        notifiedAt: new Date()
+      },
+      {
+        id: "waiting-head",
+        clientId: OTHER_CLIENT_ID,
+        trainingId: TRAINING_ID,
+        position: 1,
+        status: "waiting",
+        addedAt: new Date(),
+        notifiedAt: null
+      }
+    );
+
+    await expect(service.sweepPromotable()).resolves.toBe(0);
+
+    expect(repo.entries.map(({ id, status }) => ({ id, status }))).toEqual([
+      { id: "notified-claim", status: "notified" },
+      { id: "waiting-head", status: "waiting" }
+    ]);
+    expect(repo.bookings).toHaveLength(0);
+    expect(repo.training).toMatchObject({ bookedCount: 5, status: "open" });
+    expect(notifications.promoted).toHaveLength(0);
   });
 });
 
