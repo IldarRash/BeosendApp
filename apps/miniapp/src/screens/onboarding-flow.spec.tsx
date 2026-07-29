@@ -136,15 +136,6 @@ afterEach(() => {
 });
 
 describe("OnboardingWizard", () => {
-  it("starts on the name step without a consent checkbox", () => {
-    renderWithProviders(<OnboardingWizard onDone={vi.fn()} />);
-
-    // Step 1 of 4 is the name step; consent is not a visible gate.
-    expect(screen.getByText("Шаг 1 из 4")).toBeTruthy();
-    expect(screen.getByPlaceholderText("Ваше имя")).toBeTruthy();
-    const next = primaryButton("Продолжить");
-    expect(next.disabled).toBe(false);
-  });
 
   it("blocks advancing past the name step while the name is empty", async () => {
     api = makeApi({ getMe: vi.fn().mockReturnValue({ ...ME, name: "" }) });
@@ -185,6 +176,7 @@ describe("OnboardingWizard", () => {
     primaryButton("Продолжить").click();
     await waitFor(() => expect(screen.getByText("Шаг 4 из 4")).toBeTruthy());
     (await screen.findByLabelText("Не указан")).click();
+    fireEvent.click(screen.getByRole("checkbox", { name: "Я соглашаюсь на такую обработку моих данных при регистрации." }));
     primaryButton("Готово").click();
 
     await waitFor(() => expect(api.onboardClient).toHaveBeenCalledTimes(1));
@@ -213,6 +205,7 @@ describe("OnboardingWizard", () => {
     primaryButton("Продолжить").click();
     await waitFor(() => expect(screen.getByText("Шаг 4 из 4")).toBeTruthy());
     (await screen.findByLabelText("Мужской")).click();
+    fireEvent.click(screen.getByRole("checkbox", { name: "Я соглашаюсь на такую обработку моих данных при регистрации." }));
     primaryButton("Готово").click();
 
     await waitFor(() => expect(api.onboardClient).toHaveBeenCalledTimes(1));
@@ -222,15 +215,33 @@ describe("OnboardingWizard", () => {
     expect(payload.telegramId).toBe(ME.telegramId);
     expect(payload.gender).toBe("male");
   });
-  it("renders all gender choices and blocks completion until one is selected", async () => {
+  it("requires explicit consent with gender and explains unspecified audience inclusion", async () => {
     renderWithProviders(<OnboardingWizard onDone={vi.fn()} />);
     await advanceToGender();
     expect(screen.getByLabelText("Мужской")).toBeTruthy();
     expect(screen.getByLabelText("Женский")).toBeTruthy();
     expect(screen.getByLabelText("Не указан")).toBeTruthy();
+
+    const notice = screen.getByText(
+      "Мы обрабатываем данные вашей регистрации, включая выбранный пол, для предоставления услуг и целевых рассылок. Если вы выберете \"Не указан\", вы все равно можете попасть в аудитории и для мужчин, и для женщин."
+    );
+    expect(notice.getAttribute("id")).toBe("onboarding-consent-notice");
+
+    const consent = screen.getByRole("checkbox", {
+      name: "Я соглашаюсь на такую обработку моих данных при регистрации."
+    }) as HTMLInputElement;
+    expect(consent.checked).toBe(false);
+    expect(consent.getAttribute("aria-describedby")).toBe("onboarding-consent-notice");
     expect(primaryButton("Готово").disabled).toBe(true);
-    primaryButton("Готово").click();
-    expect(api.onboardClient).not.toHaveBeenCalled();
+
+    // "Unspecified" is a valid choice, but consent remains an explicit gate.
+    fireEvent.click(screen.getByLabelText("Не указан"));
+    expect((screen.getByLabelText("Не указан") as HTMLInputElement).checked).toBe(true);
+    expect(primaryButton("Готово").disabled).toBe(true);
+
+    fireEvent.click(consent);
+    expect(consent.checked).toBe(true);
+    expect(primaryButton("Готово").disabled).toBe(false);
   });
 
   it("preserves level and gender state when navigating back", async () => {
@@ -258,6 +269,7 @@ describe("OnboardingWizard", () => {
     renderWithProviders(<OnboardingWizard onDone={onDone} />);
     await advanceToGender();
     (await screen.findByLabelText("Не указан")).click();
+    fireEvent.click(screen.getByRole("checkbox", { name: "Я соглашаюсь на такую обработку моих данных при регистрации." }));
     primaryButton("Готово").click();
     await waitFor(() => expect(screen.getByRole("alert").textContent).toContain("boom"));
     expect(onboardClient).toHaveBeenCalledTimes(1);

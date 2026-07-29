@@ -18,6 +18,11 @@ export const miniappSr: Record<string, string> = {
   "miniapp.onboarding.genderMale": "Muški",
   "miniapp.onboarding.genderFemale": "Ženski",
   "miniapp.onboarding.genderUnspecified": "Nije navedeno",
+  "miniapp.onboarding.genderRequired": "Izaberite pol da biste nastavili.",
+  "miniapp.onboarding.consentNotice":
+    "Obrađujemo podatke iz registracije, uključujući izabrani pol, radi pružanja usluga i ciljanog slanja obaveštenja. Ako izaberete \"Nije navedeno\", i dalje možete biti uključeni u publiku i za muškarce i za žene.",
+  "miniapp.onboarding.consentLabel": "Saglasan/saglasna sam sa ovom obradom mojih podataka iz registracije.",
+  "miniapp.onboarding.consentRequired": "Potvrdite saglasnost da biste nastavili.",
 
   // --- Primary actions ---
   "miniapp.action.continue": "Nastavi",

@@ -112,15 +112,17 @@ describe("BroadcastAutomationsRepository query invariants", () => {
     expect(query(state.where.at(-1)).params).toEqual(expect.arrayContaining([levelA, levelB, "female", "unspecified"]));
   });
 
-  it("rechecks one client against the same predicate and returns only its current Telegram id", async () => {
+  it("rechecks one client against the same predicate and its materialized delivery Telegram id", async () => {
     const state = selectDb([[{ clientId: "client-a", telegramId: 987, language: "en" }]]);
-    await expect(repo(state.db).recipientStillEligible("client-a", audience([{ dimension: "gender", value: "male" }]), now)).resolves.toEqual({
+    await expect(repo(state.db).recipientStillEligible("client-a", 987, audience([{ dimension: "gender", value: "male" }]), now)).resolves.toEqual({
       clientId: "client-a", telegramId: 987, language: "en"
     });
     const sql = render(state.where.at(-1));
     expect(sql).toContain('"clients"."id" =');
     expect(sql).toContain('"clients"."status" =');
     expect(sql).toContain('"clients"."telegram_id" is not null');
+    expect(sql).toContain('"clients"."telegram_id" =');
+    expect(query(state.where.at(-1)).params).toContain(987);
   });
 
   it("filters run history by automation, trigger, status, and inclusive time window", async () => {

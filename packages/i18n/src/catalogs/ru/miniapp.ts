@@ -23,6 +23,11 @@ export const miniappRu: Record<string, string> = {
   "miniapp.onboarding.genderMale": "Мужской",
   "miniapp.onboarding.genderFemale": "Женский",
   "miniapp.onboarding.genderUnspecified": "Не указан",
+  "miniapp.onboarding.genderRequired": "Выберите пол, чтобы продолжить.",
+  "miniapp.onboarding.consentNotice":
+    "Мы обрабатываем данные вашей регистрации, включая выбранный пол, для предоставления услуг и целевых рассылок. Если вы выберете \"Не указан\", вы все равно можете попасть в аудитории и для мужчин, и для женщин.",
+  "miniapp.onboarding.consentLabel": "Я соглашаюсь на такую обработку моих данных при регистрации.",
+  "miniapp.onboarding.consentRequired": "Подтвердите согласие, чтобы продолжить.",
 
   // --- Primary actions ---
   "miniapp.action.continue": "Продолжить",

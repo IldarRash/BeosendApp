@@ -91,8 +91,9 @@ export class BroadcastAutomationsRepository {
     const rows = await this.database.db.select({ clientId: tables.clients.id, telegramId: tables.clients.telegramId, language: tables.clients.language }).from(tables.clients).where(this.audiencePredicate(audience, now));
     return rows.filter((row): row is AutomationRecipient => row.telegramId !== null);
   }
-  async recipientStillEligible(clientId: string, audience: BroadcastAutomationAudience, now: Date): Promise<AutomationRecipient | undefined> {
-    const [row] = await this.database.db.select({ clientId: tables.clients.id, telegramId: tables.clients.telegramId, language: tables.clients.language }).from(tables.clients).where(and(eq(tables.clients.id, clientId), this.audiencePredicate(audience, now))).limit(1);
+  /** The delivery's Telegram identity is immutable: a later client re-link must not retarget it. */
+  async recipientStillEligible(clientId: string, telegramId: number, audience: BroadcastAutomationAudience, now: Date): Promise<AutomationRecipient | undefined> {
+    const [row] = await this.database.db.select({ clientId: tables.clients.id, telegramId: tables.clients.telegramId, language: tables.clients.language }).from(tables.clients).where(and(eq(tables.clients.id, clientId), eq(tables.clients.telegramId, telegramId), this.audiencePredicate(audience, now))).limit(1);
     if (!row || row.telegramId === null) return undefined;
     return row as AutomationRecipient;
   }

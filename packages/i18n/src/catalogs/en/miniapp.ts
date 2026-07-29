@@ -18,6 +18,11 @@ export const miniappEn: Record<string, string> = {
   "miniapp.onboarding.genderMale": "Male",
   "miniapp.onboarding.genderFemale": "Female",
   "miniapp.onboarding.genderUnspecified": "Not specified",
+  "miniapp.onboarding.genderRequired": "Choose a gender to continue.",
+  "miniapp.onboarding.consentNotice":
+    "We process your onboarding data, including the gender you select, to provide our services and target broadcast audiences. If you choose \"Not specified\", you may still be included in both male and female audiences.",
+  "miniapp.onboarding.consentLabel": "I consent to this processing of my onboarding data.",
+  "miniapp.onboarding.consentRequired": "Please confirm your consent to continue.",
 
   // --- Primary actions ---
   "miniapp.action.continue": "Continue",

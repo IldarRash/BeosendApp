@@ -190,7 +190,33 @@ describe("BroadcastAutomationsService", () => {
 
     expect(r.createRetryRun).toHaveBeenCalledWith(run, [DELIVERY], false);
     expect(r.createRetryRun).not.toHaveBeenCalledWith(run, undefined, expect.anything());
+    expect(r.recipientStillEligible).toHaveBeenCalledWith(retryDelivery.clientId, retryDelivery.telegramId, automation.audience, expect.any(Date));
+    expect(sender.sendMessageWithOutcome).toHaveBeenCalledWith(retryDelivery.telegramId, "x", undefined);
     expect(r.finishDelivery).toHaveBeenCalledWith(DELIVERY, "sent", null);
+  });
+
+  it.each([
+    ["changed", 456],
+    ["removed", null]
+  ])("does not retarget a manual retry when the current Telegram identity is %s", async (_identityState, currentTelegramId) => {
+    const retryRun = { ...run, id: "55555555-5555-4555-8555-555555555555", originalRunId: RUN, configSnapshot: { ...run.configSnapshot, trigger: { kind: "training-created" } } };
+    const retryDelivery = {
+      id: DELIVERY, runItemId: ITEM, clientId: recipient.clientId, telegramId: recipient.telegramId, requestedLanguage: "ru",
+      payloadSnapshot: { trainingIds: [ID], requestedLanguage: "ru", resolvedLanguage: "ru", usedFallback: false, text: "x", ctaMode: "none", bookingTrainingId: null }, outcome: "claimed"
+    };
+    r.detail.mockResolvedValue({ run, items: [], trainings: [], deliveries: [] });
+    r.createRetryRun.mockResolvedValue({ run: retryRun, deliveries: [retryDelivery] });
+    r.find.mockResolvedValue({ ...automation, trigger: { kind: "training-created" } });
+    r.eligibleTrainings.mockResolvedValue([{ trainingId: ID }]);
+    r.recipientStillEligible.mockImplementation((async (_clientId: string, telegramId: number): Promise<AutomationRecipient | undefined> => telegramId === currentTelegramId ? recipient : undefined) as never);
+    const sender = (service as unknown as { sender: { sendMessageWithOutcome: ReturnType<typeof vi.fn> } }).sender;
+
+    await service.retry(ADMIN, RUN, { deliveryIds: [DELIVERY], includeAmbiguous: false });
+
+    expect(r.recipientStillEligible).toHaveBeenCalledWith(retryDelivery.clientId, retryDelivery.telegramId, automation.audience, expect.any(Date));
+    expect(r.skipDelivery).toHaveBeenCalledWith(retryDelivery.id, "audience-no-longer-eligible");
+    expect(sender.sendMessageWithOutcome).not.toHaveBeenCalled();
+    expect(r.finishDelivery).not.toHaveBeenCalled();
   });
 
   it("does not retry a successful, unselected, or ambiguous delivery without explicit acknowledgement", async () => {
@@ -228,7 +254,7 @@ describe("BroadcastAutomationsService", () => {
     r.qualifyingTrainings.mockResolvedValue([{ trainingId: ID, date: "2026-10-25", startTime: "18:00", endTime: "19:00", groupName: "Original", levelName: "L", trainerName: "T", freeSeats: 1 }] as never);
     r.audience.mockResolvedValue([recipient]);
     r.createItem.mockResolvedValue({ id: ITEM });
-    r.claimDelivery.mockResolvedValue({ id: DELIVERY });
+    r.claimDelivery.mockResolvedValue({ id: DELIVERY, clientId: recipient.clientId, telegramId: recipient.telegramId });
     const sender = (service as unknown as { sender: { sendMessageWithOutcome: ReturnType<typeof vi.fn> } }).sender;
     sender.sendMessageWithOutcome.mockResolvedValue({ kind: "sent" });
 
@@ -244,36 +270,39 @@ describe("BroadcastAutomationsService", () => {
     r.qualifyingTrainings.mockResolvedValue([{ trainingId: ID, date: "2026-10-25", startTime: "18:00", endTime: "19:00", groupName: "One", levelName: "L", trainerName: "T", freeSeats: 1 }] as never);
     r.audience.mockResolvedValue([recipient]);
     r.createItem.mockResolvedValue({ id: ITEM });
-    r.claimDelivery.mockResolvedValue({ id: DELIVERY });
+    r.claimDelivery.mockResolvedValue({ id: DELIVERY, clientId: recipient.clientId, telegramId: recipient.telegramId });
     r.recipientStillEligible.mockResolvedValue(undefined);
     const sender = (service as unknown as { sender: { sendMessageWithOutcome: ReturnType<typeof vi.fn> } }).sender;
 
     await service.sweep(now);
 
     expect(r.claimDelivery).toHaveBeenCalledWith(RUN, ITEM, recipient, expect.any(Object));
-    expect(r.recipientStillEligible).toHaveBeenCalledWith(recipient.clientId, automation.audience, expect.any(Date));
+    expect(r.recipientStillEligible).toHaveBeenCalledWith(recipient.clientId, recipient.telegramId, automation.audience, expect.any(Date));
     expect(r.skipDelivery).toHaveBeenCalledWith(DELIVERY, "audience-no-longer-eligible");
     expect(sender.sendMessageWithOutcome).not.toHaveBeenCalled();
     expect(r.completeRun).toHaveBeenCalledWith(RUN, expect.objectContaining({ attempted: 0, skippedDeliveries: 1 }));
   });
 
-  it("uses the Telegram id returned by the post-claim eligibility recheck", async () => {
+  it.each([
+    ["changed", 456],
+    ["removed", null]
+  ])("does not retarget an automatic delivery when the current Telegram identity is %s", async (_identityState, currentTelegramId) => {
     const claimed = { ...run, configSnapshot: { name: automation.name, trigger: automation.trigger, audience: automation.audience, message: automation.message } };
-    const currentRecipient = { ...recipient, telegramId: 456 };
     r.listDue.mockResolvedValue([claimed]);
     r.claimRun.mockResolvedValue(claimed);
     r.qualifyingTrainings.mockResolvedValue([{ trainingId: ID, date: "2026-10-25", startTime: "18:00", endTime: "19:00", groupName: "One", levelName: "L", trainerName: "T", freeSeats: 1 }] as never);
     r.audience.mockResolvedValue([recipient]);
     r.createItem.mockResolvedValue({ id: ITEM });
-    r.claimDelivery.mockResolvedValue({ id: DELIVERY });
-    r.recipientStillEligible.mockResolvedValue(currentRecipient);
+    r.claimDelivery.mockResolvedValue({ id: DELIVERY, clientId: recipient.clientId, telegramId: recipient.telegramId });
+    r.recipientStillEligible.mockImplementation((async (_clientId: string, telegramId: number): Promise<AutomationRecipient | undefined> => telegramId === currentTelegramId ? recipient : undefined) as never);
     const sender = (service as unknown as { sender: { sendMessageWithOutcome: ReturnType<typeof vi.fn> } }).sender;
-    sender.sendMessageWithOutcome.mockResolvedValue({ kind: "sent" });
 
     await service.sweep(now);
 
-    expect(sender.sendMessageWithOutcome).toHaveBeenCalledWith(456, "One", undefined);
-    expect(sender.sendMessageWithOutcome).not.toHaveBeenCalledWith(123, expect.anything(), expect.anything());
+    expect(r.recipientStillEligible).toHaveBeenCalledWith(recipient.clientId, recipient.telegramId, automation.audience, expect.any(Date));
+    expect(r.skipDelivery).toHaveBeenCalledWith(DELIVERY, "audience-no-longer-eligible");
+    expect(sender.sendMessageWithOutcome).not.toHaveBeenCalled();
+    expect(r.finishDelivery).not.toHaveBeenCalled();
   });
 
   it("records each per-training item against only its own training evidence", async () => {
@@ -320,14 +349,14 @@ describe("BroadcastAutomationsService", () => {
     r.eventTraining.mockResolvedValue(training);
     r.audience.mockResolvedValue([recipient]);
     r.createItem.mockResolvedValue({ id: ITEM });
-    r.claimDelivery.mockResolvedValue({ id: DELIVERY });
+    r.claimDelivery.mockResolvedValue({ id: DELIVERY, clientId: recipient.clientId, telegramId: recipient.telegramId });
     r.hasFreedPlaceExclusion.mockResolvedValue(true);
     const sender = (service as unknown as { sender: { sendMessageWithOutcome: ReturnType<typeof vi.fn> } }).sender;
 
     await service.sweep(now);
 
     expect(r.skipDelivery).toHaveBeenCalledWith(DELIVERY, "mandatory-exclusion");
-    expect(r.recipientStillEligible).toHaveBeenCalledWith(recipient.clientId, automation.audience, expect.any(Date));
+    expect(r.recipientStillEligible).toHaveBeenCalledWith(recipient.clientId, recipient.telegramId, automation.audience, expect.any(Date));
     expect(r.hasFreedPlaceExclusion).toHaveBeenCalledWith("freed-place:booking-1", recipient.clientId, [ID]);
     expect(r.recipientStillEligible.mock.invocationCallOrder[0]).toBeLessThan(r.hasFreedPlaceExclusion.mock.invocationCallOrder[0] ?? Infinity);
     expect(sender.sendMessageWithOutcome).not.toHaveBeenCalled();

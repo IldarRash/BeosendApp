@@ -38,6 +38,7 @@ export function OnboardingWizard({ onDone }: OnboardingWizardProps): JSX.Element
   const [language, setLanguageSel] = useState<Locale>(asLocale(me?.language));
   const [levelId, setLevelId] = useState<string>(NO_LEVEL);
   const [gender, setGender] = useState<ClientGender | null>(null);
+  const [consentAccepted, setConsentAccepted] = useState(false);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
 
   const levels = useLevels();
@@ -50,7 +51,12 @@ export function OnboardingWizard({ onDone }: OnboardingWizardProps): JSX.Element
   const goBack = useCallback(() => setStep((s) => Math.max(0, s - 1)), []);
 
   const submit = useCallback(async () => {
-    if (!me || gender === null) {
+    if (!me || gender === null || !consentAccepted) {
+      setErrorMessage(
+        gender === null
+          ? t("miniapp.onboarding.genderRequired")
+          : t("miniapp.onboarding.consentRequired")
+      );
       return;
     }
     setErrorMessage(null);
@@ -58,9 +64,7 @@ export function OnboardingWizard({ onDone }: OnboardingWizardProps): JSX.Element
       await onboard.mutateAsync({
         telegramId: me.telegramId,
         name: trimmedName,
-        // Keep the current API contract stable while the UI no longer asks for
-        // an explicit onboarding checkbox.
-        consentAccepted: true,
+        consentAccepted,
         gender,
         // Opt-out maps to omitting levelId entirely (level is optional), never a fake id.
         ...(levelId !== NO_LEVEL ? { levelId } : {})
@@ -74,7 +78,7 @@ export function OnboardingWizard({ onDone }: OnboardingWizardProps): JSX.Element
     } catch (err) {
       setErrorMessage(err instanceof Error ? err.message : t("miniapp.common.error"));
     }
-  }, [me, onboard, trimmedName, levelId, gender, language, setServerLanguage, onDone, t]);
+  }, [me, onboard, trimmedName, levelId, gender, consentAccepted, language, setServerLanguage, onDone, t]);
 
   const isLastStep = step === 3;
   const mainText = isLastStep ? t("miniapp.action.done") : t("miniapp.action.continue");
@@ -101,7 +105,7 @@ export function OnboardingWizard({ onDone }: OnboardingWizardProps): JSX.Element
   useMainButton({
     text: mainText,
     onClick: onMainClick,
-    isEnabled: step === 0 ? nameValid : step === 3 ? gender !== null : true,
+    isEnabled: step === 0 ? nameValid : step === 3 ? gender !== null && consentAccepted : true,
     isLoading: submitting
   });
   useBackButton(step > 0, goBack);
@@ -127,6 +131,13 @@ export function OnboardingWizard({ onDone }: OnboardingWizardProps): JSX.Element
     }
     hapticSelection();
     setGender(next);
+  }, []);
+
+  const onConsentChange = useCallback((checked: boolean) => {
+    setConsentAccepted(checked);
+    if (checked) {
+      setErrorMessage(null);
+    }
   }, []);
 
   const languageOptions = useMemo<ReadonlyArray<Option<Locale>>>(
@@ -204,13 +215,30 @@ export function OnboardingWizard({ onDone }: OnboardingWizardProps): JSX.Element
         ))}
 
       {step === 3 && (
-        <OptionList
-          name="onboarding-gender"
-          header={t("miniapp.onboarding.genderHeader")}
-          options={genderOptions}
-          selected={gender ?? undefined}
-          onSelect={onPickGender}
-        />
+        <>
+          <OptionList
+            name="onboarding-gender"
+            header={t("miniapp.onboarding.genderHeader")}
+            options={genderOptions}
+            selected={gender ?? undefined}
+            onSelect={onPickGender}
+          />
+          <div className="note" id="onboarding-consent-notice">
+            {t("miniapp.onboarding.consentNotice")}
+          </div>
+          <div className="card">
+            <label htmlFor="onboarding-consent">
+              <input
+                id="onboarding-consent"
+                type="checkbox"
+                checked={consentAccepted}
+                aria-describedby="onboarding-consent-notice"
+                onChange={(event) => onConsentChange(event.target.checked)}
+              />{" "}
+              {t("miniapp.onboarding.consentLabel")}
+            </label>
+          </div>
+        </>
       )}
 
       {errorMessage && (
@@ -226,7 +254,7 @@ export function OnboardingWizard({ onDone }: OnboardingWizardProps): JSX.Element
       <FallbackButton
         text={mainText}
         onClick={onMainClick}
-        disabled={step === 0 ? !nameValid : step === 3 ? gender === null : false}
+        disabled={step === 0 ? !nameValid : step === 3 ? gender === null || !consentAccepted : false}
         loading={submitting}
       />
     </div>
