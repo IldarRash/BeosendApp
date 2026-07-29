@@ -5,7 +5,7 @@
  */
 export const miniappEn: Record<string, string> = {
   // --- Onboarding wizard ---
-  "miniapp.onboarding.step": "Step {n} of 3",
+  "miniapp.onboarding.step": "Step {n} of 4",
   "miniapp.onboarding.nameHeader": "What is your name?",
   "miniapp.onboarding.nameHint": "Your coach will see you under this name.",
   "miniapp.onboarding.namePlaceholder": "Your name",
@@ -13,6 +13,11 @@ export const miniappEn: Record<string, string> = {
   "miniapp.onboarding.levelHeader": "Your level",
   "miniapp.onboarding.levelFooter": "You can choose later",
   "miniapp.onboarding.levelSkip": "Not sure yet",
+
+  "miniapp.onboarding.genderHeader": "Gender",
+  "miniapp.onboarding.genderMale": "Male",
+  "miniapp.onboarding.genderFemale": "Female",
+  "miniapp.onboarding.genderUnspecified": "Not specified",
 
   // --- Primary actions ---
   "miniapp.action.continue": "Continue",

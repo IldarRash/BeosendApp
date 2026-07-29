@@ -5,7 +5,7 @@
  */
 export const miniappSr: Record<string, string> = {
   // --- Onboarding wizard ---
-  "miniapp.onboarding.step": "Korak {n} od 3",
+  "miniapp.onboarding.step": "Korak {n} od 4",
   "miniapp.onboarding.nameHeader": "Kako se zovete?",
   "miniapp.onboarding.nameHint": "Pod ovim imenom vas vidi trener.",
   "miniapp.onboarding.namePlaceholder": "Vaše ime",
@@ -13,6 +13,11 @@ export const miniappSr: Record<string, string> = {
   "miniapp.onboarding.levelHeader": "Vaš nivo",
   "miniapp.onboarding.levelFooter": "Možete izabrati kasnije",
   "miniapp.onboarding.levelSkip": "Još ne znam",
+
+  "miniapp.onboarding.genderHeader": "Pol",
+  "miniapp.onboarding.genderMale": "Muški",
+  "miniapp.onboarding.genderFemale": "Ženski",
+  "miniapp.onboarding.genderUnspecified": "Nije navedeno",
 
   // --- Primary actions ---
   "miniapp.action.continue": "Nastavi",

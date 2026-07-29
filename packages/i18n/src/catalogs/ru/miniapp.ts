@@ -10,7 +10,7 @@
  */
 export const miniappRu: Record<string, string> = {
   // --- Onboarding wizard ---
-  "miniapp.onboarding.step": "Шаг {n} из 3",
+  "miniapp.onboarding.step": "Шаг {n} из 4",
   "miniapp.onboarding.nameHeader": "Как вас зовут?",
   "miniapp.onboarding.nameHint": "Под этим именем вас увидит тренер.",
   "miniapp.onboarding.namePlaceholder": "Ваше имя",
@@ -18,6 +18,11 @@ export const miniappRu: Record<string, string> = {
   "miniapp.onboarding.levelHeader": "Ваш уровень",
   "miniapp.onboarding.levelFooter": "Можно выбрать позже",
   "miniapp.onboarding.levelSkip": "Пока не знаю",
+
+  "miniapp.onboarding.genderHeader": "Пол",
+  "miniapp.onboarding.genderMale": "Мужской",
+  "miniapp.onboarding.genderFemale": "Женский",
+  "miniapp.onboarding.genderUnspecified": "Не указан",
 
   // --- Primary actions ---
   "miniapp.action.continue": "Продолжить",

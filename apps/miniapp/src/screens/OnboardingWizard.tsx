@@ -1,5 +1,6 @@
 import { useCallback, useMemo, useState } from "react";
 import { LOCALES, asLocale, localeLabel, type Locale } from "@beosand/i18n";
+import type { ClientGender } from "@beosand/types";
 import { useApiClient } from "../api/ApiProvider";
 import { useLevels, useOnboard, useSetLanguage } from "../api/hooks";
 import { useLanguage, useT } from "../i18n/LanguageProvider";
@@ -36,6 +37,7 @@ export function OnboardingWizard({ onDone }: OnboardingWizardProps): JSX.Element
   const [name, setName] = useState(me?.name ?? "");
   const [language, setLanguageSel] = useState<Locale>(asLocale(me?.language));
   const [levelId, setLevelId] = useState<string>(NO_LEVEL);
+  const [gender, setGender] = useState<ClientGender | null>(null);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
 
   const levels = useLevels();
@@ -48,7 +50,7 @@ export function OnboardingWizard({ onDone }: OnboardingWizardProps): JSX.Element
   const goBack = useCallback(() => setStep((s) => Math.max(0, s - 1)), []);
 
   const submit = useCallback(async () => {
-    if (!me) {
+    if (!me || gender === null) {
       return;
     }
     setErrorMessage(null);
@@ -59,6 +61,7 @@ export function OnboardingWizard({ onDone }: OnboardingWizardProps): JSX.Element
         // Keep the current API contract stable while the UI no longer asks for
         // an explicit onboarding checkbox.
         consentAccepted: true,
+        gender,
         // Opt-out maps to omitting levelId entirely (level is optional), never a fake id.
         ...(levelId !== NO_LEVEL ? { levelId } : {})
       });
@@ -71,9 +74,9 @@ export function OnboardingWizard({ onDone }: OnboardingWizardProps): JSX.Element
     } catch (err) {
       setErrorMessage(err instanceof Error ? err.message : t("miniapp.common.error"));
     }
-  }, [me, onboard, trimmedName, levelId, language, setServerLanguage, onDone, t]);
+  }, [me, onboard, trimmedName, levelId, gender, language, setServerLanguage, onDone, t]);
 
-  const isLastStep = step === 2;
+  const isLastStep = step === 3;
   const mainText = isLastStep ? t("miniapp.action.done") : t("miniapp.action.continue");
   const nameValid = trimmedName.length >= 1;
 
@@ -88,13 +91,17 @@ export function OnboardingWizard({ onDone }: OnboardingWizardProps): JSX.Element
       setStep(2);
       return;
     }
+    if (step === 2) {
+      setStep(3);
+      return;
+    }
     void submit();
   }, [step, nameValid, submit]);
 
   useMainButton({
     text: mainText,
     onClick: onMainClick,
-    isEnabled: step === 0 ? nameValid : true,
+    isEnabled: step === 0 ? nameValid : step === 3 ? gender !== null : true,
     isLoading: submitting
   });
   useBackButton(step > 0, goBack);
@@ -114,6 +121,14 @@ export function OnboardingWizard({ onDone }: OnboardingWizardProps): JSX.Element
     setLevelId(next);
   }, []);
 
+  const onPickGender = useCallback((next: ClientGender | undefined) => {
+    if (!next) {
+      return;
+    }
+    hapticSelection();
+    setGender(next);
+  }, []);
+
   const languageOptions = useMemo<ReadonlyArray<Option<Locale>>>(
     () => LOCALES.map((value) => ({ value, label: localeLabel[value] })),
     []
@@ -124,6 +139,15 @@ export function OnboardingWizard({ onDone }: OnboardingWizardProps): JSX.Element
     const active = (levels.data ?? []).map((lvl) => ({ value: lvl.id, label: lvl.name }));
     return [skip, ...active];
   }, [levels.data, t]);
+
+  const genderOptions = useMemo<ReadonlyArray<Option<ClientGender | undefined>>>(
+    () => [
+      { value: "male", label: t("miniapp.onboarding.genderMale") },
+      { value: "female", label: t("miniapp.onboarding.genderFemale") },
+      { value: "unspecified", label: t("miniapp.onboarding.genderUnspecified") }
+    ],
+    [t]
+  );
 
   return (
     <div className="screen" aria-busy={submitting || undefined}>
@@ -179,6 +203,16 @@ export function OnboardingWizard({ onDone }: OnboardingWizardProps): JSX.Element
           />
         ))}
 
+      {step === 3 && (
+        <OptionList
+          name="onboarding-gender"
+          header={t("miniapp.onboarding.genderHeader")}
+          options={genderOptions}
+          selected={gender ?? undefined}
+          onSelect={onPickGender}
+        />
+      )}
+
       {errorMessage && (
         <div className="note" role="alert">
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={1.8} strokeLinecap="round" strokeLinejoin="round" aria-hidden="true" focusable="false">
@@ -192,7 +226,7 @@ export function OnboardingWizard({ onDone }: OnboardingWizardProps): JSX.Element
       <FallbackButton
         text={mainText}
         onClick={onMainClick}
-        disabled={step === 0 ? !nameValid : false}
+        disabled={step === 0 ? !nameValid : step === 3 ? gender === null : false}
         loading={submitting}
       />
     </div>
