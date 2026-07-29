@@ -24,11 +24,38 @@ describe("broadcast automation contracts", () => {
     expect(broadcastAutomationTriggerSchema.safeParse({ kind: "freed-place" }).success).toBe(true);
   });
 
-  it("rejects schedule ambiguity, duplicate audience levels, and unknown fields", () => {
+  it("accepts all seven non-empty audience dimension combinations in arbitrary order", () => {
+    const level = { dimension: "level" as const, levelIds: [LEVEL] };
+    const activity = { dimension: "activity" as const, value: "active" as const };
+    const gender = { dimension: "gender" as const, value: "female" as const };
+
+    for (const filters of [
+      [level], [activity], [gender], [level, activity], [activity, gender], [gender, level], [gender, activity, level]
+    ]) {
+      expect(broadcastAutomationAudienceSchema.parse({ filters })).toEqual({ filters });
+    }
+  });
+
+  it("keeps level selection as OR while distinct audience dimensions form AND", () => {
+    const audience = {
+      filters: [
+        { dimension: "gender" as const, value: "male" as const },
+        { dimension: "level" as const, levelIds: [LEVEL, "22222222-2222-4222-8222-222222222222"] },
+        { dimension: "activity" as const, value: "inactive" as const }
+      ]
+    };
+    expect(broadcastAutomationAudienceSchema.parse(audience)).toEqual(audience);
+  });
+
+  it("rejects schedule ambiguity and invalid audience shapes", () => {
     expect(broadcastAutomationTriggerSchema.safeParse({ kind: "scheduled", recurrence: "weekly", weekdays: [1, 1], time: "09:30", trainingWindow: "week" }).success).toBe(false);
     expect(broadcastAutomationTriggerSchema.safeParse({ kind: "scheduled", recurrence: "daily", date: "2026-08-01", time: "09:30", trainingWindow: "today" }).success).toBe(false);
-    expect(broadcastAutomationAudienceSchema.safeParse({ levelIds: [LEVEL, LEVEL], activity: "active" }).success).toBe(false);
-    expect(broadcastAutomationAudienceSchema.safeParse({ levelIds: [LEVEL], activity: "active", legacy: true }).success).toBe(false);
+    expect(broadcastAutomationAudienceSchema.safeParse({ filters: [] }).success).toBe(false);
+    expect(broadcastAutomationAudienceSchema.safeParse({ filters: [{ dimension: "level", levelIds: [LEVEL, LEVEL] }] }).success).toBe(false);
+    expect(broadcastAutomationAudienceSchema.safeParse({ filters: [{ dimension: "gender", value: "unknown" }] }).success).toBe(false);
+    expect(broadcastAutomationAudienceSchema.safeParse({ filters: [{ dimension: "level", levelIds: [LEVEL] }, { dimension: "activity", value: "active" }, { dimension: "gender", value: "female" }, { dimension: "gender", value: "male" }] }).success).toBe(false);
+    expect(broadcastAutomationAudienceSchema.safeParse({ filters: [{ dimension: "level", levelIds: [LEVEL] }], legacy: true }).success).toBe(false);
+    expect(broadcastAutomationAudienceSchema.safeParse({ levelIds: [LEVEL], activity: "active" }).success).toBe(false);
   });
 
   it("requires a default body and prevents booking CTAs for digests", () => {
@@ -119,7 +146,7 @@ describe("broadcast automation contracts", () => {
         id: "22222222-2222-4222-8222-222222222222", automationId: LEVEL, automationVersion: 1,
         triggerKind: "scheduled", sourceEventId: null, scheduledFor: null, dueAt: "2026-08-01T07:30:00.000Z",
         status: "completed", skipReason: null, originalRunId: null,
-        configSnapshot: { name: "Morning", trigger: { kind: "scheduled", recurrence: "daily", time: "09:30", trainingWindow: "today" }, audience: { levelIds: [LEVEL], activity: "active" }, message: { bodies: { ru: "x" }, defaultLanguage: "ru", outputMode: "per-training", ctaMode: "none" } },
+        configSnapshot: { name: "Morning", trigger: { kind: "scheduled", recurrence: "daily", time: "09:30", trainingWindow: "today" }, audience: { filters: [{ dimension: "level", levelIds: [LEVEL] }, { dimension: "activity", value: "active" }] }, message: { bodies: { ru: "x" }, defaultLanguage: "ru", outputMode: "per-training", ctaMode: "none" } },
         counts: { selectedTrainings: 1, includedTrainings: 1, skippedTrainings: 0, recipients: 0, attempted: 0, sent: 0, failed: 0, ambiguous: 0, skippedDeliveries: 0 },
         createdAt: "2026-08-01T07:30:00.000Z", startedAt: null, completedAt: "2026-08-01T07:30:00.000Z"
       }, items: [], trainings: [{ id: "33333333-3333-4333-8333-333333333333", runId: "22222222-2222-4222-8222-222222222222", runItemId: "44444444-4444-4444-8444-444444444444", trainingId: LEVEL, outcome: "included", skipReason: null, trainingSnapshot: training, createdAt: "2026-08-01T07:30:00.000Z" }], deliveries: []

@@ -16,6 +16,7 @@ describe("onboardClientSchema (POST /clients/onboard body)", () => {
       telegramUsername: "anya",
       name: "Аня",
       levelId: UUID,
+      gender: "female",
       consentAccepted: true
     });
     expect(parsed).toEqual({
@@ -23,6 +24,7 @@ describe("onboardClientSchema (POST /clients/onboard body)", () => {
       telegramUsername: "anya",
       name: "Аня",
       levelId: UUID,
+      gender: "female",
       consentAccepted: true
     });
   });
@@ -30,8 +32,8 @@ describe("onboardClientSchema (POST /clients/onboard body)", () => {
   // Identity is the numeric telegram_id; username is optional context. A user
   // without a username must still be able to complete onboarding.
   it("accepts a body without a username (user has no @handle)", () => {
-    const parsed = onboardClientSchema.parse({ telegramId: 42, name: "Аня", consentAccepted: true });
-    expect(parsed).toEqual({ telegramId: 42, name: "Аня", consentAccepted: true });
+    const parsed = onboardClientSchema.parse({ telegramId: 42, name: "Аня", gender: "female", consentAccepted: true });
+    expect(parsed).toEqual({ telegramId: 42, name: "Аня", gender: "female", consentAccepted: true });
   });
 
   it("accepts an explicit null username", () => {
@@ -39,6 +41,7 @@ describe("onboardClientSchema (POST /clients/onboard body)", () => {
       telegramId: 42,
       name: "Аня",
       telegramUsername: null,
+      gender: "female",
       consentAccepted: true
     });
     expect(parsed.telegramUsername).toBeNull();
@@ -47,47 +50,47 @@ describe("onboardClientSchema (POST /clients/onboard body)", () => {
   // null/omitted levelId is the valid "Не знаю" case -> persists level_id = NULL.
   it("accepts a null levelId (the 'Не знаю' case)", () => {
     expect(
-      onboardClientSchema.parse({ telegramId: 42, name: "Аня", levelId: null, consentAccepted: true })
+      onboardClientSchema.parse({ telegramId: 42, name: "Аня", levelId: null, gender: "female", consentAccepted: true })
         .levelId
     ).toBeNull();
   });
 
   it("accepts an omitted levelId", () => {
-    const parsed = onboardClientSchema.parse({ telegramId: 42, name: "Аня", consentAccepted: true });
+    const parsed = onboardClientSchema.parse({ telegramId: 42, name: "Аня", gender: "female", consentAccepted: true });
     expect(parsed.levelId).toBeUndefined();
   });
 
   // Consent is the new mandatory gate: onboarding is refused without an explicit
   // affirmative opt-in. These three pin the literal-true contract.
   it("rejects a body without consentAccepted (consent is mandatory)", () => {
-    expect(onboardClientSchema.safeParse({ telegramId: 42, name: "Аня" }).success).toBe(false);
+    expect(onboardClientSchema.safeParse({ telegramId: 42, name: "Аня", gender: "female" }).success).toBe(false);
   });
 
   it("rejects consentAccepted false (affirmative opt-in required)", () => {
     expect(
-      onboardClientSchema.safeParse({ telegramId: 42, name: "Аня", consentAccepted: false }).success
+      onboardClientSchema.safeParse({ telegramId: 42, name: "Аня", gender: "female", consentAccepted: false }).success
     ).toBe(false);
   });
 
   it("accepts consentAccepted true", () => {
     expect(
-      onboardClientSchema.safeParse({ telegramId: 42, name: "Аня", consentAccepted: true }).success
+      onboardClientSchema.safeParse({ telegramId: 42, name: "Аня", gender: "female", consentAccepted: true }).success
     ).toBe(true);
   });
 
   it("rejects an empty name", () => {
     expect(
-      onboardClientSchema.safeParse({ telegramId: 42, name: "", consentAccepted: true }).success
+      onboardClientSchema.safeParse({ telegramId: 42, name: "", gender: "female", consentAccepted: true }).success
     ).toBe(false);
   });
 
   it("rejects a missing telegramId (identity is mandatory)", () => {
-    expect(onboardClientSchema.safeParse({ name: "Аня", consentAccepted: true }).success).toBe(false);
+    expect(onboardClientSchema.safeParse({ name: "Аня", gender: "female", consentAccepted: true }).success).toBe(false);
   });
 
   it("rejects a non-integer telegramId", () => {
     expect(
-      onboardClientSchema.safeParse({ telegramId: 4.2, name: "Аня", consentAccepted: true }).success
+      onboardClientSchema.safeParse({ telegramId: 4.2, name: "Аня", gender: "female", consentAccepted: true }).success
     ).toBe(false);
   });
 
@@ -97,6 +100,7 @@ describe("onboardClientSchema (POST /clients/onboard body)", () => {
         telegramId: 42,
         name: "Аня",
         levelId: "not-a-uuid",
+        gender: "female",
         consentAccepted: true
       }).success
     ).toBe(false);
@@ -145,6 +149,7 @@ describe("clientSchema (bot-facing client record)", () => {
       telegramUsername: "anya",
       telegramPhotoUrl: "https://t.me/i/userpic/320/anya.jpg",
       levelId: UUID,
+      gender: "female" as const,
       source: "telegram" as const,
       phone: null,
       email: null,
@@ -166,6 +171,7 @@ describe("clientSchema (bot-facing client record)", () => {
       telegramUsername: null,
       telegramPhotoUrl: null,
       levelId: null,
+      gender: "female" as const,
       source: "telegram" as const,
       phone: null,
       email: null,
@@ -187,6 +193,7 @@ describe("clientSchema (bot-facing client record)", () => {
       telegramUsername: null,
       telegramPhotoUrl: null,
       levelId: null,
+      gender: "unspecified" as const,
       source: "walk_in" as const,
       phone: "+381601234567",
       email: null,
@@ -209,6 +216,7 @@ describe("clientSchema (bot-facing client record)", () => {
       telegramUsername: "anya",
       telegramPhotoUrl: null,
       levelId: UUID,
+      gender: "female" as const,
       source: "telegram" as const,
       phone: null,
       email: null,
@@ -336,6 +344,7 @@ describe("updateClientSchema (PATCH /clients/:id body)", () => {
   it("rejects identity/unknown fields (strict)", () => {
     expect(updateClientSchema.safeParse({ telegramId: 7 }).success).toBe(false);
     expect(updateClientSchema.safeParse({ telegramPhotoUrl: "https://t.me/p.jpg" }).success).toBe(false);
+    expect(updateClientSchema.safeParse({ gender: "male" }).success).toBe(false);
     expect(updateClientSchema.safeParse({ language: "ru" }).success).toBe(false);
     expect(updateClientSchema.safeParse({ name: "Marko", page: 2 }).success).toBe(false);
   });
@@ -365,5 +374,33 @@ describe("createWalkInSchema (POST /clients/walk-in body)", () => {
 
   it("rejects unknown fields (strict)", () => {
     expect(createWalkInSchema.safeParse({ name: "Marko", telegramId: 1 }).success).toBe(false);
+  });
+});
+
+describe("gender ownership and client output", () => {
+  const clientOutput = {
+    id: UUID,
+    name: "Anya",
+    telegramId: 42,
+    telegramUsername: null,
+    telegramPhotoUrl: null,
+    levelId: null,
+    gender: "female" as const,
+    source: "telegram" as const,
+    phone: null,
+    email: null,
+    note: null,
+    language: "ru" as const,
+    registeredAt: "2026-01-01T00:00:00.000Z",
+    consentGivenAt: null,
+    status: "active" as const,
+    bonusTrainingCredits: 0
+  };
+
+  it("requires exact gender on every client output", () => {
+    expect(clientSchema.parse(clientOutput).gender).toBe("female");
+    const { gender: _gender, ...missingGender } = clientOutput;
+    expect(clientSchema.safeParse(missingGender).success).toBe(false);
+    expect(clientSchema.safeParse({ ...clientOutput, gender: "other" }).success).toBe(false);
   });
 });
