@@ -147,6 +147,19 @@ describe("MiniappApiClient.getClientByTelegramId", () => {
     expect(fetchMock.mock.calls[0][0]).toBe(`${BASE}/clients/by-telegram/42`);
   });
 
+  it("normalizes a legacy missing gender while preserving an explicit gender", async () => {
+    const { gender: _gender, ...legacyClient } = CLIENT;
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce(jsonResponse(200, legacyClient))
+      .mockResolvedValueOnce(jsonResponse(200, CLIENT));
+    vi.stubGlobal("fetch", fetchMock);
+    const client = new MiniappApiClient(BASE);
+
+    await expect(client.getClientByTelegramId(42)).resolves.toMatchObject({ gender: "unspecified" });
+    await expect(client.getClientByTelegramId(42)).resolves.toMatchObject({ gender: "female" });
+  });
+
   it("rejects a malformed client record (unsafe path)", async () => {
     // `telegramId` must be number|null; a string must be rejected before render.
     vi.stubGlobal(

@@ -39,6 +39,12 @@ const runDetail: BroadcastAutomationRunDetail = {
 };
 const create = vi.fn(); const update = vi.fn(); const previewMutation = vi.fn(); const enable = vi.fn(); const retry = vi.fn(); const send = vi.fn();
 
+function deferred<T>() {
+  let resolve!: (value: T) => void;
+  const promise = new Promise<T>((next) => { resolve = next; });
+  return { promise, resolve };
+}
+
 function renderPage() { render(<MemoryRouter><Broadcasts /></MemoryRouter>); }
 
 beforeEach(() => {
@@ -124,21 +130,89 @@ describe("Broadcast automation builder", () => {
     expect((screen.getByRole("button", { name: tr("admin.broadcasts.saveDraft") }) as HTMLButtonElement).disabled).toBe(false);
   });
 
-  it("invalidates the preview when level, activity, or gender audience state changes", async () => {
+  it("invalidates the preview and disables its actions when audience state changes", async () => {
     previewMutation.mockResolvedValue(preview);
     renderPage();
     fireEvent.click(screen.getByRole("button", { name: tr("admin.action.edit") }));
+    fireEvent.click(screen.getByRole("button", { name: tr("admin.broadcasts.preview") }));
+    await waitFor(() => expect(screen.getByText("Server rendered")).toBeTruthy());
+    fireEvent.click(screen.getByRole("checkbox", { name: level.name }));
+    expect(screen.queryByText("Server rendered")).toBeNull();
+    expect((screen.getByRole("button", { name: tr("admin.broadcasts.preview") }) as HTMLButtonElement).disabled).toBe(true);
+    expect((screen.getByRole("button", { name: tr("admin.broadcasts.enable") }) as HTMLButtonElement).disabled).toBe(true);
+  });
 
-    const requestAndChange = async (change: () => void) => {
-      fireEvent.click(screen.getByRole("button", { name: tr("admin.broadcasts.preview") }));
-      await waitFor(() => expect(screen.getByText("Server rendered")).toBeTruthy());
-      change();
-      expect(screen.queryByText("Server rendered")).toBeNull();
-    };
+  it("requires saving audience and draft changes before previewing or enabling again", async () => {
+    const saved = { ...automation, name: "Edited tomorrow", version: 4 };
+    const savedPreview = { ...preview, version: saved.version, previewToken: "saved-preview-token-is-long-enough", renderedItems: [{ ...preview.renderedItems[0]!, text: "Saved version preview" }] };
+    previewMutation.mockResolvedValueOnce(preview).mockResolvedValueOnce(savedPreview);
+    update.mockResolvedValueOnce(saved);
+    renderPage();
+    fireEvent.click(screen.getByRole("button", { name: tr("admin.action.edit") }));
+    fireEvent.click(screen.getByRole("button", { name: tr("admin.broadcasts.preview") }));
+    await waitFor(() => expect(screen.getByText("Server rendered")).toBeTruthy());
+    expect((screen.getByRole("button", { name: tr("admin.broadcasts.enable") }) as HTMLButtonElement).disabled).toBe(false);
 
-    await requestAndChange(() => fireEvent.click(screen.getByRole("checkbox", { name: level.name })));
-    await requestAndChange(() => fireEvent.click(screen.getByLabelText(tr("admin.broadcasts.activityInactive"))));
-    await requestAndChange(() => fireEvent.change(screen.getByLabelText(tr("admin.broadcasts.genderChoice")), { target: { value: "male" } }));
+    fireEvent.change(screen.getByLabelText(tr("admin.broadcasts.name")), { target: { value: saved.name } });
+    expect(screen.queryByText("Server rendered")).toBeNull();
+    expect((screen.getByRole("button", { name: tr("admin.broadcasts.preview") }) as HTMLButtonElement).disabled).toBe(true);
+    expect((screen.getByRole("button", { name: tr("admin.broadcasts.enable") }) as HTMLButtonElement).disabled).toBe(true);
+
+    fireEvent.click(screen.getByRole("button", { name: tr("admin.broadcasts.saveDraft") }));
+    await waitFor(() => expect(update).toHaveBeenCalledWith({ id: ID, input: expect.objectContaining({ expectedVersion: 3, name: saved.name }) }));
+    expect((screen.getByRole("button", { name: tr("admin.broadcasts.preview") }) as HTMLButtonElement).disabled).toBe(false);
+    fireEvent.click(screen.getByRole("button", { name: tr("admin.broadcasts.preview") }));
+    await waitFor(() => expect(screen.getByText("Saved version preview")).toBeTruthy());
+    expect((screen.getByRole("button", { name: tr("admin.broadcasts.enable") }) as HTMLButtonElement).disabled).toBe(false);
+    fireEvent.click(screen.getByRole("checkbox", { name: level.name }));
+    expect((screen.getByRole("button", { name: tr("admin.broadcasts.preview") }) as HTMLButtonElement).disabled).toBe(true);
+    expect((screen.getByRole("button", { name: tr("admin.broadcasts.enable") }) as HTMLButtonElement).disabled).toBe(true);
+  });
+
+  it("ignores an in-flight preview after the draft, selected automation, or saved version changes", async () => {
+    const other = { ...automation, id: "99999999-9999-4999-8999-999999999999", name: "Other", version: 8 };
+    const later = deferred<BroadcastAutomationPreview>();
+    const saved = { ...automation, name: "Updated", version: 4 };
+    automations.mockReturnValue({ data: { items: [automation, other], nextCursor: null }, isLoading: false, isError: false });
+    previewMutation.mockReturnValue(later.promise);
+    update.mockResolvedValueOnce(saved);
+    renderPage();
+    fireEvent.click(screen.getAllByRole("button", { name: tr("admin.action.edit") })[0]!);
+    fireEvent.click(screen.getByRole("button", { name: tr("admin.broadcasts.preview") }));
+    fireEvent.change(screen.getByLabelText(tr("admin.broadcasts.name")), { target: { value: "Draft edit" } });
+    later.resolve(preview);
+    await waitFor(() => expect(screen.queryByText("Server rendered")).toBeNull());
+    expect((screen.getByRole("button", { name: tr("admin.broadcasts.enable") }) as HTMLButtonElement).disabled).toBe(true);
+
+    const selectionPreview = deferred<BroadcastAutomationPreview>();
+    previewMutation.mockReturnValueOnce(selectionPreview.promise);
+    fireEvent.click(screen.getAllByRole("button", { name: tr("admin.action.edit") })[0]!);
+    fireEvent.click(screen.getByRole("button", { name: tr("admin.broadcasts.preview") }));
+    fireEvent.click(screen.getAllByRole("button", { name: tr("admin.action.edit") })[1]!);
+    selectionPreview.resolve(preview);
+    await waitFor(() => expect(screen.queryByText("Server rendered")).toBeNull());
+    expect((screen.getByRole("button", { name: tr("admin.broadcasts.enable") }) as HTMLButtonElement).disabled).toBe(true);
+
+    const versionPreview = deferred<BroadcastAutomationPreview>();
+    previewMutation.mockReturnValueOnce(versionPreview.promise);
+    fireEvent.click(screen.getAllByRole("button", { name: tr("admin.action.edit") })[0]!);
+    fireEvent.click(screen.getByRole("button", { name: tr("admin.broadcasts.preview") }));
+    fireEvent.change(screen.getByLabelText(tr("admin.broadcasts.name")), { target: { value: saved.name } });
+    fireEvent.click(screen.getByRole("button", { name: tr("admin.broadcasts.saveDraft") }));
+    await waitFor(() => expect(update).toHaveBeenCalled());
+    versionPreview.resolve(preview);
+    await waitFor(() => expect(screen.queryByText("Server rendered")).toBeNull());
+    expect((screen.getByRole("button", { name: tr("admin.broadcasts.enable") }) as HTMLButtonElement).disabled).toBe(true);
+  });
+
+  it("reports audience completeness independently from invalid draft fields", () => {
+    renderPage();
+    fireEvent.click(screen.getByRole("button", { name: tr("admin.action.edit") }));
+    fireEvent.change(screen.getByLabelText(tr("admin.broadcasts.name")), { target: { value: "" } });
+    fireEvent.change(screen.getAllByRole("textbox").find((input) => input.tagName === "TEXTAREA")!, { target: { value: "" } });
+    expect(screen.getByText(tr("admin.broadcasts.audienceReady"))).toBeTruthy();
+    fireEvent.click(screen.getByRole("checkbox", { name: level.name }));
+    expect(screen.getByText(tr("admin.broadcasts.audienceIncomplete"))).toBeTruthy();
   });
 
   it("renders persisted run evidence and only retries ambiguous deliveries after explicit acknowledgement", async () => {

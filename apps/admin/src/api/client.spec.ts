@@ -1373,6 +1373,23 @@ describe("ApiClient error handling & clients", () => {
     expect(calls[0]?.url).toBe("http://api.test/clients?search=%40anya&status=active");
   });
 
+  it("defaults an omitted legacy client gender to unspecified", async () => {
+    const { gender: _gender, ...legacyClient } = sampleClient;
+    mockFetchOnce([legacyClient]);
+
+    const result = await new ApiClient("http://api.test").listClients();
+
+    expect(result[0]?.gender).toBe("unspecified");
+  });
+
+  it("preserves an explicit client gender from the API", async () => {
+    mockFetchOnce([{ ...sampleClient, gender: "female" }]);
+
+    const result = await new ApiClient("http://api.test").listClients();
+
+    expect(result[0]?.gender).toBe("female");
+  });
+
   it("requests the bare /clients path when no filters are given", async () => {
     const calls = mockFetchOnce([]);
     await new ApiClient("http://api.test").listClients();

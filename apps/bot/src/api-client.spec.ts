@@ -541,6 +541,28 @@ const clientBody = {
   bonusTrainingCredits: 0
 };
 
+describe("ApiClient.getClientByTelegramId", () => {
+  afterEach(() => {
+    vi.unstubAllGlobals();
+  });
+
+  it("normalizes a legacy client response without gender while preserving explicit gender", async () => {
+    const { gender: _omittedGender, ...legacyClient } = clientBody;
+    mockFetch(legacyClient);
+
+    await expect(new ApiClient("http://api.test").getClientByTelegramId(999)).resolves.toEqual({
+      ...legacyClient,
+      gender: "unspecified"
+    });
+
+    mockFetch({ ...clientBody, gender: "female" });
+    await expect(new ApiClient("http://api.test").getClientByTelegramId(999)).resolves.toEqual({
+      ...clientBody,
+      gender: "female"
+    });
+  });
+});
+
 describe("ApiClient.requestIndividualSession", () => {
   const TRAINER_ID = "33333333-3333-3333-3333-333333333333";
   const REQUEST_ID = "66666666-6666-6666-6666-666666666666";

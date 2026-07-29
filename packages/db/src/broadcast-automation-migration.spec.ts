@@ -10,17 +10,9 @@ describe("broadcast automation and client gender migration", () => {
     expect(migration).toContain('ALTER TABLE "clients" ADD COLUMN "gender" "client_gender" DEFAULT \'unspecified\' NOT NULL');
   });
 
-  it("normalizes only complete, unambiguous legacy definition audiences", () => {
-    expect(migration).toContain('UPDATE "broadcast_automations"');
-    expect(migration).toContain("'{audience}'");
-    expect(migration).toContain("'filters'");
-    expect(migration).toContain("'dimension',\n        'level'");
-    expect(migration).toContain("'dimension',\n        'activity'");
-    expect(migration).toContain("AND NOT \"config\" -> 'audience' ? 'filters'");
-    expect(migration).toContain("jsonb_typeof(\"config\" -> 'audience' -> 'levelIds') = 'array'");
-    expect(migration).toContain("jsonb_array_length(\"config\" -> 'audience' -> 'levelIds') > 0");
-    expect(migration).toContain("\"config\" -> 'audience' ->> 'activity' IN ('active', 'inactive')");
-    expect(migration).toContain("WHERE audience_key NOT IN ('levelIds', 'activity')");
+  it("leaves legacy automation definition JSON untouched for the API dual-read normalizer", () => {
+    expect(migration).not.toContain('UPDATE "broadcast_automations"');
+    expect(migration).not.toMatch(/\bjsonb_[a-z_]+\s*\(/i);
   });
 
   it("does not rewrite durable run snapshots or definition identity fields", () => {

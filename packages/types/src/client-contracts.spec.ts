@@ -10,6 +10,15 @@ import {
 const UUID = "11111111-1111-4111-8111-111111111111";
 
 describe("onboardClientSchema (POST /clients/onboard body)", () => {
+  it("normalizes omitted rollout gender to unspecified", () => {
+    expect(onboardClientSchema.parse({ telegramId: 42, name: "Аня", consentAccepted: true })).toEqual({
+      telegramId: 42,
+      name: "Аня",
+      gender: "unspecified",
+      consentAccepted: true
+    });
+  });
+
   it("accepts a full body (name, telegramId, username, levelId)", () => {
     const parsed = onboardClientSchema.parse({
       telegramId: 42,
@@ -114,6 +123,15 @@ describe("onboardClientSchema (POST /clients/onboard body)", () => {
         consentAccepted: true,
         telegramPhotoUrl: "https://t.me/i/userpic/320/anya.jpg"
       }).success
+    ).toBe(false);
+  });
+
+  it("rejects unknown gender values and fields", () => {
+    expect(
+      onboardClientSchema.safeParse({ telegramId: 42, name: "Аня", gender: "other", consentAccepted: true }).success
+    ).toBe(false);
+    expect(
+      onboardClientSchema.safeParse({ telegramId: 42, name: "Аня", consentAccepted: true, source: "telegram" }).success
     ).toBe(false);
   });
 });
@@ -397,10 +415,13 @@ describe("gender ownership and client output", () => {
     bonusTrainingCredits: 0
   };
 
-  it("requires exact gender on every client output", () => {
+  it("normalizes omitted client output gender while retaining a concrete value", () => {
     expect(clientSchema.parse(clientOutput).gender).toBe("female");
     const { gender: _gender, ...missingGender } = clientOutput;
-    expect(clientSchema.safeParse(missingGender).success).toBe(false);
+    expect(clientSchema.parse(missingGender).gender).toBe("unspecified");
+  });
+
+  it("rejects unknown gender values", () => {
     expect(clientSchema.safeParse({ ...clientOutput, gender: "other" }).success).toBe(false);
   });
 });

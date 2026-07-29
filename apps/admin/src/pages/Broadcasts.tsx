@@ -1,5 +1,6 @@
-import { useMemo, useState } from "react";
+import { useMemo, useRef, useState } from "react";
 import {
+  broadcastAutomationAudienceSchema,
   createBroadcastAutomationSchema,
   type BroadcastAudience,
   type BroadcastAutomation,
@@ -30,6 +31,14 @@ function initialDraft(): Draft {
   return { name: "", trigger: { kind: "scheduled", recurrence: "daily", time: "10:00", trainingWindow: "tomorrow" }, audience: { filters: [] }, message: { bodies: { ru: "" }, defaultLanguage: "ru", outputMode: "per-training", ctaMode: "none" } };
 }
 
+function draftFromAutomation(automation: BroadcastAutomation): Draft {
+  return { name: automation.name, trigger: automation.trigger, audience: automation.audience, message: automation.message };
+}
+
+function isSavedDraft(draft: Draft, automation: BroadcastAutomation | null): boolean {
+  return automation !== null && JSON.stringify(draft) === JSON.stringify(draftFromAutomation(automation));
+}
+
 export function Broadcasts(): JSX.Element {
   const t = useT();
   const levels = useLevels();
@@ -38,6 +47,9 @@ export function Broadcasts(): JSX.Element {
   const [selected, setSelected] = useState<BroadcastAutomation | null>(null);
   const [draft, setDraft] = useState<Draft>(initialDraft);
   const [preview, setPreview] = useState<BroadcastAutomationPreview | null>(null);
+  const [previewFor, setPreviewFor] = useState<{ automationId: string; version: number } | null>(null);
+  const [previewPending, setPreviewPending] = useState(false);
+  const previewRequest = useRef(0);
   const [runId, setRunId] = useState<string | null>(null);
   const [ambiguous, setAmbiguous] = useState(false);
   const [selectedDeliveryIds, setSelectedDeliveryIds] = useState<string[]>([]);
@@ -47,18 +59,50 @@ export function Broadcasts(): JSX.Element {
   const selectedRun = useBroadcastAutomationRun(runId);
   const levelOptions = useMemo(() => levels.data ?? [], [levels.data]);
   const valid = createBroadcastAutomationSchema.safeParse(draft).success;
+  const draftIsSaved = isSavedDraft(draft, selected);
+  const previewMatchesSavedDraft = Boolean(selected && draftIsSaved && preview && previewFor?.automationId === selected.id && previewFor.version === selected.version && preview.version === selected.version);
+  const invalidatePreview = () => {
+    previewRequest.current += 1;
+    setPreview(null);
+    setPreviewFor(null);
+    setPreviewPending(false);
+  };
 
-  const edit = (automation: BroadcastAutomation) => { setSelected(automation); setDraft({ name: automation.name, trigger: automation.trigger, audience: automation.audience, message: automation.message }); setPreview(null); };
-  const newAutomation = () => { setSelected(null); setDraft(initialDraft()); setPreview(null); };
+  const edit = (automation: BroadcastAutomation) => { invalidatePreview(); setSelected(automation); setDraft(draftFromAutomation(automation)); };
+  const newAutomation = () => { invalidatePreview(); setSelected(null); setDraft(initialDraft()); };
   const save = async () => {
     if (!valid) return;
+    invalidatePreview();
     const saved = selected
       ? await actions.update.mutateAsync({ id: selected.id, input: { ...draft, expectedVersion: selected.version } })
       : await actions.create.mutateAsync(draft);
-    setSelected(saved); setDraft({ name: saved.name, trigger: saved.trigger, audience: saved.audience, message: saved.message }); setPreview(null);
+    setSelected(saved); setDraft(draftFromAutomation(saved));
   };
-  const requestPreview = async () => { if (selected) setPreview(await actions.preview.mutateAsync({ id: selected.id, version: selected.version })); };
-  const enable = async () => { if (selected && preview) { const next = await actions.enable.mutateAsync({ id: selected.id, input: { expectedVersion: selected.version, previewToken: preview.previewToken } }); setSelected(next); } };
+  const requestPreview = async () => {
+    if (!selected || !draftIsSaved) return;
+    const request = ++previewRequest.current;
+    const automationId = selected.id;
+    const version = selected.version;
+    setPreview(null);
+    setPreviewFor(null);
+    setPreviewPending(true);
+    try {
+      const nextPreview = await actions.preview.mutateAsync({ id: automationId, version });
+      if (previewRequest.current === request) {
+        setPreview(nextPreview);
+        setPreviewFor({ automationId, version });
+      }
+    } finally {
+      if (previewRequest.current === request) setPreviewPending(false);
+    }
+  };
+  const enable = async () => {
+    if (!selected || !preview || !previewMatchesSavedDraft) return;
+    const next = await actions.enable.mutateAsync({ id: selected.id, input: { expectedVersion: selected.version, previewToken: preview.previewToken } });
+    invalidatePreview();
+    setSelected(next);
+    setDraft(draftFromAutomation(next));
+  };
 
   return <AppShell>
     <header className="page-head"><div><h1>{t("admin.broadcasts.builderTitle")}</h1><p>{t("admin.broadcasts.builderLead")}</p></div><Button variant="primary" onClick={newAutomation}>{t("admin.broadcasts.newAutomation")}</Button></header>
@@ -68,11 +112,11 @@ export function Broadcasts(): JSX.Element {
     </section>
     <section className="workspace broadcast-builder" aria-label={t("admin.broadcasts.editorTitle")}>
       <div className="workspace__bar"><div><h2>{t("admin.broadcasts.editorTitle")}</h2><p>{selected ? t("admin.broadcasts.version", { version: selected.version }) : t("admin.broadcasts.newDisabled")}</p></div></div>
-      <div className="workspace__body broadcast-builder__grid"><AutomationEditor draft={draft} levels={levelOptions} levelsLoading={levels.isLoading} onChange={(next) => { setDraft(next); setPreview(null); }} />
+      <div className="workspace__body broadcast-builder__grid"><AutomationEditor draft={draft} levels={levelOptions} levelsLoading={levels.isLoading} onChange={(next) => { invalidatePreview(); setDraft(next); }} />
         <aside className="stack" aria-label={t("admin.broadcasts.previewTitle")}>
-          <div className="cluster"><Button variant="primary" onClick={() => void save()} disabled={!valid || actions.create.isPending || actions.update.isPending}>{t("admin.broadcasts.saveDraft")}</Button><Button variant="ghost" onClick={() => void requestPreview()} disabled={!selected || actions.preview.isPending}>{t("admin.broadcasts.preview")}</Button>{selected?.enabled ? <Button variant="ghost" onClick={() => actions.disable.mutate({ id: selected.id, version: selected.version })}>{t("admin.broadcasts.disable")}</Button> : <Button variant="primary" onClick={() => void enable()} disabled={!preview || preview.version !== selected?.version}>{t("admin.broadcasts.enable")}</Button>}</div>
+          <div className="cluster"><Button variant="primary" onClick={() => void save()} disabled={!valid || actions.create.isPending || actions.update.isPending}>{t("admin.broadcasts.saveDraft")}</Button><Button variant="ghost" onClick={() => void requestPreview()} disabled={!selected || !draftIsSaved || previewPending}>{t("admin.broadcasts.preview")}</Button>{selected?.enabled ? <Button variant="ghost" onClick={() => actions.disable.mutate({ id: selected.id, version: selected.version })}>{t("admin.broadcasts.disable")}</Button> : <Button variant="primary" onClick={() => void enable()} disabled={!previewMatchesSavedDraft}>{t("admin.broadcasts.enable")}</Button>}</div>
           {actions.update.isError || actions.create.isError || actions.enable.isError ? <p className="state state--error" role="alert">{t("admin.broadcasts.saveFailed", { message: (actions.update.error ?? actions.create.error ?? actions.enable.error)?.message ?? "" })}</p> : null}
-          <Preview preview={preview} loading={actions.preview.isPending} />
+          <Preview preview={preview} loading={previewPending} />
         </aside>
       </div>
     </section>
@@ -126,7 +170,7 @@ function AutomationEditor({ draft, levels, levelsLoading, onChange }: { draft: D
     {levelFilter ? <fieldset className="field"><legend className="field__label">{t("admin.broadcasts.levels")}</legend><Button type="button" variant="ghost" onClick={() => removeFilter("level")}>{t("admin.broadcasts.removeFilter")}</Button>{levelsLoading ? <p className="field__hint">{t("admin.broadcasts.loading")}</p> : levels.map((level) => <label key={level.id} className="check"><input type="checkbox" checked={levelFilter.levelIds.includes(level.id)} onChange={() => toggleLevel(level.id)} /> {level.name}</label>)}{levelFilter.levelIds.length === 0 ? <p className="field__error" role="status">{t("admin.broadcasts.levelRequired")}</p> : null}</fieldset> : null}
     {activityFilter ? <fieldset className="field"><legend className="field__label">{t("admin.broadcasts.activity")}</legend><p className="field__hint">{t("admin.broadcasts.activityHint")}</p><label className="check"><input type="radio" name="broadcast-activity" checked={activityFilter.value === "active"} onChange={() => updateAudience(draft.audience.filters.map((filter) => filter.dimension === "activity" ? { dimension: "activity", value: "active" } : filter))} /> {t("admin.broadcasts.activityActive")}</label><label className="check"><input type="radio" name="broadcast-activity" checked={activityFilter.value === "inactive"} onChange={() => updateAudience(draft.audience.filters.map((filter) => filter.dimension === "activity" ? { dimension: "activity", value: "inactive" } : filter))} /> {t("admin.broadcasts.activityInactive")}</label><Button type="button" variant="ghost" onClick={() => removeFilter("activity")}>{t("admin.broadcasts.removeFilter")}</Button></fieldset> : null}
     {genderFilter ? <fieldset className="field"><legend className="field__label">{t("admin.broadcasts.gender")}</legend><SelectField label={t("admin.broadcasts.genderChoice")} value={genderFilter.value} onChange={(event) => updateAudience(draft.audience.filters.map((filter) => filter.dimension === "gender" ? { dimension: "gender", value: event.target.value as "male" | "female" | "unspecified" } : filter))} options={[{ value: "male", label: t("admin.broadcasts.genderMale") }, { value: "female", label: t("admin.broadcasts.genderFemale") }, { value: "unspecified", label: t("admin.broadcasts.genderUnspecified") }]} />{genderFilter.value === "male" || genderFilter.value === "female" ? <p className="state state--warning" role="status">{t("admin.broadcasts.genderInclusiveWarning")}</p> : null}<Button type="button" variant="ghost" onClick={() => removeFilter("gender")}>{t("admin.broadcasts.removeFilter")}</Button></fieldset> : null}
-    <p className="field__hint" aria-live="polite">{createBroadcastAutomationSchema.safeParse(draft).success ? t("admin.broadcasts.audienceReady") : t("admin.broadcasts.audienceIncomplete")}</p>
+    <p className="field__hint" aria-live="polite">{broadcastAutomationAudienceSchema.safeParse(draft.audience).success ? t("admin.broadcasts.audienceReady") : t("admin.broadcasts.audienceIncomplete")}</p>
     <SelectField label={t("admin.broadcasts.output")} value={draft.message.outputMode} onChange={(e) => updateMessage({ outputMode: e.target.value as "per-training" | "digest", ctaMode: e.target.value === "digest" ? "none" : draft.message.ctaMode })} options={[{ value: "per-training", label: t("admin.broadcasts.perTraining") }, { value: "digest", label: t("admin.broadcasts.digest") }]} />
     <SelectField label={t("admin.broadcasts.cta")} value={draft.message.ctaMode} disabled={draft.message.outputMode === "digest"} onChange={(e) => updateMessage({ ctaMode: e.target.value as "none" | "booking" })} options={[{ value: "none", label: t("admin.broadcasts.ctaNone") }, { value: "booking", label: t("admin.broadcasts.ctaBooking") }]} />
     <SelectField label={t("admin.broadcasts.defaultLanguage")} value={draft.message.defaultLanguage} onChange={(e) => updateMessage({ defaultLanguage: e.target.value as Locale })} options={LOCALES.map((locale) => ({ value: locale, label: locale.toUpperCase() }))} />

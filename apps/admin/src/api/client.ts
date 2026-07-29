@@ -324,7 +324,11 @@ export class ApiClient {
     return this.token;
   }
 
-  private async request<T>(path: string, schema: z.ZodType<T>, init?: RequestInit): Promise<T> {
+  private async request<TOutput, TInput>(
+    path: string,
+    schema: z.ZodType<TOutput, z.ZodTypeDef, TInput>,
+    init?: RequestInit
+  ): Promise<TOutput> {
     const res = await fetch(`${this.baseUrl}${path}`, {
       ...init,
       headers: { "content-type": "application/json", ...this.authHeader(), ...init?.headers }
