@@ -5,6 +5,12 @@ import { BroadcastAutomationsRepository } from "./broadcast-automations.reposito
 import type { DatabaseService } from "../../db/database.service";
 
 type Row = Record<string, unknown>;
+const legacyConfigSnapshot = {
+  name: "Legacy automation",
+  trigger: { kind: "scheduled", recurrence: "daily", time: "09:30", trainingWindow: "today" },
+  audience: { levelIds: ["11111111-1111-4111-8111-111111111111"], activity: "active" },
+  message: { bodies: { ru: "{groupName}" }, defaultLanguage: "ru", outputMode: "per-training", ctaMode: "none" }
+};
 
 function selectDb(results: unknown[][]) {
   const where: unknown[] = [];
@@ -27,11 +33,15 @@ function render(condition: unknown) {
   return new PgDialect().sqlToQuery(condition as never).sql.toLowerCase();
 }
 
+function query(condition: unknown) {
+  return new PgDialect().sqlToQuery(condition as never);
+}
+
 function runRow(id: string, createdAt: Date, overrides: Partial<Row> = {}): Row {
   return {
     id, automationId: "automation-a", automationVersion: 1, triggerKind: "scheduled",
     sourceEventId: null, scheduledFor: null, dueAt: createdAt, status: "completed",
-    skipReason: null, originalRunId: null, configSnapshot: {}, selectedTrainingsCount: 0,
+    skipReason: null, originalRunId: null, configSnapshot: legacyConfigSnapshot, selectedTrainingsCount: 0,
     includedTrainingsCount: 0, skippedTrainingsCount: 0, recipientsCount: 0,
     attemptedCount: 0, sentCount: 0, failedCount: 0, ambiguousCount: 0,
     skippedDeliveriesCount: 0, createdAt, startedAt: null, completedAt: createdAt,
@@ -44,6 +54,75 @@ function repo(db: unknown) {
 }
 
 describe("BroadcastAutomationsRepository query invariants", () => {
+  const levelA = "11111111-1111-4111-8111-111111111111";
+  const levelB = "22222222-2222-4222-8222-222222222222";
+  const audience = (filters: Array<Record<string, unknown>>) => ({ filters }) as never;
+  const now = new Date("2026-07-10T12:00:00.000Z");
+
+  it("always limits an audience to active, Telegram-reachable clients when no optional dimension is selected", async () => {
+    const state = selectDb([[{ clientId: "client-a", telegramId: 123, language: "ru" }, { clientId: "walk-in", telegramId: null, language: "sr" }]]);
+    await expect(repo(state.db).audience(audience([{ dimension: "activity", value: "active" }]), now)).resolves.toEqual([
+      { clientId: "client-a", telegramId: 123, language: "ru" }
+    ]);
+
+    const sql = render(state.where.at(-1));
+    expect(sql).toContain('"clients"."status" =');
+    expect(sql).toContain('"clients"."telegram_id" is not null');
+    expect(sql).not.toContain('"clients"."level_id" in');
+    expect(sql).not.toContain('"clients"."gender" in');
+  });
+
+  it("applies active/inactive activity boundaries inclusively and preserves the seven-day cutoff", async () => {
+    for (const value of ["active", "inactive"] as const) {
+      const state = selectDb([[]]);
+      await repo(state.db).audience(audience([{ dimension: "activity", value }]), now);
+      const sql = render(state.where.at(-1));
+      expect(sql).toContain('"clients"."mini_app_last_access_at"');
+      expect(sql).toContain(value === "active" ? ">=" : "<");
+      expect(query(state.where.at(-1)).params).toContain("2026-07-03T12:00:00.000Z");
+    }
+  });
+
+  it("ORs male/female filters with unspecified but keeps an explicit unspecified filter exact", async () => {
+    for (const value of ["male", "female"] as const) {
+      const state = selectDb([[]]);
+      await repo(state.db).audience(audience([{ dimension: "gender", value }]), now);
+      const sql = render(state.where.at(-1));
+      expect(sql).toContain('"clients"."gender" in');
+      expect(query(state.where.at(-1)).params).toEqual(expect.arrayContaining([value, "unspecified"]));
+    }
+    const unspecified = selectDb([[]]);
+    await repo(unspecified.db).audience(audience([{ dimension: "gender", value: "unspecified" }]), now);
+    expect(render(unspecified.where.at(-1))).toContain('"clients"."gender" =');
+    expect(query(unspecified.where.at(-1)).params).toContain("unspecified");
+  });
+
+  it("ORs levels inside their dimension and ANDs selected dimensions together", async () => {
+    const state = selectDb([[]]);
+    await repo(state.db).audience(audience([
+      { dimension: "gender", value: "female" },
+      { dimension: "level", levelIds: [levelA, levelB] },
+      { dimension: "activity", value: "active" }
+    ]), now);
+
+    const sql = render(state.where.at(-1));
+    expect(sql).toContain('"clients"."level_id" in');
+    expect(sql).toContain('"clients"."mini_app_last_access_at" >=');
+    expect(sql).toContain('"clients"."gender" in');
+    expect(query(state.where.at(-1)).params).toEqual(expect.arrayContaining([levelA, levelB, "female", "unspecified"]));
+  });
+
+  it("rechecks one client against the same predicate and returns only its current Telegram id", async () => {
+    const state = selectDb([[{ clientId: "client-a", telegramId: 987, language: "en" }]]);
+    await expect(repo(state.db).recipientStillEligible("client-a", audience([{ dimension: "gender", value: "male" }]), now)).resolves.toEqual({
+      clientId: "client-a", telegramId: 987, language: "en"
+    });
+    const sql = render(state.where.at(-1));
+    expect(sql).toContain('"clients"."id" =');
+    expect(sql).toContain('"clients"."status" =');
+    expect(sql).toContain('"clients"."telegram_id" is not null');
+  });
+
   it("filters run history by automation, trigger, status, and inclusive time window", async () => {
     const state = selectDb([[runRow("run-1", new Date("2026-07-10T10:00:00.000Z"))]]);
     const result = await repo(state.db).listRuns({

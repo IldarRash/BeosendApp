@@ -18,7 +18,12 @@ const automation: BroadcastAutomation = {
   id: ID, name: "Morning", enabled: true, version: 1, createdBy: ADMIN, updatedBy: ADMIN,
   createdAt: now.toISOString(), updatedAt: now.toISOString(),
   trigger: { kind: "scheduled", recurrence: "daily", time: "09:30", trainingWindow: "today" },
-  audience: { levelIds: [ID], activity: "active" },
+  audience: {
+    filters: [
+      { dimension: "level", levelIds: [ID] },
+      { dimension: "activity", value: "active" }
+    ]
+  },
   message: { bodies: { ru: "{groupName}" }, defaultLanguage: "ru", outputMode: "per-training", ctaMode: "none" }
 };
 const run: BroadcastAutomationRun = {

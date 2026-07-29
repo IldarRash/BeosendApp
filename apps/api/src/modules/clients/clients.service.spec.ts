@@ -22,6 +22,7 @@ const existingClient: Client = {
   telegramUsername: "ana",
   telegramPhotoUrl: PHOTO_URL,
   levelId: LEVEL_ID,
+  gender: "unspecified",
   source: "telegram",
   phone: null,
   email: null,
@@ -40,6 +41,7 @@ const walkInClient: Client = {
   telegramUsername: null,
   telegramPhotoUrl: null,
   levelId: null,
+  gender: "unspecified",
   source: "walk_in",
   phone: "+381601234567",
   email: null,
@@ -297,19 +299,59 @@ describe("ClientsService", () => {
 
     await service.onboard(
       TELEGRAM_ID,
-      { telegramId: TELEGRAM_ID, name: "Ana", levelId: LEVEL_ID },
+      { telegramId: TELEGRAM_ID, name: "Ana", levelId: LEVEL_ID, gender: "female", consentAccepted: true },
       { telegramUsername: "verified_ana", telegramPhotoUrl: PHOTO_URL }
     );
 
     expect(clientsRepo.insertIgnoreConflict).toHaveBeenCalledWith(
       expect.objectContaining({
+        gender: "female",
         consentGivenAt: new Date("2026-07-28T10:15:00.000Z"),
         miniAppLastAccessAt: new Date("2026-07-28T10:15:00.000Z")
       }),
-      expect.anything()
+      expect.any(Object)
     );
     expect(clientsRepo.recordMiniAppAccess).not.toHaveBeenCalled();
     vi.useRealTimers();
+  });
+
+  it("writes the Mini App-selected gender atomically with the server-owned consent and activity timestamps", async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date("2026-07-28T10:15:00.000Z"));
+
+    await service.onboard(
+      TELEGRAM_ID,
+      { telegramId: TELEGRAM_ID, name: "Ana", levelId: LEVEL_ID, gender: "female", consentAccepted: true },
+      { telegramUsername: "verified_ana", telegramPhotoUrl: PHOTO_URL }
+    );
+
+    expect(clientsRepo.insertIgnoreConflict).toHaveBeenCalledWith(expect.objectContaining({
+      gender: "female",
+      consentGivenAt: new Date("2026-07-28T10:15:00.000Z"),
+      miniAppLastAccessAt: new Date("2026-07-28T10:15:00.000Z")
+    }), expect.anything());
+    vi.useRealTimers();
+  });
+
+  it("does not overwrite an existing client gender during a later Mini App onboarding", async () => {
+    clientsRepo = makeClientsRepo({ findByTelegramId: vi.fn(async () => ({ ...existingClient, gender: "male" })), recordMiniAppAccess: vi.fn(async () => ({ ...existingClient, gender: "male" })) });
+    service = new ClientsService(clientsRepo, levelsRepo, makeDatabase(), makeStaffLinking(), env);
+
+    await service.onboard(
+      TELEGRAM_ID,
+      { telegramId: TELEGRAM_ID, name: "Ana", gender: "female", consentAccepted: true },
+      { telegramUsername: "ana", telegramPhotoUrl: PHOTO_URL }
+    );
+
+    expect(clientsRepo.insertIgnoreConflict).not.toHaveBeenCalled();
+    expect(clientsRepo.syncTelegramDisplayIdentity).toHaveBeenCalled();
+  });
+
+  it("rejects male/female classification outside a verified Mini App session before writing", async () => {
+    await expect(service.onboard(TELEGRAM_ID, {
+      telegramId: TELEGRAM_ID, name: "Ana", gender: "male", consentAccepted: true
+    })).rejects.toBeInstanceOf(BadRequestException);
+    expect(clientsRepo.insertIgnoreConflict).not.toHaveBeenCalled();
   });
 
   it("does not assign Mini App activity to an abandoned bot onboarding", async () => {
@@ -446,6 +488,23 @@ describe("ClientsService", () => {
     service = new ClientsService(clientsRepo, levelsRepo, makeDatabase(), makeStaffLinking(), env);
     const result = await service.onboard(TELEGRAM_ID, { telegramId: TELEGRAM_ID, name: "Ana" });
     expect(result).toEqual(existingClient);
+  });
+
+  it("keeps the winner's gender when a competing Mini App onboarding loses the insert race", async () => {
+    const winner = { ...existingClient, gender: "male" as const };
+    clientsRepo = makeClientsRepo({
+      findByTelegramId: vi.fn(async (): Promise<Client | undefined> => undefined).mockResolvedValueOnce(undefined).mockResolvedValueOnce(winner),
+      insertIgnoreConflict: vi.fn(async () => undefined),
+      recordMiniAppAccess: vi.fn(async () => winner)
+    });
+    service = new ClientsService(clientsRepo, levelsRepo, makeDatabase(), makeStaffLinking(), env);
+
+    await expect(service.onboard(
+      TELEGRAM_ID,
+      { telegramId: TELEGRAM_ID, name: "Ana", gender: "female", consentAccepted: true },
+      { telegramUsername: "ana", telegramPhotoUrl: PHOTO_URL }
+    )).resolves.toEqual(winner);
+    expect(clientsRepo.insertIgnoreConflict).toHaveBeenCalledWith(expect.objectContaining({ gender: "female" }), expect.anything());
   });
 
   it("forbids a non-admin from listing clients and never queries", async () => {
