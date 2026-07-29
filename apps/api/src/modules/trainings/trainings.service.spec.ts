@@ -848,6 +848,7 @@ describe("TrainingsService", () => {
   let courtBlocksRepo: FakeCourtBlocksRepository;
   let bookingsRepo: FakeBookingsRepository;
   let service: TrainingsService;
+  let automationEnqueue: ReturnType<typeof vi.fn>;
 
   beforeEach(() => {
     trainingsRepo = new FakeTrainingsRepository();
@@ -858,6 +859,7 @@ describe("TrainingsService", () => {
     courtBlocksRepo = new FakeCourtBlocksRepository();
     trainingsRepo.callLog = courtBlocksRepo.calls;
     bookingsRepo = new FakeBookingsRepository(trainingsRepo);
+    automationEnqueue = vi.fn(async () => undefined);
     service = new TrainingsService(
       trainingsRepo as unknown as TrainingsRepository,
       groupsRepo as unknown as GroupsRepository,
@@ -868,7 +870,8 @@ describe("TrainingsService", () => {
       bookingsRepo as unknown as import("../bookings/bookings.repository").BookingsRepository,
       fakeDomainEvents,
       fakeSettings,
-      env
+      env,
+      { enqueueEvent: automationEnqueue } as never
     );
   });
 
@@ -909,6 +912,29 @@ describe("TrainingsService", () => {
     const second = await generate();
     expect(second).toEqual([]);
     expect(trainingsRepo.rows).toHaveLength(9);
+  });
+
+  it("enqueues one post-commit training-created event per newly persisted public group occurrence", async () => {
+    const created = await generate();
+
+    expect(automationEnqueue).toHaveBeenCalledTimes(created.length);
+    for (const training of created) {
+      expect(automationEnqueue).toHaveBeenCalledWith(
+        "training-created",
+        expect.stringMatching(new RegExp(`^training-created:${training.id}:`))
+      );
+    }
+
+    await generate();
+    expect(automationEnqueue).toHaveBeenCalledTimes(created.length);
+  });
+
+  it("suppresses training-created automation events for hidden groups", async () => {
+    groupsRepo.group = { ...baseGroup, hidden: true };
+
+    await generate();
+
+    expect(automationEnqueue).not.toHaveBeenCalled();
   });
 
   it("rejects a non-admin caller with ForbiddenException before any write", async () => {
@@ -1425,6 +1451,7 @@ describe("TrainingsService", () => {
       telegramUsername: null,
       telegramPhotoUrl: null,
       levelId: null,
+      gender: "unspecified",
       source: "telegram",
       phone: null,
       email: null,
@@ -1596,6 +1623,7 @@ describe("TrainingsService", () => {
       telegramUsername: null,
       telegramPhotoUrl: null,
       levelId: null,
+      gender: "unspecified",
       source: "telegram",
       phone: null,
       email: null,
@@ -2202,6 +2230,7 @@ describe("TrainingsService", () => {
       telegramUsername: null,
       telegramPhotoUrl: null,
       levelId: null,
+      gender: "unspecified",
       source: "telegram",
       phone: null,
       email: null,
@@ -2545,6 +2574,36 @@ describe("TrainingsService", () => {
           }
         }
       ]);
+    });
+
+    it("enqueues a time-changed event only after a public group training time actually commits", async () => {
+      trainingsRepo.rows = [orphan()];
+      trainingsRepo.fullLock = orphan();
+
+      await service.updateScheduleCourt(ADMIN_ID, TRAINING_ID, {
+        startTime: "18:30",
+        endTime: "20:00"
+      });
+
+      expect(automationEnqueue).toHaveBeenCalledWith(
+        "training-time-changed",
+        expect.stringMatching(new RegExp(`^training-time-changed:${TRAINING_ID}:`))
+      );
+    });
+
+    it("does not enqueue a time-changed event for a court-only edit or a hidden group", async () => {
+      trainingsRepo.rows = [orphan()];
+      trainingsRepo.fullLock = orphan();
+      await service.updateScheduleCourt(ADMIN_ID, TRAINING_ID, { courtId: COURT_1 });
+      expect(automationEnqueue).not.toHaveBeenCalled();
+
+      groupsRepo.group = { ...baseGroup, hidden: true };
+      trainingsRepo.fullLock = orphan();
+      await service.updateScheduleCourt(ADMIN_ID, TRAINING_ID, {
+        startTime: "18:30",
+        endTime: "20:00"
+      });
+      expect(automationEnqueue).not.toHaveBeenCalled();
     });
 
     it("excludes its own linked auto-block from schedule conflict checks", async () => {

@@ -139,6 +139,20 @@ export class ClientsRepository {
     return row ? toClient(row) : undefined;
   }
 
+  /** Records server-owned activity after a verified Mini App entry. */
+  async recordMiniAppAccess(
+    telegramId: number,
+    accessedAt: Date,
+    tx: Database = this.database.db
+  ): Promise<Client | undefined> {
+    const [row] = await tx
+      .update(tables.clients)
+      .set({ miniAppLastAccessAt: accessedAt })
+      .where(eq(tables.clients.telegramId, telegramId))
+      .returning();
+    return row ? toClient(row) : undefined;
+  }
+
   /**
    * Apply an admin profile patch (name/levelId/phone/note) to a client by primary
    * key. Only the provided keys are written (a partial patch); a null clears the
@@ -264,6 +278,7 @@ function toClient(row: ClientRow): Client {
     telegramUsername: row.telegramUsername,
     telegramPhotoUrl: row.telegramPhotoUrl,
     levelId: row.levelId,
+    gender: row.gender,
     source: clientSourceOf(row.source),
     phone: row.phone,
     email: row.email,

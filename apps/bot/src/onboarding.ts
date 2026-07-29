@@ -204,6 +204,9 @@ export async function handleLevelCallback(
     telegramId,
     name,
     levelId,
+    // The dormant legacy wizard has no gender step. Supply the API's explicit
+    // neutral value so its payload remains valid without changing this UX.
+    gender: "unspecified",
     // The bot onboarding wizard is dormant (registration moved to the Mini App,
     // which presents the personal-data-processing consent step). This call site is
     // unreachable today; if it is ever revived, add a real consent prompt here

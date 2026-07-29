@@ -2,6 +2,7 @@ import {
   BadRequestException,
   ConflictException,
   ForbiddenException,
+  GoneException,
   Inject,
   Injectable,
   Logger,
@@ -17,14 +18,12 @@ import type {
   BroadcastTemplate,
   BroadcastTemplateVariable,
   BroadcastType,
-  CreateBroadcastTemplateInput,
   SlotCard
 } from "@beosand/types";
 import {
   BROADCAST_TEMPLATE_VARIABLES,
   broadcastPreviewSchema,
   broadcastTemplateSchema,
-  createBroadcastTemplateSchema,
   findUnknownBroadcastTemplatePlaceholders,
   freeSeats,
   isBookable,
@@ -191,17 +190,12 @@ export class BroadcastsService {
   /** Admin: create a strict-placeholder broadcast template. */
   async createTemplate(
     actorTelegramId: number,
-    input: CreateBroadcastTemplateInput
+    _input: unknown
   ): Promise<BroadcastTemplate> {
     this.assertAdmin(actorTelegramId);
-    const parsed = validateTemplateInput(createBroadcastTemplateSchema, input);
-    this.assertKnownPlaceholders(parsed);
-    try {
-      return broadcastTemplateSchema.parse(await this.repo.createTemplate(parsed, actorTelegramId));
-    } catch (error) {
-      this.throwIfTemplateNameConflict(error);
-      throw error;
-    }
+    throw new GoneException(
+      "Creating legacy broadcast templates is retired; create a broadcast automation instead"
+    );
   }
 
   /** Admin: patch a template and bump version. */

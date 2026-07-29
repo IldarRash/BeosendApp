@@ -37,6 +37,7 @@ const EXISTING: Client = {
   telegramId: 42,
   telegramUsername: "anya",
   telegramPhotoUrl: null,
+  gender: "female",
   levelId: null,
   source: "telegram",
   phone: null,
@@ -135,6 +136,8 @@ describe("handleStart", () => {
     const { ctx, reply } = fakeCtx({ from: { id: 42, username: "anya" } });
     await handleStart(ctx, api, ru, menuFor(ru));
     expect(reply).toHaveBeenCalledWith(WELCOME_TEXT, expect.anything());
+    expect(reply).toHaveBeenCalledTimes(1);
+    expect(reply).not.toHaveBeenCalledWith(ONBOARD_WELCOME);
     expect(ctx.session.step).toBeUndefined();
     expect(api.onboardClient).not.toHaveBeenCalled();
   });
@@ -209,6 +212,7 @@ describe("handleLevelCallback", () => {
       telegramId: 7,
       name: "Марко",
       levelId: LEVELS[0].id,
+      gender: "unspecified",
       // Onboarding now sends affirmative personal-data-processing consent.
       consentAccepted: true,
       telegramUsername: "marko"

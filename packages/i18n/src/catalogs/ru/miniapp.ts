@@ -10,7 +10,7 @@
  */
 export const miniappRu: Record<string, string> = {
   // --- Onboarding wizard ---
-  "miniapp.onboarding.step": "Шаг {n} из 3",
+  "miniapp.onboarding.step": "Шаг {n} из 4",
   "miniapp.onboarding.nameHeader": "Как вас зовут?",
   "miniapp.onboarding.nameHint": "Под этим именем вас увидит тренер.",
   "miniapp.onboarding.namePlaceholder": "Ваше имя",
@@ -18,6 +18,16 @@ export const miniappRu: Record<string, string> = {
   "miniapp.onboarding.levelHeader": "Ваш уровень",
   "miniapp.onboarding.levelFooter": "Можно выбрать позже",
   "miniapp.onboarding.levelSkip": "Пока не знаю",
+
+  "miniapp.onboarding.genderHeader": "Пол",
+  "miniapp.onboarding.genderMale": "Мужской",
+  "miniapp.onboarding.genderFemale": "Женский",
+  "miniapp.onboarding.genderUnspecified": "Не указан",
+  "miniapp.onboarding.genderRequired": "Выберите пол, чтобы продолжить.",
+  "miniapp.onboarding.consentNotice":
+    "Мы обрабатываем данные вашей регистрации, включая выбранный пол, для предоставления услуг и целевых рассылок. Если вы выберете \"Не указан\", вы все равно можете попасть в аудитории и для мужчин, и для женщин.",
+  "miniapp.onboarding.consentLabel": "Я соглашаюсь на такую обработку моих данных при регистрации.",
+  "miniapp.onboarding.consentRequired": "Подтвердите согласие, чтобы продолжить.",
 
   // --- Primary actions ---
   "miniapp.action.continue": "Продолжить",

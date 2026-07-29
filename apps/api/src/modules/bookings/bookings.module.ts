@@ -1,5 +1,5 @@
 import { Module } from "@nestjs/common";
-import { BroadcastsModule } from "../broadcasts/broadcasts.module";
+import { BroadcastAutomationsModule } from "../broadcast-automations/broadcast-automations.module";
 import { ClientsRepository } from "../clients/clients.repository";
 import { ConnectorsModule } from "../connectors/connectors.module";
 import { GroupsRepository } from "../groups/groups.repository";
@@ -18,7 +18,7 @@ import { BookingsService } from "./bookings.service";
     TrainersModule,
     TrainingPricingModule,
     ConnectorsModule,
-    BroadcastsModule
+    BroadcastAutomationsModule
   ],
   controllers: [BookingsController],
   providers: [BookingsService, BookingsRepository, ClientsRepository, GroupsRepository]

@@ -15,6 +15,7 @@ const client: Client = {
   telegramUsername: "ana",
   telegramPhotoUrl: "https://t.me/i/userpic/320/ana.jpg",
   levelId: "11111111-1111-1111-1111-111111111111",
+  gender: "unspecified",
   source: "telegram",
   phone: null,
   email: null,
@@ -33,6 +34,7 @@ const walkIn: Client = {
   telegramUsername: null,
   telegramPhotoUrl: null,
   levelId: null,
+  gender: "unspecified",
   source: "walk_in",
   phone: "+381601234567",
   email: null,
@@ -176,6 +178,7 @@ describe("ClientsController", () => {
         telegramId: TELEGRAM_ID,
         name: "Ana",
         levelId: client.levelId,
+        gender: "unspecified",
         consentAccepted: true
       })
     ).resolves.toEqual(client);
@@ -184,6 +187,24 @@ describe("ClientsController", () => {
       telegramId: TELEGRAM_ID,
       name: "Ana",
       levelId: client.levelId,
+      gender: "unspecified",
+      consentAccepted: true
+    });
+  });
+
+  it("POST onboard accepts an older valid body without gender and normalizes it for the service", async () => {
+    await expect(
+      controller.onboard(HEADER, {
+        telegramId: TELEGRAM_ID,
+        name: "Ana",
+        consentAccepted: true
+      })
+    ).resolves.toEqual(client);
+
+    expect(service.onboard).toHaveBeenCalledWith(TELEGRAM_ID, {
+      telegramId: TELEGRAM_ID,
+      name: "Ana",
+      gender: "unspecified",
       consentAccepted: true
     });
   });
@@ -196,6 +217,7 @@ describe("ClientsController", () => {
           telegramId: TELEGRAM_ID,
           name: "Ana",
           levelId: client.levelId,
+          gender: "female",
           consentAccepted: true
         },
         HEADER,
@@ -209,6 +231,7 @@ describe("ClientsController", () => {
         telegramId: TELEGRAM_ID,
         name: "Ana",
         levelId: client.levelId,
+        gender: "female",
         consentAccepted: true
       },
       {
@@ -222,7 +245,7 @@ describe("ClientsController", () => {
     await expect(
       controller.onboard(
         HEADER,
-        { telegramId: TELEGRAM_ID, name: "Ana", consentAccepted: true },
+        { telegramId: TELEGRAM_ID, name: "Ana", gender: "unspecified", consentAccepted: true },
         undefined,
         "forged",
         "https://attacker.test/photo.jpg"
@@ -231,6 +254,7 @@ describe("ClientsController", () => {
     expect(service.onboard).toHaveBeenCalledWith(TELEGRAM_ID, {
       telegramId: TELEGRAM_ID,
       name: "Ana",
+      gender: "unspecified",
       consentAccepted: true
     });
   });
@@ -260,6 +284,14 @@ describe("ClientsController", () => {
     await expect(
       controller.onboard(HEADER, { telegramId: TELEGRAM_ID, name: "Ana" })
     ).rejects.toBeInstanceOf(BadRequestException);
+    expect(service.onboard).not.toHaveBeenCalled();
+  });
+
+  it.each([
+    { telegramId: TELEGRAM_ID, name: "Ana", gender: "other", consentAccepted: true },
+    { telegramId: TELEGRAM_ID, name: "Ana", consentAccepted: true, source: "telegram" }
+  ])("rejects invalid or unknown fields in an onboard body before calling the service", async (body) => {
+    await expect(controller.onboard(HEADER, body)).rejects.toBeInstanceOf(BadRequestException);
     expect(service.onboard).not.toHaveBeenCalled();
   });
 

@@ -1,4 +1,4 @@
-import { BadRequestException, ConflictException, ForbiddenException } from "@nestjs/common";
+import { BadRequestException, ConflictException, ForbiddenException, GoneException } from "@nestjs/common";
 import type { Env } from "@beosand/config";
 import type { BroadcastTemplate, TrainingStatus } from "@beosand/types";
 import { beforeEach, describe, expect, it, vi } from "vitest";
@@ -234,15 +234,12 @@ describe("BroadcastsController", () => {
       expect(variables.map((variable) => variable.key)).toContain("groupName");
     });
 
-    it("creates and patches a template with Zod boundary validation", async () => {
-      await templatesController.create(String(ADMIN_ID), {
-        name: "Fill",
-        broadcastType: "today",
-        bodyTemplate: "Open",
-        slotLineTemplate: "{groupName} {freeSeats}",
-        emptyBodyTemplate: "No slots"
-      });
-      expect(repo.createTemplate).toHaveBeenCalledTimes(1);
+    it("rejects creating legacy templates while retaining patches for existing templates", async () => {
+      await expect(templatesController.create(String(ADMIN_ID), {
+        name: "Fill", broadcastType: "today", bodyTemplate: "Open",
+        slotLineTemplate: "{groupName} {freeSeats}", emptyBodyTemplate: "No slots"
+      })).rejects.toBeInstanceOf(GoneException);
+      expect(repo.createTemplate).not.toHaveBeenCalled();
 
       await templatesController.update(String(ADMIN_ID), template().id, {
         bodyTemplate: "Updated {groupName}"
@@ -250,7 +247,7 @@ describe("BroadcastsController", () => {
       expect(repo.updateTemplate).toHaveBeenCalledTimes(1);
     });
 
-    it("rejects unknown placeholders before repository writes", async () => {
+    it("does not allow an invalid legacy-create payload to reach repository writes", async () => {
       await expect(
         templatesController.create(String(ADMIN_ID), {
           name: "Broken",
@@ -263,7 +260,7 @@ describe("BroadcastsController", () => {
       expect(repo.createTemplate).not.toHaveBeenCalled();
     });
 
-    it("surfaces duplicate active template create and rename as conflicts", async () => {
+    it("rejects legacy create and still surfaces existing-template rename conflicts", async () => {
       repo.createTemplate.mockRejectedValueOnce(new BroadcastTemplateNameConflictError());
       await expect(
         templatesController.create(String(ADMIN_ID), {
@@ -273,7 +270,7 @@ describe("BroadcastsController", () => {
           slotLineTemplate: "{groupName}",
           emptyBodyTemplate: "No slots"
         })
-      ).rejects.toBeInstanceOf(ConflictException);
+      ).rejects.toBeInstanceOf(GoneException);
 
       repo.updateTemplate.mockRejectedValueOnce(new BroadcastTemplateNameConflictError());
       await expect(

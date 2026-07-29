@@ -10,6 +10,7 @@ import { AnalyticsModule } from "./modules/analytics/analytics.module";
 import { AuthModule } from "./modules/auth/auth.module";
 import { BookingsModule } from "./modules/bookings/bookings.module";
 import { BroadcastsModule } from "./modules/broadcasts/broadcasts.module";
+import { BroadcastAutomationsModule } from "./modules/broadcast-automations/broadcast-automations.module";
 import { ClientsModule } from "./modules/clients/clients.module";
 import { CourtsModule } from "./modules/courts/courts.module";
 import { CourtRequestsModule } from "./modules/court-requests/court-requests.module";
@@ -53,6 +54,7 @@ import { RequestLoggingInterceptor } from "./request-logging/request-logging.int
     WaitlistModule,
     BookingsModule,
     BroadcastsModule,
+    BroadcastAutomationsModule,
     AnalyticsModule,
     CourtsModule,
     CourtRequestsModule,

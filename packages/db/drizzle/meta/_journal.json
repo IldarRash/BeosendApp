@@ -197,6 +197,41 @@
       "when": 1784278476148,
       "tag": "0027_curly_goblin_queen",
       "breakpoints": true
+    },
+    {
+      "idx": 28,
+      "version": "7",
+      "when": 1785268069952,
+      "tag": "0028_eager_albert_cleary",
+      "breakpoints": true
+    },
+    {
+      "idx": 29,
+      "version": "7",
+      "when": 1785270267175,
+      "tag": "0029_talented_joshua_kane",
+      "breakpoints": true
+    },
+    {
+      "idx": 30,
+      "version": "7",
+      "when": 1785270782557,
+      "tag": "0030_cynical_franklin_richards",
+      "breakpoints": true
+    },
+    {
+      "idx": 31,
+      "version": "7",
+      "when": 1785274238598,
+      "tag": "0031_shocking_firebrand",
+      "breakpoints": true
+    },
+    {
+      "idx": 32,
+      "version": "7",
+      "when": 1785332366268,
+      "tag": "0032_warm_william_stryker",
+      "breakpoints": true
     }
   ]
 }

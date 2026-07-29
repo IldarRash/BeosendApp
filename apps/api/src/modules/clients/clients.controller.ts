@@ -20,7 +20,6 @@ import {
   updateClientSchema,
   uuid
 } from "@beosand/types";
-import type { ZodSchema } from "zod";
 import { z } from "zod";
 import { ClientsService, type TelegramDisplayIdentity } from "./clients.service";
 
@@ -214,7 +213,10 @@ function parseTelegramDisplayIdentity(
 }
 
 /** Zod-validate at the boundary; surface failures as 400 instead of 500. */
-function validate<T>(schema: ZodSchema<T>, input: unknown): T {
+function validate<TSchema extends z.ZodTypeAny>(
+  schema: TSchema,
+  input: unknown
+): z.output<TSchema> {
   const result = schema.safeParse(input);
   if (!result.success) {
     throw new BadRequestException(result.error.issues.map((issue) => issue.message).join("; "));

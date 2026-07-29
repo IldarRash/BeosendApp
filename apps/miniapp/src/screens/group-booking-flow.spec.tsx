@@ -36,6 +36,7 @@ const ONBOARDED: Client = {
   telegramId: 42,
   telegramUsername: "anya",
   telegramPhotoUrl: null,
+  gender: "female",
   levelId: null,
   source: "telegram",
   phone: null,
