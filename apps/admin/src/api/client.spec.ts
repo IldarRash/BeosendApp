@@ -273,7 +273,7 @@ describe("ApiClient broadcast automation builder", () => {
   const automation = {
     id: automationId, name: "Tomorrow", enabled: false,
     trigger: { kind: "scheduled" as const, recurrence: "daily" as const, time: "10:00", trainingWindow: "tomorrow" as const },
-    audience: { levelIds: ["88888888-8888-4888-8888-888888888888"], activity: "active" as const },
+    audience: { filters: [{ dimension: "level" as const, levelIds: ["88888888-8888-4888-8888-888888888888"] }, { dimension: "activity" as const, value: "active" as const }, { dimension: "gender" as const, value: "unspecified" as const }] },
     message: { bodies: { ru: "Здравствуйте" }, defaultLanguage: "ru" as const, outputMode: "per-training" as const, ctaMode: "none" as const },
     version: 3, createdBy: 1, updatedBy: 1, createdAt: "2026-07-01T00:00:00.000Z", updatedAt: "2026-07-01T00:00:00.000Z"
   };
@@ -287,6 +287,33 @@ describe("ApiClient broadcast automation builder", () => {
     expect(calls[0]?.url).toBe("http://api.test/broadcast-automations");
     expect(calls[0]?.init?.method).toBe("POST");
     expect(JSON.parse(calls[0]?.init?.body as string)).toEqual(draft);
+  });
+
+  it("sends each valid single, pair, and triple audience combination without reshaping it", async () => {
+    const client = new ApiClient("http://api.test");
+    const base = { name: automation.name, trigger: automation.trigger, message: automation.message };
+    const audiences = [
+      { filters: [{ dimension: "activity" as const, value: "active" as const }] },
+      { filters: [{ dimension: "level" as const, levelIds: ["88888888-8888-4888-8888-888888888888"] }, { dimension: "gender" as const, value: "female" as const }] },
+      automation.audience
+    ];
+
+    for (const audience of audiences) {
+      const calls = mockFetchOnce(automation);
+      await client.createBroadcastAutomation({ ...base, audience });
+      expect(JSON.parse(calls[0]?.init?.body as string).audience).toEqual(audience);
+    }
+  });
+
+  it("rejects empty and level-empty audiences before a forbidden request is made", () => {
+    const fetch = vi.fn();
+    vi.stubGlobal("fetch", fetch);
+    const client = new ApiClient("http://api.test");
+    const base = { name: automation.name, trigger: automation.trigger, message: automation.message };
+
+    expect(() => client.createBroadcastAutomation({ ...base, audience: { filters: [] } })).toThrow();
+    expect(() => client.createBroadcastAutomation({ ...base, audience: { filters: [{ dimension: "level", levelIds: [] }] } })).toThrow();
+    expect(fetch).not.toHaveBeenCalled();
   });
 
   it("rejects unsafe enable without a preview token before it can make a request", () => {
@@ -1190,6 +1217,7 @@ describe("ApiClient error handling & clients", () => {
     telegramId: 4242,
     telegramUsername: "anya",
     telegramPhotoUrl: null,
+    gender: "unspecified",
     levelId: null,
     source: "telegram",
     phone: null,
@@ -1494,6 +1522,7 @@ describe("ApiClient walk-in & manual booking (Feature 5)", () => {
     telegramId: null,
     telegramUsername: null,
     telegramPhotoUrl: null,
+    gender: "unspecified",
     levelId: null,
     source: "walk_in",
     phone: "+381601234567",
@@ -1929,6 +1958,7 @@ describe("ApiClient training delete & client edit", () => {
     telegramId: 4242,
     telegramUsername: "anya",
     telegramPhotoUrl: null,
+    gender: "unspecified",
     levelId: LEVEL_ID,
     source: "telegram",
     phone: "+381601112233",

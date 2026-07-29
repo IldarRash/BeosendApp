@@ -29,7 +29,7 @@ const ID = "11111111-1111-4111-8111-111111111111";
 const RUN_ID = "22222222-2222-4222-8222-222222222222";
 const level: Level = { id: ID, name: "Beginner", status: "active" };
 const template: BroadcastTemplate = { id: "33333333-3333-4333-8333-333333333333", name: "Existing", broadcastType: "tomorrow", status: "active", bodyTemplate: "x", slotLineTemplate: "x", emptyBodyTemplate: "x", version: 2, createdAt: "2026-07-01T00:00:00.000Z", updatedAt: "2026-07-01T00:00:00.000Z", updatedBy: 1 };
-const automation: BroadcastAutomation = { id: ID, name: "Tomorrow", enabled: false, trigger: { kind: "scheduled", recurrence: "daily", time: "10:00", trainingWindow: "tomorrow" }, audience: { levelIds: [ID], activity: "active" }, message: { bodies: { ru: "Здравствуйте" }, defaultLanguage: "ru", outputMode: "per-training", ctaMode: "booking" }, version: 3, createdBy: 1, updatedBy: 1, createdAt: "2026-07-01T00:00:00.000Z", updatedAt: "2026-07-01T00:00:00.000Z" };
+const automation: BroadcastAutomation = { id: ID, name: "Tomorrow", enabled: false, trigger: { kind: "scheduled", recurrence: "daily", time: "10:00", trainingWindow: "tomorrow" }, audience: { filters: [{ dimension: "level", levelIds: [ID] }, { dimension: "activity", value: "active" }, { dimension: "gender", value: "unspecified" }] }, message: { bodies: { ru: "Здравствуйте" }, defaultLanguage: "ru", outputMode: "per-training", ctaMode: "booking" }, version: 3, createdBy: 1, updatedBy: 1, createdAt: "2026-07-01T00:00:00.000Z", updatedAt: "2026-07-01T00:00:00.000Z" };
 const preview: BroadcastAutomationPreview = { automationId: ID, version: 3, previewToken: "preview-token-is-long-enough", trainings: [], renderedItems: [{ trainingIds: [ID], requestedLanguage: "ru", resolvedLanguage: "ru", usedFallback: false, text: "Server rendered", ctaMode: "booking", bookingTrainingId: ID }], recipientCount: 1, selectedLanguages: ["ru"], fallbackLanguages: [], warnings: [] };
 const runDetail: BroadcastAutomationRunDetail = {
   run: { id: RUN_ID, automationId: ID, automationVersion: 3, triggerKind: "scheduled", sourceEventId: null, scheduledFor: null, dueAt: "2026-07-01T00:00:00.000Z", status: "completed", skipReason: null, originalRunId: "33333333-3333-4333-8333-333333333333", configSnapshot: { name: automation.name, trigger: automation.trigger, audience: automation.audience, message: automation.message }, counts: { selectedTrainings: 1, includedTrainings: 1, skippedTrainings: 0, recipients: 1, attempted: 1, sent: 1, failed: 0, ambiguous: 0, skippedDeliveries: 0 }, createdAt: "2026-07-01T00:00:00.000Z", startedAt: "2026-07-01T00:00:00.000Z", completedAt: "2026-07-01T00:01:00.000Z" },
@@ -85,6 +85,60 @@ describe("Broadcast automation builder", () => {
     expect(screen.getByLabelText(tr("admin.broadcasts.cta")).hasAttribute("disabled")).toBe(true);
     fireEvent.change(trigger, { target: { value: "freed-place" } });
     expect(screen.getByText(tr("admin.broadcasts.eventDelay"))).toBeTruthy();
+  });
+
+  it("renders migrated audience definitions accessibly and supports every unique filter dimension", () => {
+    renderPage();
+    fireEvent.click(screen.getByRole("button", { name: tr("admin.action.edit") }));
+
+    expect(screen.getByRole("group", { name: tr("admin.broadcasts.audience") })).toBeTruthy();
+    expect(screen.getByRole("checkbox", { name: level.name })).toBeTruthy();
+    expect((screen.getByLabelText(tr("admin.broadcasts.genderChoice")) as HTMLSelectElement).value).toBe("unspecified");
+
+    for (let index = 0; index < 3; index += 1) {
+      fireEvent.click(screen.getAllByRole("button", { name: tr("admin.broadcasts.removeFilter") })[0]!);
+    }
+
+    const addLevels = screen.getByRole("button", { name: tr("admin.broadcasts.addLevels") });
+    const addActivity = screen.getByRole("button", { name: tr("admin.broadcasts.addActivity") });
+    const addGender = screen.getByRole("button", { name: tr("admin.broadcasts.addGender") });
+    expect((addLevels as HTMLButtonElement).disabled).toBe(false);
+    expect((addActivity as HTMLButtonElement).disabled).toBe(false);
+    expect((addGender as HTMLButtonElement).disabled).toBe(false);
+
+    fireEvent.click(addActivity);
+    expect(screen.getByText(tr("admin.broadcasts.activityHint"))).toBeTruthy();
+    fireEvent.click(addGender);
+    expect(screen.queryByText(tr("admin.broadcasts.genderInclusiveWarning"))).toBeNull();
+    fireEvent.change(screen.getByLabelText(tr("admin.broadcasts.genderChoice")), { target: { value: "male" } });
+    expect(screen.getByText(tr("admin.broadcasts.genderInclusiveWarning"))).toBeTruthy();
+    fireEvent.change(screen.getByLabelText(tr("admin.broadcasts.genderChoice")), { target: { value: "female" } });
+    expect(screen.getByText(tr("admin.broadcasts.genderInclusiveWarning"))).toBeTruthy();
+    fireEvent.change(screen.getByLabelText(tr("admin.broadcasts.genderChoice")), { target: { value: "unspecified" } });
+    expect(screen.queryByText(tr("admin.broadcasts.genderInclusiveWarning"))).toBeNull();
+
+    fireEvent.click(addLevels);
+    expect(screen.getByText(tr("admin.broadcasts.levelRequired"))).toBeTruthy();
+    expect((screen.getByRole("button", { name: tr("admin.broadcasts.saveDraft") }) as HTMLButtonElement).disabled).toBe(true);
+    fireEvent.click(screen.getByRole("checkbox", { name: level.name }));
+    expect((screen.getByRole("button", { name: tr("admin.broadcasts.saveDraft") }) as HTMLButtonElement).disabled).toBe(false);
+  });
+
+  it("invalidates the preview when level, activity, or gender audience state changes", async () => {
+    previewMutation.mockResolvedValue(preview);
+    renderPage();
+    fireEvent.click(screen.getByRole("button", { name: tr("admin.action.edit") }));
+
+    const requestAndChange = async (change: () => void) => {
+      fireEvent.click(screen.getByRole("button", { name: tr("admin.broadcasts.preview") }));
+      await waitFor(() => expect(screen.getByText("Server rendered")).toBeTruthy());
+      change();
+      expect(screen.queryByText("Server rendered")).toBeNull();
+    };
+
+    await requestAndChange(() => fireEvent.click(screen.getByRole("checkbox", { name: level.name })));
+    await requestAndChange(() => fireEvent.click(screen.getByLabelText(tr("admin.broadcasts.activityInactive"))));
+    await requestAndChange(() => fireEvent.change(screen.getByLabelText(tr("admin.broadcasts.genderChoice")), { target: { value: "male" } }));
   });
 
   it("renders persisted run evidence and only retries ambiguous deliveries after explicit acknowledgement", async () => {
