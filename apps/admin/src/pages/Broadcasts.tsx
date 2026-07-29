@@ -1,5 +1,16 @@
 import { useMemo, useState } from "react";
-import type { BroadcastAudience, BroadcastAutomation, BroadcastAutomationPreview, BroadcastAutomationRunDetail, BroadcastType, ListBroadcastAutomationRunsQuery, Locale, RetryBroadcastAutomationFailuresResult } from "@beosand/types";
+import {
+  createBroadcastAutomationSchema,
+  type BroadcastAudience,
+  type BroadcastAutomation,
+  type BroadcastAutomationAudienceFilter,
+  type BroadcastAutomationPreview,
+  type BroadcastAutomationRunDetail,
+  type BroadcastType,
+  type ListBroadcastAutomationRunsQuery,
+  type Locale,
+  type RetryBroadcastAutomationFailuresResult
+} from "@beosand/types";
 import { AppShell } from "../ui/AppShell";
 import { Button } from "../ui/Button";
 import { DataTable, type Column } from "../ui/DataTable";
@@ -16,7 +27,7 @@ type HistoryFilters = Omit<ListBroadcastAutomationRunsQuery, "cursor" | "limit">
 const LOCALES: Locale[] = ["ru", "sr", "en"];
 
 function initialDraft(): Draft {
-  return { name: "", trigger: { kind: "scheduled", recurrence: "daily", time: "10:00", trainingWindow: "tomorrow" }, audience: { levelIds: [], activity: "active" }, message: { bodies: { ru: "" }, defaultLanguage: "ru", outputMode: "per-training", ctaMode: "none" } };
+  return { name: "", trigger: { kind: "scheduled", recurrence: "daily", time: "10:00", trainingWindow: "tomorrow" }, audience: { filters: [] }, message: { bodies: { ru: "" }, defaultLanguage: "ru", outputMode: "per-training", ctaMode: "none" } };
 }
 
 export function Broadcasts(): JSX.Element {
@@ -35,7 +46,7 @@ export function Broadcasts(): JSX.Element {
   const runs = useBroadcastAutomationRuns(historyFilters);
   const selectedRun = useBroadcastAutomationRun(runId);
   const levelOptions = useMemo(() => levels.data ?? [], [levels.data]);
-  const valid = draft.name.trim() !== "" && draft.audience.levelIds.length > 0 && Boolean(draft.message.bodies[draft.message.defaultLanguage]);
+  const valid = createBroadcastAutomationSchema.safeParse(draft).success;
 
   const edit = (automation: BroadcastAutomation) => { setSelected(automation); setDraft({ name: automation.name, trigger: automation.trigger, audience: automation.audience, message: automation.message }); setPreview(null); };
   const newAutomation = () => { setSelected(null); setDraft(initialDraft()); setPreview(null); };
@@ -84,13 +95,38 @@ function AutomationEditor({ draft, levels, levelsLoading, onChange }: { draft: D
   const t = useT(); const scheduled = draft.trigger.kind === "scheduled";
   const scheduledTrigger = draft.trigger as Extract<BroadcastAutomation["trigger"], { kind: "scheduled" }>;
   const updateMessage = (part: Partial<Draft["message"]>) => onChange({ ...draft, message: { ...draft.message, ...part } });
-  const toggleLevel = (id: string) => onChange({ ...draft, audience: { ...draft.audience, levelIds: draft.audience.levelIds.includes(id) ? draft.audience.levelIds.filter((x) => x !== id) : [...draft.audience.levelIds, id] } });
+  const filterFor = <TDimension extends BroadcastAutomationAudienceFilter["dimension"]>(dimension: TDimension) =>
+    draft.audience.filters.find((filter): filter is Extract<BroadcastAutomationAudienceFilter, { dimension: TDimension }> => filter.dimension === dimension);
+  const updateAudience = (filters: BroadcastAutomationAudienceFilter[]) => onChange({ ...draft, audience: { filters } });
+  const addFilter = (filter: BroadcastAutomationAudienceFilter) => updateAudience([...draft.audience.filters, filter]);
+  const removeFilter = (dimension: BroadcastAutomationAudienceFilter["dimension"]) => updateAudience(draft.audience.filters.filter((filter) => filter.dimension !== dimension));
+  const levelFilter = filterFor("level");
+  const activityFilter = filterFor("activity");
+  const genderFilter = filterFor("gender");
+  const toggleLevel = (id: string) => {
+    if (!levelFilter) return;
+    const levelIds = levelFilter.levelIds.includes(id)
+      ? levelFilter.levelIds.filter((value) => value !== id)
+      : [...levelFilter.levelIds, id];
+    updateAudience(draft.audience.filters.map((filter) => filter.dimension === "level" ? { dimension: "level", levelIds } : filter));
+  };
   return <form className="form" onSubmit={(event) => event.preventDefault()}>
     <TextField label={t("admin.broadcasts.name")} value={draft.name} onChange={(e) => onChange({ ...draft, name: e.target.value })} />
     <SelectField label={t("admin.broadcasts.trigger")} value={draft.trigger.kind} onChange={(e) => { const kind = e.target.value; onChange({ ...draft, trigger: kind === "scheduled" ? { kind, recurrence: "daily", time: "10:00", trainingWindow: "tomorrow" } : { kind: kind as "training-created" | "training-time-changed" | "freed-place" } }); }} options={[{ value: "scheduled", label: t("admin.broadcasts.triggerScheduled") }, { value: "training-created", label: t("admin.broadcasts.triggerCreated") }, { value: "training-time-changed", label: t("admin.broadcasts.triggerChanged") }, { value: "freed-place", label: t("admin.broadcasts.triggerFreed") }]} />
     {scheduled ? <><SelectField label={t("admin.broadcasts.recurrence")} value={scheduledTrigger.recurrence} onChange={(e) => onChange({ ...draft, trigger: { ...scheduledTrigger, recurrence: e.target.value as "one-time" | "daily" | "weekly", ...(e.target.value === "weekly" ? { weekdays: [] } : {}), ...(e.target.value === "one-time" ? { date: "" } : {}) } })} options={[{ value: "one-time", label: t("admin.broadcasts.once") }, { value: "daily", label: t("admin.broadcasts.daily") }, { value: "weekly", label: t("admin.broadcasts.weekly") }]} /><TimeField label={t("admin.broadcasts.time")} value={scheduledTrigger.time} onChange={(e) => onChange({ ...draft, trigger: { ...scheduledTrigger, time: e.target.value } })} />{scheduledTrigger.recurrence === "weekly" ? <DayOfWeekPicker label={t("admin.broadcasts.weekdays")} value={scheduledTrigger.weekdays ?? []} onChange={(weekdays) => onChange({ ...draft, trigger: { ...scheduledTrigger, weekdays } })} /> : null}{scheduledTrigger.recurrence === "one-time" ? <TextField type="date" label={t("admin.broadcasts.date")} value={scheduledTrigger.date ?? ""} onChange={(e) => onChange({ ...draft, trigger: { ...scheduledTrigger, date: e.target.value } })} /> : null}<SelectField label={t("admin.broadcasts.window")} value={scheduledTrigger.trainingWindow} onChange={(e) => onChange({ ...draft, trigger: { ...scheduledTrigger, trainingWindow: e.target.value as "today" | "tomorrow" | "week" } })} options={[{ value: "today", label: t("admin.broadcasts.typeToday") }, { value: "tomorrow", label: t("admin.broadcasts.typeTomorrow") }, { value: "week", label: t("admin.broadcasts.typeWeek") }]} /></> : <p className="field__hint">{t("admin.broadcasts.eventDelay")}</p>}
-    <fieldset className="field"><legend className="field__label">{t("admin.broadcasts.levels")}</legend>{levelsLoading ? t("admin.broadcasts.loading") : levels.map((level) => <label key={level.id} className="check"><input type="checkbox" checked={draft.audience.levelIds.includes(level.id)} onChange={() => toggleLevel(level.id)} /> {level.name}</label>)}</fieldset>
-    <SelectField label={t("admin.broadcasts.activity")} hint={t("admin.broadcasts.activityHint")} value={draft.audience.activity} onChange={(e) => onChange({ ...draft, audience: { ...draft.audience, activity: e.target.value as "active" | "inactive" } })} options={[{ value: "active", label: t("admin.broadcasts.activityActive") }, { value: "inactive", label: t("admin.broadcasts.activityInactive") }]} />
+    <fieldset className="field" aria-describedby="broadcast-audience-hint">
+      <legend className="field__label">{t("admin.broadcasts.audience")}</legend>
+      <span id="broadcast-audience-hint" className="field__hint">{t("admin.broadcasts.audienceHint")}</span>
+      <div className="cluster">
+        <Button type="button" variant="ghost" disabled={Boolean(levelFilter)} onClick={() => addFilter({ dimension: "level", levelIds: [] })}>{t("admin.broadcasts.addLevels")}</Button>
+        <Button type="button" variant="ghost" disabled={Boolean(activityFilter)} onClick={() => addFilter({ dimension: "activity", value: "active" })}>{t("admin.broadcasts.addActivity")}</Button>
+        <Button type="button" variant="ghost" disabled={Boolean(genderFilter)} onClick={() => addFilter({ dimension: "gender", value: "unspecified" })}>{t("admin.broadcasts.addGender")}</Button>
+      </div>
+    </fieldset>
+    {levelFilter ? <fieldset className="field"><legend className="field__label">{t("admin.broadcasts.levels")}</legend><Button type="button" variant="ghost" onClick={() => removeFilter("level")}>{t("admin.broadcasts.removeFilter")}</Button>{levelsLoading ? <p className="field__hint">{t("admin.broadcasts.loading")}</p> : levels.map((level) => <label key={level.id} className="check"><input type="checkbox" checked={levelFilter.levelIds.includes(level.id)} onChange={() => toggleLevel(level.id)} /> {level.name}</label>)}{levelFilter.levelIds.length === 0 ? <p className="field__error" role="status">{t("admin.broadcasts.levelRequired")}</p> : null}</fieldset> : null}
+    {activityFilter ? <fieldset className="field"><legend className="field__label">{t("admin.broadcasts.activity")}</legend><p className="field__hint">{t("admin.broadcasts.activityHint")}</p><label className="check"><input type="radio" name="broadcast-activity" checked={activityFilter.value === "active"} onChange={() => updateAudience(draft.audience.filters.map((filter) => filter.dimension === "activity" ? { dimension: "activity", value: "active" } : filter))} /> {t("admin.broadcasts.activityActive")}</label><label className="check"><input type="radio" name="broadcast-activity" checked={activityFilter.value === "inactive"} onChange={() => updateAudience(draft.audience.filters.map((filter) => filter.dimension === "activity" ? { dimension: "activity", value: "inactive" } : filter))} /> {t("admin.broadcasts.activityInactive")}</label><Button type="button" variant="ghost" onClick={() => removeFilter("activity")}>{t("admin.broadcasts.removeFilter")}</Button></fieldset> : null}
+    {genderFilter ? <fieldset className="field"><legend className="field__label">{t("admin.broadcasts.gender")}</legend><SelectField label={t("admin.broadcasts.genderChoice")} value={genderFilter.value} onChange={(event) => updateAudience(draft.audience.filters.map((filter) => filter.dimension === "gender" ? { dimension: "gender", value: event.target.value as "male" | "female" | "unspecified" } : filter))} options={[{ value: "male", label: t("admin.broadcasts.genderMale") }, { value: "female", label: t("admin.broadcasts.genderFemale") }, { value: "unspecified", label: t("admin.broadcasts.genderUnspecified") }]} />{genderFilter.value === "male" || genderFilter.value === "female" ? <p className="state state--warning" role="status">{t("admin.broadcasts.genderInclusiveWarning")}</p> : null}<Button type="button" variant="ghost" onClick={() => removeFilter("gender")}>{t("admin.broadcasts.removeFilter")}</Button></fieldset> : null}
+    <p className="field__hint" aria-live="polite">{createBroadcastAutomationSchema.safeParse(draft).success ? t("admin.broadcasts.audienceReady") : t("admin.broadcasts.audienceIncomplete")}</p>
     <SelectField label={t("admin.broadcasts.output")} value={draft.message.outputMode} onChange={(e) => updateMessage({ outputMode: e.target.value as "per-training" | "digest", ctaMode: e.target.value === "digest" ? "none" : draft.message.ctaMode })} options={[{ value: "per-training", label: t("admin.broadcasts.perTraining") }, { value: "digest", label: t("admin.broadcasts.digest") }]} />
     <SelectField label={t("admin.broadcasts.cta")} value={draft.message.ctaMode} disabled={draft.message.outputMode === "digest"} onChange={(e) => updateMessage({ ctaMode: e.target.value as "none" | "booking" })} options={[{ value: "none", label: t("admin.broadcasts.ctaNone") }, { value: "booking", label: t("admin.broadcasts.ctaBooking") }]} />
     <SelectField label={t("admin.broadcasts.defaultLanguage")} value={draft.message.defaultLanguage} onChange={(e) => updateMessage({ defaultLanguage: e.target.value as Locale })} options={LOCALES.map((locale) => ({ value: locale, label: locale.toUpperCase() }))} />
