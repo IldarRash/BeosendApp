@@ -2,6 +2,7 @@ import { z } from "zod";
 import { dateString, dayOfWeek, rsd, timeString, uuid } from "./common";
 import { localeSchema } from "./i18n-contracts";
 import { findUnknownBroadcastTemplatePlaceholders } from "./broadcast-template-contracts";
+import { clientGenderSchema } from "./client-contracts";
 
 /** Stable kinds for the builder-owned automation engine. */
 export const broadcastAutomationTriggerKind = z.enum([
@@ -114,16 +115,47 @@ export const broadcastAutomationTriggerSchema = z.union([
 ]);
 export type BroadcastAutomationTrigger = z.infer<typeof broadcastAutomationTriggerSchema>;
 
+const broadcastAutomationAudienceLevelFilterSchema = z
+  .object({
+    dimension: z.literal("level"),
+    levelIds: z.array(uuid).min(1).max(100)
+  })
+  .strict();
+const broadcastAutomationAudienceActivityFilterSchema = z
+  .object({ dimension: z.literal("activity"), value: broadcastAutomationActivity })
+  .strict();
+const broadcastAutomationAudienceGenderFilterSchema = z
+  .object({ dimension: z.literal("gender"), value: clientGenderSchema })
+  .strict();
+
+export const broadcastAutomationAudienceFilterSchema = z.discriminatedUnion("dimension", [
+  broadcastAutomationAudienceLevelFilterSchema,
+  broadcastAutomationAudienceActivityFilterSchema,
+  broadcastAutomationAudienceGenderFilterSchema
+]);
+export type BroadcastAutomationAudienceFilter = z.infer<
+  typeof broadcastAutomationAudienceFilterSchema
+>;
+
 export const broadcastAutomationAudienceSchema = z
   .object({
-    levelIds: z.array(uuid).min(1).max(100),
-    activity: broadcastAutomationActivity
+    filters: z.array(broadcastAutomationAudienceFilterSchema).min(1).max(3)
   })
   .strict()
   .superRefine((value, ctx) => {
-    if (new Set(value.levelIds).size !== value.levelIds.length) {
-      ctx.addIssue({ code: z.ZodIssueCode.custom, path: ["levelIds"], message: "levelIds must be unique" });
+    const dimensions = value.filters.map((filter) => filter.dimension);
+    if (new Set(dimensions).size !== dimensions.length) {
+      ctx.addIssue({ code: z.ZodIssueCode.custom, path: ["filters"], message: "filter dimensions must be unique" });
     }
+    value.filters.forEach((filter, index) => {
+      if (filter.dimension === "level" && new Set(filter.levelIds).size !== filter.levelIds.length) {
+        ctx.addIssue({
+          code: z.ZodIssueCode.custom,
+          path: ["filters", index, "levelIds"],
+          message: "levelIds must be unique"
+        });
+      }
+    });
   });
 export type BroadcastAutomationAudience = z.infer<typeof broadcastAutomationAudienceSchema>;
 

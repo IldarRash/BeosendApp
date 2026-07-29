@@ -136,6 +136,8 @@ export const webhookDeliveryStatus = pgEnum("webhook_delivery_status", [
 ]);
 /** UI locales (mirrors @beosand/i18n and packages/types localeSchema). */
 export const locale = pgEnum("locale", ["ru", "sr", "en"]);
+/** Mirrors packages/types clientGenderSchema exactly. */
+export const clientGender = pgEnum("client_gender", ["male", "female", "unspecified"]);
 
 // --- Training domain ---
 
@@ -218,6 +220,9 @@ export const clients = pgTable(
     telegramUsername: text("telegram_username"),
     telegramPhotoUrl: text("telegram_photo_url"),
     levelId: uuid("level_id").references(() => levels.id),
+    // Collected only by consented Mini App onboarding. Existing and non-onboarding
+    // sources deliberately remain the non-inferred `unspecified` value.
+    gender: clientGender("gender").notNull().default("unspecified"),
     // "telegram" for bot-onboarded, "walk_in" for manually created by an admin.
     // Free text constrained by the Zod clientSource enum (mirrors bookings.source;
     // no dedicated pgEnum).

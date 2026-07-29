@@ -225,6 +225,13 @@
       "when": 1785274238598,
       "tag": "0031_shocking_firebrand",
       "breakpoints": true
+    },
+    {
+      "idx": 32,
+      "version": "7",
+      "when": 1785332366268,
+      "tag": "0032_warm_william_stryker",
+      "breakpoints": true
     }
   ]
 }
