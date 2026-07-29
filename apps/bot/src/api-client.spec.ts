@@ -528,6 +528,7 @@ const clientBody = {
   telegramId: 999,
   telegramUsername: "anya",
   telegramPhotoUrl: null,
+  gender: "unspecified",
   levelId: null,
   registeredAt: "2026-01-01T00:00:00.000Z",
   consentGivenAt: null,

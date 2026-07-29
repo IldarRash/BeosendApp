@@ -39,6 +39,7 @@ const CLIENT: Client = {
   telegramId: 42,
   telegramUsername: "anya",
   telegramPhotoUrl: "https://t.me/i/userpic/320/anya.jpg",
+  gender: "female",
   levelId: null,
   source: "telegram",
   phone: null,

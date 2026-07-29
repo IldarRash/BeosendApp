@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
+import { act, cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { AppRoot } from "@telegram-apps/telegram-ui";
 import type { ReactNode } from "react";
@@ -39,6 +39,7 @@ const ONBOARDED: Client = {
   telegramId: 42,
   telegramUsername: "anya",
   telegramPhotoUrl: null,
+  gender: "female",
   levelId: LEVEL.id,
   source: "telegram",
   phone: null,
@@ -86,6 +87,18 @@ vi.mock("../tg/TgSdkProvider", () => ({
   useTg: () => ({ isTelegram: false, initDataRaw: null, startParam: null })
 }));
 
+const wizardControls = vi.hoisted(() => ({ onBack: undefined as undefined | (() => void) }));
+
+vi.mock("../tg/buttons", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("../tg/buttons")>();
+  return {
+    ...actual,
+    useBackButton: (visible: boolean, onBack: () => void) => {
+      wizardControls.onBack = visible ? onBack : undefined;
+    }
+  };
+});
+
 function renderWithProviders(node: ReactNode) {
   const qc = new QueryClient({ defaultOptions: { queries: { retry: false } } });
   return render(
@@ -102,8 +115,18 @@ function primaryButton(label: string): HTMLButtonElement {
   return screen.getByRole("button", { name: label });
 }
 
+async function advanceToGender(): Promise<void> {
+  primaryButton("Продолжить").click();
+  await waitFor(() => expect(screen.getByText("Шаг 2 из 4")).toBeTruthy());
+  primaryButton("Продолжить").click();
+  await waitFor(() => expect(screen.getByText("Шаг 3 из 4")).toBeTruthy());
+  primaryButton("Продолжить").click();
+  await waitFor(() => expect(screen.getByText("Шаг 4 из 4")).toBeTruthy());
+}
+
 beforeEach(() => {
   api = makeApi();
+  wizardControls.onBack = undefined;
 });
 
 afterEach(() => {
@@ -116,8 +139,8 @@ describe("OnboardingWizard", () => {
   it("starts on the name step without a consent checkbox", () => {
     renderWithProviders(<OnboardingWizard onDone={vi.fn()} />);
 
-    // Step 1 of 3 is now the name step; consent is not a visible gate.
-    expect(screen.getByText("Шаг 1 из 3")).toBeTruthy();
+    // Step 1 of 4 is the name step; consent is not a visible gate.
+    expect(screen.getByText("Шаг 1 из 4")).toBeTruthy();
     expect(screen.getByPlaceholderText("Ваше имя")).toBeTruthy();
     const next = primaryButton("Продолжить");
     expect(next.disabled).toBe(false);
@@ -128,13 +151,13 @@ describe("OnboardingWizard", () => {
     renderWithProviders(<OnboardingWizard onDone={vi.fn()} />);
 
     // The name step is first and stays disabled until a non-empty name is typed.
-    expect(screen.getByText("Шаг 1 из 3")).toBeTruthy();
+    expect(screen.getByText("Шаг 1 из 4")).toBeTruthy();
     const next = primaryButton("Продолжить");
     expect(next.disabled).toBe(true);
 
     // Clicking the disabled control does not advance.
     next.click();
-    expect(screen.getByText("Шаг 1 из 3")).toBeTruthy();
+    expect(screen.getByText("Шаг 1 из 4")).toBeTruthy();
 
     // Typing a name enables it and advances to the language step.
     const input = screen.getByPlaceholderText("Ваше имя") as HTMLInputElement;
@@ -142,7 +165,7 @@ describe("OnboardingWizard", () => {
 
     await waitFor(() => expect(primaryButton("Продолжить").disabled).toBe(false));
     primaryButton("Продолжить").click();
-    await waitFor(() => expect(screen.getByText("Шаг 2 из 3")).toBeTruthy());
+    await waitFor(() => expect(screen.getByText("Шаг 2 из 4")).toBeTruthy());
   });
 
   it("omits levelId when 'don't know' is chosen and sends the caller's own telegramId", async () => {
@@ -151,14 +174,17 @@ describe("OnboardingWizard", () => {
 
     // Step 1 → 2 (name is pre-filled from the verified identity).
     primaryButton("Продолжить").click();
-    await waitFor(() => expect(screen.getByText("Шаг 2 из 3")).toBeTruthy());
+    await waitFor(() => expect(screen.getByText("Шаг 2 из 4")).toBeTruthy());
 
     // Step 2 → 3 (keep the default language).
     primaryButton("Продолжить").click();
-    await waitFor(() => expect(screen.getByText("Шаг 3 из 3")).toBeTruthy());
+    await waitFor(() => expect(screen.getByText("Шаг 3 из 4")).toBeTruthy());
 
-    // The level step defaults to the "Пока не знаю" opt-out; finish without picking one.
+    // The level step defaults to the "Пока не знаю" opt-out; gender remains required.
     await screen.findByText("Пока не знаю");
+    primaryButton("Продолжить").click();
+    await waitFor(() => expect(screen.getByText("Шаг 4 из 4")).toBeTruthy());
+    (await screen.findByLabelText("Не указан")).click();
     primaryButton("Готово").click();
 
     await waitFor(() => expect(api.onboardClient).toHaveBeenCalledTimes(1));
@@ -170,6 +196,7 @@ describe("OnboardingWizard", () => {
     // Identity is always the verified-session telegramId, not a client-asserted one.
     expect(payload.telegramId).toBe(ME.telegramId);
     expect(payload.name).toBe("Аня");
+    expect(payload.gender).toBe("unspecified");
     await waitFor(() => expect(onDone).toHaveBeenCalled());
   });
 
@@ -177,12 +204,15 @@ describe("OnboardingWizard", () => {
     renderWithProviders(<OnboardingWizard onDone={vi.fn()} />);
 
     primaryButton("Продолжить").click();
-    await waitFor(() => expect(screen.getByText("Шаг 2 из 3")).toBeTruthy());
+    await waitFor(() => expect(screen.getByText("Шаг 2 из 4")).toBeTruthy());
     primaryButton("Продолжить").click();
-    await waitFor(() => expect(screen.getByText("Шаг 3 из 3")).toBeTruthy());
+    await waitFor(() => expect(screen.getByText("Шаг 3 из 4")).toBeTruthy());
 
     // Pick the real level row, then finish.
     (await screen.findByLabelText(LEVEL.name)).click();
+    primaryButton("Продолжить").click();
+    await waitFor(() => expect(screen.getByText("Шаг 4 из 4")).toBeTruthy());
+    (await screen.findByLabelText("Мужской")).click();
     primaryButton("Готово").click();
 
     await waitFor(() => expect(api.onboardClient).toHaveBeenCalledTimes(1));
@@ -190,6 +220,50 @@ describe("OnboardingWizard", () => {
     expect(payload.levelId).toBe(LEVEL.id);
     expect(payload.consentAccepted).toBe(true);
     expect(payload.telegramId).toBe(ME.telegramId);
+    expect(payload.gender).toBe("male");
+  });
+  it("renders all gender choices and blocks completion until one is selected", async () => {
+    renderWithProviders(<OnboardingWizard onDone={vi.fn()} />);
+    await advanceToGender();
+    expect(screen.getByLabelText("Мужской")).toBeTruthy();
+    expect(screen.getByLabelText("Женский")).toBeTruthy();
+    expect(screen.getByLabelText("Не указан")).toBeTruthy();
+    expect(primaryButton("Готово").disabled).toBe(true);
+    primaryButton("Готово").click();
+    expect(api.onboardClient).not.toHaveBeenCalled();
+  });
+
+  it("preserves level and gender state when navigating back", async () => {
+    renderWithProviders(<OnboardingWizard onDone={vi.fn()} />);
+    primaryButton("Продолжить").click();
+    await waitFor(() => expect(screen.getByText("Шаг 2 из 4")).toBeTruthy());
+    primaryButton("Продолжить").click();
+    await waitFor(() => expect(screen.getByText("Шаг 3 из 4")).toBeTruthy());
+    (await screen.findByLabelText(LEVEL.name)).click();
+    primaryButton("Продолжить").click();
+    await waitFor(() => expect(screen.getByText("Шаг 4 из 4")).toBeTruthy());
+    (await screen.findByLabelText("Женский")).click();
+
+    await act(async () => wizardControls.onBack?.());
+    expect((await screen.findByLabelText(LEVEL.name) as HTMLInputElement).checked).toBe(true);
+    primaryButton("Продолжить").click();
+    await waitFor(() => expect(screen.getByText("Шаг 4 из 4")).toBeTruthy());
+    expect((screen.getByLabelText("Женский") as HTMLInputElement).checked).toBe(true);
+  });
+
+  it("recovers after a failed submission without duplicate calls", async () => {
+    const onDone = vi.fn();
+    const onboardClient = vi.fn().mockRejectedValueOnce(new Error("boom")).mockResolvedValueOnce(ONBOARDED);
+    api = makeApi({ onboardClient });
+    renderWithProviders(<OnboardingWizard onDone={onDone} />);
+    await advanceToGender();
+    (await screen.findByLabelText("Не указан")).click();
+    primaryButton("Готово").click();
+    await waitFor(() => expect(screen.getByRole("alert").textContent).toContain("boom"));
+    expect(onboardClient).toHaveBeenCalledTimes(1);
+    primaryButton("Готово").click();
+    await waitFor(() => expect(onDone).toHaveBeenCalledTimes(1));
+    expect(onboardClient).toHaveBeenCalledTimes(2);
   });
 });
 
@@ -274,7 +348,7 @@ describe("Router onboarding decision", () => {
     renderWithProviders(<Router />);
 
     // The wizard opens directly on the name step.
-    await waitFor(() => expect(screen.getByText("Шаг 1 из 3")).toBeTruthy());
+    await waitFor(() => expect(screen.getByText("Шаг 1 из 4")).toBeTruthy());
     expect(screen.getByPlaceholderText("Ваше имя")).toBeTruthy();
   });
 
@@ -284,6 +358,6 @@ describe("Router onboarding decision", () => {
     // S2 landing is the Home hub (the section-list menu), not the wizard.
     await waitFor(() => expect(screen.getByText("Мой календарь")).toBeTruthy());
     expect(screen.getByText("Тренировки")).toBeTruthy();
-    expect(within(document.body).queryByText("Шаг 1 из 3")).toBeNull();
+    expect(within(document.body).queryByText("Шаг 1 из 4")).toBeNull();
   });
 });
