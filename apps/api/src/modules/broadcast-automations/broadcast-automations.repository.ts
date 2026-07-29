@@ -5,8 +5,9 @@ import { and, asc, desc, eq, gt, gte, inArray, isNotNull, isNull, lt, lte, ne, o
 import { type Database, tables } from "@beosand/db";
 import type { BroadcastAutomation, BroadcastAutomationAudience, BroadcastAutomationDelivery, BroadcastAutomationRun, BroadcastAutomationRunDetail, BroadcastAutomationRunItem, BroadcastAutomationRunTraining, BroadcastAutomationSkipReason, CreateBroadcastAutomationInput, ListBroadcastAutomationRunsQuery, ListBroadcastAutomationsQuery } from "@beosand/types";
 import { DatabaseService } from "../../db/database.service";
+import { normalizeAutomationConfig, type AutomationConfig } from "./broadcast-automation-config";
 
-type Draft = Pick<CreateBroadcastAutomationInput, "name" | "trigger" | "audience" | "message">;
+type Draft = AutomationConfig;
 export type AutomationRecipient = { clientId: string; telegramId: number; language: "ru" | "sr" | "en" };
 export type TrainingRow = { trainingId: string; date: string; startTime: string; endTime: string; groupName: string; levelName: string; trainerName: string; priceSingleRsd: number; freeSeats: number };
 type EventTrainingSkipReason = "training-source-not-found" | "training-individual" | "training-hidden" | "training-group-inactive" | "training-level-inactive" | "training-trainer-inactive" | "training-terminal" | "training-full";
@@ -86,9 +87,14 @@ export class BroadcastAutomationsRepository {
   }
   async qualifyingTrainings(window: "today" | "tomorrow" | "week", today: string): Promise<TrainingRow[]> { const end = window === "today" ? today : addDays(today, window === "tomorrow" ? 1 : 6); const start = window === "tomorrow" ? addDays(today, 1) : today; const rows = await this.database.db.select({ trainingId: tables.trainings.id, date: tables.trainings.date, startTime: tables.trainings.startTime, endTime: tables.trainings.endTime, groupName: tables.groups.name, levelName: tables.levels.name, trainerName: tables.trainers.name, priceSingleRsd: tables.groups.priceSingleRsd, capacity: tables.trainings.capacity, bookedCount: tables.trainings.bookedCount }).from(tables.trainings).innerJoin(tables.groups, eq(tables.trainings.groupId, tables.groups.id)).innerJoin(tables.levels, eq(tables.groups.levelId, tables.levels.id)).innerJoin(tables.trainers, eq(tables.trainings.trainerId, tables.trainers.id)).where(and(gte(tables.trainings.date, start), lte(tables.trainings.date, end), eq(tables.trainings.status, "open"), eq(tables.groups.status, "active"), eq(tables.levels.status, "active"), eq(tables.trainers.status, "active"), eq(tables.groups.hidden, false)));
     return rows.filter(r => r.capacity > r.bookedCount).map(toTrainingRow); }
-  async audience(audience: BroadcastAutomationAudience, now: Date): Promise<AutomationRecipient[]> { const cutoff = new Date(now.getTime() - 7 * 24 * 60 * 60_000); const activity = audience.activity === "active" ? isNotNull(tables.clients.miniAppLastAccessAt) && gte(tables.clients.miniAppLastAccessAt, cutoff) : or(isNull(tables.clients.miniAppLastAccessAt), lt(tables.clients.miniAppLastAccessAt, cutoff)); const rows = await this.database.db.select({ clientId: tables.clients.id, telegramId: tables.clients.telegramId, language: tables.clients.language }).from(tables.clients).where(and(eq(tables.clients.status, "active"), inArray(tables.clients.levelId, audience.levelIds), isNotNull(tables.clients.telegramId), activity)); return rows.filter((r): r is AutomationRecipient => r.telegramId !== null); }
+  async audience(audience: BroadcastAutomationAudience, now: Date): Promise<AutomationRecipient[]> {
+    const rows = await this.database.db.select({ clientId: tables.clients.id, telegramId: tables.clients.telegramId, language: tables.clients.language }).from(tables.clients).where(this.audiencePredicate(audience, now));
+    return rows.filter((row): row is AutomationRecipient => row.telegramId !== null);
+  }
   async recipientStillEligible(clientId: string, audience: BroadcastAutomationAudience, now: Date): Promise<AutomationRecipient | undefined> {
-    return (await this.audience(audience, now)).find((recipient) => recipient.clientId === clientId);
+    const [row] = await this.database.db.select({ clientId: tables.clients.id, telegramId: tables.clients.telegramId, language: tables.clients.language }).from(tables.clients).where(and(eq(tables.clients.id, clientId), this.audiencePredicate(audience, now))).limit(1);
+    if (!row || row.telegramId === null) return undefined;
+    return row as AutomationRecipient;
   }
   async eligibleTrainings(trainingIds: string[]): Promise<TrainingRow[]> {
     if (!trainingIds.length) return [];
@@ -152,7 +158,7 @@ export class BroadcastAutomationsRepository {
       if (!eligibleSource.length) return undefined;
       const sourceItems = await tx.select().from(tables.broadcastAutomationRunItems).where(inArray(tables.broadcastAutomationRunItems.id, eligibleSource.map((delivery) => delivery.runItemId)));
       const sourceTrainings = await tx.select().from(tables.broadcastAutomationRunItemTrainings).where(and(eq(tables.broadcastAutomationRunItemTrainings.runId, original.id), inArray(tables.broadcastAutomationRunItemTrainings.runItemId, sourceItems.map((item) => item.id))));
-      const [run] = await tx.insert(tables.broadcastAutomationRuns).values({ automationId: original.automationId, automationVersion: original.automationVersion, triggerKind: "manual-retry", sourceEventId: null, dueAt: new Date(), status: "processing", startedAt: new Date(), originalRunId: original.id, configSnapshot: original.configSnapshot }).returning();
+      const [run] = await tx.insert(tables.broadcastAutomationRuns).values({ automationId: original.automationId, automationVersion: original.automationVersion, triggerKind: "manual-retry", sourceEventId: null, dueAt: new Date(), status: "processing", startedAt: new Date(), originalRunId: original.id, configSnapshot: normalizeAutomationConfig(original.configSnapshot) }).returning();
       const itemIds = new Map<string, string>();
       for (const sourceItem of sourceItems) {
         const [item] = await tx.insert(tables.broadcastAutomationRunItems).values({ runId: run.id, ordinal: sourceItem.ordinal, outputMode: sourceItem.outputMode, ctaMode: sourceItem.ctaMode, itemSnapshot: sourceItem.itemSnapshot }).returning();
@@ -174,10 +180,29 @@ export class BroadcastAutomationsRepository {
     const [booking] = await this.database.db.select({ trainingId: tables.bookings.trainingId }).from(tables.bookings).where(eq(tables.bookings.id, bookingId)).limit(1);
     return booking?.trainingId;
   }
+  private audiencePredicate(audience: BroadcastAutomationAudience, now: Date) {
+    const filters = new Map(audience.filters.map((filter) => [filter.dimension, filter]));
+    const cutoff = new Date(now.getTime() - 7 * 24 * 60 * 60_000);
+    const level = filters.get("level");
+    const activity = filters.get("activity");
+    const gender = filters.get("gender");
+    const activityCondition = activity?.dimension === "activity"
+      ? activity.value === "active"
+        ? and(isNotNull(tables.clients.miniAppLastAccessAt), gte(tables.clients.miniAppLastAccessAt, cutoff))
+        : or(isNull(tables.clients.miniAppLastAccessAt), lt(tables.clients.miniAppLastAccessAt, cutoff))
+      : undefined;
+    const genderCondition = gender?.dimension === "gender"
+      ? gender.value === "unspecified"
+        ? eq(tables.clients.gender, "unspecified")
+        : inArray(tables.clients.gender, [gender.value, "unspecified"])
+      : undefined;
+    const levelCondition = level?.dimension === "level" ? inArray(tables.clients.levelId, level.levelIds) : undefined;
+    return and(eq(tables.clients.status, "active"), isNotNull(tables.clients.telegramId), levelCondition, activityCondition, genderCondition);
+  }
 }
-function draft(value: Pick<BroadcastAutomation, "name" | "trigger" | "audience" | "message">): Draft { return { name: value.name, trigger: value.trigger, audience: value.audience, message: value.message }; }
-function toAutomation(r: any): BroadcastAutomation { return { ...(r.config as Omit<BroadcastAutomation, "id" | "enabled" | "version" | "createdBy" | "updatedBy" | "createdAt" | "updatedAt">), id: r.id, name: r.name, enabled: r.enabled, version: r.version, createdBy: r.createdBy, updatedBy: r.updatedBy, createdAt: r.createdAt.toISOString(), updatedAt: r.updatedAt.toISOString() }; }
-function toRun(r: any): BroadcastAutomationRun { return { id:r.id,automationId:r.automationId,automationVersion:r.automationVersion,triggerKind:r.triggerKind,sourceEventId:r.sourceEventId,scheduledFor:r.scheduledFor?.toISOString() ?? null,dueAt:r.dueAt.toISOString(),status:r.status,skipReason:r.skipReason as any,originalRunId:r.originalRunId,configSnapshot:r.configSnapshot,counts:{selectedTrainings:r.selectedTrainingsCount,includedTrainings:r.includedTrainingsCount,skippedTrainings:r.skippedTrainingsCount,recipients:r.recipientsCount,attempted:r.attemptedCount,sent:r.sentCount,failed:r.failedCount,ambiguous:r.ambiguousCount,skippedDeliveries:r.skippedDeliveriesCount},createdAt:r.createdAt.toISOString(),startedAt:r.startedAt?.toISOString() ?? null,completedAt:r.completedAt?.toISOString() ?? null }; }
+function draft(value: Pick<BroadcastAutomation, "name" | "trigger" | "audience" | "message">): Draft { return normalizeAutomationConfig({ name: value.name, trigger: value.trigger, audience: value.audience, message: value.message }); }
+function toAutomation(r: any): BroadcastAutomation { const config = normalizeAutomationConfig(r.config); return { ...config, id: r.id, name: r.name, enabled: r.enabled, version: r.version, createdBy: r.createdBy, updatedBy: r.updatedBy, createdAt: r.createdAt.toISOString(), updatedAt: r.updatedAt.toISOString() }; }
+function toRun(r: any): BroadcastAutomationRun { return { id:r.id,automationId:r.automationId,automationVersion:r.automationVersion,triggerKind:r.triggerKind,sourceEventId:r.sourceEventId,scheduledFor:r.scheduledFor?.toISOString() ?? null,dueAt:r.dueAt.toISOString(),status:r.status,skipReason:r.skipReason as any,originalRunId:r.originalRunId,configSnapshot:normalizeAutomationConfig(r.configSnapshot),counts:{selectedTrainings:r.selectedTrainingsCount,includedTrainings:r.includedTrainingsCount,skippedTrainings:r.skippedTrainingsCount,recipients:r.recipientsCount,attempted:r.attemptedCount,sent:r.sentCount,failed:r.failedCount,ambiguous:r.ambiguousCount,skippedDeliveries:r.skippedDeliveriesCount},createdAt:r.createdAt.toISOString(),startedAt:r.startedAt?.toISOString() ?? null,completedAt:r.completedAt?.toISOString() ?? null }; }
 function toItem(r:any):BroadcastAutomationRunItem{return {id:r.id,runId:r.runId,ordinal:r.ordinal,outputMode:r.outputMode,ctaMode:r.ctaMode,itemSnapshot:r.itemSnapshot,createdAt:r.createdAt.toISOString()};}
 function toTraining(r:any):BroadcastAutomationRunTraining{return {id:r.id,runId:r.runId,runItemId:r.runItemId,trainingId:r.trainingId,outcome:r.outcome,skipReason:r.skipReason,trainingSnapshot:r.trainingSnapshot,createdAt:r.createdAt.toISOString()};}
 function toDelivery(r:any):BroadcastAutomationDelivery{return {id:r.id,runId:r.runId,runItemId:r.runItemId,clientId:r.clientId,telegramId:r.telegramId,requestedLanguage:r.requestedLanguage,resolvedLanguage:r.resolvedLanguage,outcome:r.outcome,skipReason:r.skipReason,retryOfDeliveryId:r.retryOfDeliveryId,rootDeliveryId:r.rootDeliveryId,isAutomatic:r.isAutomatic,payloadSnapshot:r.payloadSnapshot,attemptedAt:r.attemptedAt?.toISOString() ?? null,completedAt:r.completedAt?.toISOString() ?? null,diagnostic:r.diagnostic};}

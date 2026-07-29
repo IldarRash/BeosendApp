@@ -278,6 +278,7 @@ function toClient(row: ClientRow): Client {
     telegramUsername: row.telegramUsername,
     telegramPhotoUrl: row.telegramPhotoUrl,
     levelId: row.levelId,
+    gender: row.gender,
     source: clientSourceOf(row.source),
     phone: row.phone,
     email: row.email,

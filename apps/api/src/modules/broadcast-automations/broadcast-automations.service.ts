@@ -7,6 +7,7 @@ import { broadcastAutomationListSchema, broadcastAutomationPreviewSchema, broadc
 import { TelegramSender, sanitizeTelegramDiagnostic } from "../notifications/telegram-sender";
 import { bookSlotsKeyboard } from "../notifications/notification-keyboards";
 import { BroadcastAutomationsRepository, type TrainingRow } from "./broadcast-automations.repository";
+import { normalizeAutomationConfig } from "./broadcast-automation-config";
 
 const ZONE = "Europe/Belgrade";
 const WINDOW_MS = 5 * 60_000;
@@ -26,7 +27,7 @@ export class BroadcastAutomationsService {
   async listRuns(actor:number,q:ListBroadcastAutomationRunsQuery) { this.admin(actor); const limit=q.limit ??25; const items=await this.repo.listRuns({...q,limit}); return broadcastAutomationRunListSchema.parse({items:items.slice(0,limit),nextCursor:items.length>limit?items[limit-1].id:null}); }
   async runDetail(actor:number,id:string) { this.admin(actor); const row=await this.repo.detail(id); if(!row) throw new NotFoundException("Automation run not found"); return broadcastAutomationRunDetailSchema.parse(row); }
   async retry(actor:number,runId:string,input:RetryBroadcastAutomationFailuresInput) {
-    this.admin(actor); const detail=await this.repo.detail(runId); if(!detail) throw new NotFoundException("Automation run not found"); const plan=await this.repo.createRetryRun(detail.run,input.deliveryIds,input.includeAmbiguous ?? false); if(!plan) throw new ConflictException("No eligible failed deliveries");
+    this.admin(actor); const detail=await this.repo.detail(runId); if(!detail) throw new NotFoundException("Automation run not found"); let plan=await this.repo.createRetryRun(detail.run,input.deliveryIds,input.includeAmbiguous ?? false); if(!plan) throw new ConflictException("No eligible failed deliveries"); plan={...plan,run:{...plan.run,configSnapshot:normalizeAutomationConfig(plan.run.configSnapshot)}};
     const automation=await this.must(detail.run.automationId), config=plan.run.configSnapshot, sourceEventId=await this.rootSourceEventId(detail.run), trainingIds=[...new Set(plan.deliveries.flatMap((d)=>d.payloadSnapshot.trainingIds))]; let attempted=0,sent=0,failed=0,ambiguous=0,skipped=0;
     const skip=async (id:string,reason:"disabled"|"training-ineligible"|"training-no-longer-in-window"|"audience-no-longer-eligible"|"mandatory-exclusion"|"cta-invalid"|"retry-not-eligible")=>{skipped++;await this.repo.skipDelivery(id,reason);};
     if(!automation.enabled){ for(const d of plan.deliveries) await skip(d.id,"disabled"); await this.repo.completeRun(plan.run.id,{selectedTrainings:trainingIds.length,recipients:plan.deliveries.length,skippedDeliveries:skipped}); return retryBroadcastAutomationFailuresResultSchema.parse({run:{...plan.run,status:"completed",completedAt:new Date().toISOString(),counts:{...plan.run.counts,selectedTrainings:trainingIds.length,recipients:plan.deliveries.length,skippedDeliveries:skipped}},selectedDeliveryCount:plan.deliveries.length}); }

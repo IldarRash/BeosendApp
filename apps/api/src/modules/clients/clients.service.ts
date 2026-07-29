@@ -11,6 +11,7 @@ import { isAdmin } from "@beosand/config";
 import type {
   AdjustBonusCreditsInput,
   Client,
+  OnboardClientInput,
   CreateWalkInInput,
   ListClientsQuery,
   Locale,
@@ -22,12 +23,7 @@ import { LevelsRepository } from "../levels/levels.repository";
 import { StaffLinkingService } from "../managers/staff-linking.service";
 import { ClientsRepository } from "./clients.repository";
 
-interface OnboardInput {
-  telegramId: number;
-  telegramUsername?: string | null;
-  name: string;
-  levelId?: string | null;
-}
+type OnboardInput = OnboardClientInput;
 
 export interface TelegramDisplayIdentity {
   telegramUsername: string | null;
@@ -95,6 +91,13 @@ export class ClientsService {
     displayIdentity?: TelegramDisplayIdentity
   ): Promise<Client> {
     this.assertSelfOrAdmin(actorTelegramId, input.telegramId, displayIdentity !== undefined);
+    // The strict HTTP contract requires a gender selection. Keep the dormant
+    // direct/bot compatibility seam safe as well: it can only ever create the
+    // neutral historical value, never classify someone as male or female.
+    const gender = input.gender ?? "unspecified";
+    if (displayIdentity === undefined && gender !== "unspecified") {
+      throw new BadRequestException("Gender selection requires a verified Mini App session");
+    }
 
     if (input.levelId != null) {
       const level = await this.levels.findById(input.levelId);
@@ -104,9 +107,10 @@ export class ClientsService {
     }
 
     const client = await this.database.db.transaction(async (tx) => {
+      const onboardedAt = new Date();
       // Only a bridged Mini App session supplies display identity. Bot onboarding
       // must never count as Mini App activity.
-      const miniAppAccessedAt = displayIdentity !== undefined ? new Date() : undefined;
+      const miniAppAccessedAt = displayIdentity !== undefined ? onboardedAt : undefined;
       const existing = await this.clients.findByTelegramId(input.telegramId, tx);
       if (existing) {
         if (!displayIdentity || !miniAppAccessedAt) {
@@ -127,10 +131,13 @@ export class ClientsService {
             displayIdentity !== undefined ? displayIdentity.telegramPhotoUrl : null,
           name: input.name,
           levelId: input.levelId ?? null,
+          // Only a validated onboarding request reaches this transaction. Existing
+          // clients keep their historical gender, including the unspecified backfill.
+          gender,
           // The contract validated consentAccepted === true before reaching the
           // service, so stamp the consent time server-side (never trust a client
           // clock). Only set on first insert — re-onboard returns the row unchanged.
-          consentGivenAt: new Date(),
+          consentGivenAt: onboardedAt,
           ...(miniAppAccessedAt ? { miniAppLastAccessAt: miniAppAccessedAt } : {})
         },
         tx
