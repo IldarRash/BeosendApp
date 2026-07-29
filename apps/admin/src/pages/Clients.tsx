@@ -389,6 +389,9 @@ function OnboardForm({ levels, levelsLoading }: OnboardFormProps): JSX.Element {
       name,
       telegramUsername: trimmedUsername === "" ? null : trimmedUsername,
       levelId: levelId === NO_LEVEL ? null : levelId,
+      // Gender is collected only through consented Mini App onboarding; this
+      // admin-only registration flow preserves the backward-compatible default.
+      gender: "unspecified",
       // The contract now requires explicit consent (`consentAccepted: true`) before
       // the server stamps `consentGivenAt`. An admin registering a client here affirms
       // it on the client's behalf, mirroring the bot's own onboarding flow.

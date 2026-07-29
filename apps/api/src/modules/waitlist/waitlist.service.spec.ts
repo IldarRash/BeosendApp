@@ -35,6 +35,7 @@ const ownerClient: Client = {
   telegramUsername: null,
   telegramPhotoUrl: null,
   levelId: null,
+  gender: "unspecified",
   source: "telegram",
   phone: null,
   email: null,

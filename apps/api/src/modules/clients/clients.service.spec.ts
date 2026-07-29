@@ -223,7 +223,9 @@ describe("ClientsService", () => {
     const result = await service.onboard(TELEGRAM_ID, {
       telegramId: TELEGRAM_ID,
       name: "Ana",
-      levelId: LEVEL_ID
+      levelId: LEVEL_ID,
+      gender: "unspecified",
+      consentAccepted: true
     });
     expect(result.name).toBe("Ana");
     expect(clientsRepo.insertIgnoreConflict).toHaveBeenCalledOnce();
@@ -231,7 +233,7 @@ describe("ClientsService", () => {
 
   it("forbids onboarding a record for a different telegram id (account squatting), inserts nothing", async () => {
     await expect(
-      service.onboard(TELEGRAM_ID, { telegramId: 1111, name: "Victim" })
+      service.onboard(TELEGRAM_ID, { telegramId: 1111, name: "Victim", gender: "unspecified", consentAccepted: true })
     ).rejects.toBeInstanceOf(ForbiddenException);
     expect(clientsRepo.insertIgnoreConflict).not.toHaveBeenCalled();
   });
@@ -242,7 +244,9 @@ describe("ClientsService", () => {
     const result = await service.onboard(TELEGRAM_ID, {
       telegramId: TELEGRAM_ID,
       name: "Different Name",
-      levelId: null
+      levelId: null,
+      gender: "unspecified",
+      consentAccepted: true
     });
     expect(result).toEqual(existingClient);
     expect(clientsRepo.insertIgnoreConflict).not.toHaveBeenCalled();
@@ -252,19 +256,21 @@ describe("ClientsService", () => {
     const result = await service.onboard(TELEGRAM_ID, {
       telegramId: TELEGRAM_ID,
       name: "Ana",
-      levelId: null
+      levelId: null,
+      gender: "unspecified",
+      consentAccepted: true
     });
     expect(result.levelId).toBeNull();
     expect(levelsRepo.findById).not.toHaveBeenCalled();
   });
 
   it("persists null level when levelId is omitted", async () => {
-    const result = await service.onboard(TELEGRAM_ID, { telegramId: TELEGRAM_ID, name: "Ana" });
+    const result = await service.onboard(TELEGRAM_ID, { telegramId: TELEGRAM_ID, name: "Ana", gender: "unspecified", consentAccepted: true });
     expect(result.levelId).toBeNull();
   });
 
   it("omits username to null when not provided (user without a username)", async () => {
-    const result = await service.onboard(TELEGRAM_ID, { telegramId: TELEGRAM_ID, name: "Ana" });
+    const result = await service.onboard(TELEGRAM_ID, { telegramId: TELEGRAM_ID, name: "Ana", gender: "unspecified", consentAccepted: true });
     expect(result.telegramUsername).toBeNull();
   });
 
@@ -274,7 +280,9 @@ describe("ClientsService", () => {
       {
         telegramId: TELEGRAM_ID,
         name: "Ana",
-        levelId: LEVEL_ID
+        levelId: LEVEL_ID,
+        gender: "unspecified",
+        consentAccepted: true
       },
       {
         telegramUsername: "verified_ana",
@@ -334,7 +342,7 @@ describe("ClientsService", () => {
   });
 
   it("does not overwrite an existing client gender during a later Mini App onboarding", async () => {
-    clientsRepo = makeClientsRepo({ findByTelegramId: vi.fn(async () => ({ ...existingClient, gender: "male" })), recordMiniAppAccess: vi.fn(async () => ({ ...existingClient, gender: "male" })) });
+    clientsRepo = makeClientsRepo({ findByTelegramId: vi.fn(async () => ({ ...existingClient, gender: "male" as const })), recordMiniAppAccess: vi.fn(async () => ({ ...existingClient, gender: "male" as const })) });
     service = new ClientsService(clientsRepo, levelsRepo, makeDatabase(), makeStaffLinking(), env);
 
     await service.onboard(
@@ -355,7 +363,7 @@ describe("ClientsService", () => {
   });
 
   it("does not assign Mini App activity to an abandoned bot onboarding", async () => {
-    await service.onboard(TELEGRAM_ID, { telegramId: TELEGRAM_ID, name: "Ana", levelId: LEVEL_ID });
+    await service.onboard(TELEGRAM_ID, { telegramId: TELEGRAM_ID, name: "Ana", levelId: LEVEL_ID, gender: "unspecified", consentAccepted: true });
 
     expect(clientsRepo.insertIgnoreConflict).toHaveBeenCalledWith(
       expect.not.objectContaining({ miniAppLastAccessAt: expect.anything() }),
@@ -371,7 +379,7 @@ describe("ClientsService", () => {
     service = new ClientsService(clientsRepo, levelsRepo, makeDatabase(), makeStaffLinking(), env);
 
     await expect(
-      service.onboard(TELEGRAM_ID, { telegramId: TELEGRAM_ID, name: "Ana" }, {
+      service.onboard(TELEGRAM_ID, { telegramId: TELEGRAM_ID, name: "Ana", gender: "unspecified", consentAccepted: true }, {
         telegramUsername: "ana",
         telegramPhotoUrl: PHOTO_URL
       })
@@ -385,7 +393,9 @@ describe("ClientsService", () => {
       {
         telegramId: TELEGRAM_ID,
         name: "Ana",
-        telegramUsername: "forged_body_username"
+        telegramUsername: "forged_body_username",
+        gender: "unspecified",
+        consentAccepted: true
       },
       {
         telegramUsername: null,
@@ -413,7 +423,9 @@ describe("ClientsService", () => {
       {
         telegramId: TELEGRAM_ID,
         name: "Different Name",
-        levelId: null
+        levelId: null,
+        gender: "unspecified",
+        consentAccepted: true
       },
       {
         telegramUsername: null,
@@ -449,7 +461,9 @@ describe("ClientsService", () => {
 
     const result = await service.onboard(TELEGRAM_ID, {
       telegramId: TELEGRAM_ID,
-      name: "Different Name"
+      name: "Different Name",
+      gender: "unspecified",
+      consentAccepted: true
     });
 
     expect(result.telegramPhotoUrl).toBe(PHOTO_URL);
@@ -460,7 +474,7 @@ describe("ClientsService", () => {
     levelsRepo = makeLevelsRepo({ findById: vi.fn(async () => undefined) });
     service = new ClientsService(clientsRepo, levelsRepo, makeDatabase(), makeStaffLinking(), env);
     await expect(
-      service.onboard(TELEGRAM_ID, { telegramId: TELEGRAM_ID, name: "Ana", levelId: LEVEL_ID })
+      service.onboard(TELEGRAM_ID, { telegramId: TELEGRAM_ID, name: "Ana", levelId: LEVEL_ID, gender: "unspecified", consentAccepted: true })
     ).rejects.toBeInstanceOf(BadRequestException);
     expect(clientsRepo.insertIgnoreConflict).not.toHaveBeenCalled();
   });
@@ -471,7 +485,7 @@ describe("ClientsService", () => {
     });
     service = new ClientsService(clientsRepo, levelsRepo, makeDatabase(), makeStaffLinking(), env);
     await expect(
-      service.onboard(TELEGRAM_ID, { telegramId: TELEGRAM_ID, name: "Ana", levelId: LEVEL_ID })
+      service.onboard(TELEGRAM_ID, { telegramId: TELEGRAM_ID, name: "Ana", levelId: LEVEL_ID, gender: "unspecified", consentAccepted: true })
     ).rejects.toBeInstanceOf(BadRequestException);
     expect(clientsRepo.insertIgnoreConflict).not.toHaveBeenCalled();
   });
@@ -486,7 +500,7 @@ describe("ClientsService", () => {
       insertIgnoreConflict: vi.fn(async () => undefined) // conflict: another tap inserted
     });
     service = new ClientsService(clientsRepo, levelsRepo, makeDatabase(), makeStaffLinking(), env);
-    const result = await service.onboard(TELEGRAM_ID, { telegramId: TELEGRAM_ID, name: "Ana" });
+    const result = await service.onboard(TELEGRAM_ID, { telegramId: TELEGRAM_ID, name: "Ana", gender: "unspecified", consentAccepted: true });
     expect(result).toEqual(existingClient);
   });
 
@@ -708,7 +722,9 @@ describe("ClientsService", () => {
       await service.onboard(TELEGRAM_ID, {
         telegramId: TELEGRAM_ID,
         name: "Ana",
-        levelId: LEVEL_ID
+        levelId: LEVEL_ID,
+        gender: "unspecified",
+        consentAccepted: true
       });
       const insertArg = (clientsRepo.insertIgnoreConflict as ReturnType<typeof vi.fn>).mock
         .calls[0][0] as { consentGivenAt: unknown };
@@ -721,7 +737,9 @@ describe("ClientsService", () => {
       service = new ClientsService(clientsRepo, levelsRepo, makeDatabase(), makeStaffLinking(), env);
       const result = await service.onboard(TELEGRAM_ID, {
         telegramId: TELEGRAM_ID,
-        name: "Different Name"
+        name: "Different Name",
+        gender: "unspecified",
+        consentAccepted: true
       });
       // Returned unchanged, and the row's consent is never re-written.
       expect(result.consentGivenAt).toBe(existingClient.consentGivenAt);
