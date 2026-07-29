@@ -117,12 +117,38 @@ Railway.
 - If the bot menu/web-app buttons should open the Mini App, set `MINIAPP_URL` on the bot/API services
   as needed by the running flow.
 
+## Client gender and audience-filter rollout
+
+Railway deploys the API, bot, Admin, and Mini App independently. For the client-gender and
+audience-filter expansion, release the API first and hold every consumer promotion or deployment
+until it is verified:
+
+1. Pause or hold Admin, bot, and Mini App promotions/deployments.
+2. Deploy `beosand-api`. Its pre-deploy migration `0032` adds `clients.gender` before the new API
+   release is made live.
+3. Verify the API healthcheck and the relevant API paths. Confirm existing callers that omit
+   `gender` remain accepted and receive the intended defaulted behavior.
+4. Only after those checks pass, release Admin, bot, and Mini App.
+
+Hard stop: if service ordering cannot be controlled, do not release this feature. Coordinate the
+deployments first; an independently auto-deployed consumer must not reach production ahead of the
+compatible API and migration.
+
 ## Rollback
 
 1. In Railway, open the affected service and redeploy a previous successful deployment.
 2. Roll back API, bot, admin, and Mini App independently.
 3. Database migrations are forward-only. Take a Postgres backup before risky schema changes and plan
    manual recovery for destructive migrations.
+
+For the client-gender and audience-filter expansion, apply the following compatibility rules:
+
+- Before any consumer release, an API rollback is possible only while no new-format automation
+  definitions exist.
+- After a consumer or new-format definition is live, roll consumers back first and prefer a
+  compatible API roll-forward.
+- Do not roll the API back to its pre-feature version while new client bundles are live or new
+  audience configurations exist without an explicit data-remediation plan.
 
 ## Troubleshooting
 
