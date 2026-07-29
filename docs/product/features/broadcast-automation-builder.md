@@ -620,3 +620,212 @@ localized waitlist-promotion DM; the broader automation message is not sent for 
 - Automatic retries, catch-up delivery, or exactly-once claims about Telegram.
 - Creating new legacy broadcast definitions.
 - Redesigning unrelated admin pages.
+
+## Audience-filter extension amendment
+
+### Status and boundary
+
+Planned from ready-for-planner package
+`beosand-broadcast-audience-filters-20260729`, revision 5. No material product decisions remain
+unresolved.
+
+This amendment supersedes only the audience shape, audience resolution, and onboarding fields
+described above. All trigger, schedule, message, CTA, history, retry, waitlist, authorization, and
+legacy-manual-broadcast behavior remains unchanged. The smallest compatible slice lets an admin
+target an automation with any non-empty combination of client level, rolling seven-day
+authenticated Mini App activity, and onboarding gender, while collecting gender in the existing
+consented Mini App onboarding transaction.
+
+### Spec refs
+
+- Ready package `beosand-broadcast-audience-filters-20260729`, revision 5.
+- Historical roadmap slice T3.2, `advanced-filters-segmented-broadcasts` (`ТЗ §19`, stage 3), and
+  onboarding slice T1.6, `client-onboarding` (`ТЗ §7`; `UX §1`), recovered from repository commit
+  `17719e5`. The live `docs/product/feature-roadmap.md` remains absent.
+- Existing brief sections **Audience**, **Contracts & tables**, **API**, **Admin flow**,
+  **Invariants**, **Acceptance criteria**, **Tests**, and **Dependencies**.
+- Current implementation anchors:
+  - `packages/types/src/broadcast-automation-contracts.ts` and `client-contracts.ts`;
+  - `packages/db/src/schema.ts` and the migration history under `packages/db/drizzle`;
+  - `apps/api/src/modules/broadcast-automations/*` and `apps/api/src/modules/clients/*`;
+  - `apps/miniapp/src/screens/OnboardingWizard.tsx` and its typed API/hooks;
+  - `apps/admin/src/pages/Broadcasts.tsx`;
+  - all three `docs/architecture/*` documents.
+
+### Contracts & tables
+
+Replace the required two-field automation audience with one strict, ordered-independent filter
+collection:
+
+- `broadcastAutomationAudienceSchema`
+  - `{ filters: BroadcastAutomationAudienceFilter[] }`;
+  - `filters` contains one to three entries and rejects duplicate dimensions;
+  - level filter: `{ dimension: "level", levelIds: UUID[] }`, with a non-empty, de-duplicated list;
+  - activity filter:
+    `{ dimension: "activity", value: "active" | "inactive" }`, reusing the existing activity enum
+    and fixed rolling seven-day definition;
+  - gender filter:
+    `{ dimension: "gender", value: "male" | "female" | "unspecified" }`, reusing the client gender
+    enum;
+  - strict parsing rejects zero filters, unknown dimensions or values, duplicate dimensions,
+    duplicate/empty level IDs, unknown fields, and more than three entries.
+
+The API combines different filter entries with `AND`. Selected level IDs are the only multi-value
+entry and combine with `OR`. A missing dimension imposes no condition for that dimension. Client
+`status = active` and a current non-null Telegram identity remain mandatory delivery eligibility,
+not selectable audience dimensions.
+
+Add one shared `clientGenderSchema`/type with exactly `male`, `female`, and `unspecified`.
+`clientSchema` includes `gender`; `onboardClientSchema` requires `gender` for a new Mini App
+onboarding submission. `updateClientSchema` and all admin client-edit inputs continue to omit it.
+The `clients` table gains a non-null gender column backed by the same three-value enum and defaults/
+backfills existing clients and non-onboarding sources to `unspecified`. The successful first-client
+insert explicitly writes the validated onboarding choice in the same transaction as client
+identity, consent/profile data, and initial Mini App access.
+
+`broadcast_automations.config` remains the definition store and
+`broadcast_automation_runs.config_snapshot` remains the historical/run snapshot store. The
+migration/compatibility boundary is:
+
+- each existing `{ levelIds, activity }` automation definition normalizes to one `level` filter and
+  one `activity` filter with identical membership;
+- normalization preserves automation ID, enabled state, version, audit fields, and schedule;
+- pending and historical legacy-shaped run snapshots remain executable, readable, and retryable
+  through one server-owned compatibility normalizer; new writes and API responses use only the new
+  filter collection;
+- legacy `BroadcastAudience` used by `GET /broadcasts/preview`,
+  `POST /broadcasts/send`, and existing same-day settings is not changed.
+
+No segment table, inferred-gender field, or configurable activity window is added.
+
+### API
+
+The automation endpoint set and admin authorization stay unchanged. Create, update, get/list,
+preview, enable, run-history, and retry contracts carry the amended audience shape. Preview resolves
+the current client rows; immediately before every automatic send and manual retry, the API rechecks
+the client's current level, rolling activity, stored gender, active status, and Telegram identity.
+
+`POST /clients/onboard` adds the required `gender` field to its strict typed body. For a first-time
+verified Mini App user, gender is persisted atomically with the existing consented onboarding
+insert and server-time Mini App access initialization. A rollback persists none of those fields.
+Concurrent onboarding remains duplicate-safe. Existing clients are returned idempotently and are
+not silently reclassified from `unspecified`.
+
+Client read responses include the stored gender. No public or admin gender mutation endpoint is
+added, and `PATCH /clients/:id` continues to reject gender.
+
+### Admin, onboarding, and bot flow
+
+1. The automation editor starts with no audience dimensions selected and requires at least one.
+2. Admin can add/remove each dimension at most once:
+   - level exposes the existing active-level multiselect;
+   - activity exposes the existing `active`/`inactive` seven-day selector and existing explanatory
+     copy;
+   - gender exposes one choice: male, female, or unspecified.
+3. Preview shows the complete selected intersection and the current recipient count; editing any
+   dimension invalidates the prior preview as today.
+4. Existing automations open with their migrated level and activity filters selected and remain
+   operable without manual recreation.
+5. Mini App onboarding becomes name → language → level → gender. The final step requires an
+   explicit male/female/unspecified choice before the single onboarding submission.
+
+There is no new Telegram bot conversation or recipient interaction. The dormant legacy bot
+onboarding path does not infer gender; if retained for compilation/compatibility it submits
+`unspecified` explicitly and remains unreachable from `/start`. Automation recipients receive the
+same message/CTA flow already defined by this brief.
+
+### Invariants
+
+- **Non-empty bounded filters.** Every new automation has one to three unique dimensions; malformed,
+  duplicate, empty, or unknown filters never persist, preview, enable, or send.
+- **Intersection semantics.** Different dimensions are `AND`; selected level IDs are `OR`; omitting
+  a dimension means no filter for it. Admin code only captures/renders the selection.
+- **Inclusive fixed activity cutoff.** With the activity dimension present, `active` is a durable
+  successful authenticated Mini App access at or after `now - 7 days`; `inactive` is null or older
+  than that instant. The window is not configurable. Without the dimension, activity is ignored.
+- **Gender semantics.** `male` matches stored `male` and `unspecified`; `female` matches stored
+  `female` and `unspecified`; explicit `unspecified` matches only stored `unspecified`. No name,
+  Telegram profile, username, photo, language, booking, or other field is used to infer gender.
+- **Atomic onboarding.** A first-time Mini App client's chosen gender, consent/profile, identity,
+  and initial last-access timestamp commit together or not at all. Duplicate-safe onboarding cannot
+  leave partial or conflicting gender state.
+- **Current truth at preview and send.** Preview and every pre-send/retry check use current level,
+  last access, gender, active status, and Telegram identity. A changed/non-matching recipient is
+  skipped with `audience-no-longer-eligible`, without a Telegram attempt.
+- **Eligibility baseline.** Inactive clients and clients without a current Telegram identity never
+  receive automation Telegram deliveries, even when all selected dimensions match.
+- **Compatibility.** Existing automations preserve their level-plus-activity membership and enabled
+  behavior; their run history/retries stay usable. Legacy manual broadcasts retain their existing
+  audience union and behavior.
+- **No admin gender editing.** Admin client-profile contracts/UI cannot set or change gender.
+
+### Acceptance criteria
+
+- Admin can save and preview each single dimension, each two-dimension pair, and all three
+  dimensions; resolved recipients satisfy every selected dimension.
+- Selecting multiple levels includes clients in any selected level, while every other selected
+  dimension still intersects.
+- Zero dimensions, duplicate dimensions, empty/duplicate levels, a fourth entry, unknown
+  dimensions/values, and stray fields are rejected before persistence or sending.
+- With the gender filter set to male, stored male and unspecified clients match but stored female
+  clients do not; female is symmetric; explicit unspecified matches only unspecified.
+- An activity timestamp exactly at the rolling seven-day cutoff is active; an older/null timestamp
+  is inactive. Omitting activity does not filter by last access.
+- Preview counts only current active clients with a Telegram identity. Delivery and manual retry
+  skip a client whose level, activity, gender, status, or Telegram identity changed after preview/
+  materialization.
+- A new Mini App user must choose male/female/unspecified and successful onboarding stores that
+  choice atomically with consent/profile/client creation and initial Mini App activity.
+- Failed/rolled-back or concurrent onboarding creates no partial gender/profile/activity state and
+  at most one client row.
+- Existing clients are backfilled as unspecified without inference and are not silently changed by
+  idempotent onboarding.
+- Existing automation definitions retain their IDs, versions, enabled states, schedules, and
+  effective level-plus-activity audience after migration; legacy-shaped run history and retries
+  remain readable/usable.
+- Existing manual broadcast preview/send and same-day settings accept and behave with the unchanged
+  legacy `BroadcastAudience`.
+- Admin client editing cannot submit gender, and a forged gender field is rejected.
+
+### Tests
+
+- Shared contracts: all seven valid non-empty dimension combinations; multi-level OR; unique
+  dimensions/levels; exact gender enum; strict rejection of zero/duplicate/unknown/oversized
+  filters and unknown fields.
+- Audience repository/service: AND across dimensions, OR across levels, absent-dimension behavior,
+  inclusive activity cutoff, all gender matching rules, active-status/Telegram exclusions, and
+  current pre-send/retry recheck.
+- Migration/compatibility: legacy definition normalization preserves identity/version/enabled/
+  schedule and membership; legacy pending/history snapshots still execute/parse/retry; new writes
+  emit only the new shape; legacy manual broadcast contracts and tests are unchanged.
+- Onboarding contracts/service/repository: required valid gender, atomic first insert with consent
+  and activity, rollback, duplicate race, existing-client idempotency, unspecified backfill, and no
+  gender field in admin update.
+- Mini App: four-step navigation/back behavior, explicit gender selection, localized labels,
+  disabled completion before selection, one typed onboarding submission, and error recovery.
+- Admin: add/remove unique dimension controls, all combinations, migrated edit state, preview
+  invalidation/counts, and validation/error accessibility.
+- Regression and running verification: the existing automation suite plus one real preview/send
+  per single dimension and the three-dimension intersection; root definition-of-done command remains
+  `pnpm typecheck && pnpm lint && pnpm test && pnpm build`.
+
+### Dependencies, resolved decisions, and out of scope
+
+Dependencies are the current builder contracts/API/admin editor, client status/level/Telegram
+identity, persisted `mini_app_last_access_at`, verified-session consented Mini App onboarding, and
+the existing JSONB definition/run-snapshot stores. A schema migration and RU/SR/EN onboarding/admin
+catalog additions are required. No trigger/message/history infrastructure change is required.
+
+Resolved by revision 5:
+
+- any non-empty combination of up to three unique dimensions is supported;
+- dimensions intersect, while selected levels union;
+- the rolling activity cutoff is inclusive and stays fixed at seven days;
+- gender is collected only at onboarding and stored as male/female/unspecified;
+- male/female filters include unspecified, while explicit unspecified is exclusive;
+- preview and pre-send use current audience and eligibility truth;
+- existing automations remain compatible and legacy manual broadcasts remain unchanged.
+
+Out of scope for this amendment: arbitrary profile fields/operators, `OR` across dimensions,
+additional gender values, gender inference, configurable activity windows, admin/client profile
+gender editing, changes to legacy manual audiences, and any trigger/message/CTA/history redesign.
