@@ -53,6 +53,9 @@ flowchart LR
 - Capacity, waitlist, court availability, prices, payment status, and request decisions belong to API
   services.
 - Client-facing roster/member shapes are narrowed before render.
+- Client gender is an explicit, non-inferred onboarding attribute. Broadcast-automation audience
+  filters are validated shared-contract data, normalized at the API persistence boundary, and
+  checked against current client eligibility at preview and immediately before delivery.
 - Secrets stay server-side. Browser bundles receive only `VITE_*` public values.
 
 See [domain-model.md](domain-model.md) and [database.md](database.md) for the current data model.
