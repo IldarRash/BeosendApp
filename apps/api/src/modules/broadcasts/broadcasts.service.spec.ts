@@ -1,4 +1,4 @@
-import { BadRequestException, ConflictException, ForbiddenException } from "@nestjs/common";
+import { BadRequestException, ConflictException, ForbiddenException, GoneException } from "@nestjs/common";
 import type { Env } from "@beosand/config";
 import type { BroadcastTemplate, BroadcastType, TrainingStatus } from "@beosand/types";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
@@ -179,29 +179,9 @@ describe("BroadcastsService", () => {
       expect(repo.listTemplates).toHaveBeenCalledWith("tomorrow");
     });
 
-    it("creates and updates templates, rejecting malformed or unknown placeholders", async () => {
+    it("retires legacy template creation while retaining validation on existing-template edits", async () => {
       const { service, repo } = makeService();
-
-      for (const slotLineTemplate of [
-        "{client}",
-        "{client_name}",
-        "{ price }",
-        "{price.rsd}",
-        "{1bad}",
-        "{date",
-        "date}"
-      ]) {
-        await expect(
-          service.createTemplate(ADMIN_ID, {
-            name: "Bad",
-            broadcastType: "today",
-            bodyTemplate: "Open slots",
-            slotLineTemplate,
-            emptyBodyTemplate: "No slots"
-          })
-        ).rejects.toBeInstanceOf(BadRequestException);
-      }
-
+      await expect(service.createTemplate(ADMIN_ID, { name: "New legacy", broadcastType: "today" })).rejects.toBeInstanceOf(GoneException);
       expect(repo.createTemplate).not.toHaveBeenCalled();
 
       await expect(
@@ -209,25 +189,6 @@ describe("BroadcastsService", () => {
           slotLineTemplate: "{{date}"
         })
       ).rejects.toBeInstanceOf(BadRequestException);
-
-      await expect(
-        service.createTemplate(ADMIN_ID, {
-          name: "Bad",
-          broadcastType: "today",
-          bodyTemplate: "Hello {client}",
-          slotLineTemplate: "{groupName}",
-          emptyBodyTemplate: "No slots"
-        })
-      ).rejects.toBeInstanceOf(BadRequestException);
-
-      await service.createTemplate(ADMIN_ID, {
-        name: "Good",
-        broadcastType: "today",
-        bodyTemplate: "Open slots",
-        slotLineTemplate: "{groupName} {freeSeats}",
-        emptyBodyTemplate: "No slots"
-      });
-      expect(repo.createTemplate).toHaveBeenCalledTimes(1);
 
       await service.updateTemplate(ADMIN_ID, template().id, {
         slotLineTemplate: "{date} {groupName}"
@@ -251,19 +212,7 @@ describe("BroadcastsService", () => {
           BroadcastsRepository["updateTemplate"]
       });
 
-      const createError = await service
-        .createTemplate(ADMIN_ID, {
-          name: "Existing",
-          broadcastType: "today",
-          bodyTemplate: "Open slots",
-          slotLineTemplate: "{groupName}",
-          emptyBodyTemplate: "No slots"
-        })
-        .catch((error: unknown) => error);
-      expect(createError).toBeInstanceOf(ConflictException);
-      expect((createError as Error).message).toBe(
-        "Active broadcast template name already exists for this type"
-      );
+      await expect(service.createTemplate(ADMIN_ID, { name: "Existing", broadcastType: "today" })).rejects.toBeInstanceOf(GoneException);
 
       const updateError = await service
         .updateTemplate(ADMIN_ID, template().id, {

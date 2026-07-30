@@ -39,19 +39,17 @@ import {
 } from "@beosand/types";
 import type { Database } from "@beosand/db";
 import { ENV } from "../../config/config.module";
-import {
-  SameDayFreedSlotDispatcher,
-  sanitizeFreedSlotDiagnostic
-} from "../broadcasts/same-day-freed-slot-dispatcher.service";
+import { BroadcastAutomationsService } from "../broadcast-automations/broadcast-automations.service";
 import { ClientsRepository } from "../clients/clients.repository";
 import { renderTrainingIcs } from "../connectors/calendar/calendar-ics";
 import { DomainEventsService } from "../connectors/domain-events.service";
 import { GroupsRepository } from "../groups/groups.repository";
 import { NotificationsService } from "../notifications/notifications.service";
+import { sanitizeTelegramDiagnostic } from "../notifications/telegram-sender";
 import { type BookingPriceSnapshot } from "../training-pricing/training-pricing.repository";
 import { TrainingPricingService } from "../training-pricing/training-pricing.service";
 import { TrainersRepository } from "../trainers/trainers.repository";
-import { WaitlistService } from "../waitlist/waitlist.service";
+import { type WaitlistPromotionOutcome, WaitlistService } from "../waitlist/waitlist.service";
 import { BookingsRepository, type TrainingLockRow } from "./bookings.repository";
 
 interface CreateSingleInput {
@@ -111,7 +109,7 @@ export class BookingsService {
     private readonly domainEvents: DomainEventsService,
     @Inject(ENV) private readonly env: Env,
     @Optional() private readonly pricing?: TrainingPricingService,
-    @Optional() private readonly freedSlotDispatcher?: SameDayFreedSlotDispatcher
+    @Optional() @Inject(BroadcastAutomationsService) private readonly automations?: unknown
   ) {}
 
   async createSingle(
@@ -924,6 +922,7 @@ export class BookingsService {
       );
       return {
         cancelled: updated,
+        groupId: training.groupId,
         evidence: {
           cancelledBookingId: booking.id,
           trainingId: booking.trainingId,
@@ -937,8 +936,17 @@ export class BookingsService {
     // the status recomputed inside the committed tx, so promotion runs here (after
     // commit) against the now-visible free seat. Self-tolerant — a promotion
     // failure never undoes the committed cancellation.
-    await this.promoteWaitlistSafely(result.cancelled.trainingId);
-    await this.dispatchFreedSlotSafely(result.evidence);
+    const promotion = await this.promoteWaitlistSafely(result.cancelled.trainingId);
+    // A queue entry always gets first claim on a newly free seat. Only a confirmed
+    // empty queue may enter the broader automation path; an uncertain promotion is
+    // conservatively suppressed and left observable in the application log.
+    if (promotion === "none") {
+      await this.enqueueFreedPlaceForPublicGroupSafely(
+        result.groupId,
+        result.cancelled.trainingId,
+        `freed-place:${result.evidence.cancelledBookingId}`
+      );
+    }
 
     return bookingSchema.parse(withNullableSnapshotFields(result.cancelled));
   }
@@ -1330,29 +1338,42 @@ export class BookingsService {
    * committed and authoritative, so a promote/Telegram failure is logged and
    * swallowed (the minutely sweep is the safety net).
    */
-  private async promoteWaitlistSafely(trainingId: string): Promise<void> {
+  private async promoteWaitlistSafely(
+    trainingId: string
+  ): Promise<WaitlistPromotionOutcome> {
     try {
-      await this.waitlist.promoteNext(trainingId);
+      return await this.waitlist.promoteNext(trainingId);
     } catch (error) {
       this.logger.error(
         "Waitlist promotion after cancel failed (cancellation stands): " +
           (error instanceof Error ? error.message : String(error))
       );
+      return "failed";
     }
   }
 
-  private async dispatchFreedSlotSafely(
-    evidence: Parameters<SameDayFreedSlotDispatcher["dispatchAfterCancellation"]>[0]
+  /** Post-commit only: an automation failure must never undo a cancellation. */
+  private async enqueueFreedPlaceForPublicGroupSafely(
+    groupId: string | null,
+    trainingId: string,
+    sourceEventId: string
   ): Promise<void> {
-    if (!this.freedSlotDispatcher) {
+    if (!hasAutomationEnqueue(this.automations)) {
       return;
     }
     try {
-      await this.freedSlotDispatcher.dispatchAfterCancellation(evidence);
+      if (!groupId) {
+        return;
+      }
+      const group = await this.groups.findById(groupId);
+      if (!group || group.status !== "active" || group.hidden) {
+        return;
+      }
+      await this.automations.enqueueEvent("freed-place", sourceEventId);
     } catch (error) {
       this.logger.error(
-        "Same-day freed-slot dispatch failed (cancellation stands): " +
-          sanitizeFreedSlotDiagnostic(error)
+        `Freed-place automation enqueue failed for training ${trainingId} (cancellation stands): ` +
+          sanitizeTelegramDiagnostic(error instanceof Error ? error.message : String(error))
       );
     }
   }
@@ -1495,4 +1516,15 @@ function calendarExportUidSuffix(actorTelegramId: number, monthLabel: string): s
     .digest("hex")
     .slice(0, 16);
   return `client-${digest}-${monthLabel}`;
+}
+
+function hasAutomationEnqueue(
+  value: unknown
+): value is Pick<BroadcastAutomationsService, "enqueueEvent"> {
+  return (
+    typeof value === "object" &&
+    value !== null &&
+    "enqueueEvent" in value &&
+    typeof (value as { enqueueEvent?: unknown }).enqueueEvent === "function"
+  );
 }

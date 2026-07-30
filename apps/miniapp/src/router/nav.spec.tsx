@@ -36,6 +36,7 @@ const ONBOARDED: Client = {
   telegramId: 42,
   telegramUsername: "anya",
   telegramPhotoUrl: null,
+  gender: "female",
   levelId: LEVEL.id,
   source: "telegram",
   phone: null,
@@ -254,7 +255,7 @@ describe("navigation shell", () => {
     });
     renderWithProviders(<Router />);
 
-    await waitFor(() => expect(screen.getByText("Шаг 1 из 3")).toBeTruthy());
+    await waitFor(() => expect(screen.getByText("Шаг 1 из 4")).toBeTruthy());
     expect(screen.getByPlaceholderText("Ваше имя")).toBeTruthy();
     expect(screen.queryByText("Тренировки")).toBeNull();
   });

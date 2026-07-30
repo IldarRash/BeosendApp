@@ -33,7 +33,11 @@ erDiagram
 - **Manager** - editable admin record. Admin access is the union of `ADMIN_TELEGRAM_IDS` and active
   manager rows with a known `telegramId`.
 - **Client** - Telegram or walk-in client. Telegram ID is nullable for walk-ins; username, photo,
-  phone, email, note, language, consent timestamp, and bonus credits are optional/supporting data.
+  phone, email, note, language, consent timestamp, bonus credits, and a `gender` value are
+  optional/supporting data. Gender is one of `male`, `female`, or `unspecified`; it is collected
+  only through verified Mini App onboarding and is never inferred. Existing clients and legacy bot
+  onboarding retain/use `unspecified`. For a first Mini App registration, the client row, selected
+  gender, server-stamped consent time, and Mini App access time are created atomically.
 - **Group** - recurring slot: level, weekdays, time, trainer, home court, capacity, prices, visibility,
   and status.
 - **Training** - dated group or individual session. Group sessions point to `groupId`; individual
@@ -57,6 +61,12 @@ erDiagram
 
 - **Notification** and **NotificationTemplate** - send log and localized editable message bodies.
 - **Broadcast** - broadcast run record.
+- **BroadcastAutomation** - versioned definition for a scheduled or event-triggered broadcast.
+  Its audience is a JSON object with a `filters` array of one to three distinct dimensions:
+  `{ dimension: "level", levelIds: [...] }`, `{ dimension: "activity", value: "active" | "inactive" }`,
+  and/or `{ dimension: "gender", value: "male" | "female" | "unspecified" }`. Selected
+  dimensions combine with AND; multiple level IDs combine within the level dimension. Every run
+  keeps a configuration snapshot for audit and retry behavior.
 - **UiLabel** - localized UI label override over the static `packages/i18n` catalog.
 - **WebhookEndpoint** and **WebhookDelivery** - signed outbound webhooks, retries, and delivery history.
 - **AppSetting** - operational key/value settings.
@@ -66,3 +76,10 @@ erDiagram
 Important pure rules live in `packages/types/src/helpers.ts`: training status recompute, free-seat and
 bookability checks, month date generation, court grid math, price helpers, and narrowed participant
 visibility shapes.
+
+Broadcast-automation audience selection is also an API invariant: recipients must be active clients
+with a Telegram ID, then satisfy every selected audience dimension. A `male` or `female` gender
+filter also includes clients whose stored gender is `unspecified`; an `unspecified` filter is exact.
+The preview calculates recipients using that current predicate. Delivery and retry re-check the same
+predicate for each claimed recipient immediately before a Telegram send, so a changed client state is
+recorded as `audience-no-longer-eligible` rather than sent from a stale audience.

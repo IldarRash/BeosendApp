@@ -8,7 +8,7 @@ const MAX_OBJECT_KEYS = 50;
 const MAX_STRING_LENGTH = 1_024;
 
 const SENSITIVE_KEY_PATTERN =
-  /authorization|cookie|set-cookie|password|token|secret|hash|session|jwt|admin[-_ ]?session|api[-_ ]?key|credential|csrf|xsrf|init[-_ ]?data|auth[-_ ]?proof|signature|email|e[-_ ]?mail|phone|name|username|user[-_ ]?name|client[-_ ]?name|telegram[-_ ]?id|note/i;
+  /authorization|cookie|set-cookie|password|token|secret|hash|session|jwt|admin[-_ ]?session|api[-_ ]?key|credential|csrf|xsrf|init[-_ ]?data|auth[-_ ]?proof|signature|email|e[-_ ]?mail|phone|name|username|user[-_ ]?name|client[-_ ]?name|telegram[-_ ]?id|gender|note/i;
 
 const URL_KEY_PATTERN = /(?:^|[-_ ])url$|url$/i;
 

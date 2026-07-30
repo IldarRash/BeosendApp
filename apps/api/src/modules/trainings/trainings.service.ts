@@ -6,7 +6,8 @@ import {
   Inject,
   Injectable,
   Logger,
-  NotFoundException
+  NotFoundException,
+  Optional
 } from "@nestjs/common";
 import type { Env } from "@beosand/config";
 import { isAdmin } from "@beosand/config";
@@ -76,12 +77,14 @@ import {
 } from "@beosand/types";
 import { z } from "zod";
 import { ENV } from "../../config/config.module";
+import { BroadcastAutomationsService } from "../broadcast-automations/broadcast-automations.service";
 import { BookingsRepository } from "../bookings/bookings.repository";
 import { DomainEventsService } from "../connectors/domain-events.service";
 import { ClientsRepository } from "../clients/clients.repository";
 import { CourtBlocksRepository, type CourtOccupancyRow } from "../courts/court-blocks.repository";
 import { GroupsRepository } from "../groups/groups.repository";
 import { NotificationsService } from "../notifications/notifications.service";
+import { sanitizeTelegramDiagnostic } from "../notifications/telegram-sender";
 import { SettingsService } from "../settings/settings.service";
 import { TrainersRepository } from "../trainers/trainers.repository";
 import { TrainingsRepository, type ClientTrainingDetailRow } from "./trainings.repository";
@@ -108,7 +111,8 @@ export class TrainingsService {
     private readonly bookings: BookingsRepository,
     private readonly domainEvents: DomainEventsService,
     private readonly settings: SettingsService,
-    @Inject(ENV) private readonly env: Env
+    @Inject(ENV) private readonly env: Env,
+    @Optional() private readonly automations?: BroadcastAutomationsService
   ) {}
 
   /**
@@ -127,7 +131,7 @@ export class TrainingsService {
       throw new BadRequestException("Cannot generate trainings for an inactive group");
     }
 
-    return this.trainings.transaction(async (tx) => {
+    const created = await this.trainings.transaction(async (tx) => {
       const { created } = await this.generateMonthForGroup(
         tx,
         group,
@@ -137,6 +141,10 @@ export class TrainingsService {
       );
       return created;
     });
+    if (!group.hidden) {
+      await this.enqueueTrainingEventsSafely("training-created", created.map((training) => training.id));
+    }
+    return created;
   }
 
   /**
@@ -296,6 +304,12 @@ export class TrainingsService {
         const result = await this.trainings.transaction((tx) =>
           this.generateMonthForGroup(tx, group, input.year, input.month, undefined)
         );
+        if (!group.hidden) {
+          await this.enqueueTrainingEventsSafely(
+            "training-created",
+            result.created.map((training) => training.id)
+          );
+        }
         perGroup.push(
           generateGroupResultSchema.parse({
             groupId: group.id,
@@ -1117,6 +1131,8 @@ export class TrainingsService {
       throw new NotFoundException(`Training ${trainingId} not found`);
     }
 
+    let changedPublicTrainingId: string | undefined;
+    let changedPublicGroupId: string | undefined;
     await this.trainings.transaction(async (tx) => {
       await this.courtBlocks.lockDate(ref.date, tx);
       const locked = await this.trainings.findFullForUpdate(tx, trainingId);
@@ -1169,8 +1185,22 @@ export class TrainingsService {
 
       if (input.startTime !== undefined) {
         await this.trainings.updateTimes(tx, trainingId, input.startTime, input.endTime!);
+        if (
+          locked.groupId !== null &&
+          (locked.startTime !== input.startTime || locked.endTime !== input.endTime)
+        ) {
+          changedPublicTrainingId = trainingId;
+          changedPublicGroupId = locked.groupId;
+        }
       }
     });
+
+    if (changedPublicTrainingId && changedPublicGroupId) {
+      await this.enqueueTrainingTimeChangedIfPublicSafely(
+        changedPublicGroupId,
+        changedPublicTrainingId
+      );
+    }
 
     const row = await this.trainings.findCalendarItemById(trainingId);
     if (!row) {
@@ -1595,6 +1625,43 @@ export class TrainingsService {
       },
       tx
     );
+  }
+
+  /** Post-commit event seam: delivery work is durable but never part of the source write. */
+  private async enqueueTrainingEventsSafely(
+    trigger: "training-created" | "training-time-changed",
+    trainingIds: readonly string[]
+  ): Promise<void> {
+    if (!this.automations) {
+      return;
+    }
+    for (const trainingId of trainingIds) {
+      try {
+        await this.automations.enqueueEvent(trigger, `${trigger}:${trainingId}:${randomUUID()}`);
+      } catch (error) {
+        this.logger.error(
+          `${trigger} automation enqueue failed for training ${trainingId} (training write stands): ` +
+            sanitizeTelegramDiagnostic(error instanceof Error ? error.message : String(error))
+        );
+      }
+    }
+  }
+
+  private async enqueueTrainingTimeChangedIfPublicSafely(
+    groupId: string,
+    trainingId: string
+  ): Promise<void> {
+    try {
+      const group = await this.groups.findById(groupId);
+      if (group?.status === "active" && !group.hidden) {
+        await this.enqueueTrainingEventsSafely("training-time-changed", [trainingId]);
+      }
+    } catch (error) {
+      this.logger.error(
+        `training-time-changed eligibility check failed for training ${trainingId} (training write stands): ` +
+          sanitizeTelegramDiagnostic(error instanceof Error ? error.message : String(error))
+      );
+    }
   }
 
   private async assertScheduleCourtAvailable(

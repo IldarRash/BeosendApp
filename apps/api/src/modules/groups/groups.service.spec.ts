@@ -374,6 +374,7 @@ describe("GroupsService.listMembers (group monthly roster)", () => {
     telegramUsername: null,
     telegramPhotoUrl: null,
     levelId: null,
+    gender: "unspecified",
     source: "telegram",
     phone: null,
     email: null,

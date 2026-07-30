@@ -347,6 +347,7 @@ describe("TrainingsController generate-individual", () => {
     telegramUsername: null,
     telegramPhotoUrl: null,
     levelId: null,
+    gender: "unspecified",
     source: "telegram",
     phone: null,
     email: null,

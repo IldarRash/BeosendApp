@@ -117,12 +117,49 @@ Railway.
 - If the bot menu/web-app buttons should open the Mini App, set `MINIAPP_URL` on the bot/API services
   as needed by the running flow.
 
+## Client gender and audience-filter rollout
+
+Railway deploys the API, bot, Admin, and Mini App independently. For the client-gender and
+audience-filter expansion, release the API first and hold every consumer promotion or deployment
+until it is verified. The current, pre-feature Admin Broadcasts surface is wire-incompatible with
+the new automation audience response, so it must not be used to verify or control this rollout.
+Plan a brief Admin downtime: place Admin in explicit maintenance mode or remove its production
+traffic so users cannot access the old surface. A deployment/promotion hold alone is insufficient.
+
+1. Put `beosand-admin` behind an enforced maintenance/traffic hold that prevents user access to
+   the old Admin Broadcasts surface. Pause or hold Admin, bot, and Mini App promotions/deployments.
+2. Deploy `beosand-api`. Its pre-deploy migration `0032` adds `clients.gender` before the new API
+   release is made live.
+3. Verify from the API directly: check `/health` and run authenticated smoke checks against the
+   affected API endpoints, including the new automation audience response. Confirm existing
+   callers that omit `gender` remain accepted and receive the intended defaulted behavior. Do not
+   use the old Admin UI as a verification or operational control surface.
+4. Once API compatibility is confirmed, atomically release the compatible new Admin bundle and
+   re-enable Admin traffic/access. Then release bot and Mini App, which remain held until the API
+   checks pass.
+
+Hard stop: if the Admin maintenance/traffic cutover cannot be enforced, or service ordering cannot
+be controlled, do not release this feature. Coordinate the deployments first; an independently
+auto-deployed consumer must not reach production ahead of the compatible API and migration.
+
 ## Rollback
 
 1. In Railway, open the affected service and redeploy a previous successful deployment.
 2. Roll back API, bot, admin, and Mini App independently.
 3. Database migrations are forward-only. Take a Postgres backup before risky schema changes and plan
    manual recovery for destructive migrations.
+
+For the client-gender and audience-filter expansion, apply the following compatibility rules:
+
+- Before any consumer release, an API rollback is possible only while no new-format automation
+  definitions exist.
+- After a consumer or new-format definition is live, roll consumers back first and prefer a
+  compatible API roll-forward.
+- Do not roll the API back to its pre-feature version while new client bundles are live or new
+  audience configurations exist without an explicit data-remediation plan.
+- If the new Admin must be rolled back during this rollout, restore a compatible Admin bundle
+  before re-enabling traffic; keep the Admin maintenance/traffic hold in place rather than exposing
+  the wire-incompatible old Broadcasts surface.
 
 ## Troubleshooting
 

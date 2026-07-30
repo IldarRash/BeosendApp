@@ -26,6 +26,7 @@ import {
 } from "@beosand/types";
 import { ENV } from "../../config/config.module";
 import { AnalyticsTrackingService } from "../analytics/analytics-tracking.service";
+import { ClientsRepository } from "../clients/clients.repository";
 import { StaffLinkingService } from "../managers/staff-linking.service";
 import { signSessionToken, verifySessionToken } from "./session-token";
 
@@ -47,6 +48,7 @@ export class AuthService {
   constructor(
     @Inject(ENV) private readonly env: Env,
     private readonly staffLinking: StaffLinkingService,
+    @Optional() private readonly clients?: ClientsRepository,
     @Optional() private readonly analyticsTracking?: AnalyticsTrackingService
   ) {}
 
@@ -97,6 +99,19 @@ export class AuthService {
     }
 
     const user = this.parseMiniappUser(fields.get("user"));
+    // The app module always supplies this dependency. Keeping it optional only
+    // preserves the existing direct-construction auth unit-test seam.
+    if (this.clients) {
+      const existingClient = await this.clients.findByTelegramId(user.telegramId);
+      if (existingClient) {
+        // A verified Mini App entry is the only existing-client activity signal.
+        // A failed write must fail auth rather than imply recorded activity.
+        const refreshed = await this.clients.recordMiniAppAccess(user.telegramId, new Date());
+        if (!refreshed) {
+          throw new UnauthorizedException("Mini App client session is no longer available");
+        }
+      }
+    }
     // First Mini App contact also links a staff member added by @username.
     await this.staffLinking.linkPendingStaff(user.telegramId, user.username);
     const analyticsSessionId = await this.recordLaunchSafely(fields.get("start_param"));

@@ -221,7 +221,11 @@ export class MiniappApiClient {
     return this.identity;
   }
 
-  private async request<T>(path: string, schema: z.ZodType<T>, init?: RequestInit): Promise<T> {
+  private async request<TOutput, TInput>(
+    path: string,
+    schema: z.ZodType<TOutput, z.ZodTypeDef, TInput>,
+    init?: RequestInit
+  ): Promise<TOutput> {
     const res = await this.fetchWithAuth(path, init);
     if (res.status === 401 && this.initDataRaw) {
       // The session expired/was rejected mid-session: re-mint once from the
@@ -251,7 +255,11 @@ export class MiniappApiClient {
   }
 
   /** Map an HTTP response to a typed error or the Zod-parsed body. */
-  private async handle<T>(res: Response, path: string, schema: z.ZodType<T>): Promise<T> {
+  private async handle<TOutput, TInput>(
+    res: Response,
+    path: string,
+    schema: z.ZodType<TOutput, z.ZodTypeDef, TInput>
+  ): Promise<TOutput> {
     if (res.status === 401) {
       throw new AuthError(`API ${path} rejected the session`);
     }

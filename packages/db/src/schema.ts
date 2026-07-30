@@ -4,6 +4,7 @@ import {
   boolean,
   check,
   date,
+  foreignKey,
   integer,
   index,
   jsonb,
@@ -64,6 +65,31 @@ export const sameDayFreedSlotDeliveryOutcome = pgEnum("same_day_freed_slot_deliv
   "failed",
   "ambiguous"
 ]);
+export const broadcastAutomationTriggerKind = pgEnum("broadcast_automation_trigger_kind", [
+  "scheduled",
+  "training-created",
+  "training-time-changed",
+  "freed-place",
+  "manual-retry"
+]);
+export const broadcastAutomationRunStatus = pgEnum("broadcast_automation_run_status", [
+  "pending",
+  "processing",
+  "completed",
+  "skipped"
+]);
+export const broadcastAutomationRunTrainingOutcome = pgEnum("broadcast_automation_run_training_outcome", [
+  "pending",
+  "included",
+  "skipped"
+]);
+export const broadcastAutomationDeliveryOutcome = pgEnum("broadcast_automation_delivery_outcome", [
+  "claimed",
+  "sent",
+  "failed",
+  "ambiguous",
+  "skipped"
+]);
 export const notificationType = pgEnum("notification_type", [
   "booking-confirmed",
   "booking-pending",
@@ -110,6 +136,8 @@ export const webhookDeliveryStatus = pgEnum("webhook_delivery_status", [
 ]);
 /** UI locales (mirrors @beosand/i18n and packages/types localeSchema). */
 export const locale = pgEnum("locale", ["ru", "sr", "en"]);
+/** Mirrors packages/types clientGenderSchema exactly. */
+export const clientGender = pgEnum("client_gender", ["male", "female", "unspecified"]);
 
 // --- Training domain ---
 
@@ -192,6 +220,9 @@ export const clients = pgTable(
     telegramUsername: text("telegram_username"),
     telegramPhotoUrl: text("telegram_photo_url"),
     levelId: uuid("level_id").references(() => levels.id),
+    // Collected only by consented Mini App onboarding. Existing and non-onboarding
+    // sources deliberately remain the non-inferred `unspecified` value.
+    gender: clientGender("gender").notNull().default("unspecified"),
     // "telegram" for bot-onboarded, "walk_in" for manually created by an admin.
     // Free text constrained by the Zod clientSource enum (mirrors bookings.source;
     // no dedicated pgEnum).
@@ -209,6 +240,9 @@ export const clients = pgTable(
     // default: only the onboard service stamps it, so walk-ins and pre-consent
     // clients stay NULL (consent is collected on new Mini App registration only).
     consentGivenAt: timestamp("consent_given_at", { withTimezone: true }),
+    // Set only after a successful authenticated Mini App entry (or atomically
+    // during consented onboarding); legacy and unauthenticated access stays NULL.
+    miniAppLastAccessAt: timestamp("mini_app_last_access_at", { withTimezone: true }),
     status: entityStatus("status").notNull().default("active"),
     // Rotating counter that revokes a client's signed calendar feed token (see
     // trainers.calendarFeedVersion). Account-light feed revocation, no token table.
@@ -485,6 +519,191 @@ export const broadcastTemplates = pgTable(
   })
 );
 
+/** Builder-owned, versioned automation definitions. Legacy broadcasts/templates stay above. */
+export const broadcastAutomations = pgTable(
+  "broadcast_automations",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    name: text("name").notNull(),
+    enabled: boolean("enabled").notNull().default(false),
+    // Trigger, audience, localized bodies, output mode, and CTA are one immutable
+    // configuration boundary; run rows snapshot this before execution.
+    config: jsonb("config").notNull(),
+    version: integer("version").notNull().default(1),
+    createdBy: bigint("created_by", { mode: "number" }).notNull(),
+    updatedBy: bigint("updated_by", { mode: "number" }).notNull(),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow()
+  },
+  (table) => ({
+    enabledIdx: index("broadcast_automations_enabled_idx").on(table.enabled),
+    versionPositive: check("broadcast_automations_version_positive", sql`${table.version} > 0`),
+    nameNonEmpty: check("broadcast_automations_name_non_empty", sql`length(trim(${table.name})) > 0`)
+  })
+);
+
+/** A materialized scheduled/event/retry occurrence; no automatic retry mutates its history. */
+export const broadcastAutomationRuns = pgTable(
+  "broadcast_automation_runs",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    automationId: uuid("automation_id")
+      .notNull()
+      .references(() => broadcastAutomations.id),
+    automationVersion: integer("automation_version").notNull(),
+    triggerKind: broadcastAutomationTriggerKind("trigger_kind").notNull(),
+    sourceEventId: text("source_event_id"),
+    scheduledFor: timestamp("scheduled_for", { withTimezone: true }),
+    dueAt: timestamp("due_at", { withTimezone: true }).notNull(),
+    status: broadcastAutomationRunStatus("status").notNull().default("pending"),
+    skipReason: text("skip_reason"),
+    originalRunId: uuid("original_run_id"),
+    configSnapshot: jsonb("config_snapshot").notNull(),
+    selectedTrainingsCount: integer("selected_trainings_count").notNull().default(0),
+    includedTrainingsCount: integer("included_trainings_count").notNull().default(0),
+    skippedTrainingsCount: integer("skipped_trainings_count").notNull().default(0),
+    recipientsCount: integer("recipients_count").notNull().default(0),
+    attemptedCount: integer("attempted_count").notNull().default(0),
+    sentCount: integer("sent_count").notNull().default(0),
+    failedCount: integer("failed_count").notNull().default(0),
+    ambiguousCount: integer("ambiguous_count").notNull().default(0),
+    skippedDeliveriesCount: integer("skipped_deliveries_count").notNull().default(0),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    startedAt: timestamp("started_at", { withTimezone: true }),
+    completedAt: timestamp("completed_at", { withTimezone: true })
+  },
+  (table) => ({
+    scheduledClaimIdx: uniqueIndex("broadcast_automation_runs_scheduled_claim_idx")
+      .on(table.automationId, table.scheduledFor)
+      .where(sql`${table.scheduledFor} IS NOT NULL`),
+    eventClaimIdx: uniqueIndex("broadcast_automation_runs_event_claim_idx")
+      .on(table.automationId, table.sourceEventId)
+      .where(sql`${table.sourceEventId} IS NOT NULL`),
+    dueIdx: index("broadcast_automation_runs_due_idx").on(table.status, table.dueAt),
+    automationCreatedIdx: index("broadcast_automation_runs_automation_created_idx").on(
+      table.automationId,
+      table.createdAt
+    ),
+    originalRunFk: foreignKey({
+      columns: [table.originalRunId],
+      foreignColumns: [table.id],
+      name: "broadcast_automation_runs_original_run_id_broadcast_automation_runs_id_fk"
+    }),
+    versionPositive: check("broadcast_automation_runs_version_positive", sql`${table.automationVersion} > 0`)
+  })
+);
+
+/** Per-automation cursor used to audit occurrences missed while a scheduler was unavailable. */
+export const broadcastAutomationSchedulerStates = pgTable(
+  "broadcast_automation_scheduler_states",
+  {
+    automationId: uuid("automation_id")
+      .primaryKey()
+      .references(() => broadcastAutomations.id),
+    lastEvaluatedAt: timestamp("last_evaluated_at", { withTimezone: true }).notNull(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow()
+  }
+);
+
+/** One message item per training or one digest item per run. */
+export const broadcastAutomationRunItems = pgTable(
+  "broadcast_automation_run_items",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    runId: uuid("run_id")
+      .notNull()
+      .references(() => broadcastAutomationRuns.id),
+    ordinal: integer("ordinal").notNull(),
+    outputMode: text("output_mode").notNull(),
+    ctaMode: text("cta_mode").notNull(),
+    itemSnapshot: jsonb("item_snapshot").notNull(),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow()
+  },
+  (table) => ({
+    runOrdinalIdx: uniqueIndex("broadcast_automation_run_items_run_ordinal_idx").on(
+      table.runId,
+      table.ordinal
+    ),
+    ordinalPositive: check("broadcast_automation_run_items_ordinal_positive", sql`${table.ordinal} > 0`)
+  })
+);
+
+/** Training inclusion and latest-state evidence for a run item (including digest membership). */
+export const broadcastAutomationRunItemTrainings = pgTable(
+  "broadcast_automation_run_item_trainings",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    runId: uuid("run_id")
+      .notNull()
+      .references(() => broadcastAutomationRuns.id),
+    runItemId: uuid("run_item_id")
+      .notNull()
+      .references(() => broadcastAutomationRunItems.id),
+    trainingId: uuid("training_id")
+      .notNull()
+      .references(() => trainings.id),
+    sourceEventId: text("source_event_id"),
+    outcome: broadcastAutomationRunTrainingOutcome("outcome").notNull().default("pending"),
+    skipReason: text("skip_reason"),
+    trainingSnapshot: jsonb("training_snapshot").notNull(),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow()
+  },
+  (table) => ({
+    runTrainingIdx: uniqueIndex("broadcast_automation_run_item_trainings_run_training_idx").on(
+      table.runId,
+      table.trainingId
+    ),
+    itemTrainingIdx: uniqueIndex("broadcast_automation_run_item_trainings_item_training_idx").on(
+      table.runItemId,
+      table.trainingId
+    )
+  })
+);
+
+/** Recipient-level attempt history. A retry is a new linked row, never an update in place. */
+export const broadcastAutomationDeliveries = pgTable(
+  "broadcast_automation_deliveries",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    runId: uuid("run_id")
+      .notNull()
+      .references(() => broadcastAutomationRuns.id),
+    runItemId: uuid("run_item_id")
+      .notNull()
+      .references(() => broadcastAutomationRunItems.id),
+    clientId: uuid("client_id")
+      .notNull()
+      .references(() => clients.id),
+    telegramId: bigint("telegram_id", { mode: "number" }).notNull(),
+    requestedLanguage: locale("requested_language").notNull(),
+    resolvedLanguage: locale("resolved_language").notNull(),
+    outcome: broadcastAutomationDeliveryOutcome("outcome").notNull().default("claimed"),
+    skipReason: text("skip_reason"),
+    isAutomatic: boolean("is_automatic").notNull().default(true),
+    retryOfDeliveryId: uuid("retry_of_delivery_id"),
+    /** Stable lineage root: serializes retry eligibility across every descendant attempt. */
+    rootDeliveryId: uuid("root_delivery_id").notNull(),
+    payloadSnapshot: jsonb("payload_snapshot").notNull(),
+    diagnostic: text("diagnostic"),
+    attemptedAt: timestamp("attempted_at", { withTimezone: true }),
+    completedAt: timestamp("completed_at", { withTimezone: true }),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow()
+  },
+  (table) => ({
+    automaticClaimIdx: uniqueIndex("broadcast_automation_deliveries_automatic_claim_idx")
+      .on(table.runItemId, table.clientId)
+      .where(sql`${table.isAutomatic} = true`),
+    runItemIdx: index("broadcast_automation_deliveries_run_item_idx").on(table.runItemId),
+    retryOfIdx: index("broadcast_automation_deliveries_retry_of_idx").on(table.retryOfDeliveryId),
+    rootDeliveryIdx: index("broadcast_automation_deliveries_root_delivery_idx").on(table.rootDeliveryId),
+    retryOfFk: foreignKey({
+      columns: [table.retryOfDeliveryId],
+      foreignColumns: [table.id],
+      name: "broadcast_automation_deliveries_retry_of_delivery_id_broadcast_automation_deliveries_id_fk"
+    })
+  })
+);
+
 export const notifications = pgTable("notifications", {
   id: uuid("id").primaryKey().defaultRandom(),
   type: notificationType("type").notNull(),
@@ -696,6 +915,12 @@ export const schema = {
   waitlist,
   broadcasts,
   broadcastTemplates,
+  broadcastAutomations,
+  broadcastAutomationRuns,
+  broadcastAutomationSchedulerStates,
+  broadcastAutomationRunItems,
+  broadcastAutomationRunItemTrainings,
+  broadcastAutomationDeliveries,
   notifications,
   courts,
   courtBlocks,

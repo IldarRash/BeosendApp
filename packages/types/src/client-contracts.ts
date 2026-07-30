@@ -3,6 +3,10 @@ import { clientSource, entityStatus, uuid } from "./common";
 import { localeSchema } from "./i18n-contracts";
 
 // --- Clients (3.1) ---
+/** Collected only during consented Mini App onboarding; never inferred or admin-editable. */
+export const clientGenderSchema = z.enum(["male", "female", "unspecified"]);
+export type ClientGender = z.infer<typeof clientGenderSchema>;
+
 export const clientSchema = z.object({
   id: uuid,
   name: z.string().min(1),
@@ -12,6 +16,12 @@ export const clientSchema = z.object({
   /** Optional Telegram-provided profile photo URL, synced only from verified Mini App identity. */
   telegramPhotoUrl: z.string().url().nullable(),
   levelId: uuid.nullable(),
+  /**
+   * Expansion-phase compatibility: older API payloads did not carry gender.
+   * Normalize those payloads at the boundary while keeping every parsed client
+   * concrete for downstream consumers.
+   */
+  gender: clientGenderSchema.default("unspecified"),
   /** "telegram" (bot-onboarded) or "walk_in" (created manually by an admin). */
   source: clientSource,
   /** Optional walk-in contact details. */
@@ -42,6 +52,8 @@ export const onboardClientSchema = z
     telegramUsername: z.string().nullable().optional(),
     name: z.string().min(1),
     levelId: uuid.nullable().optional(),
+    /** Older callers may omit this during the rollout; normalize safely. */
+    gender: clientGenderSchema.default("unspecified"),
     /**
      * Explicit affirmative consent to personal-data processing (must be literally
      * true). Onboarding is refused without it; the server stamps `consentGivenAt`.
