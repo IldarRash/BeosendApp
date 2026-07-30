@@ -4,6 +4,7 @@ import type {
   AnalyticsRangeQuery,
   AnalyticsSummary,
   BroadcastEffectiveness,
+  BusinessAnalytics,
   CancellationStats,
   ClientActivity,
   FillRate,
@@ -34,6 +35,7 @@ const useCancellations = vi.fn();
 const useNoShows = vi.fn();
 const useClientActivity = vi.fn();
 const useBroadcastEffectiveness = vi.fn();
+const useBusinessAnalytics = vi.fn();
 vi.mock("../hooks/useAnalyticsReports", () => ({
   usePopularSlots: (range: AnalyticsRangeQuery | null) => usePopularSlots(range),
   useFillRate: (range: AnalyticsRangeQuery | null) => useFillRate(range),
@@ -42,7 +44,8 @@ vi.mock("../hooks/useAnalyticsReports", () => ({
   useNoShows: (range: AnalyticsRangeQuery | null) => useNoShows(range),
   useClientActivity: (range: AnalyticsRangeQuery | null) => useClientActivity(range),
   useBroadcastEffectiveness: (range: AnalyticsRangeQuery | null) =>
-    useBroadcastEffectiveness(range)
+    useBroadcastEffectiveness(range),
+  useBusinessAnalytics: (range: AnalyticsRangeQuery | null) => useBusinessAnalytics(range)
 }));
 
 import { Analytics } from "./Analytics";
@@ -106,6 +109,35 @@ const BROADCAST_EFFECTIVENESS: BroadcastEffectiveness = {
   attributionWindowHours: 24
 };
 
+const BUSINESS: BusinessAnalytics = {
+  from: "2026-05-01",
+  to: "2026-05-31",
+  revenue: {
+    paidTrainingRevenueRsd: 12000,
+    outstandingTrainingValueRsd: 3000,
+    confirmedCourtValueRsd: 6000,
+    averageConfirmedCourtValueRsd: 3000,
+    pricedTrainingBookings: 10,
+    unpricedTrainingBookings: 1
+  },
+  demand: {
+    trainingBookings: 11,
+    trainingClients: 8,
+    newClients: 3,
+    returningClients: 5,
+    returningClientRate: 0.625
+  },
+  court: {
+    requestsCount: 3,
+    confirmedRequests: 2,
+    cancelledRequests: 0,
+    confirmedCourtHours: 4,
+    confirmationRate: 2 / 3
+  },
+  acquisition: [],
+  popularTrainings: []
+};
+
 function ok<T>(data: T) {
   return { isPending: false, isError: false, error: null, data };
 }
@@ -119,6 +151,7 @@ function setHappyPath(): void {
   useNoShows.mockReturnValue(ok(NO_SHOWS));
   useClientActivity.mockReturnValue(ok(CLIENT_ACTIVITY));
   useBroadcastEffectiveness.mockReturnValue(ok(BROADCAST_EFFECTIVENESS));
+  useBusinessAnalytics.mockReturnValue(ok(BUSINESS));
 }
 
 /** Drive the two date inputs so the page resolves a complete range. */
@@ -151,6 +184,7 @@ describe("Analytics page", () => {
     expect(useFillRate).toHaveBeenLastCalledWith(expected);
     expect(useTrainerLoad).toHaveBeenLastCalledWith(expected);
     expect(useBroadcastEffectiveness).toHaveBeenLastCalledWith(expected);
+    expect(useBusinessAnalytics).toHaveBeenLastCalledWith(expected);
 
     // Changing the range re-queries with the new bounds.
     pickRange("2026-04-01", "2026-04-30");

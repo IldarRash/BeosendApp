@@ -129,6 +129,25 @@ describe("BookingsController client-scoped booking writes", () => {
       { allowAdmin: false }
     );
   });
+
+  it("forwards only a valid bridge-controlled analytics session to client writes", async () => {
+    const analyticsSessionId = "11111111-1111-4111-8111-111111111111";
+    await controller.createSingle(
+      undefined,
+      {
+        clientId: CLIENT_ID,
+        trainingId: "44444444-4444-4444-4444-444444444444"
+      },
+      HEADER,
+      analyticsSessionId
+    );
+
+    expect(service.createSingle).toHaveBeenCalledWith(
+      OWNER_ID,
+      expect.any(Object),
+      { allowAdmin: false, analyticsSessionId }
+    );
+  });
 });
 
 describe("BookingsController.listMine (GET /bookings/mine)", () => {

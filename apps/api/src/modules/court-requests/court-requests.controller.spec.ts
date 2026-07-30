@@ -164,6 +164,17 @@ describe("CourtRequestsController.create (POST /court-requests)", () => {
     expect(service.createRequest).toHaveBeenCalledWith({ ...validBody, telegramId: ACTOR_ID });
   });
 
+  it("forwards a valid bridge-controlled analytics session to the request", async () => {
+    const analyticsSessionId = "11111111-1111-4111-8111-111111111111";
+    await controller.create(validBody, undefined, HEADER, analyticsSessionId);
+
+    expect(service.createRequest).toHaveBeenCalledWith({
+      ...validBody,
+      telegramId: ACTOR_ID,
+      analyticsSessionId
+    });
+  });
+
   it("resolves the actor from x-client-telegram-id when x-telegram-id is absent", async () => {
     await expect(controller.create(validBody, undefined, HEADER)).resolves.toEqual(created);
     expect(service.createRequest).toHaveBeenCalledWith({ ...validBody, telegramId: ACTOR_ID });

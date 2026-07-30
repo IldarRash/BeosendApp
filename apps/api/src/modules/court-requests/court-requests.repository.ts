@@ -61,6 +61,7 @@ export interface InsertCourtRequest {
   durationHours: number;
   courtCount: number;
   priceRsd: number;
+  analyticsSessionId?: string;
   /** When set, the specific courts the client picked (held); else admin assigns at confirm. */
   courtIds?: string[];
 }
@@ -494,6 +495,7 @@ export class CourtModerationTx {
         durationHours: String(input.durationHours),
         courtCount: input.courtCount,
         priceRsd: input.priceRsd,
+        analyticsSessionId: input.analyticsSessionId ?? null,
         status: "pending"
       })
       .returning({ id: tables.courtRequests.id });

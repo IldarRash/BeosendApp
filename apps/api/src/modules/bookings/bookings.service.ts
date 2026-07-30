@@ -77,6 +77,7 @@ interface CreateGroupInput {
 
 interface ClientOwnershipOptions {
   allowAdmin?: boolean;
+  analyticsSessionId?: string;
 }
 
 /**
@@ -153,7 +154,8 @@ export class BookingsService {
           clientId: input.clientId,
           training,
           type: "single",
-          source: "telegram"
+          source: "telegram",
+          analyticsSessionId: options.analyticsSessionId
         });
       }
 
@@ -350,9 +352,10 @@ export class BookingsService {
       type: "single" | "group";
       source: BookingSource;
       payment?: BookingPayment;
+      analyticsSessionId?: string;
     }
   ): Promise<Booking> {
-    const { clientId, training, type, source, payment } = params;
+    const { clientId, training, type, source, payment, analyticsSessionId } = params;
 
     if (
       !isBookable({
@@ -377,6 +380,7 @@ export class BookingsService {
       groupSubscriptionId: null,
       status: "booked",
       source,
+      analyticsSessionId: analyticsSessionId ?? null,
       // Comp the seat when a bonus credit was redeemed; otherwise let the column
       // default (unpaid) stand — never pass paid fields the redemption didn't set.
       ...(payment ?? {})
@@ -472,6 +476,7 @@ export class BookingsService {
         to,
         groupSubscriptionId,
         source: "telegram",
+        analyticsSessionId: options.analyticsSessionId,
         // A monthly subscription always succeeds: full dates are waitlisted + a
         // bonus credit granted, never silently dropped.
         waitlistFullDates: true
@@ -553,6 +558,7 @@ export class BookingsService {
        * target date is simply `skipped` — a move never queues or grants credit.
        */
       waitlistFullDates: boolean;
+      analyticsSessionId?: string;
     }
   ): Promise<{
     created: Array<{ booking: Booking; date: string }>;
@@ -630,7 +636,8 @@ export class BookingsService {
         type: "group",
         groupSubscriptionId,
         status: "booked",
-        source
+        source,
+        analyticsSessionId: params.analyticsSessionId ?? null
       });
 
       const newCount = training.bookedCount + 1;

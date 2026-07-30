@@ -2,6 +2,7 @@ import { BadRequestException, Controller, Get, Headers, Query } from "@nestjs/co
 import {
   analyticsRangeQuerySchema,
   type AnalyticsSummary,
+  type BusinessAnalytics,
   type BroadcastEffectiveness,
   type CancellationStats,
   type ClientActivity,
@@ -104,6 +105,17 @@ export class AnalyticsController {
     const actor = parseTelegramId(header);
     const range = validate(summaryQuerySchema, query ?? {});
     return this.analytics.summary(actor, range);
+  }
+
+  /** Composite business dashboard for the selected inclusive service range. */
+  @Get("business")
+  business(
+    @Headers("x-telegram-id") header: string | undefined,
+    @Query() query: unknown
+  ): Promise<BusinessAnalytics> {
+    const actor = parseTelegramId(header);
+    const { from, to } = validate(analyticsRangeQuerySchema, query ?? {});
+    return this.analytics.business(actor, from, to);
   }
 }
 

@@ -1,4 +1,5 @@
 import { type MiddlewareConsumer, Module, type NestModule } from "@nestjs/common";
+import { AnalyticsModule } from "../analytics/analytics.module";
 import { ClientsModule } from "../clients/clients.module";
 import { ManagersModule } from "../managers/managers.module";
 import { AdminAuthGuard } from "./admin-auth.guard";
@@ -14,7 +15,7 @@ import { SessionBridgeMiddleware } from "./session-bridge.middleware";
  * convention without touching any controller.
  */
 @Module({
-  imports: [ManagersModule, ClientsModule],
+  imports: [ManagersModule, ClientsModule, AnalyticsModule],
   controllers: [AuthController],
   providers: [AuthService, AdminAuthGuard],
   exports: [AuthService, AdminAuthGuard]

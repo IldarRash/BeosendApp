@@ -2,6 +2,7 @@ import { useQuery, type UseQueryResult } from "@tanstack/react-query";
 import type {
   AnalyticsRangeQuery,
   BroadcastEffectiveness,
+  BusinessAnalytics,
   CancellationStats,
   ClientActivity,
   FillRate,
@@ -96,6 +97,17 @@ export function useBroadcastEffectiveness(
   return useQuery({
     queryKey: reportKey("broadcast-effectiveness", range),
     queryFn: () => api.broadcastEffectiveness(range as AnalyticsRangeQuery),
+    enabled: range !== null
+  });
+}
+
+export function useBusinessAnalytics(
+  range: AnalyticsRangeQuery | null
+): UseQueryResult<BusinessAnalytics, Error> {
+  const api = useApiClient();
+  return useQuery({
+    queryKey: reportKey("business", range),
+    queryFn: () => api.businessAnalytics(range as AnalyticsRangeQuery),
     enabled: range !== null
   });
 }

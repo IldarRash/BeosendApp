@@ -45,11 +45,16 @@ export class BookingsController {
   createSingle(
     @Headers("x-telegram-id") telegramIdHeader: string | undefined,
     @Body() body: unknown,
-    @Headers("x-client-telegram-id") clientTelegramIdHeader?: string
+    @Headers("x-client-telegram-id") clientTelegramIdHeader?: string,
+    @Headers("x-client-analytics-session-id") analyticsSessionIdHeader?: string
   ): Promise<SingleBookingResult> {
     const actor = resolveClientActor(telegramIdHeader, clientTelegramIdHeader);
     const input = validate(createSingleBookingSchema, body ?? {});
-    return this.bookings.createSingle(actor.telegramId, input, { allowAdmin: actor.allowAdmin });
+    const analyticsSessionId = parseOptionalUuid(analyticsSessionIdHeader);
+    return this.bookings.createSingle(actor.telegramId, input, {
+      allowAdmin: actor.allowAdmin,
+      ...(analyticsSessionId ? { analyticsSessionId } : {})
+    });
   }
 
   /**
@@ -80,12 +85,16 @@ export class BookingsController {
   createGroup(
     @Headers("x-telegram-id") telegramIdHeader: string | undefined,
     @Body() body: unknown,
-    @Headers("x-client-telegram-id") clientTelegramIdHeader?: string
+    @Headers("x-client-telegram-id") clientTelegramIdHeader?: string,
+    @Headers("x-client-analytics-session-id") analyticsSessionIdHeader?: string
   ): Promise<GroupBookingResult> {
     const actor = resolveClientActor(telegramIdHeader, clientTelegramIdHeader);
     const input = validate(createGroupBookingSchema, body ?? {});
     return this.bookings.createGroupBooking(actor.telegramId, input, {
-      allowAdmin: actor.allowAdmin
+      allowAdmin: actor.allowAdmin,
+      ...(parseOptionalUuid(analyticsSessionIdHeader)
+        ? { analyticsSessionId: analyticsSessionIdHeader }
+        : {})
     });
   }
 
@@ -261,4 +270,13 @@ function validate<T>(schema: ZodSchema<T>, input: unknown): T {
     throw new BadRequestException(result.error.issues.map((issue) => issue.message).join("; "));
   }
   return result.data;
+}
+
+function parseOptionalUuid(value: string | undefined): string | undefined {
+  if (value === undefined) return undefined;
+  const parsed = uuid.safeParse(value);
+  if (!parsed.success) {
+    throw new BadRequestException("Invalid analytics session");
+  }
+  return parsed.data;
 }

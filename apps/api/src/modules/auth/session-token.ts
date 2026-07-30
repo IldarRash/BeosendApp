@@ -32,6 +32,8 @@ export interface SessionClaims {
   username?: string;
   /** Optional Telegram profile photo URL for client display identity. */
   photoUrl?: string;
+  /** Privacy-minimised Mini App acquisition session, never supplied by a client. */
+  analyticsSessionId?: string;
   /** Issued-at, seconds since epoch. */
   iat: number;
   /** Expiry, seconds since epoch. */
@@ -59,7 +61,10 @@ function sign(signingInput: string, secret: string): string {
  * default is the current time.
  */
 export function signSessionToken(
-  claims: Pick<SessionClaims, "sub" | "name" | "scope" | "username" | "photoUrl">,
+  claims: Pick<
+    SessionClaims,
+    "sub" | "name" | "scope" | "username" | "photoUrl" | "analyticsSessionId"
+  >,
   secret: string,
   nowSeconds: number = Math.floor(Date.now() / 1000)
 ): string {
@@ -69,6 +74,9 @@ export function signSessionToken(
     scope: claims.scope,
     ...(claims.username !== undefined ? { username: claims.username } : {}),
     ...(claims.photoUrl !== undefined ? { photoUrl: claims.photoUrl } : {}),
+    ...(claims.analyticsSessionId !== undefined
+      ? { analyticsSessionId: claims.analyticsSessionId }
+      : {}),
     iat: nowSeconds,
     exp: nowSeconds + SESSION_TTL_SECONDS
   };
@@ -117,7 +125,11 @@ export function verifySessionToken(
     typeof claims.exp !== "number" ||
     (claims.scope !== "client" && claims.scope !== "admin") ||
     (claims.username !== undefined && typeof claims.username !== "string") ||
-    (claims.photoUrl !== undefined && typeof claims.photoUrl !== "string")
+    (claims.photoUrl !== undefined && typeof claims.photoUrl !== "string") ||
+    (claims.analyticsSessionId !== undefined &&
+      (claims.scope !== "client" ||
+        typeof claims.analyticsSessionId !== "string" ||
+        !UUID_PATTERN.test(claims.analyticsSessionId)))
   ) {
     return null;
   }
@@ -126,3 +138,6 @@ export function verifySessionToken(
   }
   return claims;
 }
+
+const UUID_PATTERN =
+  /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;

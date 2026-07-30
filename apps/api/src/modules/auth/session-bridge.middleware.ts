@@ -45,6 +45,7 @@ export class SessionBridgeMiddleware implements NestMiddleware {
     delete req.headers["x-client-telegram-id"];
     delete req.headers["x-client-telegram-username"];
     delete req.headers["x-client-telegram-photo-url"];
+    delete req.headers["x-client-analytics-session-id"];
 
     const token = extractBearerToken(req.headers.authorization);
     if (token) {
@@ -59,6 +60,9 @@ export class SessionBridgeMiddleware implements NestMiddleware {
           }
           if (claims.photoUrl !== undefined) {
             req.headers["x-client-telegram-photo-url"] = claims.photoUrl;
+          }
+          if (claims.analyticsSessionId !== undefined) {
+            req.headers["x-client-analytics-session-id"] = claims.analyticsSessionId;
           }
           // A client token must never present an admin-readable id.
           delete req.headers["x-telegram-id"];

@@ -232,6 +232,13 @@
       "when": 1785332366268,
       "tag": "0032_warm_william_stryker",
       "breakpoints": true
+    },
+    {
+      "idx": 33,
+      "version": "7",
+      "when": 1785403567322,
+      "tag": "0033_glossy_madripoor",
+      "breakpoints": true
     }
   ]
 }
