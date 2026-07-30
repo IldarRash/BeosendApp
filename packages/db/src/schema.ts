@@ -5,6 +5,7 @@ import {
   check,
   date,
   integer,
+  index,
   jsonb,
   numeric,
   pgEnum,
@@ -312,6 +313,30 @@ export const individualTrainingRequests = pgTable("individual_training_requests"
   decidedBy: bigint("decided_by", { mode: "number" })
 });
 
+/**
+ * Privacy-minimised Mini App acquisition session. The verified Telegram
+ * `start_param` is normalised at authentication time; neither the raw parameter
+ * nor a Telegram/client identifier is stored here.
+ */
+export const analyticsSessions = pgTable(
+  "analytics_sessions",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    entryPoint: text("entry_point").notNull(),
+    source: text("source").notNull(),
+    campaign: text("campaign"),
+    startedAt: timestamp("started_at", { withTimezone: true }).notNull().defaultNow()
+  },
+  (table) => ({
+    startedAtIdx: index("analytics_sessions_started_at_idx").on(table.startedAt),
+    sourceIdx: index("analytics_sessions_source_idx").on(
+      table.entryPoint,
+      table.source,
+      table.campaign
+    )
+  })
+);
+
 export const bookings = pgTable("bookings", {
   id: uuid("id").primaryKey().defaultRandom(),
   clientId: uuid("client_id")
@@ -326,6 +351,10 @@ export const bookings = pgTable("bookings", {
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
   status: bookingStatus("status").notNull().default("booked"),
   source: text("source").notNull().default("telegram"),
+  /** Verified, privacy-minimised Mini App launch that led to this booking. */
+  analyticsSessionId: uuid("analytics_session_id").references(() => analyticsSessions.id, {
+    onDelete: "set null"
+  }),
   /**
    * Subscription payment flag per booking. A monthly subscription is the set of
    * bookings sharing one groupSubscriptionId; "paid"/"unpaid" is set for all its
@@ -524,7 +553,11 @@ export const courtRequests = pgTable("court_requests", {
   status: courtRequestStatus("status").notNull().default("pending"),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
   decidedAt: timestamp("decided_at", { withTimezone: true }),
-  decidedBy: bigint("decided_by", { mode: "number" })
+  decidedBy: bigint("decided_by", { mode: "number" }),
+  /** Verified, privacy-minimised Mini App launch that led to this request. */
+  analyticsSessionId: uuid("analytics_session_id").references(() => analyticsSessions.id, {
+    onDelete: "set null"
+  })
 });
 
 /**

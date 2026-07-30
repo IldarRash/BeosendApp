@@ -362,6 +362,47 @@ describe("ApiClient auth contracts", () => {
     expect(result).not.toHaveProperty("injected");
   });
 
+  it("validates the composite business analytics response and range query", async () => {
+    const calls = mockFetchOnce({
+      from: "2026-05-01",
+      to: "2026-05-31",
+      revenue: {
+        paidTrainingRevenueRsd: 12000,
+        outstandingTrainingValueRsd: 3000,
+        confirmedCourtValueRsd: 6000,
+        averageConfirmedCourtValueRsd: 3000,
+        pricedTrainingBookings: 10,
+        unpricedTrainingBookings: 1
+      },
+      demand: {
+        trainingBookings: 11,
+        trainingClients: 8,
+        newClients: 3,
+        returningClients: 5,
+        returningClientRate: 0.625
+      },
+      court: {
+        requestsCount: 3,
+        confirmedRequests: 2,
+        cancelledRequests: 0,
+        confirmedCourtHours: 4,
+        confirmationRate: 2 / 3
+      },
+      acquisition: [],
+      popularTrainings: []
+    });
+
+    const result = await new ApiClient("http://api.test").businessAnalytics({
+      from: "2026-05-01",
+      to: "2026-05-31"
+    });
+
+    expect(result.revenue.paidTrainingRevenueRsd).toBe(12000);
+    expect(calls[0]?.url).toContain(
+      "/analytics/business?from=2026-05-01&to=2026-05-31"
+    );
+  });
+
   it("maps a 401 to a typed AuthError", async () => {
     mockFetchOnce({}, false, 401);
     const api = new ApiClient("http://api.test");

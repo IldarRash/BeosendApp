@@ -1,14 +1,17 @@
 import { useMemo, useState } from "react";
 import type { UseQueryResult } from "@tanstack/react-query";
 import type {
+  AcquisitionMetric,
   AnalyticsRangeQuery,
   AnalyticsSummary,
   BroadcastEffectiveness,
+  BusinessAnalytics,
   CancellationStats,
   ClientActivity,
   FillRate,
   NoShowStats,
   PopularSlot,
+  PopularTraining,
   TrainerLoad
 } from "@beosand/types";
 import { AppShell } from "../ui/AppShell";
@@ -17,8 +20,10 @@ import { DataTable, type Column } from "../ui/DataTable";
 import { DateRangeFilter, type DateRange } from "../ui/DateRangeFilter";
 import { useT } from "../i18n/LanguageProvider";
 import { useAnalyticsSummary } from "../hooks/useAnalyticsSummary";
+import { formatRsd } from "../lib/format";
 import {
   useBroadcastEffectiveness,
+  useBusinessAnalytics,
   useCancellations,
   useClientActivity,
   useFillRate,
@@ -106,6 +111,172 @@ function trainerColumns(t: Translate): Column<TrainerLoad>[] {
       numeric: true
     }
   ];
+}
+
+function acquisitionColumns(t: Translate): Column<AcquisitionMetric>[] {
+  return [
+    {
+      key: "entry",
+      header: t("admin.analytics.acquisition.colEntry"),
+      render: (row) => t(`admin.analytics.acquisition.entry.${row.entryPoint}`)
+    },
+    {
+      key: "source",
+      header: t("admin.analytics.acquisition.colSource"),
+      render: (row) => row.source
+    },
+    {
+      key: "campaign",
+      header: t("admin.analytics.acquisition.colCampaign"),
+      render: (row) => row.campaign ?? "—"
+    },
+    {
+      key: "launches",
+      header: t("admin.analytics.acquisition.colLaunches"),
+      render: (row) => formatCount(row.launches),
+      numeric: true
+    },
+    {
+      key: "started",
+      header: t("admin.analytics.acquisition.colStarted"),
+      render: (row) => formatCount(row.startedConversions),
+      numeric: true
+    },
+    {
+      key: "successful",
+      header: t("admin.analytics.acquisition.colSuccessful"),
+      render: (row) => formatCount(row.successfulConversions),
+      numeric: true
+    },
+    {
+      key: "conversion",
+      header: t("admin.analytics.acquisition.colConversion"),
+      render: (row) => formatPercentRatio(row.conversionRate),
+      numeric: true
+    }
+  ];
+}
+
+function popularTrainingColumns(t: Translate): Column<PopularTraining>[] {
+  return [
+    {
+      key: "offering",
+      header: t("admin.analytics.offerings.colOffering"),
+      render: (row) => row.groupName
+    },
+    {
+      key: "level",
+      header: t("admin.analytics.offerings.colLevel"),
+      render: (row) => row.levelName ?? "—"
+    },
+    {
+      key: "trainer",
+      header: t("admin.analytics.offerings.colTrainer"),
+      render: (row) => row.trainerName
+    },
+    {
+      key: "sessions",
+      header: t("admin.analytics.offerings.colSessions"),
+      render: (row) => formatCount(row.sessionsCount),
+      numeric: true
+    },
+    {
+      key: "bookings",
+      header: t("admin.analytics.offerings.colBookings"),
+      render: (row) => formatCount(row.bookingsCount),
+      numeric: true
+    },
+    {
+      key: "clients",
+      header: t("admin.analytics.offerings.colClients"),
+      render: (row) => formatCount(row.uniqueClients),
+      numeric: true
+    },
+    {
+      key: "fill",
+      header: t("admin.analytics.offerings.colFill"),
+      render: (row) => formatPercentRatio(row.fillRate),
+      numeric: true
+    }
+  ];
+}
+
+function BusinessOverview({ data }: { data: BusinessAnalytics }): JSX.Element {
+  const t = useT();
+  return (
+    <div className="stack">
+      <section className="metric-strip" aria-label={t("admin.analytics.business.moneyLabel")}>
+        <StatCard
+          label={t("admin.analytics.business.paidTraining")}
+          value={formatRsd(data.revenue.paidTrainingRevenueRsd)}
+        />
+        <StatCard
+          label={t("admin.analytics.business.confirmedCourtValue")}
+          value={formatRsd(data.revenue.confirmedCourtValueRsd)}
+          hint={t("admin.analytics.business.confirmedNotPaid")}
+        />
+        <StatCard
+          label={t("admin.analytics.business.outstandingTraining")}
+          value={formatRsd(data.revenue.outstandingTrainingValueRsd)}
+        />
+        <StatCard
+          label={t("admin.analytics.business.avgCourtValue")}
+          value={formatRsd(data.revenue.averageConfirmedCourtValueRsd)}
+        />
+      </section>
+
+      <section className="metric-strip" aria-label={t("admin.analytics.business.demandLabel")}>
+        <StatCard
+          label={t("admin.analytics.business.trainingBookings")}
+          value={formatCount(data.demand.trainingBookings)}
+        />
+        <StatCard
+          label={t("admin.analytics.business.trainingClients")}
+          value={formatCount(data.demand.trainingClients)}
+        />
+        <StatCard
+          label={t("admin.analytics.business.returningRate")}
+          value={formatPercentRatio(data.demand.returningClientRate)}
+          hint={t("admin.analytics.business.returningClients", {
+            count: data.demand.returningClients
+          })}
+        />
+        <StatCard
+          label={t("admin.analytics.business.newClients")}
+          value={formatCount(data.demand.newClients)}
+        />
+      </section>
+
+      <section className="metric-strip" aria-label={t("admin.analytics.business.courtLabel")}>
+        <StatCard
+          label={t("admin.analytics.business.courtRequests")}
+          value={formatCount(data.court.requestsCount)}
+        />
+        <StatCard
+          label={t("admin.analytics.business.courtConfirmation")}
+          value={formatPercentRatio(data.court.confirmationRate)}
+          hint={t("admin.analytics.business.confirmedRequests", {
+            count: data.court.confirmedRequests
+          })}
+        />
+        <StatCard
+          label={t("admin.analytics.business.confirmedCourtHours")}
+          value={data.court.confirmedCourtHours.toLocaleString("ru-RU", {
+            maximumFractionDigits: 1
+          })}
+        />
+        <StatCard
+          label={t("admin.analytics.business.unpricedBookings")}
+          value={formatCount(data.revenue.unpricedTrainingBookings)}
+          hint={t("admin.analytics.business.pricedBookings", {
+            count: data.revenue.pricedTrainingBookings
+          })}
+        />
+      </section>
+
+      <p className="state state--empty">{t("admin.analytics.business.provenance")}</p>
+    </div>
+  );
 }
 
 function SummaryCards({ summary }: { summary: AnalyticsSummary }): JSX.Element {
@@ -233,6 +404,7 @@ export function Analytics(): JSX.Element {
   const noShows = useNoShows(range);
   const clientActivity = useClientActivity(range);
   const broadcastEffectiveness = useBroadcastEffectiveness(range);
+  const business = useBusinessAnalytics(range);
 
   return (
     <AppShell>
@@ -266,6 +438,53 @@ export function Analytics(): JSX.Element {
         <p className="state state--empty">{t("admin.analytics.pickRange")}</p>
       ) : (
         <>
+          <ReportSection
+            title={t("admin.analytics.business.title")}
+            query={business}
+            errorLabel={t("admin.analytics.business.error")}
+          >
+            {(data) => <BusinessOverview data={data} />}
+          </ReportSection>
+
+          <ReportSection
+            title={t("admin.analytics.acquisition.title")}
+            query={business}
+            errorLabel={t("admin.analytics.business.error")}
+          >
+            {(data) => (
+              <div className="stack">
+                <p className="state state--empty">
+                  {t("admin.analytics.acquisition.forwardOnly")}
+                </p>
+                <DataTable
+                  columns={acquisitionColumns(t)}
+                  rows={data.acquisition}
+                  rowKey={(row) =>
+                    `${row.entryPoint}:${row.source}:${row.campaign ?? "none"}`
+                  }
+                  caption={t("admin.analytics.acquisition.caption")}
+                  emptyLabel={t("admin.analytics.acquisition.empty")}
+                />
+              </div>
+            )}
+          </ReportSection>
+
+          <ReportSection
+            title={t("admin.analytics.offerings.title")}
+            query={business}
+            errorLabel={t("admin.analytics.business.error")}
+          >
+            {(data) => (
+              <DataTable
+                columns={popularTrainingColumns(t)}
+                rows={data.popularTrainings}
+                rowKey={(row) => row.offeringKey}
+                caption={t("admin.analytics.offerings.caption")}
+                emptyLabel={t("admin.analytics.offerings.empty")}
+              />
+            )}
+          </ReportSection>
+
           <ReportSection
             title={t("admin.analytics.popular.title")}
             query={popular}

@@ -112,3 +112,82 @@ export const analyticsSummarySchema = z.object({
   attributedBookings: z.number().int().nonnegative()
 });
 export type AnalyticsSummary = z.infer<typeof analyticsSummarySchema>;
+
+/** Normalised product destination of a verified Mini App launch. */
+export const analyticsEntryPointSchema = z.enum(["direct", "training", "court", "other"]);
+export type AnalyticsEntryPoint = z.infer<typeof analyticsEntryPointSchema>;
+
+/** Financial value derived from authoritative booking/payment state. */
+export const businessRevenueSchema = z.object({
+  paidTrainingRevenueRsd: z.number().int().nonnegative(),
+  outstandingTrainingValueRsd: z.number().int().nonnegative(),
+  confirmedCourtValueRsd: z.number().int().nonnegative(),
+  averageConfirmedCourtValueRsd: z.number().int().nonnegative(),
+  pricedTrainingBookings: z.number().int().nonnegative(),
+  unpricedTrainingBookings: z.number().int().nonnegative()
+});
+export type BusinessRevenue = z.infer<typeof businessRevenueSchema>;
+
+/** Demand and repeat-client signals for trainings occurring in the range. */
+export const businessDemandSchema = z.object({
+  trainingBookings: z.number().int().nonnegative(),
+  trainingClients: z.number().int().nonnegative(),
+  newClients: z.number().int().nonnegative(),
+  returningClients: z.number().int().nonnegative(),
+  returningClientRate: z.number().min(0).max(1)
+});
+export type BusinessDemand = z.infer<typeof businessDemandSchema>;
+
+/** Court-request demand; value is confirmed, not necessarily collected. */
+export const businessCourtSchema = z.object({
+  requestsCount: z.number().int().nonnegative(),
+  confirmedRequests: z.number().int().nonnegative(),
+  cancelledRequests: z.number().int().nonnegative(),
+  confirmedCourtHours: z.number().nonnegative(),
+  confirmationRate: z.number().min(0).max(1)
+});
+export type BusinessCourt = z.infer<typeof businessCourtSchema>;
+
+/** One privacy-minimised acquisition bucket and its conversion funnel. */
+export const acquisitionMetricSchema = z.object({
+  entryPoint: analyticsEntryPointSchema,
+  source: z.string().min(1),
+  campaign: z.string().nullable(),
+  launches: z.number().int().nonnegative(),
+  startedConversions: z.number().int().nonnegative(),
+  successfulConversions: z.number().int().nonnegative(),
+  convertingClients: z.number().int().nonnegative(),
+  conversionRate: z.number().min(0).max(1),
+  successRate: z.number().min(0).max(1)
+});
+export type AcquisitionMetric = z.infer<typeof acquisitionMetricSchema>;
+
+/** Product-level popularity and capacity utilisation. */
+export const popularTrainingSchema = z.object({
+  offeringKey: z.string().min(1),
+  groupId: uuid.nullable(),
+  groupName: z.string().min(1),
+  levelName: z.string().nullable(),
+  trainerName: z.string().min(1),
+  sessionsCount: z.number().int().nonnegative(),
+  bookingsCount: z.number().int().nonnegative(),
+  uniqueClients: z.number().int().nonnegative(),
+  totalCapacity: z.number().int().nonnegative(),
+  fillRate: z.number().min(0).max(1)
+});
+export type PopularTraining = z.infer<typeof popularTrainingSchema>;
+
+/**
+ * Best-practice business view for one inclusive service-date range. All money,
+ * rates and attribution decisions are server-owned; the admin only formats them.
+ */
+export const businessAnalyticsSchema = z.object({
+  from: dateString,
+  to: dateString,
+  revenue: businessRevenueSchema,
+  demand: businessDemandSchema,
+  court: businessCourtSchema,
+  acquisition: z.array(acquisitionMetricSchema),
+  popularTrainings: z.array(popularTrainingSchema)
+});
+export type BusinessAnalytics = z.infer<typeof businessAnalyticsSchema>;

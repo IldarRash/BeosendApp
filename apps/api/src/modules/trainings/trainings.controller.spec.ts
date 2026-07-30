@@ -6,7 +6,7 @@ import {
 } from "@nestjs/common";
 import type { Env } from "@beosand/config";
 import type { Client, Group, Trainer, Training } from "@beosand/types";
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { TrainerTodayController, TrainingsController } from "./trainings.controller";
 import { TrainingsService } from "./trainings.service";
 import type {
@@ -167,6 +167,8 @@ describe("TrainingsController", () => {
   let controller: TrainingsController;
 
   beforeEach(() => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date("2026-07-01T10:00:00Z"));
     trainingsRepo = makeTrainingsRepo();
     groupsRepo = makeGroupsRepo();
     controller = new TrainingsController(
@@ -184,6 +186,8 @@ describe("TrainingsController", () => {
       )
     );
   });
+
+  afterEach(() => vi.useRealTimers());
 
   it("admin header resolves the actor and POST /trainings/generate creates trainings", async () => {
     await expect(controller.generate(String(ADMIN_ID), validBody)).resolves.toEqual([
@@ -328,6 +332,13 @@ describe("TrainingsController generate-individual", () => {
     month: 7,
     priceSingleRsd: 3000
   };
+
+  beforeEach(() => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date("2026-07-01T10:00:00Z"));
+  });
+
+  afterEach(() => vi.useRealTimers());
 
   const client: Client = {
     id: CLIENT_ID,

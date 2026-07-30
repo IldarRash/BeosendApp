@@ -13,6 +13,7 @@ import {
   managerContactSchema,
   managerSchema,
   analyticsSummarySchema,
+  businessAnalyticsSchema,
   bookingSchema,
   broadcastEffectivenessSchema,
   broadcastPreviewSchema,
@@ -86,6 +87,7 @@ import {
   type AdjustBonusCreditsInput,
   type AnalyticsRangeQuery,
   type AnalyticsSummary,
+  type BusinessAnalytics,
   type AssignCourtInput,
   type AutoAssignCourtsInput,
   type AutoAssignResult,
@@ -1341,6 +1343,14 @@ export class ApiClient {
     return this.request(
       `/analytics/broadcast-effectiveness?${this.rangeQuery(range)}`,
       broadcastEffectivenessSchema
+    );
+  }
+
+  /** Business KPI view: money, demand, courts, acquisition and offerings. */
+  businessAnalytics(range: AnalyticsRangeQuery): Promise<BusinessAnalytics> {
+    return this.request(
+      `/analytics/business?${this.rangeQuery(range)}`,
+      businessAnalyticsSchema
     );
   }
 

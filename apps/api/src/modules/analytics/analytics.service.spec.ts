@@ -21,6 +21,11 @@ const ALLOWED_REPO_METHODS = new Set([
   "broadcastTotals",
   "broadcastSends",
   "countBookingsInWindows",
+  "businessRevenue",
+  "businessDemand",
+  "businessCourt",
+  "acquisition",
+  "popularTrainings",
   "createdAtInRange",
   "sentAtInRange"
 ]);
@@ -52,6 +57,28 @@ function makeService(overrides: Partial<RepoMocks> = {}): {
     broadcastTotals: vi.fn().mockResolvedValue({ broadcastsCount: 0, recipientsCount: 0 }),
     broadcastSends: vi.fn().mockResolvedValue([]),
     countBookingsInWindows: vi.fn().mockResolvedValue(0),
+    businessRevenue: vi.fn().mockResolvedValue({
+      paidTrainingRevenueRsd: 0,
+      outstandingTrainingValueRsd: 0,
+      confirmedCourtValueRsd: 0,
+      confirmedCourtRequests: 0,
+      pricedTrainingBookings: 0,
+      unpricedTrainingBookings: 0
+    }),
+    businessDemand: vi.fn().mockResolvedValue({
+      trainingBookings: 0,
+      trainingClients: 0,
+      newClients: 0,
+      returningClients: 0
+    }),
+    businessCourt: vi.fn().mockResolvedValue({
+      requestsCount: 0,
+      confirmedRequests: 0,
+      cancelledRequests: 0,
+      confirmedCourtHours: 0
+    }),
+    acquisition: vi.fn().mockResolvedValue([]),
+    popularTrainings: vi.fn().mockResolvedValue([]),
     ...overrides
   } as unknown as RepoMocks;
 
@@ -90,6 +117,9 @@ describe("AnalyticsService", () => {
         service.broadcastEffectiveness(NON_ADMIN_ID, FROM, TO)
       ).rejects.toBeInstanceOf(ForbiddenException);
       await expect(service.summary(NON_ADMIN_ID, { from: FROM, to: TO })).rejects.toBeInstanceOf(
+        ForbiddenException
+      );
+      await expect(service.business(NON_ADMIN_ID, FROM, TO)).rejects.toBeInstanceOf(
         ForbiddenException
       );
 
@@ -292,6 +322,70 @@ describe("AnalyticsService", () => {
       expect(summary.from).toBe("2026-05-05"); // 30 inclusive days
       expect(summary.topSlot).toBeNull();
       vi.useRealTimers();
+    });
+  });
+
+  describe("business analytics", () => {
+    it("derives money, funnel, repeat rate and popularity without frontend math", async () => {
+      const { service } = makeService({
+        businessRevenue: vi.fn().mockResolvedValue({
+          paidTrainingRevenueRsd: 24_000,
+          outstandingTrainingValueRsd: 6_000,
+          confirmedCourtValueRsd: 12_000,
+          confirmedCourtRequests: 3,
+          pricedTrainingBookings: 18,
+          unpricedTrainingBookings: 2
+        }),
+        businessDemand: vi.fn().mockResolvedValue({
+          trainingBookings: 20,
+          trainingClients: 10,
+          newClients: 4,
+          returningClients: 6
+        }),
+        businessCourt: vi.fn().mockResolvedValue({
+          requestsCount: 5,
+          confirmedRequests: 3,
+          cancelledRequests: 1,
+          confirmedCourtHours: 7.5
+        }),
+        acquisition: vi.fn().mockResolvedValue([
+          {
+            entryPoint: "court",
+            source: "instagram",
+            campaign: "bio",
+            launches: 20,
+            startedConversions: 8,
+            successfulConversions: 5,
+            convertingClients: 8
+          }
+        ]),
+        popularTrainings: vi.fn().mockResolvedValue([
+          {
+            offeringKey: "11111111-1111-1111-1111-111111111111",
+            groupId: "11111111-1111-1111-1111-111111111111",
+            groupName: "Advanced",
+            levelName: "B",
+            trainerName: "Ana",
+            sessionsCount: 4,
+            bookingsCount: 18,
+            uniqueClients: 8,
+            totalCapacity: 24
+          }
+        ])
+      });
+
+      const result = await service.business(ADMIN_ID, FROM, TO);
+
+      expect(result.revenue.averageConfirmedCourtValueRsd).toBe(4_000);
+      expect(result.demand.returningClientRate).toBe(0.6);
+      expect(result.court.confirmationRate).toBe(0.6);
+      expect(result.acquisition[0]).toMatchObject({
+        startedConversions: 8,
+        successfulConversions: 5,
+        conversionRate: 0.25,
+        successRate: 0.625
+      });
+      expect(result.popularTrainings[0]?.fillRate).toBe(0.75);
     });
   });
 });

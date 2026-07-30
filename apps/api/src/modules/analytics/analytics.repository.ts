@@ -1,6 +1,17 @@
 import { Injectable } from "@nestjs/common";
-import { tables } from "@beosand/db";
-import { and, between, count, countDistinct, eq, gte, lte, ne, sql, sum } from "drizzle-orm";
+import { schema, tables } from "@beosand/db";
+import {
+  and,
+  between,
+  count,
+  countDistinct,
+  eq,
+  gte,
+  lte,
+  ne,
+  sql,
+  sum
+} from "drizzle-orm";
 import { DatabaseService } from "../../db/database.service";
 
 /**
@@ -62,6 +73,51 @@ export interface BroadcastSendRow {
   sentAt: Date;
 }
 
+export interface RevenueTotalsRow {
+  paidTrainingRevenueRsd: number;
+  outstandingTrainingValueRsd: number;
+  confirmedCourtValueRsd: number;
+  confirmedCourtRequests: number;
+  pricedTrainingBookings: number;
+  unpricedTrainingBookings: number;
+}
+
+export interface DemandTotalsRow {
+  trainingBookings: number;
+  trainingClients: number;
+  newClients: number;
+  returningClients: number;
+}
+
+export interface CourtTotalsRow {
+  requestsCount: number;
+  confirmedRequests: number;
+  cancelledRequests: number;
+  confirmedCourtHours: number;
+}
+
+export interface AcquisitionRow {
+  entryPoint: "direct" | "training" | "court" | "other";
+  source: string;
+  campaign: string | null;
+  launches: number;
+  startedConversions: number;
+  successfulConversions: number;
+  convertingClients: number;
+}
+
+export interface PopularTrainingRow {
+  offeringKey: string;
+  groupId: string | null;
+  groupName: string;
+  levelName: string | null;
+  trainerName: string;
+  sessionsCount: number;
+  bookingsCount: number;
+  uniqueClients: number;
+  totalCapacity: number;
+}
+
 @Injectable()
 export class AnalyticsRepository {
   constructor(private readonly database: DatabaseService) {}
@@ -88,7 +144,12 @@ export class AnalyticsRepository {
           ne(tables.bookings.status, "waitlist")
         )
       )
-      .where(between(tables.trainings.date, from, to))
+      .where(
+        and(
+          between(tables.trainings.date, from, to),
+          ne(tables.trainings.status, "cancelled")
+        )
+      )
       .groupBy(tables.trainings.startTime, sql`extract(dow from ${tables.trainings.date})`);
 
     return rows.map((row) => ({
@@ -107,7 +168,12 @@ export class AnalyticsRepository {
         totalBooked: sum(tables.trainings.bookedCount)
       })
       .from(tables.trainings)
-      .where(between(tables.trainings.date, from, to));
+      .where(
+        and(
+          between(tables.trainings.date, from, to),
+          ne(tables.trainings.status, "cancelled")
+        )
+      );
 
     return {
       trainingsCount: Number(row?.trainingsCount ?? 0),
@@ -139,7 +205,12 @@ export class AnalyticsRepository {
           ne(tables.bookings.status, "waitlist")
         )
       )
-      .where(between(tables.trainings.date, from, to))
+      .where(
+        and(
+          between(tables.trainings.date, from, to),
+          ne(tables.trainings.status, "cancelled")
+        )
+      )
       .groupBy(tables.trainers.id, tables.trainers.name);
 
     return rows.map((row) => ({
@@ -263,6 +334,282 @@ export class AnalyticsRepository {
     return Number(row?.value ?? 0);
   }
 
+  /**
+   * Training money uses immutable snapshots when present. Only single bookings
+   * may fall back to the current group/individual single-session price; monthly
+   * rows without a snapshot stay explicitly unpriced instead of inventing value.
+   * Court value is confirmed request value, not collected cash.
+   */
+  async businessRevenue(from: string, to: string): Promise<RevenueTotalsRow> {
+    const effectivePrice =
+      sql<number | null>`case
+        when ${tables.bookings.priceSnapshotRsd} is not null
+          then ${tables.bookings.priceSnapshotRsd}
+        when ${tables.bookings.type} = 'single'
+          then coalesce(${tables.trainings.priceSingleRsd}, ${tables.groups.priceSingleRsd})
+        else null
+      end`;
+
+    const [training] = await this.database.db
+      .select({
+        paid: sum(
+          sql`case when ${tables.bookings.paymentStatus} = 'paid'
+            then coalesce(${effectivePrice}, 0) else 0 end`
+        ),
+        outstanding: sum(
+          sql`case when ${tables.bookings.paymentStatus} = 'unpaid'
+            then coalesce(${effectivePrice}, 0) else 0 end`
+        ),
+        priced: count(sql`case when ${effectivePrice} is not null then 1 end`),
+        unpriced: count(sql`case when ${effectivePrice} is null then 1 end`)
+      })
+      .from(tables.bookings)
+      .innerJoin(tables.trainings, eq(tables.bookings.trainingId, tables.trainings.id))
+      .leftJoin(tables.groups, eq(tables.trainings.groupId, tables.groups.id))
+      .where(
+        and(
+          between(tables.trainings.date, from, to),
+          ne(tables.trainings.status, "cancelled"),
+          ne(tables.bookings.status, "cancelled"),
+          ne(tables.bookings.status, "waitlist")
+        )
+      );
+
+    const [court] = await this.database.db
+      .select({
+        value: sum(tables.courtRequests.priceRsd),
+        count: count(tables.courtRequests.id)
+      })
+      .from(tables.courtRequests)
+      .where(
+        and(
+          between(tables.courtRequests.date, from, to),
+          eq(tables.courtRequests.status, "confirmed")
+        )
+      );
+
+    return {
+      paidTrainingRevenueRsd: Number(training?.paid ?? 0),
+      outstandingTrainingValueRsd: Number(training?.outstanding ?? 0),
+      confirmedCourtValueRsd: Number(court?.value ?? 0),
+      confirmedCourtRequests: Number(court?.count ?? 0),
+      pricedTrainingBookings: Number(training?.priced ?? 0),
+      unpricedTrainingBookings: Number(training?.unpriced ?? 0)
+    };
+  }
+
+  /** Service-date training demand plus registration and prior-booking cohorts. */
+  async businessDemand(from: string, to: string): Promise<DemandTotalsRow> {
+    const activeBooking = and(
+      between(tables.trainings.date, from, to),
+      ne(tables.trainings.status, "cancelled"),
+      ne(tables.bookings.status, "cancelled"),
+      ne(tables.bookings.status, "waitlist")
+    );
+    const [booking] = await this.database.db
+      .select({
+        trainingBookings: count(tables.bookings.id),
+        trainingClients: countDistinct(tables.bookings.clientId),
+        returningClients: countDistinct(
+          sql`case when exists (
+            select 1
+            from bookings prior_booking
+            inner join trainings prior_training
+              on prior_training.id = prior_booking.training_id
+            where prior_booking.client_id = ${tables.bookings.clientId}
+              and prior_booking.status not in ('cancelled', 'waitlist')
+              and prior_training.status <> 'cancelled'
+              and prior_training.date < ${from}
+          ) then ${tables.bookings.clientId} end`
+        )
+      })
+      .from(tables.bookings)
+      .innerJoin(tables.trainings, eq(tables.bookings.trainingId, tables.trainings.id))
+      .where(activeBooking);
+
+    const [clients] = await this.database.db
+      .select({ newClients: count(tables.clients.id) })
+      .from(tables.clients)
+      .where(
+        and(
+          gte(sql`date(${tables.clients.registeredAt})`, from),
+          lte(sql`date(${tables.clients.registeredAt})`, to)
+        )
+      );
+
+    return {
+      trainingBookings: Number(booking?.trainingBookings ?? 0),
+      trainingClients: Number(booking?.trainingClients ?? 0),
+      newClients: Number(clients?.newClients ?? 0),
+      returningClients: Number(booking?.returningClients ?? 0)
+    };
+  }
+
+  async businessCourt(from: string, to: string): Promise<CourtTotalsRow> {
+    const [row] = await this.database.db
+      .select({
+        requestsCount: count(tables.courtRequests.id),
+        confirmedRequests: count(
+          sql`case when ${tables.courtRequests.status} = 'confirmed' then 1 end`
+        ),
+        cancelledRequests: count(
+          sql`case when ${tables.courtRequests.status} = 'cancelled' then 1 end`
+        ),
+        confirmedCourtHours: sum(
+          sql`case when ${tables.courtRequests.status} = 'confirmed'
+            then ${tables.courtRequests.durationHours} * ${tables.courtRequests.courtCount}
+            else 0 end`
+        )
+      })
+      .from(tables.courtRequests)
+      .where(between(tables.courtRequests.date, from, to));
+
+    return {
+      requestsCount: Number(row?.requestsCount ?? 0),
+      confirmedRequests: Number(row?.confirmedRequests ?? 0),
+      cancelledRequests: Number(row?.cancelledRequests ?? 0),
+      confirmedCourtHours: Number(row?.confirmedCourtHours ?? 0)
+    };
+  }
+
+  /** Exact forward-only last-touch funnel grouped by verified launch metadata. */
+  async acquisition(from: string, to: string): Promise<AcquisitionRow[]> {
+    const rows = await this.database.db
+      .select({
+        entryPoint: schema.analyticsSessions.entryPoint,
+        source: schema.analyticsSessions.source,
+        campaign: schema.analyticsSessions.campaign,
+        launches: countDistinct(schema.analyticsSessions.id),
+        startedConversions: countDistinct(
+          sql`case when ${tables.bookings.id} is not null
+              or ${tables.courtRequests.id} is not null
+            then ${schema.analyticsSessions.id} end`
+        ),
+        successfulConversions: countDistinct(
+          sql`case when
+              (${tables.bookings.id} is not null
+                and ${tables.bookings.status} not in ('cancelled', 'waitlist'))
+              or ${tables.courtRequests.status} = 'confirmed'
+            then ${schema.analyticsSessions.id} end`
+        ),
+        convertingClients: countDistinct(
+          sql`coalesce(${tables.bookings.clientId}, ${tables.courtRequests.clientId})`
+        )
+      })
+      .from(schema.analyticsSessions)
+      .leftJoin(
+        tables.bookings,
+        eq(tables.bookings.analyticsSessionId, schema.analyticsSessions.id)
+      )
+      .leftJoin(
+        tables.courtRequests,
+        eq(tables.courtRequests.analyticsSessionId, schema.analyticsSessions.id)
+      )
+      .where(
+        and(
+          gte(sql`date(${schema.analyticsSessions.startedAt})`, from),
+          lte(sql`date(${schema.analyticsSessions.startedAt})`, to)
+        )
+      )
+      .groupBy(
+        schema.analyticsSessions.entryPoint,
+        schema.analyticsSessions.source,
+        schema.analyticsSessions.campaign
+      );
+
+    return rows.map((row) => ({
+      entryPoint: row.entryPoint as AcquisitionRow["entryPoint"],
+      source: row.source,
+      campaign: row.campaign,
+      launches: Number(row.launches),
+      startedConversions: Number(row.startedConversions),
+      successfulConversions: Number(row.successfulConversions),
+      convertingClients: Number(row.convertingClients)
+    }));
+  }
+
+  /** Group/individual offerings with capacity and client popularity totals. */
+  async popularTrainings(from: string, to: string): Promise<PopularTrainingRow[]> {
+    const sessionRows = await this.database.db
+      .select({
+        groupId: tables.trainings.groupId,
+        groupName: tables.groups.name,
+        levelName: tables.levels.name,
+        trainerId: tables.trainers.id,
+        trainerName: tables.trainers.name,
+        sessionsCount: countDistinct(tables.trainings.id),
+        totalCapacity: sum(tables.trainings.capacity)
+      })
+      .from(tables.trainings)
+      .leftJoin(tables.groups, eq(tables.trainings.groupId, tables.groups.id))
+      .leftJoin(tables.levels, eq(tables.groups.levelId, tables.levels.id))
+      .innerJoin(tables.trainers, eq(tables.trainings.trainerId, tables.trainers.id))
+      .where(
+        and(
+          between(tables.trainings.date, from, to),
+          ne(tables.trainings.status, "cancelled")
+        )
+      )
+      .groupBy(
+        tables.trainings.groupId,
+        tables.groups.name,
+        tables.levels.name,
+        tables.trainers.id,
+        tables.trainers.name
+      );
+
+    const bookingRows = await this.database.db
+      .select({
+        groupId: tables.trainings.groupId,
+        trainerId: tables.trainers.id,
+        bookingsCount: count(tables.bookings.id),
+        uniqueClients: countDistinct(tables.bookings.clientId)
+      })
+      .from(tables.trainings)
+      .innerJoin(tables.trainers, eq(tables.trainings.trainerId, tables.trainers.id))
+      .innerJoin(
+        tables.bookings,
+        and(
+          eq(tables.bookings.trainingId, tables.trainings.id),
+          ne(tables.bookings.status, "cancelled"),
+          ne(tables.bookings.status, "waitlist")
+        )
+      )
+      .where(
+        and(
+          between(tables.trainings.date, from, to),
+          ne(tables.trainings.status, "cancelled")
+        )
+      )
+      .groupBy(tables.trainings.groupId, tables.trainers.id);
+
+    const bookingsByOffering = new Map(
+      bookingRows.map((row) => [
+        offeringKey(row.groupId, row.trainerId),
+        {
+          bookingsCount: Number(row.bookingsCount),
+          uniqueClients: Number(row.uniqueClients)
+        }
+      ])
+    );
+
+    return sessionRows.map((row) => {
+      const key = offeringKey(row.groupId, row.trainerId);
+      const booking = bookingsByOffering.get(key);
+      return {
+        offeringKey: key,
+        groupId: row.groupId,
+        groupName: row.groupName ?? "Individual",
+        levelName: row.levelName,
+        trainerName: row.trainerName,
+        sessionsCount: Number(row.sessionsCount),
+        bookingsCount: booking?.bookingsCount ?? 0,
+        uniqueClients: booking?.uniqueClients ?? 0,
+        totalCapacity: Number(row.totalCapacity ?? 0)
+      };
+    });
+  }
+
   /** created_at within the inclusive [from, to] calendar-day window. */
   private createdAtInRange(from: string, to: string) {
     return and(
@@ -278,4 +625,8 @@ export class AnalyticsRepository {
       lte(sql`date(${tables.broadcasts.sentAt})`, to)
     );
   }
+}
+
+function offeringKey(groupId: string | null, trainerId: string): string {
+  return groupId ?? `individual:${trainerId}`;
 }
