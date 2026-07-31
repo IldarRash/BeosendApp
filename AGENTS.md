@@ -1,47 +1,31 @@
 # AGENTS.md - BeoSand project instructions
 
-This repository inherits the global Codex multi-agent workflow from
-`C:\Users\ilsac\.codex\AGENTS.md`. Keep this file focused on BeoSand-specific conventions and
-overrides.
+This repository inherits global Codex workflow and generic roles. Keep this file limited to
+BeoSand paths, commands, and product invariants.
 
-BeoSand follows the current Codex layout:
+## Local layout and implementation ownership
 
-- repo-scoped skills live in `.agents/skills`;
-- project subagents live in `.codex/agents`;
-- project rules and configuration live in `.codex/rules` and `.codex/config.toml`.
+- Repo skills live in `.agents/skills`; do not duplicate them under `.codex/skills`.
+- Local implementation roles live in `.codex/agents`; generic planning, review, test, runtime,
+  diagnostic, and GitHub roles are provided globally.
+- Project rules and local configuration live in `.codex/rules` and `.codex/config.toml`.
 
-Do not keep duplicate skills under `.codex/skills`; `.agents/skills` is the canonical location.
-
-## Project roles
-
-Role agents live in `.codex/agents/*.toml`.
-
-| Agent | BeoSand responsibility |
+| Local role | BeoSand ownership |
 | --- | --- |
-| `prompt-polisher` | Own the global pre-plan clarification loop, including starting/resuming the analyst and returning the ready-for-planner package without changing user intent. |
-| `planner` | Start only from the ready-for-planner package, write and present the feature brief under `docs/product/features/<slug>.md`, and ask whether to run the full agent flow. |
-| `analyst` | Run only when invoked by the prompt-polisher to analyze BeoSand behavior, edge cases, user flows, acceptance criteria, and product risks. |
-| `architect` | Analyze contracts, data model, integrations, migration needs, and split work into agent-ready subtasks. |
-| `github-bot` | Create the GitHub issue in the correct project, prepare the implementation worktree, open the pull request, and clean up. |
-| `backend-implementer` | Own `apps/api` modules, `packages/types` contracts, and `packages/db` schema/migrations. |
-| `bot-implementer` | Own `apps/bot` grammY flows and keyboards that call the API through the typed ApiClient. |
-| `ui-designer` | Own visual and UX quality for `apps/admin`: design system, typography, layout, components, and accessibility. |
-| `frontend-implementer` | Own `apps/admin` React+Vite screens, typed ApiClient calls, data hooks, and rendering validated data. |
-| `test-writer` | Own Vitest unit/integration tests for changed services, helpers, contracts, and invariants. |
-| `reviewer` | Review correctness, cleanliness, and BeoSand invariants before security review. |
-| `security-reviewer` | Review authz (`telegram_id` ownership/role), input validation, secrets, money, and availability integrity. |
-| `app-runner` | Run API, bot, and DB, then confirm the feature works end to end. |
+| `backend-implementer` | `apps/api`, `packages/types` contracts, and `packages/db` schema/migrations. |
+| `bot-implementer` | `apps/bot` grammY flows and typed ApiClient integration. |
+| `ui-designer` | `apps/admin` visual system, typography, layout, components, and accessibility. |
+| `frontend-implementer` | `apps/admin` React+Vite screens, typed ApiClient calls, hooks, and validated rendering. |
 
-## Project workflow rules
+## Planning artifact
 
-- Feature planning inherits the global pre-plan clarification state machine and starts only from its
-  ready-for-planner package: the final polished request, completed analysis, and resolved material
-  questions. It also reads the relevant `docs/architecture/*`.
-- If planning reveals a new material ambiguity, return it through the retained prompt-polisher and
-  analyst handles before continuing. The planner does not start analyst, architect, implementer, or
-  other later-flow roles.
-- Feature briefs live in `docs/product/features/<slug>.md` and must include goal, contracts/tables
-  touched, API endpoints, bot flow, acceptance criteria, tests, and dependencies.
+- The global planner receives only a global `ready` handoff. It uses `.agents/skills/feature-planning`
+  to create `docs/product/features/<slug>.md` from the relevant roadmap, architecture, and product
+  evidence.
+- A BeoSand brief records goal, spec references, contracts/tables, API, bot flow, invariants,
+  acceptance criteria, tests, dependencies, and supported decisions/assumptions.
+- A material ambiguity returns to the global clarification workflow. Local planning does not define
+  a second workflow or approval gate.
 - Contracts are the source of truth: add or adjust Zod contracts in `packages/types` and schema in
   `packages/db` before wiring services.
 - Backend owns domain decisions, recompute, money, and availability.
@@ -55,11 +39,9 @@ Role agents live in `.codex/agents/*.toml`.
 
 ## Definition of done
 
-- `pnpm typecheck && pnpm lint && pnpm test && pnpm build` is green across all workspaces, including
+- Run `pnpm typecheck && pnpm lint && pnpm test && pnpm build` across all workspaces, including
   `@beosand/admin`.
-- Behavior is verified in the running app, or a precise blocker and next owner are documented.
-- The GitHub issue exists in the correct project, and the pull request is opened from the intended
-  branch.
-- Temporary worktrees and unnecessary feature docs are removed.
-- Superseded code is removed; any remaining legacy path is named in the summary.
-- The feature brief's acceptance criteria are all met.
+- Verify changed behavior in the running API, bot, or admin app, or document the exact blocker and
+  next owner.
+- Meet the feature brief's acceptance criteria; remove superseded code or name any remaining legacy
+  path in the handoff.

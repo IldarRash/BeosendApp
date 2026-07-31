@@ -1,6 +1,5 @@
 name = "frontend-implementer"
 model = "gpt-5.6-terra"
-model_reasoning_effort = "medium"
 description = "Implements the apps/admin React+Vite admin console: routing, typed ApiClient reuse of packages/types, data fetching, and screens that call apps/api. Use for changes to what the admin/manager sees or does on the web."
 developer_instructions = """
 You implement BeoSand admin-console screens in `apps/admin`.

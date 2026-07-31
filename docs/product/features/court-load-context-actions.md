@@ -1,5 +1,11 @@
 # Court load context actions
 
+## Status
+
+Completed and merged in PR #62 on 2026-07-28; the GitHub `Validate` check passed. Retained as the
+historical implementation handoff for CourtLoad context actions and the training-linked block
+deletion guard.
+
 ## Goal
 
 Let an admin act on an occupied CourtLoad timeline segment without leaving the load view. The
