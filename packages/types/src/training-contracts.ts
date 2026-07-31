@@ -110,8 +110,8 @@ export const groupSchema = z.object({
   hidden: z.boolean(),
   status: entityStatus
 });
-// Court is required at creation (override the entity's nullable courtId). Hidden is
-// omitted: creation defaults to visible via the DB default.
+// Court is required at creation (override the entity's nullable courtId). Hidden defaults to
+// visible at validation so every downstream create path receives a concrete boolean.
 export const createGroupSchema = groupSchema
   .omit({
     id: true,
@@ -121,7 +121,7 @@ export const createGroupSchema = groupSchema
     courtId: true,
     hidden: true
   })
-  .extend({ courtId: uuid });
+  .extend({ courtId: uuid, hidden: z.boolean().default(false) });
 // On update court is optional; null clears it (group reverts to auto-pick at generation).
 export const updateGroupSchema = groupSchema
   .omit({ id: true, trainerName: true, courtNumber: true })

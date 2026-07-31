@@ -107,7 +107,7 @@ describe("GroupsController", () => {
       capacity: 12,
       priceSingleRsd: 1500
     });
-    expect(repo.create).toHaveBeenCalledWith(validBody);
+    expect(repo.create).toHaveBeenCalledWith({ ...validBody, hidden: false });
   });
 
   it("admin PATCH edits capacity and price through the service", async () => {
