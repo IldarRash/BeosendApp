@@ -40,6 +40,7 @@ const TRAINING: Training = {
   capacity: 12,
   bookedCount: 2,
   priceSingleRsd: 1500,
+  hidden: false,
   clientId: null,
   status: "completed"
 };

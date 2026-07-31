@@ -71,6 +71,7 @@ const sampleTraining: Training = {
   capacity: 12,
   bookedCount: 0,
   priceSingleRsd: null,
+  hidden: false,
   status: "open"
 };
 
@@ -718,6 +719,7 @@ describe("Admin manager writes (A1)", () => {
       capacity: row.capacity,
       bookedCount: row.bookedCount,
       priceSingleRsd: null,
+      hidden: false,
       status: row.status
     });
     const repo = makeTrainingsRepo({
@@ -915,6 +917,7 @@ describe("Admin manager writes (A1)", () => {
       capacity: 12,
       bookedCount: 3,
       priceSingleRsd: null,
+      hidden: false,
       status: "open"
     });
 
@@ -1067,6 +1070,7 @@ describe("Admin reschedule writes (PATCH /trainings/:id/time[-series])", () => {
     capacity: 1,
     bookedCount: 1,
     priceSingleRsd: 3000,
+    hidden: false,
     status: "full",
     ...over
   });
@@ -1295,6 +1299,7 @@ describe("Admin individual price/delete writes", () => {
     capacity: 1,
     bookedCount: 1,
     priceSingleRsd: 3000,
+    hidden: false,
     status: "full",
     ...over
   });

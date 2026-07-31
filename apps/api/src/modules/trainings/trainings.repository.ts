@@ -86,6 +86,8 @@ export interface TrainingCalendarRow {
   capacity: number;
   bookedCount: number;
   priceSingleRsd: number | null;
+  hidden: boolean;
+  monthlyScheduleEntryId: string | null;
   status: TrainingStatus;
   groupName: string | null;
   trainerName: string;
@@ -1118,6 +1120,8 @@ const calendarSelection = {
   capacity: tables.trainings.capacity,
   bookedCount: tables.trainings.bookedCount,
   priceSingleRsd: tables.trainings.priceSingleRsd,
+  hidden: tables.trainings.hidden,
+  monthlyScheduleEntryId: tables.trainings.monthlyScheduleEntryId,
   status: tables.trainings.status,
   groupName: tables.groups.name,
   trainerName: tables.trainers.name,
@@ -1137,6 +1141,8 @@ type CalendarSelectionRow = {
   capacity: number;
   bookedCount: number;
   priceSingleRsd: number | null;
+  hidden: boolean;
+  monthlyScheduleEntryId: string | null;
   status: TrainingStatus;
   groupName: string | null;
   trainerName: string;
@@ -1195,6 +1201,8 @@ function toCalendarRow(row: CalendarSelectionRow): TrainingCalendarRow {
     capacity: row.capacity,
     bookedCount: row.bookedCount,
     priceSingleRsd: row.priceSingleRsd,
+    hidden: row.hidden,
+    monthlyScheduleEntryId: row.monthlyScheduleEntryId,
     status: row.status,
     groupName: row.groupName ?? null,
     trainerName: row.trainerName,

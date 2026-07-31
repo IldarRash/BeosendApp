@@ -762,6 +762,7 @@ describe("ApiClient individual trainings & reschedule", () => {
     capacity: 1,
     bookedCount: 1,
     priceSingleRsd: 2500,
+    hidden: false,
     status: "open"
   };
 
@@ -1067,8 +1068,10 @@ describe("ApiClient trainings calendar (Slice B)", () => {
     capacity: 12,
     bookedCount: 4,
     priceSingleRsd: 1500,
+    hidden: false,
     clientId: null,
     status: "open",
+    monthlyScheduleEntryId: null,
     groupName: "Утренняя группа",
     trainerName: "Анна",
     courtId: COURT_ID,
@@ -1203,6 +1206,7 @@ describe("ApiClient trainings list (Slice B)", () => {
     capacity: 12,
     bookedCount: 4,
     priceSingleRsd: 1500,
+    hidden: false,
     clientId: null,
     status: "open"
   };
@@ -1939,6 +1943,7 @@ describe("ApiClient court assignment & group delete (slices 4+5)", () => {
     capacity: 12,
     bookedCount: 6,
     priceSingleRsd: 1500,
+    hidden: false,
     clientId: null,
     status: "open"
   };

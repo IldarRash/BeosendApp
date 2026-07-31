@@ -657,6 +657,7 @@ describe("ApiClient individual request decisions", () => {
     capacity: 1,
     bookedCount: 1,
     priceSingleRsd: 2500,
+    hidden: false,
     status: "full"
   };
 

@@ -15,6 +15,10 @@ describe("schema", () => {
         "clients",
         "groups",
         "trainings",
+        "monthlySchedulePlans",
+        "monthlyScheduleTemplates",
+        "monthlyScheduleEntries",
+        "monthlyScheduleNotificationDeliveries",
         "bookings",
         "waitlist",
         "broadcastTemplates",
@@ -22,6 +26,34 @@ describe("schema", () => {
         "courtRequests"
       ])
     );
+  });
+
+  it("keeps planner visibility/provenance and one-to-one materialization constraints", () => {
+    expect(schema.trainings.hidden.notNull).toBe(true);
+    expect(schema.trainings.monthlyScheduleEntryId).toBeDefined();
+    const planConfig = getTableConfig(schema.monthlySchedulePlans);
+    const templateConfig = getTableConfig(schema.monthlyScheduleTemplates);
+    const entryConfig = getTableConfig(schema.monthlyScheduleEntries);
+    const trainingConfig = getTableConfig(schema.trainings);
+    const planMonthIndex = planConfig.indexes.find((index) => index.config.name === "monthly_schedule_plans_year_month_idx");
+    const templateGroupIndex = templateConfig.indexes.find((index) => index.config.name === "monthly_schedule_templates_plan_group_idx");
+    const entryDateIndex = entryConfig.indexes.find((index) => index.config.name === "monthly_schedule_entries_template_date_idx");
+    const trainingEntryIndex = trainingConfig.indexes.find((index) => index.config.name === "trainings_monthly_schedule_entry_id_idx");
+    expect(planMonthIndex?.config.unique).toBe(true);
+    expect(templateGroupIndex?.config.unique).toBe(true);
+    expect(entryDateIndex?.config.unique).toBe(true);
+    expect(trainingEntryIndex?.config.unique).toBe(true);
+    expect(trainingEntryIndex?.config.where).toBeDefined();
+    expect(entryConfig.foreignKeys).toHaveLength(4);
+    expect(schema.monthlyScheduleEntries).not.toHaveProperty("planId");
+    expect(schema.monthlyScheduleNotificationDeliveries).not.toHaveProperty("entryId");
+    expect(schema.monthlyScheduleNotificationDeliveries).not.toHaveProperty("templateId");
+    expect(schema.monthlyScheduleNotificationDeliveries.changes.notNull).toBe(true);
+    expect(templateConfig.checks.map((item) => item.name)).toEqual(expect.arrayContaining([
+      "monthly_schedule_templates_weekdays_present",
+      "monthly_schedule_templates_weekdays_range",
+      "monthly_schedule_templates_time_grid"
+    ]));
   });
 
   it("keeps trainer individual visibility in the schema", () => {

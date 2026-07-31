@@ -220,8 +220,10 @@ const TRAINING: TrainingCalendarItem = {
   capacity: 12,
   bookedCount: 6,
   priceSingleRsd: 1500,
+  hidden: false,
   clientId: null,
   status: "open",
+  monthlyScheduleEntryId: null,
   courtId: COURT.id,
   courtNumber: 1
 };
