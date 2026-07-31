@@ -58,6 +58,34 @@ describe("ApiClient.health", () => {
 describe("ApiClient monthly schedule conflicts", () => {
   afterEach(() => vi.unstubAllGlobals());
 
+  it("treats an empty successful missing-plan response as contract null", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () => ({
+        ok: true,
+        status: 200,
+        text: async () => ""
+      }) as Response)
+    );
+
+    await expect(
+      new ApiClient("http://api.test").getMonthlySchedulePlan(2026, 7)
+    ).resolves.toBeNull();
+  });
+
+  it("still rejects an empty successful response when the endpoint requires JSON", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () => ({
+        ok: true,
+        status: 200,
+        text: async () => ""
+      }) as Response)
+    );
+
+    await expect(new ApiClient("http://api.test").health()).rejects.toThrow();
+  });
+
   it("parses the complete planner 409 envelope instead of discarding diagnostics", async () => {
     const conflict = { error: "monthly_schedule_conflict", planId: "11111111-1111-4111-8111-111111111111", planRevision: 2, conflicts: [{ code: "trainer-overlap", severity: "blocking", message: "Тренер занят", date: "2026-08-03", startTime: "18:00", endTime: "19:30", entryId: "22222222-2222-4222-8222-222222222222", trainingId: null, courtId: null, requestId: null, blockId: null }], warnings: [] };
     vi.stubGlobal("fetch", vi.fn(async () => { const response = { ok: false, status: 409, json: async () => conflict } as Response; Object.defineProperty(response, "clone", { value: () => ({ json: async () => conflict }) }); return response; }));
