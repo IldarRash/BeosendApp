@@ -138,6 +138,22 @@ export const webhookDeliveryStatus = pgEnum("webhook_delivery_status", [
 export const locale = pgEnum("locale", ["ru", "sr", "en"]);
 /** Mirrors packages/types clientGenderSchema exactly. */
 export const clientGender = pgEnum("client_gender", ["male", "female", "unspecified"]);
+export const monthlySchedulePlanStatus = pgEnum("monthly_schedule_plan_status", [
+  "draft",
+  "approved",
+  "published"
+]);
+export const monthlyScheduleNotificationRecipientKind = pgEnum("monthly_schedule_notification_recipient_kind", [
+  "trainer",
+  "client"
+]);
+export const monthlyScheduleNotificationDeliveryOutcome = pgEnum("monthly_schedule_notification_delivery_outcome", [
+  "pending",
+  "processing",
+  "sent",
+  "failed",
+  "ambiguous"
+]);
 
 // --- Training domain ---
 
@@ -325,8 +341,17 @@ export const trainings = pgTable("trainings", {
   // Admin-set per-session RSD for an individual training; NULL for group trainings
   // (whose price comes from the joined group's priceSingleRsd). Whole dinars.
   priceSingleRsd: integer("price_single_rsd"),
+  // Concrete publication gate for the monthly planner. Existing and legacy rows
+  // are visible by default; planner provenance remains nullable for compatibility.
+  // Monthly planner generation must always override this fail-open legacy default with true.
+  hidden: boolean("hidden").notNull().default(false),
+  monthlyScheduleEntryId: uuid("monthly_schedule_entry_id").references(() => monthlyScheduleEntries.id),
   status: trainingStatus("status").notNull().default("open")
-});
+}, (table) => ({
+  monthlyScheduleEntryIdx: uniqueIndex("trainings_monthly_schedule_entry_id_idx")
+    .on(table.monthlyScheduleEntryId)
+    .where(sql`${table.monthlyScheduleEntryId} IS NOT NULL`)
+}));
 
 export const individualTrainingRequests = pgTable("individual_training_requests", {
   id: uuid("id").primaryKey().defaultRandom(),
@@ -729,6 +754,167 @@ export const courts = pgTable("courts", {
   status: entityStatus("status").notNull().default("active")
 });
 
+// --- Monthly schedule planner ---
+
+/** One school-owned plan per Belgrade calendar month; generation is audit metadata, not a lifecycle state. */
+export const monthlySchedulePlans = pgTable(
+  "monthly_schedule_plans",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    year: integer("year").notNull(),
+    month: integer("month").notNull(),
+    timezone: text("timezone").notNull().default("Europe/Belgrade"),
+    status: monthlySchedulePlanStatus("status").notNull().default("draft"),
+    revision: integer("revision").notNull().default(1),
+    approvedRevision: integer("approved_revision"),
+    generatedRevision: integer("generated_revision"),
+    generatedAt: timestamp("generated_at", { withTimezone: true }),
+    approvedAt: timestamp("approved_at", { withTimezone: true }),
+    approvedBy: bigint("approved_by", { mode: "number" }),
+    publishedAt: timestamp("published_at", { withTimezone: true }),
+    publishedBy: bigint("published_by", { mode: "number" }),
+    createdBy: bigint("created_by", { mode: "number" }).notNull(),
+    updatedBy: bigint("updated_by", { mode: "number" }).notNull(),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow()
+  },
+  (table) => ({
+    monthIdx: uniqueIndex("monthly_schedule_plans_year_month_idx").on(table.year, table.month),
+    yearRange: check("monthly_schedule_plans_year_range", sql`${table.year} >= 2024`),
+    monthRange: check("monthly_schedule_plans_month_range", sql`${table.month} BETWEEN 1 AND 12`),
+    belgradeTimezone: check(
+      "monthly_schedule_plans_belgrade_timezone",
+      sql`${table.timezone} = 'Europe/Belgrade'`
+    ),
+    revisionPositive: check("monthly_schedule_plans_revision_positive", sql`${table.revision} > 0`)
+  })
+);
+
+/** Recurring intent. First release permits exactly one template for a group in a plan. */
+export const monthlyScheduleTemplates = pgTable(
+  "monthly_schedule_templates",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    planId: uuid("plan_id")
+      .notNull()
+      .references(() => monthlySchedulePlans.id, { onDelete: "cascade" }),
+    groupId: uuid("group_id")
+      .notNull()
+      .references(() => groups.id),
+    daysOfWeek: integer("days_of_week").array().notNull(),
+    startTime: time("start_time").notNull(),
+    endTime: time("end_time").notNull(),
+    trainerId: uuid("trainer_id")
+      .notNull()
+      .references(() => trainers.id),
+    preferredCourtId: uuid("preferred_court_id").references(() => courts.id),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow()
+  },
+  (table) => ({
+    planGroupIdx: uniqueIndex("monthly_schedule_templates_plan_group_idx").on(table.planId, table.groupId),
+    weekdaysPresent: check(
+      "monthly_schedule_templates_weekdays_present",
+      sql`cardinality(${table.daysOfWeek}) > 0`
+    ),
+    weekdaysRange: check(
+      "monthly_schedule_templates_weekdays_range",
+      sql`${table.daysOfWeek} <@ ARRAY[1, 2, 3, 4, 5, 6, 7]::integer[]`
+    ),
+    timeOrder: check("monthly_schedule_templates_time_order", sql`${table.endTime} > ${table.startTime}`),
+    timeGrid: check(
+      "monthly_schedule_templates_time_grid",
+      sql`EXTRACT(MINUTE FROM ${table.startTime}) IN (0, 30)
+        AND EXTRACT(SECOND FROM ${table.startTime}) = 0
+        AND EXTRACT(MINUTE FROM ${table.endTime}) IN (0, 30)
+        AND EXTRACT(SECOND FROM ${table.endTime}) = 0`
+    )
+  })
+);
+
+/** Durable dated intent: its UUID is the sole planner-to-training mapping identity. */
+export const monthlyScheduleEntries = pgTable(
+  "monthly_schedule_entries",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    templateId: uuid("template_id")
+      .notNull()
+      .references(() => monthlyScheduleTemplates.id, { onDelete: "cascade" }),
+    date: date("date").notNull(),
+    startTime: time("start_time").notNull(),
+    endTime: time("end_time").notNull(),
+    trainerId: uuid("trainer_id")
+      .notNull()
+      .references(() => trainers.id),
+    preferredCourtId: uuid("preferred_court_id").references(() => courts.id),
+    assignedCourtId: uuid("assigned_court_id").references(() => courts.id),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow()
+  },
+  (table) => ({
+    templateDateIdx: uniqueIndex("monthly_schedule_entries_template_date_idx").on(table.templateId, table.date),
+    timeOrder: check("monthly_schedule_entries_time_order", sql`${table.endTime} > ${table.startTime}`),
+    timeGrid: check(
+      "monthly_schedule_entries_time_grid",
+      sql`EXTRACT(MINUTE FROM ${table.startTime}) IN (0, 30)
+        AND EXTRACT(SECOND FROM ${table.startTime}) = 0
+        AND EXTRACT(MINUTE FROM ${table.endTime}) IN (0, 30)
+        AND EXTRACT(SECOND FROM ${table.endTime}) = 0`
+    )
+  })
+);
+
+/** Durable post-commit planner propagation outbox. Channel addresses stay internal to the API. */
+export const monthlyScheduleNotificationDeliveries = pgTable(
+  "monthly_schedule_notification_deliveries",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    operationId: uuid("operation_id").notNull(),
+    planId: uuid("plan_id")
+      .notNull()
+      .references(() => monthlySchedulePlans.id),
+    planRevision: integer("plan_revision").notNull(),
+    year: integer("year").notNull(),
+    month: integer("month").notNull(),
+    recipientKind: monthlyScheduleNotificationRecipientKind("recipient_kind").notNull(),
+    recipientId: uuid("recipient_id").notNull(),
+    recipientChannelAddress: text("recipient_channel_address"),
+    recipientName: text("recipient_name").notNull(),
+    // One immutable digest payload containing all changed entries for this recipient.
+    // The API validates the strict JSON shape before insert and after read.
+    changes: jsonb("changes").notNull(),
+    outcome: monthlyScheduleNotificationDeliveryOutcome("outcome").notNull().default("pending"),
+    attempts: integer("attempts").notNull().default(0),
+    claimedAt: timestamp("claimed_at", { withTimezone: true }),
+    nextAttemptAt: timestamp("next_attempt_at", { withTimezone: true }),
+    sentAt: timestamp("sent_at", { withTimezone: true }),
+    lastError: text("last_error"),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow()
+  },
+  (table) => ({
+    dedupeIdx: uniqueIndex("monthly_schedule_notification_deliveries_dedupe_idx").on(
+      table.operationId,
+      table.recipientKind,
+      table.recipientId
+    ),
+    claimIdx: index("monthly_schedule_notification_deliveries_claim_idx").on(table.outcome, table.nextAttemptAt),
+    revisionPositive: check(
+      "monthly_schedule_notification_deliveries_revision_positive",
+      sql`${table.planRevision} > 0`
+    ),
+    yearRange: check("monthly_schedule_notification_deliveries_year_range", sql`${table.year} >= 2024`),
+    monthRange: check(
+      "monthly_schedule_notification_deliveries_month_range",
+      sql`${table.month} BETWEEN 1 AND 12`
+    ),
+    attemptsNonnegative: check(
+      "monthly_schedule_notification_deliveries_attempts_nonnegative",
+      sql`${table.attempts} >= 0`
+    )
+  })
+);
+
 export const courtBlocks = pgTable(
   "court_blocks",
   {
@@ -908,6 +1094,10 @@ export const schema = {
   groups,
   trainingPricingTiers,
   trainings,
+  monthlySchedulePlans,
+  monthlyScheduleTemplates,
+  monthlyScheduleEntries,
+  monthlyScheduleNotificationDeliveries,
   individualTrainingRequests,
   bookings,
   sameDayFreedSlotEvents,

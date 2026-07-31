@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { ApiClient, AuthError, ConflictError } from "./client";
+import { ApiClient, AuthError, ConflictError, MonthlyScheduleConflictError } from "./client";
 
 interface FetchCall {
   url: string;
@@ -52,6 +52,17 @@ describe("ApiClient.health", () => {
   it("throws on a non-2xx response", async () => {
     mockFetchOnce({}, false, 503);
     await expect(new ApiClient("http://api.test").health()).rejects.toThrow(/503/);
+  });
+});
+
+describe("ApiClient monthly schedule conflicts", () => {
+  afterEach(() => vi.unstubAllGlobals());
+
+  it("parses the complete planner 409 envelope instead of discarding diagnostics", async () => {
+    const conflict = { error: "monthly_schedule_conflict", planId: "11111111-1111-4111-8111-111111111111", planRevision: 2, conflicts: [{ code: "trainer-overlap", severity: "blocking", message: "Тренер занят", date: "2026-08-03", startTime: "18:00", endTime: "19:30", entryId: "22222222-2222-4222-8222-222222222222", trainingId: null, courtId: null, requestId: null, blockId: null }], warnings: [] };
+    vi.stubGlobal("fetch", vi.fn(async () => { const response = { ok: false, status: 409, json: async () => conflict } as Response; Object.defineProperty(response, "clone", { value: () => ({ json: async () => conflict }) }); return response; }));
+    await expect(new ApiClient("http://api.test").generateMonthlySchedulePlan(conflict.planId)).rejects.toMatchObject({ name: "MonthlyScheduleConflictError", result: conflict });
+    await expect(new ApiClient("http://api.test").generateMonthlySchedulePlan(conflict.planId)).rejects.toBeInstanceOf(MonthlyScheduleConflictError);
   });
 });
 
@@ -762,6 +773,7 @@ describe("ApiClient individual trainings & reschedule", () => {
     capacity: 1,
     bookedCount: 1,
     priceSingleRsd: 2500,
+    hidden: false,
     status: "open"
   };
 
@@ -1067,8 +1079,10 @@ describe("ApiClient trainings calendar (Slice B)", () => {
     capacity: 12,
     bookedCount: 4,
     priceSingleRsd: 1500,
+    hidden: false,
     clientId: null,
     status: "open",
+    monthlyScheduleEntryId: null,
     groupName: "Утренняя группа",
     trainerName: "Анна",
     courtId: COURT_ID,
@@ -1203,6 +1217,7 @@ describe("ApiClient trainings list (Slice B)", () => {
     capacity: 12,
     bookedCount: 4,
     priceSingleRsd: 1500,
+    hidden: false,
     clientId: null,
     status: "open"
   };
@@ -1939,6 +1954,7 @@ describe("ApiClient court assignment & group delete (slices 4+5)", () => {
     capacity: 12,
     bookedCount: 6,
     priceSingleRsd: 1500,
+    hidden: false,
     clientId: null,
     status: "open"
   };

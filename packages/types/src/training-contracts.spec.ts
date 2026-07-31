@@ -281,6 +281,7 @@ describe("individualTrainingRequestSchema / individualRequestDecisionResultSchem
     capacity: 1,
     bookedCount: 1,
     priceSingleRsd: null,
+    hidden: false,
     status: "full"
   };
 
@@ -496,6 +497,7 @@ describe("trainingSchema (individual-training fields)", () => {
     capacity: 12,
     bookedCount: 0,
     priceSingleRsd: null,
+    hidden: false,
     status: "open"
   };
 
@@ -542,12 +544,14 @@ describe("trainingCalendarItemSchema", () => {
     capacity: 12,
     bookedCount: 0,
     priceSingleRsd: null,
+    hidden: false,
     status: "open",
     groupName: "Intermediate",
     trainerName: "Jovana",
     courtId: "44444444-4444-4444-8444-444444444444",
     courtNumber: 2,
-    clientName: null
+    clientName: null,
+    monthlyScheduleEntryId: null
   };
 
   it("requires the admin-only courtId alongside courtNumber", () => {

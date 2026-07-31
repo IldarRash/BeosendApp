@@ -500,6 +500,27 @@ h4 {
   max-width: 70ch;
 }
 
+/* Monthly schedule planner: a dense calendar workbench with server-truth inspection. */
+.planner-head-state,.planner-bar,.planner-summary,.row-actions,.planner-facts { display:flex; align-items:center; gap:8px; flex-wrap:wrap; }
+.planner-bar { justify-content:space-between; }
+.planner-summary { color:var(--ink-600); font-size:11px; }
+.planner-layout { display:grid; grid-template-columns:minmax(0,1fr) 336px; gap:16px; align-items:start; }
+.planner-calendar { min-width:0; border:1px solid var(--border-strong); border-radius:var(--radius); overflow:auto; background:var(--paper); box-shadow:var(--shadow-sm); }
+.planner-day { display:block; width:100%; min-height:118px; padding:8px; border:0; background:transparent; color:inherit; text-align:left; cursor:pointer; }
+.planner-day:hover { background:var(--sand-50); }
+.planner-events { display:grid; gap:5px; margin-top:5px; }
+.planner-occurrence { display:grid; gap:1px; padding:4px 5px; border:1px solid var(--border); border-radius:var(--radius-sm); font-size:11px; line-height:1.25; }
+.planner-occurrence small { color:var(--ink-600); font-size:10px; }
+.planner-occurrence--selected { border-color:var(--coral); background:var(--coral-soft); }
+.planner-more { color:var(--coral-ink); font-size:11px; font-weight:600; }
+.planner-inspector { position:sticky; top:62px; padding:16px; border:1px solid var(--border-strong); border-radius:var(--radius); background:var(--paper); box-shadow:var(--shadow-sm); }
+.planner-inspector h2 { font-size:18px; margin-bottom:12px; }.planner-inspector h3 { font-size:15px; margin:18px 0 8px; }
+.planner-facts { align-items:flex-start; flex-direction:column; color:var(--ink-700); font-size:13px; }.planner-facts strong { color:var(--ink-900); }
+.planner-diagnostics { display:grid; gap:8px; padding:0; margin:0; list-style:none; }.planner-diagnostic { padding:10px; border:1px solid var(--border); border-radius:var(--radius-sm); }.planner-diagnostic strong,.planner-diagnostic span { display:block; }.planner-diagnostic span { margin-top:3px; color:var(--ink-600); font-size:10.5px; }.planner-diagnostic p { margin:6px 0 0; font-size:13px; }.planner-diagnostic--blocking { background:var(--coral-soft); border-color:color-mix(in srgb,var(--coral) 45%,var(--border)); color:var(--coral-ink); }.planner-diagnostic--warning { background:var(--amber-soft); border-color:color-mix(in srgb,var(--amber) 45%,var(--border)); color:var(--amber-ink); }
+.planner-ledger { margin-bottom:16px; }.planner-ledger .btn + .btn { margin-left:6px; }.planner-ledger-note { margin:0; padding:10px 14px; color:var(--amber-ink); background:var(--amber-soft); font-size:12.5px; }.planner-empty { padding:28px; border:1px dashed var(--border-strong); border-radius:var(--radius); background:var(--paper); }.planner-empty h2 { font-size:20px; }.weekday-checks { display:flex; flex-wrap:wrap; gap:8px; margin-top:6px; }.weekday-checks label { display:flex; gap:4px; align-items:center; }
+@media (max-width: 1279px) { .planner-layout { grid-template-columns:minmax(680px,1fr); overflow-x:auto; }.planner-inspector { position:static; } }
+@media (max-width: 720px) { .planner-bar { align-items:flex-start; }.row-actions { width:100%; }.row-actions .btn { flex:1 1 100%; }.planner-day { min-height:78px; }.planner-occurrence small { display:none; }.planner-calendar { min-width:620px; }.planner-layout { min-width:620px; }.planner-inspector { min-width:0; } }
+
 /* ── API status indicator (LED + mono caption) ─────────────────────────── */
 
 .health {

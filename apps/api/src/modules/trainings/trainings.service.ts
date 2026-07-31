@@ -1841,6 +1841,7 @@ export class TrainingsService {
   private isClientPublicVisible(row: ClientTrainingDetailRow, today: string): boolean {
     return (
       row.date >= today &&
+      row.trainingHidden === false &&
       row.groupId !== null &&
       (row.trainingStatus === "open" || row.trainingStatus === "full") &&
       row.groupStatus === "active" &&

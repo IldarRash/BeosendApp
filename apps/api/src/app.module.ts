@@ -18,6 +18,7 @@ import { GroupsModule } from "./modules/groups/groups.module";
 import { I18nModule } from "./modules/i18n/i18n.module";
 import { LevelsModule } from "./modules/levels/levels.module";
 import { ManagersModule } from "./modules/managers/managers.module";
+import { MonthlyScheduleModule } from "./modules/monthly-schedule/monthly-schedule.module";
 import { NotificationsModule } from "./modules/notifications/notifications.module";
 import { NotificationTemplatesModule } from "./modules/notification-templates/notification-templates.module";
 import { SettingsModule } from "./modules/settings/settings.module";
@@ -46,6 +47,7 @@ import { RequestLoggingInterceptor } from "./request-logging/request-logging.int
     TrainersModule,
     TrainingPricingModule,
     ManagersModule,
+    MonthlyScheduleModule,
     GroupsModule,
     TrainingsModule,
     ClientsModule,

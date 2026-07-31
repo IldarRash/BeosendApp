@@ -112,6 +112,7 @@ function individualTraining(overrides: Partial<Training> = {}): Training {
     capacity: 1,
     bookedCount: 1,
     priceSingleRsd: null,
+    hidden: false,
     status: "full",
     ...overrides
   };

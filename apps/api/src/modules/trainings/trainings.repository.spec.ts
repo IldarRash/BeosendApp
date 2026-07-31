@@ -120,10 +120,14 @@ describe("TrainingsRepository.listInRange", () => {
 describe("TrainingsRepository.listSchedule", () => {
   it("selects the joined group name for the shared slot card and context label", async () => {
     let selection: Record<string, unknown> | undefined;
+    let predicate: unknown;
     const builder = {
       from: () => builder,
       innerJoin: () => builder,
-      where: () => builder,
+      where: (value: unknown) => {
+        predicate = value;
+        return builder;
+      },
       orderBy: async () => [] as unknown[]
     };
     const db = {
@@ -139,16 +143,23 @@ describe("TrainingsRepository.listSchedule", () => {
     expect(selection).toBeDefined();
     expect(selection?.groupName).toBe(tables.groups.name);
     expect(selection?.trainingContextLabel).toBe(tables.groups.name);
+    const rendered = new PgDialect().sqlToQuery(predicate as never);
+    expect(rendered.sql.toLowerCase()).toContain('"trainings"."hidden" =');
+    expect(rendered.params).toContain(false);
   });
 });
 
 describe("TrainingsRepository.listAvailable", () => {
   it("selects the joined group name for the shared slot card", async () => {
     let selection: Record<string, unknown> | undefined;
+    let predicate: unknown;
     const builder = {
       from: () => builder,
       innerJoin: () => builder,
-      where: () => builder,
+      where: (value: unknown) => {
+        predicate = value;
+        return builder;
+      },
       orderBy: async () => [] as unknown[]
     };
     const db = {
@@ -163,5 +174,8 @@ describe("TrainingsRepository.listAvailable", () => {
 
     expect(selection).toBeDefined();
     expect(selection?.groupName).toBe(tables.groups.name);
+    const rendered = new PgDialect().sqlToQuery(predicate as never);
+    expect(rendered.sql.toLowerCase()).toContain('"trainings"."hidden" =');
+    expect(rendered.params).toContain(false);
   });
 });

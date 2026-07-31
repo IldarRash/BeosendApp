@@ -125,6 +125,18 @@ describe("BroadcastAutomationsRepository query invariants", () => {
     expect(query(state.where.at(-1)).params).toContain(987);
   });
 
+  it("excludes unpublished trainings from scheduled and retry eligibility", async () => {
+    const scheduled = selectDb([[]]);
+    await repo(scheduled.db).qualifyingTrainings("week", "2026-07-10");
+    expect(render(scheduled.where.at(-1))).toContain('"trainings"."hidden" =');
+    expect(query(scheduled.where.at(-1)).params).toContain(false);
+
+    const retried = selectDb([[]]);
+    await repo(retried.db).eligibleTrainings(["training-a"]);
+    expect(render(retried.where.at(-1))).toContain('"trainings"."hidden" =');
+    expect(query(retried.where.at(-1)).params).toContain(false);
+  });
+
   it("filters run history by automation, trigger, status, and inclusive time window", async () => {
     const state = selectDb([[runRow("run-1", new Date("2026-07-10T10:00:00.000Z"))]]);
     const result = await repo(state.db).listRuns({

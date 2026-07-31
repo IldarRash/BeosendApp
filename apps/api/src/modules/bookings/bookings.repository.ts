@@ -180,6 +180,7 @@ export class BookingsRepository {
       .where(
         and(
           eq(tables.trainings.id, trainingId),
+          eq(tables.trainings.hidden, false),
           gte(tables.trainings.date, today),
           isNotNull(tables.trainings.groupId),
           eq(tables.groups.status, "active"),
@@ -390,6 +391,7 @@ export class BookingsRepository {
           inArray(tables.bookings.status, ["booked", "attended"]),
           gte(tables.trainings.date, from),
           lte(tables.trainings.date, to),
+          eq(tables.trainings.hidden, false),
           ne(tables.trainings.status, "cancelled")
         )
       )

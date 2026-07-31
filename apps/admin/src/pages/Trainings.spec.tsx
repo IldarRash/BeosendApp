@@ -137,6 +137,7 @@ const TRAINING: Training = {
   capacity: 12,
   bookedCount: 4,
   priceSingleRsd: 1500,
+  hidden: false,
   clientId: null,
   status: "open"
 };
@@ -152,6 +153,7 @@ const INDIVIDUAL: Training = {
   capacity: 1,
   bookedCount: 1,
   priceSingleRsd: 2500,
+  hidden: false,
   clientId: "55555555-5555-5555-5555-555555555555",
   status: "open"
 };
@@ -185,8 +187,10 @@ const DETAIL: TrainingCalendarItem = {
   capacity: 12,
   bookedCount: 4,
   priceSingleRsd: 1500,
+  hidden: false,
   clientId: null,
   status: "open",
+  monthlyScheduleEntryId: null,
   groupName: "Утренняя группа",
   trainerName: "Анна",
   courtId: COURTS[0].id,

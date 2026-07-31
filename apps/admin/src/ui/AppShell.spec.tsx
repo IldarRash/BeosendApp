@@ -24,6 +24,7 @@ const labels: Record<string, string> = {
   "admin.nav.overview": "Overview",
   "admin.nav.groups": "Groups",
   "admin.nav.trainings": "Trainings",
+  "admin.nav.schedulePlanner": "Monthly planner",
   "admin.nav.trainers": "Trainers",
   "admin.nav.managers": "Managers",
   "admin.nav.levels": "Levels",

@@ -200,6 +200,8 @@ export const trainingSchema = z.object({
   bookedCount: z.number().int().nonnegative(),
   /** Per-session RSD for an individual training; null for group trainings (price comes from the group). */
   priceSingleRsd: rsd.nullable(),
+  /** Concrete visibility gate. Client-facing queries must exclude hidden trainings. */
+  hidden: z.boolean(),
   status: trainingStatus
 });
 export type Training = z.infer<typeof trainingSchema>;
@@ -211,6 +213,8 @@ export type Training = z.infer<typeof trainingSchema>;
  * training has no group / no auto-block.
  */
 export const trainingCalendarItemSchema = trainingSchema.extend({
+  /** Planner provenance is admin-only and never belongs to trainingSchema/client paths. */
+  monthlyScheduleEntryId: uuid.nullable(),
   groupName: z.string().nullable(),
   trainerName: z.string(),
   courtId: uuid.nullable(),

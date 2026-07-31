@@ -142,6 +142,7 @@ class FakeTrainingsRepository {
         capacity: row.capacity,
         bookedCount: row.bookedCount ?? 0,
         priceSingleRsd: row.priceSingleRsd ?? null,
+        hidden: row.hidden ?? false,
         status: row.status ?? "open"
       };
       this.rows.push(training);
@@ -259,6 +260,8 @@ class FakeTrainingsRepository {
           capacity: row.capacity,
           bookedCount: row.bookedCount,
           priceSingleRsd: row.priceSingleRsd,
+          hidden: row.hidden,
+          monthlyScheduleEntryId: null,
           status: row.status,
           groupName: row.groupId ? "Group" : null,
           trainerName: "Trainer",
@@ -538,6 +541,7 @@ class FakeTrainingsRepository {
       capacity: lock.capacity,
       bookedCount: lock.bookedCount,
       priceSingleRsd: null,
+      hidden: false,
       status: lock.status
     };
   }
@@ -1019,6 +1023,8 @@ describe("TrainingsService", () => {
       capacity: 12,
       bookedCount: 3,
       priceSingleRsd: null,
+      hidden: false,
+      monthlyScheduleEntryId: null,
       status: "open",
       groupName: "Intermediate",
       trainerName: "Jovana",
@@ -1649,6 +1655,7 @@ describe("TrainingsService", () => {
       groupName: "Intermediate",
       courtNumber: 2,
       trainingStatus: "open",
+      trainingHidden: false,
       groupStatus: "active",
       groupHidden: false,
       trainerStatus: "active",
@@ -1701,7 +1708,7 @@ describe("TrainingsService", () => {
     });
 
     it("forbids a hidden training for an unrelated client", async () => {
-      trainingsRepo.clientDetail = detailRow({ groupHidden: true });
+      trainingsRepo.clientDetail = detailRow({ trainingHidden: true });
       trainingsRepo.clientBooking = undefined;
       trainingsRepo.clientWaitlist = undefined;
 
@@ -1711,7 +1718,7 @@ describe("TrainingsService", () => {
     });
 
     it("allows a hidden training for an active waitlisted caller and computes waitlist relation", async () => {
-      trainingsRepo.clientDetail = detailRow({ groupHidden: true });
+      trainingsRepo.clientDetail = detailRow({ trainingHidden: true });
       trainingsRepo.clientBooking = undefined;
       trainingsRepo.clientWaitlist = { position: 3 };
 
@@ -1722,6 +1729,25 @@ describe("TrainingsService", () => {
       expect(result.waitlistPosition).toBe(3);
       expect(result.canCancel).toBe(false);
       expect(result.exportEligible).toBe(false);
+    });
+
+    it("allows an owning client to read preserved booking history for a hidden training", async () => {
+      trainingsRepo.clientDetail = detailRow({
+        date: "2026-01-05",
+        trainingStatus: "completed",
+        trainingHidden: true
+      });
+      trainingsRepo.clientBooking = {
+        bookingId: "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb",
+        groupSubscriptionId: null,
+        status: "attended"
+      };
+
+      const result = await service.getClientDetail(CLIENT_TG, TRAINING_ID);
+
+      expect(result.viewerRelation).toBe("past");
+      expect(result.bookingStatus).toBe("attended");
+      expect(result.canCancel).toBe(false);
     });
   });
 
@@ -2052,6 +2078,7 @@ describe("TrainingsService", () => {
           capacity: baseGroup.capacity,
           bookedCount: 0,
           priceSingleRsd: null,
+          hidden: false,
           status: "open"
         }
       ];
@@ -2415,6 +2442,7 @@ describe("TrainingsService", () => {
       capacity: 12,
       bookedCount: 0,
       priceSingleRsd: null,
+      hidden: false,
       status: "open",
       ...over
     });
@@ -2681,6 +2709,7 @@ describe("TrainingsService", () => {
       capacity: 12,
       bookedCount: 0,
       priceSingleRsd: null,
+      hidden: false,
       status: "open"
     });
 
@@ -2799,6 +2828,7 @@ describe("TrainingsService", () => {
       capacity: 12,
       bookedCount: 0,
       priceSingleRsd: null,
+      hidden: false,
       status: "open",
       ...over
     });
@@ -2882,6 +2912,7 @@ describe("TrainingsService", () => {
       capacity: 1,
       bookedCount: 1,
       priceSingleRsd: 3000,
+      hidden: false,
       status: "full",
       ...over
     });
@@ -2908,6 +2939,7 @@ describe("TrainingsService", () => {
       capacity: 12,
       bookedCount: 3,
       priceSingleRsd: null,
+      hidden: false,
       status: "open",
       ...over
     });
@@ -3174,6 +3206,7 @@ describe("TrainingsService", () => {
       capacity: 1,
       bookedCount: 1,
       priceSingleRsd: 3000,
+      hidden: false,
       status: "full",
       ...over
     });
@@ -3198,6 +3231,7 @@ describe("TrainingsService", () => {
       capacity: 12,
       bookedCount: 3,
       priceSingleRsd: null,
+      hidden: false,
       status: "open",
       ...over
     });

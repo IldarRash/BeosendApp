@@ -35,6 +35,41 @@ describe("GroupsRepository.listFutureBookableTrainingDates WHERE filter", () => 
     expect(sql).toContain('"status" in');
     expect(sql).toContain('"date" >=');
     expect(sql).toContain('"date" <=');
+    expect(sql).toContain('"trainings"."hidden" =');
+  });
+});
+
+describe("GroupsRepository.listMonthMembers visibility", () => {
+  async function renderWhere(includeHiddenTrainings: boolean): Promise<string> {
+    let where: unknown;
+    const builder = {
+      from: () => builder,
+      innerJoin: () => builder,
+      where: (predicate: unknown) => {
+        where = predicate;
+        return builder;
+      },
+      orderBy: async () => []
+    };
+    const db = { selectDistinct: () => builder } as unknown as Database;
+    const repo = new GroupsRepository({ db } as unknown as DatabaseService);
+
+    await repo.listMonthMembers(
+      "11111111-1111-4111-8111-111111111111",
+      "2026-06-01",
+      "2026-06-30",
+      includeHiddenTrainings
+    );
+
+    return new PgDialect().sqlToQuery(where as never).sql.toLowerCase();
+  }
+
+  it("excludes hidden training rosters from the client projection", async () => {
+    expect(await renderWhere(false)).toContain('"trainings"."hidden" =');
+  });
+
+  it("keeps hidden training rosters available to admins for internal accounting", async () => {
+    expect(await renderWhere(true)).not.toContain('"trainings"."hidden" =');
   });
 });
 

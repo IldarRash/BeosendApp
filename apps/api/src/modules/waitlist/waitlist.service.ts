@@ -95,7 +95,9 @@ export class WaitlistService {
     await this.assertOwnsClient(actorTelegramId, input.clientId, options);
 
     const entry = await this.waitlist.transaction(async (tx) => {
-      const training = await this.waitlist.findTrainingForUpdate(tx, input.trainingId);
+      const training = await this.waitlist.findTrainingForUpdate(tx, input.trainingId, {
+        requireClientVisible: true
+      });
       if (!training) {
         throw new NotFoundException(`Training ${input.trainingId} not found`);
       }

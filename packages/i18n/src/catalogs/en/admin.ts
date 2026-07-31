@@ -10,6 +10,7 @@ export const adminEn: Record<string, string> = {
   "admin.nav.overview": "Overview",
   "admin.nav.groups": "Groups",
   "admin.nav.trainings": "Trainings",
+  "admin.nav.schedulePlanner": "Monthly planner",
   "admin.nav.trainers": "Coaches",
   "admin.nav.managers": "Administrators",
   "admin.nav.levels": "Levels",

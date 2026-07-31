@@ -96,7 +96,14 @@ class FakeGroupsRepository {
 
   /** The month roster (distinct clients) the listMembers test supplies. */
   members: GroupMemberRow[] = [];
-  async listMonthMembers(_groupId: string, _from: string, _to: string): Promise<GroupMemberRow[]> {
+  lastMembersIncludeHidden: boolean | undefined;
+  async listMonthMembers(
+    _groupId: string,
+    _from: string,
+    _to: string,
+    includeHiddenTrainings = false
+  ): Promise<GroupMemberRow[]> {
+    this.lastMembersIncludeHidden = includeHiddenTrainings;
     return this.members;
   }
 
@@ -425,6 +432,7 @@ describe("GroupsService.listMembers (group monthly roster)", () => {
     expect(first.firstName).toBe("Ана");
     expect(first.avatarInitial).toBe("А");
     expect(first.telegramPhotoUrl).toBe("https://t.me/i/userpic/320/ana.jpg");
+    expect(repo.lastMembersIncludeHidden).toBe(true);
   });
 
   it("a client caller gets only firstName + avatarInitial + telegramPhotoUrl — never clientId/fullName", async () => {
@@ -438,6 +446,7 @@ describe("GroupsService.listMembers (group monthly roster)", () => {
       expect(member.avatarInitial).toBeTruthy();
       expect(member).toHaveProperty("telegramPhotoUrl");
     }
+    expect(repo.lastMembersIncludeHidden).toBe(false);
   });
 
   it("client-scoped admin gets only client-visible members, never admin roster fields", async () => {

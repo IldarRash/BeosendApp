@@ -86,7 +86,8 @@ export class WaitlistRepository {
   /** The training row selected FOR UPDATE so the accept recompute cannot oversell. */
   async findTrainingForUpdate(
     tx: Database,
-    trainingId: string
+    trainingId: string,
+    options: { requireClientVisible?: boolean } = {}
   ): Promise<TrainingLockRow | undefined> {
     const [row] = await tx
       .select({
@@ -98,7 +99,12 @@ export class WaitlistRepository {
         status: tables.trainings.status
       })
       .from(tables.trainings)
-      .where(eq(tables.trainings.id, trainingId))
+      .where(
+        and(
+          eq(tables.trainings.id, trainingId),
+          options.requireClientVisible ? eq(tables.trainings.hidden, false) : undefined
+        )
+      )
       .limit(1)
       .for("update");
     return row;
@@ -404,6 +410,7 @@ export class WaitlistRepository {
         and(
           eq(tables.waitlist.status, "waiting"),
           isNotNull(tables.trainings.groupId),
+          eq(tables.trainings.hidden, false),
           eq(tables.trainings.status, "open"),
           sql`${tables.trainings.bookedCount} < ${tables.trainings.capacity}`,
           // A notified entry owns the freed seat. Skip this training entirely;

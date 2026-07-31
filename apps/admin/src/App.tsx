@@ -20,6 +20,7 @@ import { NotificationTemplates } from "./pages/NotificationTemplates";
 import { Subscriptions } from "./pages/Subscriptions";
 import { Trainers } from "./pages/Trainers";
 import { Trainings } from "./pages/Trainings";
+import { SchedulePlanner } from "./pages/SchedulePlanner";
 import { LanguageProvider } from "./i18n/LanguageProvider";
 import { ToastProvider } from "./ui/Toast";
 
@@ -67,6 +68,7 @@ export function App(): JSX.Element {
                     </RequireAuth>
                   }
                 />
+                <Route path="/schedule-planner" element={<RequireAuth><SchedulePlanner /></RequireAuth>} />
                 <Route
                   path="/trainers"
                   element={
