@@ -19,7 +19,7 @@ import {
   updateGroupSchema,
   uuid
 } from "@beosand/types";
-import type { ZodSchema } from "zod";
+import type { TypeOf, ZodTypeAny } from "zod";
 import { GroupsService } from "./groups.service";
 
 /** Thin: parse + Zod-validate, resolve actor, call one service method. */
@@ -144,7 +144,7 @@ function parseOptionalTelegramId(header: string | undefined): number | undefined
 }
 
 /** Zod-validate at the boundary; surface failures as 400 instead of 500. */
-function validate<T>(schema: ZodSchema<T>, input: unknown): T {
+function validate<TSchema extends ZodTypeAny>(schema: TSchema, input: unknown): TypeOf<TSchema> {
   const result = schema.safeParse(input);
   if (!result.success) {
     throw new BadRequestException(result.error.issues.map((issue) => issue.message).join("; "));

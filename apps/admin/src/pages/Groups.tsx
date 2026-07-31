@@ -153,7 +153,8 @@ function toCreateInput(form: GroupFormState): CreateGroupInput {
     endTime: form.endTime,
     capacity: form.capacity ?? 0,
     priceSingleRsd: form.priceSingleRsd ?? 0,
-    priceMonthRsd: form.priceMonthRsd ?? 0
+    priceMonthRsd: form.priceMonthRsd ?? 0,
+    hidden: form.hidden
   };
 }
 
@@ -167,8 +168,6 @@ interface GroupFormProps {
   levels: Level[];
   trainers: Trainer[];
   courts: Court[];
-  /** Visibility is only editable on an existing group; creation defaults to visible. */
-  isEdit: boolean;
   error?: string;
 }
 
@@ -178,7 +177,6 @@ function GroupForm({
   levels,
   trainers,
   courts,
-  isEdit,
   error
 }: GroupFormProps): JSX.Element {
   const t = useT();
@@ -263,18 +261,16 @@ function GroupForm({
           min={0}
         />
       </div>
-      {isEdit ? (
-        <SelectField
-          label={t("admin.groups.fieldVisibility")}
-          value={form.hidden ? "hidden" : "visible"}
-          onChange={(event) => onChange({ ...form, hidden: event.target.value === "hidden" })}
-          options={[
-            { value: "visible", label: t("admin.groups.visShown") },
-            { value: "hidden", label: t("admin.groups.visHidden") }
-          ]}
-          hint={t("admin.groups.visibilityHint")}
-        />
-      ) : null}
+      <SelectField
+        label={t("admin.groups.fieldVisibility")}
+        value={form.hidden ? "hidden" : "visible"}
+        onChange={(event) => onChange({ ...form, hidden: event.target.value === "hidden" })}
+        options={[
+          { value: "visible", label: t("admin.groups.visShown") },
+          { value: "hidden", label: t("admin.groups.visHidden") }
+        ]}
+        hint={t("admin.groups.visibilityHint")}
+      />
       {error ? (
         <p className="field__error" role="alert">
           {error}
@@ -898,7 +894,6 @@ export function Groups(): JSX.Element {
             levels={levels.data ?? []}
             trainers={trainers.data ?? []}
             courts={courts.data ?? []}
-            isEdit={target?.mode === "edit"}
             error={submitError}
           />
         </form>

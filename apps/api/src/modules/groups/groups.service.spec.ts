@@ -22,7 +22,8 @@ const baseInput: CreateGroupInput = {
   courtId: COURT_ID,
   capacity: 12,
   priceSingleRsd: 1500,
-  priceMonthRsd: 10000
+  priceMonthRsd: 10000,
+  hidden: false
 };
 
 /** In-memory stand-in for the Drizzle repository (only DB-access layer). */
@@ -61,12 +62,12 @@ class FakeGroupsRepository {
 
   async create(input: CreateGroupInput): Promise<Group> {
     const id = `00000000-0000-0000-0000-00000000000${++this.seq}`;
-    // A freshly created group defaults to visible, mirroring the DB default.
+    // Preserve the validated contract value exactly, mirroring repository persistence.
     const row: Group = {
       ...input,
       id,
       status: "active",
-      hidden: false,
+      hidden: input.hidden,
       trainerName: "Jovana",
       courtNumber: 1
     };
@@ -186,6 +187,14 @@ describe("GroupsService", () => {
     expect(created.name).toBe("Intermediate");
     expect(created.status).toBe("active");
     expect(await service.listActive()).toContainEqual(created);
+  });
+
+  it("admin create persists an explicit hidden group while client listings exclude it", async () => {
+    const hidden = await service.create(ADMIN_ID, { ...baseInput, hidden: true });
+
+    expect(hidden.hidden).toBe(true);
+    expect((await service.listActive()).some((group) => group.id === hidden.id)).toBe(false);
+    expect((await service.listActive(ADMIN_ID)).some((group) => group.id === hidden.id)).toBe(true);
   });
 
   it("create stores the chosen home court", async () => {

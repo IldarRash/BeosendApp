@@ -228,7 +228,7 @@ describe("Groups", () => {
     const dialog = screen.getByRole("dialog", { name: "Изменить группу" });
     const inDialog = within(dialog);
 
-    // The visibility control is present only in edit mode and defaults to the group's value.
+    // The visibility control defaults to the group's stored value in edit mode.
     const visibility = inDialog.getByLabelText("Видимость для клиентов") as HTMLSelectElement;
     expect(visibility.value).toBe("visible");
     fireEvent.change(visibility, { target: { value: "hidden" } });
@@ -241,11 +241,12 @@ describe("Groups", () => {
     expect(args.input).toMatchObject({ hidden: true });
   });
 
-  it("omits the visibility control when creating a group", () => {
+  it("shows the visibility control with shown selected when creating a group", () => {
     renderPage();
     fireEvent.click(screen.getByRole("button", { name: "Создать группу" }));
     const dialog = screen.getByRole("dialog", { name: "Создать группу" });
-    expect(within(dialog).queryByLabelText("Видимость для клиентов")).toBeNull();
+    const visibility = within(dialog).getByLabelText("Видимость для клиентов") as HTMLSelectElement;
+    expect(visibility.value).toBe("visible");
   });
 
   it("orders rows by first weekday then start time, regardless of input order", () => {
@@ -334,8 +335,27 @@ describe("Groups", () => {
       endTime: "19:30",
       capacity: 10,
       priceSingleRsd: 1600,
-      priceMonthRsd: 13000
+      priceMonthRsd: 13000,
+      hidden: false
     });
+  });
+
+  it("submits hidden when it is selected while creating a group", () => {
+    const mutate = vi.fn();
+    useCreateGroup.mockReturnValue(mutation({ mutate }));
+    renderPage();
+
+    fireEvent.click(screen.getByRole("button", { name: "Создать группу" }));
+    const dialog = screen.getByRole("dialog", { name: "Создать группу" });
+    const inDialog = within(dialog);
+
+    fireEvent.change(inDialog.getByLabelText("Видимость для клиентов"), {
+      target: { value: "hidden" }
+    });
+    fireEvent.click(inDialog.getByRole("button", { name: "Сохранить" }));
+
+    expect(mutate).toHaveBeenCalledTimes(1);
+    expect(mutate.mock.calls[0][0]).toMatchObject({ hidden: true });
   });
 
   it("surfaces a rejected mutation's server error in the form", () => {

@@ -140,12 +140,21 @@ describe("createGroupSchema", () => {
     }
   });
 
-  it("parses with hidden omitted (creation defaults to visible via the DB default)", () => {
+  it("defaults an omitted hidden value to visible", () => {
     const parsed = createGroupSchema.safeParse(valid);
     expect(parsed.success).toBe(true);
     if (parsed.success) {
-      expect("hidden" in parsed.data).toBe(false);
+      expect(parsed.data.hidden).toBe(false);
     }
+  });
+
+  it("accepts explicit hidden visibility choices", () => {
+    expect(createGroupSchema.parse({ ...valid, hidden: true }).hidden).toBe(true);
+    expect(createGroupSchema.parse({ ...valid, hidden: false }).hidden).toBe(false);
+  });
+
+  it("rejects a non-boolean hidden value", () => {
+    expect(createGroupSchema.safeParse({ ...valid, hidden: "true" }).success).toBe(false);
   });
 });
 
