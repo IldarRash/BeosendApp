@@ -364,7 +364,8 @@ export class ApiClient {
     if (!res.ok) {
       throw await errorFromResponse(res, path);
     }
-    return schema.parse(await res.json());
+    const body = typeof res.text === "function" ? await readSuccessBody(res) : await res.json();
+    return schema.parse(body);
   }
 
   /** Bearer header for authed calls; empty when logged out (public endpoints). */
@@ -1787,6 +1788,16 @@ async function errorFromResponse(res: Response, path: string): Promise<Error> {
   }
   const message = await readErrorMessage(res, `API ${path} failed: ${res.status}`);
   return res.status === 409 ? new ConflictError(message) : new Error(message);
+}
+
+/**
+ * Nest/Express serializes a returned `null` as an empty successful response.
+ * Interpret that transport representation as JSON null, then let the endpoint's
+ * Zod schema decide whether null is valid for that particular response.
+ */
+async function readSuccessBody(res: Response): Promise<unknown> {
+  const text = await res.text();
+  return text.trim().length === 0 ? null : JSON.parse(text);
 }
 
 /** Extract a NestJS `{ message }` (string or string[]) from a body, or fall back. */
