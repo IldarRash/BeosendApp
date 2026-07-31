@@ -1,5 +1,11 @@
 # Admin-first UX audit and redesign prototype
 
+## Status
+
+Completed. The isolated audit and standalone prototype live in
+`prototypes/design-refresh/selected/AUDIT.md` and `prototypes/design-refresh/selected/index.html`.
+Retained as historical design rationale for the later production Dispatch Desk implementation.
+
 ## Goal
 
 Create an admin-first UX audit and standalone clickable redesign prototype that covers the live
@@ -21,8 +27,7 @@ whether to implement it in `apps/admin`.
 - `docs/architecture/overview.md`, `docs/architecture/domain-model.md`,
   `docs/architecture/database.md` - architecture invariants: UI surfaces are thin over API contracts,
   domain rules stay server-side, and secrets stay server-side.
-- `prototypes/design-refresh/selected` - selected prototype location. In this checkout the directory
-  exists, but no selected `index.html` artifact is present.
+- `prototypes/design-refresh/selected` - delivered audit and standalone selected prototype.
 
 No `docs/product/feature-roadmap.md` or broader product roadmap file is present in this checkout.
 
@@ -154,25 +159,14 @@ The Telegram bot and Mini App deep-link behavior are not changed by this slice.
 - Current `apps/admin/PRODUCT.md` and `apps/admin/DESIGN.md` remain the product/design source for
   this prototype.
 - Current `apps/admin/src/routes.ts` remains the source of truth for route coverage.
-- `prototypes/design-refresh/selected` is the preferred isolated prototype location. If the selected
-  artifact is absent, recreate it there rather than editing production files.
+- `prototypes/design-refresh/selected` is the isolated prototype location; production code remains
+  separate.
 - No backend, database, bot, Mini App, or API dependency is required for this planning/design slice.
 
-## Open questions
+## Decisions & outcome
 
-- Should the full agent flow run after this brief?
-  Default: no. Wait for explicit user approval before analyst, architect, designer, implementer,
-  tester, reviewer, security reviewer, runner, or GitHub handoff agents run.
-- Where should the final prototype live if `prototypes/design-refresh/selected` is empty?
-  Default: create or replace the standalone selected artifact at
-  `prototypes/design-refresh/selected/index.html`, keeping any source snapshots in the same isolated
-  prototype directory.
-- Should the prototype include Mini App screens for visual consistency?
-  Default: no. Use Mini App only as secondary context for route vocabulary and cross-surface
-  consistency notes.
-- Should the prototype use production data fixtures?
-  Default: no. Use static representative mock data with no real user records, tokens, API URLs, or
-  secrets.
-- Should production admin implementation begin immediately after the prototype is accepted?
-  Default: no. Treat implementation as a separate feature requiring its own approved plan because it
-  touches `apps/admin` production code and shared UI behavior.
+- The design slice stayed isolated from production code and delivered
+  `prototypes/design-refresh/selected/index.html` with its audit.
+- Mini App remained secondary context; the prototype covered the admin route inventory only.
+- The artifact uses static representative data with no real records, tokens, API URLs, or secrets.
+- Production implementation was planned separately in `admin-dispatch-desk-redesign.md`.

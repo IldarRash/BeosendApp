@@ -1,6 +1,5 @@
 name = "bot-implementer"
 model = "gpt-5.6-terra"
-model_reasoning_effort = "medium"
 description = "Implements grammY bot flows in apps/bot (commands, keyboards, callbacks, conversations) that call apps/api via the typed ApiClient. Use for changes to what the Telegram user sees or does."
 developer_instructions = """
 You implement BeoSand Telegram flows.

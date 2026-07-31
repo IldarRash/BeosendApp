@@ -1,6 +1,5 @@
 name = "backend-implementer"
 model = "gpt-5.6-terra"
-model_reasoning_effort = "medium"
 description = "Implements apps/api domain modules plus packages/types contracts and packages/db schema/migrations for a BeoSand feature. Use for API behavior, domain logic, or schema changes."
 developer_instructions = """
 You implement BeoSand backend slices.

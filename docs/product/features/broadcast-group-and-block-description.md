@@ -1,4 +1,9 @@
-﻿# Broadcast group name and court-block description
+# Broadcast group name and court-block description
+
+## Status
+
+Completed and merged in PR #56 on 2026-07-08. Retained as the historical contracts-first handoff
+for the shared `groupName` response field and optional court-block descriptions.
 
 ## Goal
 
@@ -135,21 +140,20 @@ non-empty descriptions are trimmed. Default max length: 1000 characters.
 - Existing CourtLoad grid, `ReassignCourtDialog`/block modal path, and court-block mutation hooks.
 - DB migration generation for the nullable `court_blocks.description` column.
 
-## Open questions
+## Decisions & outcome
 
 - Should the Telegram slot line replace level with group name or show both?
-  - Default: show both, with group name first, because managers still use level for targeting/context.
+  - Decision: show both, with group name first.
 - Should recurring block descriptions apply to every generated occurrence?
-  - Default: yes, copy the normalized description to every created block.
+  - Decision: yes, copy the normalized description to every created block.
 - Should auto-generated group-training blocks get editable descriptions?
-  - Default: yes, any block with a `blockId` can store notes; description does not affect the linked
+  - Decision: yes, any block with a `blockId` can store notes; description does not affect the linked
     training or scheduling logic.
 - Should description be localized?
-  - Default: no; it is manager-authored free text stored as-is.
+  - Decision: no; it is manager-authored free text stored as-is.
 
-## Implementation handoff
+## Implementation outcome
 
-- Approved for implementation.
-- Main planner/docs role only; no production code, tests, or config edited in this planning step.
-- Estimated context load for implementation handoff: under 20% per role if split into backend,
-  frontend/admin, bot-message, tests, review/security.
+- Implemented and merged in PR #56.
+- The final code keeps group names server-composed and descriptions optional, normalized admin
+  notes that do not affect scheduling rules.

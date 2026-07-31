@@ -1,17 +1,17 @@
 ---
 name: feature-planning
-description: Turn a spec slice into an agreed, implementable feature brief under docs/product/features before any code is written. Use at the planning stage of any non-trivial BeoSand feature after pre-plan clarification is complete.
+description: Turn a globally ready BeoSand request into an implementation-ready brief under docs/product/features. Use when a Factory plan needs a repository-specific artifact before implementation.
 ---
 
 # Feature planning
 
-Produce a brief precise enough that backend/bot/test work can proceed without further product
-questions. Start only from the global `ready_for_planner` package containing the final polished
-request, completed analysis, and resolved material questions.
+Produce a brief precise enough for the selected global roles to proceed without further product
+questions. Start only from the global `ready` package containing the objective, facts, author
+decisions, assumptions, open protected decisions, and completed clarification where applicable.
 
 ## Steps
 
-1. Confirm the ready-for-planner package has no unresolved material questions. Locate the slice in
+1. Confirm the `ready` package has no unresolved material questions. Locate the slice in
    `docs/product/feature-roadmap.md` and the underlying spec section(s). Read the relevant
    `docs/architecture/*`.
 2. Identify the **smallest correct slice** that delivers user value end to end.
@@ -27,10 +27,10 @@ request, completed analysis, and resolved material questions.
    - **Dependencies** - other features that must land first.
    - **Decisions & assumptions** - resolved product decisions and any safe, evidence-supported
      assumptions used by the plan.
-4. If a new material ambiguity appears, stop and return it through the retained prompt-polisher and
-   analyst handles. Resume only when the refreshed package is ready; do not start the analyst,
-   architect, implementers, or other later-flow roles from the planner.
-5. Present the completed brief and explicitly ask whether to run the full agent flow.
+4. If a new material ambiguity appears, stop and return it to the global clarification workflow.
+   Resume only after a refreshed `ready` package; do not start or sequence global roles.
+5. Present the completed brief and selected-role handoff. Factory authorization and protected-action
+   approval remain global; do not request a second broad implementation approval.
 
 ## Done
 
