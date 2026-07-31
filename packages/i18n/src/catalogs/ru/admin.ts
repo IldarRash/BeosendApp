@@ -10,6 +10,7 @@
  * `{param}` tokens are interpolated by the resolver.
  */
 export const adminRu: Record<string, string> = {
+  "admin.broadcasts.item": "Сообщение", "admin.broadcasts.itemText": "Снимок текста", "admin.broadcasts.bookingTraining": "Тренировка для бронирования", "admin.broadcasts.language": "Язык", "admin.broadcasts.fallback": "замена языка", "admin.broadcasts.detailItems": "Элементы сообщения", "admin.broadcasts.detailItemsEmpty": "Элементы сообщения не созданы.", "admin.broadcasts.detailTrainings": "Решения по тренировкам", "admin.broadcasts.detailTrainingsEmpty": "Решения по тренировкам не записаны.", "admin.broadcasts.detailDeliveries": "Результаты доставок", "admin.broadcasts.detailDeliveriesEmpty": "Доставки не записаны.", "admin.broadcasts.training": "Снимок тренировки", "admin.broadcasts.outcome": "Результат", "admin.broadcasts.skipReason": "Причина пропуска", "admin.broadcasts.freeSeats": "Свободные места", "admin.broadcasts.payload": "Снимок отправки", "admin.broadcasts.diagnostic": "Диагностика", "admin.broadcasts.noDiagnostic": "Нет диагностики", "admin.broadcasts.retryLink": "Связь повтора", "admin.broadcasts.retryOfDelivery": "Повтор доставки", "admin.broadcasts.openOriginalRun": "Открыть исходный запуск", "admin.broadcasts.retrySucceeded": "Создан повтор для доставок: {count}.", "admin.broadcasts.retryFailed": "Не удалось повторить: {message}", "admin.broadcasts.retrying": "Повтор…",
   // ── Navigation ──────────────────────────────────────────────────────────
   "admin.nav.dashboard": "Дашборд",
   "admin.nav.overview": "Обзор",
@@ -1044,6 +1045,53 @@ export const adminRu: Record<string, string> = {
   "admin.analytics.broadcastEff.recipients": "Получателей",
   "admin.analytics.broadcastEff.attributed": "Привлечено бронирований",
   "admin.analytics.broadcastEff.attributedHint": "окно {hours} ч",
+  "admin.analytics.business.title": "Бизнес-показатели",
+  "admin.analytics.business.error": "Не удалось загрузить бизнес-показатели.",
+  "admin.analytics.business.moneyLabel": "Деньги за период",
+  "admin.analytics.business.demandLabel": "Спрос за период",
+  "admin.analytics.business.courtLabel": "Корты за период",
+  "admin.analytics.business.paidTraining": "Оплачено за тренировки",
+  "admin.analytics.business.confirmedCourtValue": "Подтверждено по кортам",
+  "admin.analytics.business.confirmedNotPaid": "не равно полученной оплате",
+  "admin.analytics.business.outstandingTraining": "Ожидается за тренировки",
+  "admin.analytics.business.avgCourtValue": "Средняя заявка на корт",
+  "admin.analytics.business.trainingBookings": "Брони тренировок",
+  "admin.analytics.business.trainingClients": "Клиенты тренировок",
+  "admin.analytics.business.returningRate": "Доля возвращающихся",
+  "admin.analytics.business.returningClients": "{count} клиентов",
+  "admin.analytics.business.newClients": "Новые клиенты",
+  "admin.analytics.business.courtRequests": "Заявки на корты",
+  "admin.analytics.business.courtConfirmation": "Подтверждение кортов",
+  "admin.analytics.business.confirmedRequests": "{count} подтверждено",
+  "admin.analytics.business.confirmedCourtHours": "Подтверждённые корт-часы",
+  "admin.analytics.business.unpricedBookings": "Брони без цены",
+  "admin.analytics.business.pricedBookings": "{count} броней с ценой",
+  "admin.analytics.business.provenance": "Оплата тренировок берётся из платёжного статуса и ценовых снимков. Стоимость кортов — сумма подтверждённых заявок: модель пока не хранит факт их оплаты.",
+  "admin.analytics.acquisition.title": "Источники и воронка",
+  "admin.analytics.acquisition.forwardOnly": "Точная атрибуция собирается с момента этого обновления. Формат ссылки: destination__source__campaign, например court__instagram__bio.",
+  "admin.analytics.acquisition.caption": "Запуски Mini App и успешные конверсии по последнему источнику",
+  "admin.analytics.acquisition.empty": "За период ещё нет атрибутированных запусков.",
+  "admin.analytics.acquisition.colEntry": "Направление",
+  "admin.analytics.acquisition.colSource": "Источник",
+  "admin.analytics.acquisition.colCampaign": "Кампания",
+  "admin.analytics.acquisition.colLaunches": "Запуски",
+  "admin.analytics.acquisition.colStarted": "Начали",
+  "admin.analytics.acquisition.colSuccessful": "Успешно",
+  "admin.analytics.acquisition.colConversion": "Конверсия",
+  "admin.analytics.acquisition.entry.direct": "Прямой вход",
+  "admin.analytics.acquisition.entry.training": "Тренировки",
+  "admin.analytics.acquisition.entry.court": "Корты",
+  "admin.analytics.acquisition.entry.other": "Другое",
+  "admin.analytics.offerings.title": "Популярность тренировок",
+  "admin.analytics.offerings.caption": "Предложения по броням, клиентам и заполненности",
+  "admin.analytics.offerings.empty": "За период нет проведённых или запланированных тренировок.",
+  "admin.analytics.offerings.colOffering": "Тренировка",
+  "admin.analytics.offerings.colLevel": "Уровень",
+  "admin.analytics.offerings.colTrainer": "Тренер",
+  "admin.analytics.offerings.colSessions": "Занятий",
+  "admin.analytics.offerings.colBookings": "Броней",
+  "admin.analytics.offerings.colClients": "Клиентов",
+  "admin.analytics.offerings.colFill": "Заполненность",
 
   // ── Labels editor page ────────────────────────────────────────────────────
   "admin.labels.title": "Тексты",
@@ -1252,5 +1300,22 @@ export const adminRu: Record<string, string> = {
   "admin.connectors.calendar.rotate": "Обновить ссылку",
   "admin.connectors.calendar.rotated": "Ссылка обновлена, старая отозвана",
   "admin.connectors.calendar.copy": "Скопировать ссылку",
-  "admin.connectors.calendar.copied": "Ссылка скопирована"
+  "admin.connectors.calendar.copied": "Ссылка скопирована",
+  "admin.broadcasts.builderTitle": "Автоматические рассылки", "admin.broadcasts.builderLead": "Настраивайте версионированные сообщения, которые запускает сервер.", "admin.broadcasts.newAutomation": "Новая автоматизация", "admin.broadcasts.automationList": "Автоматизации", "admin.broadcasts.editorTitle": "Редактор автоматизации", "admin.broadcasts.historyTitle": "История запусков", "admin.broadcasts.legacyTitle": "Старые ручные рассылки", "admin.broadcasts.legacyLead": "Существующие ручные рассылки остаются отдельно.", "admin.broadcasts.loading": "Загрузка…", "admin.broadcasts.loadFailed": "Не удалось загрузить: {message}", "admin.broadcasts.empty": "Автоматизаций пока нет.", "admin.broadcasts.name": "Название", "admin.broadcasts.trigger": "Триггер", "admin.broadcasts.status": "Статус", "admin.broadcasts.actions": "Действия", "admin.broadcasts.enabled": "Включена", "admin.broadcasts.disabled": "Выключена", "admin.broadcasts.editToEnable": "Изменить и включить", "admin.broadcasts.version": "Версия {version}", "admin.broadcasts.newDisabled": "Новые автоматизации создаются выключенными.", "admin.broadcasts.saveDraft": "Сохранить черновик", "admin.broadcasts.preview": "Предпросмотр", "admin.broadcasts.enable": "Включить", "admin.broadcasts.disable": "Выключить", "admin.broadcasts.saveFailed": "Не удалось сохранить: {message}", "admin.broadcasts.triggerScheduled": "По расписанию", "admin.broadcasts.triggerCreated": "Тренировка создана", "admin.broadcasts.triggerChanged": "Время тренировки изменено", "admin.broadcasts.triggerFreed": "Место освободилось", "admin.broadcasts.recurrence": "Повтор", "admin.broadcasts.once": "Один раз", "admin.broadcasts.daily": "Ежедневно", "admin.broadcasts.weekly": "Еженедельно", "admin.broadcasts.time": "Время (Белград)", "admin.broadcasts.date": "Дата", "admin.broadcasts.weekdays": "Дни недели", "admin.broadcasts.window": "Окно тренировок", "admin.broadcasts.eventDelay": "Сервер откладывает и повторно проверяет уведомления.", "admin.broadcasts.levels": "Уровни", "admin.broadcasts.activity": "Активность Mini App", "admin.broadcasts.activityHint": "Подтвержденный вход в Mini App за последние 7 дней.", "admin.broadcasts.activityActive": "Активен в Mini App (7 дней)", "admin.broadcasts.activityInactive": "Неактивен в Mini App (7 дней)", "admin.broadcasts.output": "Режим сообщения", "admin.broadcasts.perTraining": "Сообщение на тренировку", "admin.broadcasts.digest": "Дайджест", "admin.broadcasts.cta": "Кнопка", "admin.broadcasts.ctaNone": "Без кнопки", "admin.broadcasts.ctaBooking": "Кнопка бронирования", "admin.broadcasts.defaultLanguage": "Язык по умолчанию", "admin.broadcasts.message": "Текст сообщения", "admin.broadcasts.defaultRequired": "Для включения нужен непустой текст.", "admin.broadcasts.previewTitle": "Предпросмотр сервера", "admin.broadcasts.previewing": "Сбор предпросмотра…", "admin.broadcasts.previewHint": "Сохраните черновик и запросите свежий предпросмотр.", "admin.broadcasts.recipients": "Получатели: {count}", "admin.broadcasts.when": "Когда", "admin.broadcasts.results": "Отправлено / ошибка / неопределенно", "admin.broadcasts.historyEmpty": "Запусков пока нет.", "admin.broadcasts.runDetail": "Детали запуска", "admin.broadcasts.retryHint": "Повторяются только допустимые неудачные доставки.", "admin.broadcasts.retryAmbiguous": "Включить неопределенные доставки", "admin.broadcasts.duplicateWarning": "Повтор может создать дубликат.", "admin.broadcasts.retry": "Повторить неудачные"
+  , "admin.broadcasts.historyFilters": "Фильтры истории", "admin.broadcasts.historyAutomation": "Автоматизация", "admin.broadcasts.historyTrigger": "Триггер запуска", "admin.broadcasts.allAutomations": "Все автоматизации", "admin.broadcasts.allTriggers": "Все триггеры", "admin.broadcasts.allStatuses": "Все статусы", "admin.broadcasts.loadMore": "Загрузить ещё", "admin.broadcasts.retrySelect": "Выбрать", "admin.broadcasts.openRetryRun": "Открыть повторный запуск", "admin.broadcasts.runCounts": "Счётчики запуска", "admin.broadcasts.count": "Счётчик", "admin.broadcasts.value": "Значение", "admin.broadcasts.configSnapshot": "Неизменяемый снимок конфигурации"
+, "admin.broadcasts.audience": "Фильтры аудитории"
+, "admin.broadcasts.audienceHint": "Добавьте хотя бы один фильтр. Сервер пересекает выбранные фильтры и считает получателей."
+, "admin.broadcasts.addLevels": "Добавить уровни"
+, "admin.broadcasts.addActivity": "Добавить активность"
+, "admin.broadcasts.addGender": "Добавить пол"
+, "admin.broadcasts.removeFilter": "Удалить фильтр"
+, "admin.broadcasts.levelRequired": "Выберите хотя бы один уровень или удалите этот фильтр."
+, "admin.broadcasts.gender": "Пол"
+, "admin.broadcasts.genderChoice": "Выбор пола"
+, "admin.broadcasts.genderMale": "Мужской"
+, "admin.broadcasts.genderFemale": "Женский"
+, "admin.broadcasts.genderUnspecified": "Не указан"
+, "admin.broadcasts.genderInclusiveWarning": "При выборе мужского или женского пола также включаются клиенты с неуказанным полом."
+, "admin.broadcasts.audienceReady": "Фильтры аудитории готовы для предпросмотра на сервере."
+, "admin.broadcasts.audienceIncomplete": "Добавьте допустимый фильтр аудитории перед сохранением или предпросмотром."
 };

@@ -162,6 +162,7 @@ const CLIENT: Client = {
   telegramId: null,
   telegramUsername: null,
   telegramPhotoUrl: null,
+  gender: "unspecified",
   levelId: null,
   source: "walk_in",
   phone: "+381601234567",

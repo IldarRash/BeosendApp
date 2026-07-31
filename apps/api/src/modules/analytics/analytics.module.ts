@@ -2,6 +2,8 @@ import { Module } from "@nestjs/common";
 import { AnalyticsController } from "./analytics.controller";
 import { AnalyticsRepository } from "./analytics.repository";
 import { AnalyticsService } from "./analytics.service";
+import { AnalyticsTrackingRepository } from "./analytics-tracking.repository";
+import { AnalyticsTrackingService } from "./analytics-tracking.service";
 
 /**
  * Analytics & reports (T3.1): admin-only, read-only aggregations over the
@@ -10,6 +12,12 @@ import { AnalyticsService } from "./analytics.service";
  */
 @Module({
   controllers: [AnalyticsController],
-  providers: [AnalyticsService, AnalyticsRepository]
+  providers: [
+    AnalyticsService,
+    AnalyticsRepository,
+    AnalyticsTrackingService,
+    AnalyticsTrackingRepository
+  ],
+  exports: [AnalyticsTrackingService]
 })
 export class AnalyticsModule {}

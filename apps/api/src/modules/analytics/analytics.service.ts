@@ -3,6 +3,7 @@ import type { Env } from "@beosand/config";
 import { isAdmin } from "@beosand/config";
 import type {
   AnalyticsSummary,
+  BusinessAnalytics,
   BroadcastEffectiveness,
   CancellationStats,
   ClientActivity,
@@ -14,6 +15,7 @@ import type {
 import {
   analyticsSummarySchema,
   averageFillRate,
+  businessAnalyticsSchema,
   broadcastEffectivenessSchema,
   cancellationStatsSchema,
   clientActivitySchema,
@@ -168,6 +170,65 @@ export class AnalyticsService {
       activeClients: activity.activeClients,
       topSlot,
       attributedBookings: attributed
+    });
+  }
+
+  /**
+   * Composite operator view aligned with studio analytics best practices:
+   * money, demand/returning clients, court utilisation, acquisition funnel and
+   * product popularity. Every formula stays server-side.
+   */
+  async business(actor: number, from: string, to: string): Promise<BusinessAnalytics> {
+    this.assertAdmin(actor);
+    this.assertRange(from, to);
+
+    const [revenue, demand, court, acquisition, popularTrainings] = await Promise.all([
+      this.repo.businessRevenue(from, to),
+      this.repo.businessDemand(from, to),
+      this.repo.businessCourt(from, to),
+      this.repo.acquisition(from, to),
+      this.repo.popularTrainings(from, to)
+    ]);
+
+    return businessAnalyticsSchema.parse({
+      from,
+      to,
+      revenue: {
+        ...revenue,
+        averageConfirmedCourtValueRsd:
+          court.confirmedRequests === 0
+            ? 0
+            : Math.round(revenue.confirmedCourtValueRsd / court.confirmedRequests)
+      },
+      demand: {
+        ...demand,
+        returningClientRate: safeRatio(demand.returningClients, demand.trainingClients)
+      },
+      court: {
+        ...court,
+        confirmationRate: safeRatio(court.confirmedRequests, court.requestsCount)
+      },
+      acquisition: acquisition
+        .map((row) => {
+          return {
+            entryPoint: row.entryPoint,
+            source: row.source,
+            campaign: row.campaign,
+            launches: row.launches,
+            startedConversions: row.startedConversions,
+            successfulConversions: row.successfulConversions,
+            convertingClients: row.convertingClients,
+            conversionRate: safeRatio(row.successfulConversions, row.launches),
+            successRate: safeRatio(row.successfulConversions, row.startedConversions)
+          };
+        })
+        .sort((a, b) => b.successfulConversions - a.successfulConversions),
+      popularTrainings: popularTrainings
+        .map((row) => ({
+          ...row,
+          fillRate: averageFillRate(row.bookingsCount, row.totalCapacity)
+        }))
+        .sort((a, b) => b.bookingsCount - a.bookingsCount)
     });
   }
 

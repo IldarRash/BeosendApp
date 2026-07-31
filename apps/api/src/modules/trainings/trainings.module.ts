@@ -1,4 +1,5 @@
 import { forwardRef, Module } from "@nestjs/common";
+import { BroadcastAutomationsModule } from "../broadcast-automations/broadcast-automations.module";
 import { BookingsRepository } from "../bookings/bookings.repository";
 import { ClientsRepository } from "../clients/clients.repository";
 import { ConnectorsModule } from "../connectors/connectors.module";
@@ -20,7 +21,8 @@ import { TrainingsService } from "./trainings.service";
     NotificationsModule,
     CourtsModule,
     ConnectorsModule,
-    SettingsModule
+    SettingsModule,
+    BroadcastAutomationsModule
   ],
   controllers: [TrainingsController, TrainerTodayController],
   // ClientsRepository and BookingsRepository (each only deps DatabaseService) are

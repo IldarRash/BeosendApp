@@ -9,6 +9,9 @@ under `packages/db/drizzle/` and should be committed with the schema change that
 - Money is stored as integer RSD.
 - `date` stores calendar date, `time` stores clock time, and `timestamptz` stores instants.
 - Postgres enums mirror stable shared contract enums.
+- `clients.gender` uses the `client_gender` enum (`male`, `female`, `unspecified`) and defaults to
+  `unspecified`. It is populated by consented, verified Mini App onboarding; it is not inferred for
+  existing clients or legacy bot onboarding.
 - Status columns default to safe starting values such as `active`, `open`, `pending`, or `waiting`.
 - Repositories read/write the DB; services own transactions and invariants.
 
@@ -48,6 +51,16 @@ under `packages/db/drizzle/` and should be committed with the schema change that
 - Court availability is derived from active courts, confirmed/pending request holds, court blocks, and
   generated group-training blocks.
 - Webhook delivery failures are operational state and must not roll back committed domain writes.
+- Broadcast automation definitions persist their JSON configuration in `broadcast_automations`, while
+  `broadcast_automation_runs.config_snapshot` preserves the definition used for a run. The current
+  audience form is `{ filters: [...] }`; each filter is a distinct level, activity, or gender
+  dimension. Reads normalize a wholly valid legacy `{ levelIds, activity }` definition into the
+  current level/activity filters, including historical run snapshots. The migration only rewrites
+  matching definition rows; it deliberately leaves run snapshots unchanged for compatibility code to
+  normalize on read.
+- Automation previews and sends query the current client rows. Before every send (including a retry),
+  the repository applies the audience predicate again to the individual client rather than trusting
+  the run's original recipient selection.
 
 ## Workflow
 

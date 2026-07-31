@@ -207,7 +207,9 @@ export class CourtRequestsService {
    * blocks); without it the bot single-court path holds nothing (admin assigns at
    * confirm). Rejects out-of-hours slots and conflicts atomically.
    */
-  async createRequest(input: CreateCourtRequest): Promise<CourtRequest> {
+  async createRequest(
+    input: CreateCourtRequest & { analyticsSessionId?: string }
+  ): Promise<CourtRequest> {
     await this.assertWithinWorkingHours(input.date, input.startTime, input.durationHours);
 
     const client = await this.repository.findActiveClientByTelegramId(input.telegramId);
@@ -229,7 +231,8 @@ export class CourtRequestsService {
         startTime: input.startTime,
         durationHours: input.durationHours,
         courtCount: 1,
-        priceRsd: courtPriceRsd(input.durationHours, 1)
+        priceRsd: courtPriceRsd(input.durationHours, 1),
+        analyticsSessionId: input.analyticsSessionId
       });
       await this.notifyAdminsOfNewRequest(row);
       return this.toClientEntity(row);
@@ -264,6 +267,7 @@ export class CourtRequestsService {
         durationHours: input.durationHours,
         courtCount: picked.length,
         priceRsd,
+        analyticsSessionId: input.analyticsSessionId,
         courtIds: resolved.map((court) => court.id)
       });
     });

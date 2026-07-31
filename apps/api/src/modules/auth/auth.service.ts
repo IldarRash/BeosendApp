@@ -3,6 +3,8 @@ import {
   ForbiddenException,
   Inject,
   Injectable,
+  Logger,
+  Optional,
   UnauthorizedException
 } from "@nestjs/common";
 import type { Env } from "@beosand/config";
@@ -23,6 +25,8 @@ import {
   miniappSessionSchema
 } from "@beosand/types";
 import { ENV } from "../../config/config.module";
+import { AnalyticsTrackingService } from "../analytics/analytics-tracking.service";
+import { ClientsRepository } from "../clients/clients.repository";
 import { StaffLinkingService } from "../managers/staff-linking.service";
 import { signSessionToken, verifySessionToken } from "./session-token";
 
@@ -39,9 +43,13 @@ const MINIAPP_AUTH_DATE_MAX_AGE_SECONDS = 5 * 60;
  */
 @Injectable()
 export class AuthService {
+  private readonly logger = new Logger(AuthService.name);
+
   constructor(
     @Inject(ENV) private readonly env: Env,
-    private readonly staffLinking: StaffLinkingService
+    private readonly staffLinking: StaffLinkingService,
+    @Optional() private readonly clients?: ClientsRepository,
+    @Optional() private readonly analyticsTracking?: AnalyticsTrackingService
   ) {}
 
   /**
@@ -91,20 +99,53 @@ export class AuthService {
     }
 
     const user = this.parseMiniappUser(fields.get("user"));
+    // The app module always supplies this dependency. Keeping it optional only
+    // preserves the existing direct-construction auth unit-test seam.
+    if (this.clients) {
+      const existingClient = await this.clients.findByTelegramId(user.telegramId);
+      if (existingClient) {
+        // A verified Mini App entry is the only existing-client activity signal.
+        // A failed write must fail auth rather than imply recorded activity.
+        const refreshed = await this.clients.recordMiniAppAccess(user.telegramId, new Date());
+        if (!refreshed) {
+          throw new UnauthorizedException("Mini App client session is no longer available");
+        }
+      }
+    }
     // First Mini App contact also links a staff member added by @username.
     await this.staffLinking.linkPendingStaff(user.telegramId, user.username);
+    const analyticsSessionId = await this.recordLaunchSafely(fields.get("start_param"));
     const token = signSessionToken(
       {
         sub: user.telegramId,
         name: user.name,
         scope: "client",
         username: user.username,
-        photoUrl: user.photoUrl
+        photoUrl: user.photoUrl,
+        analyticsSessionId
       },
       this.env.ADMIN_SESSION_SECRET
     );
 
     return miniappSessionSchema.parse({ token, user } satisfies MiniappSession);
+  }
+
+  /**
+   * Analytics must never become an authentication dependency. A failed insert is
+   * logged and the client receives a valid session without attribution.
+   */
+  private async recordLaunchSafely(startParam: string | undefined): Promise<string | undefined> {
+    if (!this.analyticsTracking) return undefined;
+    try {
+      return await this.analyticsTracking.recordLaunch(startParam);
+    } catch (error) {
+      this.logger.warn(
+        `Mini App analytics launch was not recorded: ${
+          error instanceof Error ? error.message : String(error)
+        }`
+      );
+      return undefined;
+    }
   }
 
   /**

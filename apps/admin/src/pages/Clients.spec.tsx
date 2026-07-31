@@ -56,6 +56,7 @@ const anya: Client = {
   telegramId: 4242,
   telegramUsername: "anya",
   telegramPhotoUrl: null,
+  gender: "female",
   levelId: sampleLevels[0].id,
   source: "telegram",
   phone: null,
@@ -74,6 +75,7 @@ const boris: Client = {
   name: "Борис",
   telegramId: 5252,
   telegramUsername: "boris",
+  gender: "male",
   levelId: null,
   bonusTrainingCredits: 0
 };
@@ -203,6 +205,7 @@ describe("Clients page", () => {
       telegramId: 4242,
       name: "Аня",
       telegramUsername: "anya",
+      gender: "unspecified",
       levelId: sampleLevels[0].id,
       consentAccepted: true
     });
@@ -218,6 +221,7 @@ describe("Clients page", () => {
       telegramId: 777,
       name: "Без уровня",
       telegramUsername: null,
+      gender: "unspecified",
       levelId: null,
       consentAccepted: true
     });

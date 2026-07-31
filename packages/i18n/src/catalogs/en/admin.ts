@@ -4,6 +4,7 @@
  * admin.* key here. Missing keys fall back to RU at resolve time.
  */
 export const adminEn: Record<string, string> = {
+  "admin.broadcasts.item": "Item", "admin.broadcasts.itemText": "Message snapshot", "admin.broadcasts.bookingTraining": "Booking training", "admin.broadcasts.language": "Language", "admin.broadcasts.fallback": "fallback", "admin.broadcasts.detailItems": "Message items", "admin.broadcasts.detailItemsEmpty": "No message items were created.", "admin.broadcasts.detailTrainings": "Training decisions", "admin.broadcasts.detailTrainingsEmpty": "No training decisions were recorded.", "admin.broadcasts.detailDeliveries": "Delivery outcomes", "admin.broadcasts.detailDeliveriesEmpty": "No deliveries were recorded.", "admin.broadcasts.training": "Training snapshot", "admin.broadcasts.outcome": "Outcome", "admin.broadcasts.skipReason": "Skip reason", "admin.broadcasts.freeSeats": "Free seats", "admin.broadcasts.payload": "Payload snapshot", "admin.broadcasts.diagnostic": "Diagnostic", "admin.broadcasts.noDiagnostic": "No diagnostic", "admin.broadcasts.retryLink": "Retry link", "admin.broadcasts.retryOfDelivery": "Retry of delivery", "admin.broadcasts.openOriginalRun": "Open original run", "admin.broadcasts.retrySucceeded": "Retry run created for {count} deliveries.", "admin.broadcasts.retryFailed": "Retry failed: {message}", "admin.broadcasts.retrying": "Retrying…",
   // ── Navigation ──────────────────────────────────────────────────────────
   "admin.nav.dashboard": "Dashboard",
   "admin.nav.overview": "Overview",
@@ -1035,6 +1036,53 @@ export const adminEn: Record<string, string> = {
   "admin.analytics.broadcastEff.recipients": "Recipients",
   "admin.analytics.broadcastEff.attributed": "Attributed bookings",
   "admin.analytics.broadcastEff.attributedHint": "{hours} h window",
+  "admin.analytics.business.title": "Business performance",
+  "admin.analytics.business.error": "Failed to load business performance.",
+  "admin.analytics.business.moneyLabel": "Money for the period",
+  "admin.analytics.business.demandLabel": "Demand for the period",
+  "admin.analytics.business.courtLabel": "Courts for the period",
+  "admin.analytics.business.paidTraining": "Paid training revenue",
+  "admin.analytics.business.confirmedCourtValue": "Confirmed court value",
+  "admin.analytics.business.confirmedNotPaid": "not collected revenue",
+  "admin.analytics.business.outstandingTraining": "Outstanding training value",
+  "admin.analytics.business.avgCourtValue": "Average court request",
+  "admin.analytics.business.trainingBookings": "Training bookings",
+  "admin.analytics.business.trainingClients": "Training clients",
+  "admin.analytics.business.returningRate": "Returning client share",
+  "admin.analytics.business.returningClients": "{count} clients",
+  "admin.analytics.business.newClients": "New clients",
+  "admin.analytics.business.courtRequests": "Court requests",
+  "admin.analytics.business.courtConfirmation": "Court confirmation",
+  "admin.analytics.business.confirmedRequests": "{count} confirmed",
+  "admin.analytics.business.confirmedCourtHours": "Confirmed court-hours",
+  "admin.analytics.business.unpricedBookings": "Bookings without price",
+  "admin.analytics.business.pricedBookings": "{count} priced bookings",
+  "admin.analytics.business.provenance": "Training revenue uses payment state and price snapshots. Court value is the sum of confirmed requests; the model does not yet store whether court payment was collected.",
+  "admin.analytics.acquisition.title": "Sources and funnel",
+  "admin.analytics.acquisition.forwardOnly": "Exact attribution is collected from this update onward. Link format: destination__source__campaign, for example court__instagram__bio.",
+  "admin.analytics.acquisition.caption": "Mini App launches and successful conversions by last-touch source",
+  "admin.analytics.acquisition.empty": "No attributed launches in this period yet.",
+  "admin.analytics.acquisition.colEntry": "Destination",
+  "admin.analytics.acquisition.colSource": "Source",
+  "admin.analytics.acquisition.colCampaign": "Campaign",
+  "admin.analytics.acquisition.colLaunches": "Launches",
+  "admin.analytics.acquisition.colStarted": "Started",
+  "admin.analytics.acquisition.colSuccessful": "Successful",
+  "admin.analytics.acquisition.colConversion": "Conversion",
+  "admin.analytics.acquisition.entry.direct": "Direct",
+  "admin.analytics.acquisition.entry.training": "Trainings",
+  "admin.analytics.acquisition.entry.court": "Courts",
+  "admin.analytics.acquisition.entry.other": "Other",
+  "admin.analytics.offerings.title": "Training popularity",
+  "admin.analytics.offerings.caption": "Offerings by bookings, clients and fill rate",
+  "admin.analytics.offerings.empty": "No scheduled or completed trainings in this period.",
+  "admin.analytics.offerings.colOffering": "Training",
+  "admin.analytics.offerings.colLevel": "Level",
+  "admin.analytics.offerings.colTrainer": "Trainer",
+  "admin.analytics.offerings.colSessions": "Sessions",
+  "admin.analytics.offerings.colBookings": "Bookings",
+  "admin.analytics.offerings.colClients": "Clients",
+  "admin.analytics.offerings.colFill": "Fill rate",
 
   // ── Labels editor page ────────────────────────────────────────────────────
   "admin.labels.title": "Labels",
@@ -1230,5 +1278,22 @@ export const adminEn: Record<string, string> = {
   "admin.connectors.calendar.rotate": "Rotate link",
   "admin.connectors.calendar.rotated": "Link rotated, old one revoked",
   "admin.connectors.calendar.copy": "Copy link",
-  "admin.connectors.calendar.copied": "Link copied"
+  "admin.connectors.calendar.copied": "Link copied",
+  "admin.broadcasts.builderTitle": "Broadcast automations", "admin.broadcasts.builderLead": "Build versioned messages run by the server.", "admin.broadcasts.newAutomation": "New automation", "admin.broadcasts.automationList": "Automations", "admin.broadcasts.editorTitle": "Automation editor", "admin.broadcasts.historyTitle": "Run history", "admin.broadcasts.legacyTitle": "Legacy manual sends", "admin.broadcasts.legacyLead": "Existing manual sends remain separate; new legacy definitions cannot be created here.", "admin.broadcasts.loading": "Loading…", "admin.broadcasts.loadFailed": "Could not load: {message}", "admin.broadcasts.empty": "No automations yet.", "admin.broadcasts.name": "Name", "admin.broadcasts.trigger": "Trigger", "admin.broadcasts.status": "Status", "admin.broadcasts.actions": "Actions", "admin.broadcasts.enabled": "Enabled", "admin.broadcasts.disabled": "Disabled", "admin.broadcasts.editToEnable": "Edit to enable", "admin.broadcasts.version": "Version {version}", "admin.broadcasts.newDisabled": "New automations are created disabled.", "admin.broadcasts.saveDraft": "Save draft", "admin.broadcasts.preview": "Preview", "admin.broadcasts.enable": "Enable", "admin.broadcasts.disable": "Disable", "admin.broadcasts.saveFailed": "Could not save: {message}", "admin.broadcasts.triggerScheduled": "Scheduled", "admin.broadcasts.triggerCreated": "Training created", "admin.broadcasts.triggerChanged": "Training time changed", "admin.broadcasts.triggerFreed": "Place freed", "admin.broadcasts.recurrence": "Recurrence", "admin.broadcasts.once": "One time", "admin.broadcasts.daily": "Daily", "admin.broadcasts.weekly": "Weekly", "admin.broadcasts.time": "Time (Belgrade)", "admin.broadcasts.date": "Date", "admin.broadcasts.weekdays": "Weekdays", "admin.broadcasts.window": "Training window", "admin.broadcasts.eventDelay": "Event notices are delayed and rechecked by the server.", "admin.broadcasts.levels": "Levels", "admin.broadcasts.activity": "Mini App activity", "admin.broadcasts.activityHint": "Authenticated Mini App activity in the last rolling 7 days, not account or booking activity.", "admin.broadcasts.activityActive": "Active in Mini App (7 days)", "admin.broadcasts.activityInactive": "Inactive in Mini App (7 days)", "admin.broadcasts.output": "Message mode", "admin.broadcasts.perTraining": "One message per training", "admin.broadcasts.digest": "Digest", "admin.broadcasts.cta": "CTA", "admin.broadcasts.ctaNone": "No button", "admin.broadcasts.ctaBooking": "Booking button", "admin.broadcasts.defaultLanguage": "Default language", "admin.broadcasts.message": "Message body", "admin.broadcasts.defaultRequired": "A non-empty default body is required to enable.", "admin.broadcasts.previewTitle": "Server preview", "admin.broadcasts.previewing": "Building preview…", "admin.broadcasts.previewHint": "Save the draft, then request a fresh server preview before enabling.", "admin.broadcasts.recipients": "Recipients: {count}", "admin.broadcasts.when": "When", "admin.broadcasts.results": "Sent / failed / ambiguous", "admin.broadcasts.historyEmpty": "No automation runs yet.", "admin.broadcasts.runDetail": "Run details", "admin.broadcasts.retryHint": "Only eligible failed deliveries can be retried.", "admin.broadcasts.retryAmbiguous": "Include ambiguous deliveries", "admin.broadcasts.duplicateWarning": "This may duplicate a delivery.", "admin.broadcasts.retry": "Retry failures"
+  , "admin.broadcasts.historyFilters": "History filters", "admin.broadcasts.historyAutomation": "Automation", "admin.broadcasts.historyTrigger": "Run trigger", "admin.broadcasts.allAutomations": "All automations", "admin.broadcasts.allTriggers": "All triggers", "admin.broadcasts.allStatuses": "All statuses", "admin.broadcasts.loadMore": "Load more", "admin.broadcasts.retrySelect": "Select", "admin.broadcasts.openRetryRun": "Open retry run", "admin.broadcasts.runCounts": "Run counts", "admin.broadcasts.count": "Count", "admin.broadcasts.value": "Value", "admin.broadcasts.configSnapshot": "Immutable configuration snapshot"
+, "admin.broadcasts.audience": "Audience filters"
+, "admin.broadcasts.audienceHint": "Add at least one filter. The server intersects selected filters and calculates recipients."
+, "admin.broadcasts.addLevels": "Add levels"
+, "admin.broadcasts.addActivity": "Add activity"
+, "admin.broadcasts.addGender": "Add gender"
+, "admin.broadcasts.removeFilter": "Remove filter"
+, "admin.broadcasts.levelRequired": "Select at least one level or remove this filter."
+, "admin.broadcasts.gender": "Gender"
+, "admin.broadcasts.genderChoice": "Gender selection"
+, "admin.broadcasts.genderMale": "Male"
+, "admin.broadcasts.genderFemale": "Female"
+, "admin.broadcasts.genderUnspecified": "Unspecified"
+, "admin.broadcasts.genderInclusiveWarning": "Male and female selections also include clients whose gender is unspecified."
+, "admin.broadcasts.audienceReady": "Audience filters are ready for server preview."
+, "admin.broadcasts.audienceIncomplete": "Add a valid audience filter before saving or previewing."
 }

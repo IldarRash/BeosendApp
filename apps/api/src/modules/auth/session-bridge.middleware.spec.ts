@@ -36,13 +36,15 @@ describe("SessionBridgeMiddleware", () => {
   });
 
   it("bridges a client-scope Mini App token to x-client-telegram-id ONLY, never x-telegram-id", () => {
+    const analyticsSessionId = "11111111-1111-4111-8111-111111111111";
     const token = signSessionToken(
       {
         sub: 1234,
         name: "Bea",
         scope: "client",
         username: "bea",
-        photoUrl: "https://t.me/i/userpic/320/bea.jpg"
+        photoUrl: "https://t.me/i/userpic/320/bea.jpg",
+        analyticsSessionId
       },
       SESSION_SECRET
     );
@@ -53,6 +55,7 @@ describe("SessionBridgeMiddleware", () => {
     expect(req.headers["x-client-telegram-id"]).toBe("1234");
     expect(req.headers["x-client-telegram-username"]).toBe("bea");
     expect(req.headers["x-client-telegram-photo-url"]).toBe("https://t.me/i/userpic/320/bea.jpg");
+    expect(req.headers["x-client-analytics-session-id"]).toBe(analyticsSessionId);
     expect(req.headers["x-telegram-id"]).toBeUndefined();
   });
 
@@ -74,6 +77,7 @@ describe("SessionBridgeMiddleware", () => {
         "x-client-telegram-id": "1234",
         "x-client-telegram-username": "forged",
         "x-client-telegram-photo-url": "https://attacker.test/photo.jpg",
+        "x-client-analytics-session-id": "11111111-1111-4111-8111-111111111111",
         "x-telegram-id": "7777"
       }
     };
@@ -83,6 +87,7 @@ describe("SessionBridgeMiddleware", () => {
     expect(req.headers["x-client-telegram-id"]).toBeUndefined();
     expect(req.headers["x-client-telegram-username"]).toBeUndefined();
     expect(req.headers["x-client-telegram-photo-url"]).toBeUndefined();
+    expect(req.headers["x-client-analytics-session-id"]).toBeUndefined();
     expect(req.headers["x-telegram-id"]).toBe("7777");
   });
 

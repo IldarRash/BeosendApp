@@ -135,7 +135,8 @@ export class CourtRequestsController {
   async create(
     @Body() body: unknown,
     @Headers("x-telegram-id") telegramIdHeader: string | undefined,
-    @Headers("x-client-telegram-id") clientTelegramIdHeader?: string
+    @Headers("x-client-telegram-id") clientTelegramIdHeader?: string,
+    @Headers("x-client-analytics-session-id") analyticsSessionIdHeader?: string
   ): Promise<CourtRequest> {
     const actorTelegramId = parseTelegramId(clientTelegramIdHeader ?? telegramIdHeader);
     const parsed = createCourtRequestSchema.safeParse(body);
@@ -145,7 +146,17 @@ export class CourtRequestsController {
       );
     }
     assertSelf(parsed.data.telegramId, actorTelegramId);
-    return this.service.createRequest({ ...parsed.data, telegramId: actorTelegramId });
+    const analyticsSession = analyticsSessionIdHeader
+      ? uuid.safeParse(analyticsSessionIdHeader)
+      : null;
+    if (analyticsSession && !analyticsSession.success) {
+      throw new BadRequestException("Invalid analytics session");
+    }
+    return this.service.createRequest({
+      ...parsed.data,
+      telegramId: actorTelegramId,
+      ...(analyticsSession?.success ? { analyticsSessionId: analyticsSession.data } : {})
+    });
   }
 
   /**

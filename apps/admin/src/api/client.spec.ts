@@ -265,6 +265,77 @@ describe("ApiClient broadcast templates", () => {
   });
 });
 
+describe("ApiClient broadcast automation builder", () => {
+  afterEach(() => vi.unstubAllGlobals());
+
+  const automationId = "77777777-7777-4777-8777-777777777777";
+  const runId = "99999999-9999-4999-8999-999999999999";
+  const automation = {
+    id: automationId, name: "Tomorrow", enabled: false,
+    trigger: { kind: "scheduled" as const, recurrence: "daily" as const, time: "10:00", trainingWindow: "tomorrow" as const },
+    audience: { filters: [{ dimension: "level" as const, levelIds: ["88888888-8888-4888-8888-888888888888"] }, { dimension: "activity" as const, value: "active" as const }, { dimension: "gender" as const, value: "unspecified" as const }] },
+    message: { bodies: { ru: "Здравствуйте" }, defaultLanguage: "ru" as const, outputMode: "per-training" as const, ctaMode: "none" as const },
+    version: 3, createdBy: 1, updatedBy: 1, createdAt: "2026-07-01T00:00:00.000Z", updatedAt: "2026-07-01T00:00:00.000Z"
+  };
+
+  it("uses versioned builder paths for create, preview and preview-token enable", async () => {
+    const calls = mockFetchOnce(automation);
+    const client = new ApiClient("http://api.test");
+    const draft = { name: automation.name, trigger: automation.trigger, audience: automation.audience, message: automation.message };
+
+    await client.createBroadcastAutomation(draft);
+    expect(calls[0]?.url).toBe("http://api.test/broadcast-automations");
+    expect(calls[0]?.init?.method).toBe("POST");
+    expect(JSON.parse(calls[0]?.init?.body as string)).toEqual(draft);
+  });
+
+  it("sends each valid single, pair, and triple audience combination without reshaping it", async () => {
+    const client = new ApiClient("http://api.test");
+    const base = { name: automation.name, trigger: automation.trigger, message: automation.message };
+    const audiences = [
+      { filters: [{ dimension: "activity" as const, value: "active" as const }] },
+      { filters: [{ dimension: "level" as const, levelIds: ["88888888-8888-4888-8888-888888888888"] }, { dimension: "gender" as const, value: "female" as const }] },
+      automation.audience
+    ];
+
+    for (const audience of audiences) {
+      const calls = mockFetchOnce(automation);
+      await client.createBroadcastAutomation({ ...base, audience });
+      expect(JSON.parse(calls[0]?.init?.body as string).audience).toEqual(audience);
+    }
+  });
+
+  it("rejects empty and level-empty audiences before a forbidden request is made", () => {
+    const fetch = vi.fn();
+    vi.stubGlobal("fetch", fetch);
+    const client = new ApiClient("http://api.test");
+    const base = { name: automation.name, trigger: automation.trigger, message: automation.message };
+
+    expect(() => client.createBroadcastAutomation({ ...base, audience: { filters: [] } })).toThrow();
+    expect(() => client.createBroadcastAutomation({ ...base, audience: { filters: [{ dimension: "level", levelIds: [] }] } })).toThrow();
+    expect(fetch).not.toHaveBeenCalled();
+  });
+
+  it("rejects unsafe enable without a preview token before it can make a request", () => {
+    const fetch = vi.fn();
+    vi.stubGlobal("fetch", fetch);
+    expect(() => new ApiClient("http://api.test").enableBroadcastAutomation(automationId, { expectedVersion: 3, previewToken: "stale" })).toThrow();
+    expect(fetch).not.toHaveBeenCalled();
+  });
+
+  it("sends selected delivery ids with the explicit ambiguous-delivery acknowledgement", async () => {
+    const calls = mockFetchOnce({ run: { id: runId, automationId, automationVersion: 3, triggerKind: "scheduled", sourceEventId: null, scheduledFor: null, dueAt: "2026-07-01T00:00:00.000Z", status: "completed", skipReason: null, originalRunId: null, configSnapshot: { name: automation.name, trigger: automation.trigger, audience: automation.audience, message: automation.message }, counts: { selectedTrainings: 0, includedTrainings: 0, skippedTrainings: 0, recipients: 0, attempted: 0, sent: 0, failed: 0, ambiguous: 0, skippedDeliveries: 0 }, createdAt: "2026-07-01T00:00:00.000Z", startedAt: null, completedAt: null }, selectedDeliveryCount: 1 });
+    await new ApiClient("http://api.test").retryBroadcastAutomationFailures(runId, { deliveryIds: ["88888888-8888-4888-8888-888888888888"], includeAmbiguous: true, acknowledgeAmbiguous: true });
+    expect(calls[0]?.url).toBe(`http://api.test/broadcast-automation-runs/${runId}/retry-failures`);
+    expect(JSON.parse(calls[0]?.init?.body as string)).toEqual({ deliveryIds: ["88888888-8888-4888-8888-888888888888"], includeAmbiguous: true, acknowledgeAmbiguous: true });
+  });
+
+  it("rejects a malformed retry response before it can reach the page", async () => {
+    mockFetchOnce({ run: { id: runId }, selectedDeliveryCount: "one" });
+    await expect(new ApiClient("http://api.test").retryBroadcastAutomationFailures(runId, { deliveryIds: ["88888888-8888-4888-8888-888888888888"], includeAmbiguous: false })).rejects.toThrow();
+  });
+});
+
 describe("ApiClient session", () => {
   beforeEach(() => {
     sessionStorage.clear();
@@ -360,6 +431,47 @@ describe("ApiClient auth contracts", () => {
     // still parses — assert the validated shape excludes the injected field.
     const result = await new ApiClient("http://api.test").analyticsSummary();
     expect(result).not.toHaveProperty("injected");
+  });
+
+  it("validates the composite business analytics response and range query", async () => {
+    const calls = mockFetchOnce({
+      from: "2026-05-01",
+      to: "2026-05-31",
+      revenue: {
+        paidTrainingRevenueRsd: 12000,
+        outstandingTrainingValueRsd: 3000,
+        confirmedCourtValueRsd: 6000,
+        averageConfirmedCourtValueRsd: 3000,
+        pricedTrainingBookings: 10,
+        unpricedTrainingBookings: 1
+      },
+      demand: {
+        trainingBookings: 11,
+        trainingClients: 8,
+        newClients: 3,
+        returningClients: 5,
+        returningClientRate: 0.625
+      },
+      court: {
+        requestsCount: 3,
+        confirmedRequests: 2,
+        cancelledRequests: 0,
+        confirmedCourtHours: 4,
+        confirmationRate: 2 / 3
+      },
+      acquisition: [],
+      popularTrainings: []
+    });
+
+    const result = await new ApiClient("http://api.test").businessAnalytics({
+      from: "2026-05-01",
+      to: "2026-05-31"
+    });
+
+    expect(result.revenue.paidTrainingRevenueRsd).toBe(12000);
+    expect(calls[0]?.url).toContain(
+      "/analytics/business?from=2026-05-01&to=2026-05-31"
+    );
   });
 
   it("maps a 401 to a typed AuthError", async () => {
@@ -1146,6 +1258,7 @@ describe("ApiClient error handling & clients", () => {
     telegramId: 4242,
     telegramUsername: "anya",
     telegramPhotoUrl: null,
+    gender: "unspecified",
     levelId: null,
     source: "telegram",
     phone: null,
@@ -1301,6 +1414,23 @@ describe("ApiClient error handling & clients", () => {
     expect(calls[0]?.url).toBe("http://api.test/clients?search=%40anya&status=active");
   });
 
+  it("defaults an omitted legacy client gender to unspecified", async () => {
+    const { gender: _gender, ...legacyClient } = sampleClient;
+    mockFetchOnce([legacyClient]);
+
+    const result = await new ApiClient("http://api.test").listClients();
+
+    expect(result[0]?.gender).toBe("unspecified");
+  });
+
+  it("preserves an explicit client gender from the API", async () => {
+    mockFetchOnce([{ ...sampleClient, gender: "female" }]);
+
+    const result = await new ApiClient("http://api.test").listClients();
+
+    expect(result[0]?.gender).toBe("female");
+  });
+
   it("requests the bare /clients path when no filters are given", async () => {
     const calls = mockFetchOnce([]);
     await new ApiClient("http://api.test").listClients();
@@ -1450,6 +1580,7 @@ describe("ApiClient walk-in & manual booking (Feature 5)", () => {
     telegramId: null,
     telegramUsername: null,
     telegramPhotoUrl: null,
+    gender: "unspecified",
     levelId: null,
     source: "walk_in",
     phone: "+381601234567",
@@ -1885,6 +2016,7 @@ describe("ApiClient training delete & client edit", () => {
     telegramId: 4242,
     telegramUsername: "anya",
     telegramPhotoUrl: null,
+    gender: "unspecified",
     levelId: LEVEL_ID,
     source: "telegram",
     phone: "+381601112233",

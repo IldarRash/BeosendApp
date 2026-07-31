@@ -1,4 +1,4 @@
-import { ForbiddenException, Inject, Injectable } from "@nestjs/common";
+import { ForbiddenException, GoneException, Inject, Injectable } from "@nestjs/common";
 import type { Env } from "@beosand/config";
 import { isAdmin } from "@beosand/config";
 import {
@@ -124,16 +124,12 @@ export class SettingsService {
 
   async updateSameDayFreedSlotAutomationSettings(
     actorTelegramId: number,
-    input: UpdateSameDayFreedSlotAutomationSettingsInput
+    _input: UpdateSameDayFreedSlotAutomationSettingsInput
   ): Promise<SameDayFreedSlotAutomationSettings> {
     this.assertAdmin(actorTelegramId);
-    const parsed = sameDayFreedSlotAutomationSettingsSchema.parse(input);
-    const stored = await this.settings.upsertValue(
-      SAME_DAY_FREED_SLOT_AUTOMATION_KEY,
-      JSON.stringify(parsed),
-      actorTelegramId
+    throw new GoneException(
+      "The legacy freed-slot automation setting is retired; configure a broadcast automation instead"
     );
-    return this.parseSameDayFreedSlotAutomationSettings(stored);
   }
 
   /** Internal read for the dispatcher. Invalid or unknown JSON disables sending. */

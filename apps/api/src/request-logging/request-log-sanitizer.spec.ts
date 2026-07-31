@@ -48,6 +48,30 @@ describe("request log sanitizer", () => {
     });
   });
 
+  it("masks gender keys case-insensitively at every nesting level", () => {
+    expect(
+      sanitizeForRequestLog({
+        gender: "female",
+        GenderIdentity: "nonbinary",
+        profile: {
+          GENDER: "male",
+          preferences: [{ genderCode: "F" }, { visible: true }]
+        },
+        page: 2,
+        status: "open"
+      })
+    ).toEqual({
+      gender: "[masked]",
+      GenderIdentity: "[masked]",
+      profile: {
+        GENDER: "[masked]",
+        preferences: [{ genderCode: "[masked]" }, { visible: true }]
+      },
+      page: 2,
+      status: "open"
+    });
+  });
+
   it("sanitizes selected headers and never exposes bearer tokens or cookies", () => {
     expect(
       sanitizeSelectedHeaders({

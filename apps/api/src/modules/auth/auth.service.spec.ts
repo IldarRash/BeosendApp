@@ -6,6 +6,8 @@ import { adminSessionSchema, type TelegramLoginPayload } from "@beosand/types";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { AuthService } from "./auth.service";
 import type { StaffLinkingService } from "../managers/staff-linking.service";
+import type { AnalyticsTrackingService } from "../analytics/analytics-tracking.service";
+import type { ClientsRepository } from "../clients/clients.repository";
 import { signSessionToken, verifySessionToken } from "./session-token";
 
 const BOT_TOKEN = "123456:test-bot-token";
@@ -177,6 +179,88 @@ describe("AuthService", () => {
     const claims = verifySessionToken(session.token, SESSION_SECRET);
     expect(claims?.scope).toBe("client");
     expect(claims?.photoUrl).toBe(PHOTO_URL);
+  });
+
+  it("records a verified start_param and signs only the returned session id", async () => {
+    const analyticsSessionId = "11111111-1111-4111-8111-111111111111";
+    const recordLaunch = vi.fn().mockResolvedValue(analyticsSessionId);
+    const trackedService = new AuthService(
+      env,
+      makeLinking().service,
+      undefined,
+      { recordLaunch } as unknown as AnalyticsTrackingService
+    );
+    const initData = signInitData({
+      auth_date: String(Math.floor(Date.now() / 1000)),
+      start_param: "court__instagram__bio",
+      user: JSON.stringify({ id: NON_ADMIN_ID, first_name: "Bea" })
+    });
+
+    const session = await trackedService.loginWithMiniapp(initData);
+
+    expect(recordLaunch).toHaveBeenCalledWith("court__instagram__bio");
+    expect(verifySessionToken(session.token, SESSION_SECRET)?.analyticsSessionId).toBe(
+      analyticsSessionId
+    );
+  });
+
+  it("does not block Mini App login when analytics recording fails", async () => {
+    const trackedService = new AuthService(
+      env,
+      makeLinking().service,
+      undefined,
+      {
+        recordLaunch: vi.fn().mockRejectedValue(new Error("analytics unavailable"))
+      } as unknown as AnalyticsTrackingService
+    );
+
+    const session = await trackedService.loginWithMiniapp(freshInitData(NON_ADMIN_ID));
+
+    expect(verifySessionToken(session.token, SESSION_SECRET)?.scope).toBe("client");
+    expect(verifySessionToken(session.token, SESSION_SECRET)?.analyticsSessionId).toBeUndefined();
+  });
+
+  it("refreshes server-time Mini App activity for an existing client only after valid initData", async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date("2026-07-28T10:15:00.000Z"));
+    const clients = {
+      findByTelegramId: vi.fn(async () => ({ id: "client-1" })),
+      recordMiniAppAccess: vi.fn(async () => ({ id: "client-1" }))
+    } as unknown as ClientsRepository;
+    const withActivity = new AuthService(env, makeLinking().service, clients);
+
+    await withActivity.loginWithMiniapp(freshInitData(NON_ADMIN_ID));
+
+    expect(clients.recordMiniAppAccess).toHaveBeenCalledWith(
+      NON_ADMIN_ID,
+      new Date("2026-07-28T10:15:00.000Z")
+    );
+    vi.useRealTimers();
+  });
+
+  it("does not create or mark a first-time Mini App identity active during initData validation", async () => {
+    const clients = {
+      findByTelegramId: vi.fn(async () => undefined),
+      recordMiniAppAccess: vi.fn()
+    } as unknown as ClientsRepository;
+    const withActivity = new AuthService(env, makeLinking().service, clients);
+
+    await withActivity.loginWithMiniapp(freshInitData(NON_ADMIN_ID));
+
+    expect(clients.findByTelegramId).toHaveBeenCalledWith(NON_ADMIN_ID);
+    expect(clients.recordMiniAppAccess).not.toHaveBeenCalled();
+  });
+
+  it("fails the authenticated entry when its activity refresh cannot persist", async () => {
+    const clients = {
+      findByTelegramId: vi.fn(async () => ({ id: "client-1" })),
+      recordMiniAppAccess: vi.fn(async () => undefined)
+    } as unknown as ClientsRepository;
+    const withActivity = new AuthService(env, makeLinking().service, clients);
+
+    await expect(withActivity.loginWithMiniapp(freshInitData(NON_ADMIN_ID))).rejects.toBeInstanceOf(
+      UnauthorizedException
+    );
   });
 
   it("loginWithMiniapp accepts missing optional username/photo_url", async () => {

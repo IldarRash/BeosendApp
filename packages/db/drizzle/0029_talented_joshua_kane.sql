@@ -1,0 +1,1 @@
+ALTER TYPE "public"."broadcast_automation_trigger_kind" ADD VALUE 'manual-retry';
