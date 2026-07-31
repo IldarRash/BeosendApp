@@ -30,6 +30,7 @@ export const NAV_ITEMS: readonly NavItem[] = [
   { path: "/", labelKey: "admin.nav.overview", live: true, group: "dispatch", iconKey: "overview" },
   { path: "/groups", labelKey: "admin.nav.groups", live: true, group: "schedule", iconKey: "groups" },
   { path: "/trainings", labelKey: "admin.nav.trainings", live: true, group: "schedule", iconKey: "trainings" },
+  { path: "/schedule-planner", labelKey: "admin.nav.schedulePlanner", live: true, group: "schedule", iconKey: "schedulePlanner" },
   { path: "/trainers", labelKey: "admin.nav.trainers", live: true, group: "schedule", iconKey: "trainers" },
   { path: "/attendance", labelKey: "admin.nav.attendance", live: true, group: "schedule", iconKey: "attendance" },
   { path: "/court-requests", labelKey: "admin.nav.courtRequests", live: true, group: "courts", iconKey: "courtRequests" },

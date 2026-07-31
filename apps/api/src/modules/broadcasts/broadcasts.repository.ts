@@ -110,6 +110,7 @@ export class BroadcastsRepository {
         and(
           gte(tables.trainings.date, from),
           lte(tables.trainings.date, to),
+          eq(tables.trainings.hidden, false),
           eq(tables.trainings.status, "open"),
           sql`${tables.trainings.bookedCount} < ${tables.trainings.capacity}`,
           isNotNull(tables.trainings.groupId),

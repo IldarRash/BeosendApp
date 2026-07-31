@@ -125,7 +125,7 @@ export class GroupsService {
       callerSubscribed = await this.groups.hasActiveSubscription(client.id, groupId, from, to);
     }
 
-    const rows = await this.groups.listMonthMembers(groupId, from, to);
+    const rows = await this.groups.listMonthMembers(groupId, from, to, admin);
 
     const members: GroupMember[] = rows.map((row) => narrowMember(row, admin));
 

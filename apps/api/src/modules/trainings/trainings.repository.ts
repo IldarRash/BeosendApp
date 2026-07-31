@@ -109,6 +109,7 @@ export interface ClientTrainingDetailRow {
   groupName: string | null;
   courtNumber: number | null;
   trainingStatus: TrainingStatus;
+  trainingHidden: boolean;
   groupStatus: "active" | "inactive" | null;
   groupHidden: boolean | null;
   trainerStatus: "active" | "inactive";
@@ -605,6 +606,7 @@ export class TrainingsRepository {
         groupName: tables.groups.name,
         courtNumber: tables.courts.number,
         trainingStatus: tables.trainings.status,
+        trainingHidden: tables.trainings.hidden,
         groupStatus: tables.groups.status,
         groupHidden: tables.groups.hidden,
         trainerStatus: tables.trainers.status,
@@ -689,6 +691,7 @@ export class TrainingsRepository {
     const filters = [
       gte(tables.trainings.date, from),
       lte(tables.trainings.date, to),
+      eq(tables.trainings.hidden, false),
       eq(tables.trainings.status, "open"),
       sql`${tables.trainings.bookedCount} < ${tables.trainings.capacity}`,
       isNotNull(tables.trainings.groupId),
@@ -748,6 +751,7 @@ export class TrainingsRepository {
     const filters = [
       gte(tables.trainings.date, from),
       lte(tables.trainings.date, to),
+      eq(tables.trainings.hidden, false),
       inArray(tables.trainings.status, ["open", "full"]),
       isNotNull(tables.trainings.groupId),
       eq(tables.groups.status, "active"),
@@ -809,6 +813,7 @@ export class TrainingsRepository {
       .where(
         and(
           eq(tables.trainings.id, trainingId),
+          eq(tables.trainings.hidden, false),
           inArray(tables.trainings.status, ["open", "full"]),
           isNotNull(tables.trainings.groupId),
           eq(tables.groups.status, "active"),
@@ -1090,6 +1095,7 @@ export class TrainingsRepository {
           eq(tables.bookings.clientId, clientId),
           inArray(tables.bookings.status, ["booked", "attended"]),
           gte(tables.trainings.date, fromDate),
+          eq(tables.trainings.hidden, false),
           ne(tables.trainings.status, "cancelled")
         )
       )

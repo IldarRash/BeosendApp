@@ -63,9 +63,10 @@ describe("BookingsRepository.listForClient WHERE filter", () => {
     expect(sql).toContain('"date" <');
   });
 
-  it("scopes the read to the supplied client id", async () => {
+  it("scopes the read to the supplied client id without hiding the owner's preserved history", async () => {
     const sql = await renderWhere("upcoming");
     expect(sql).toContain('"client_id" =');
+    expect(sql).not.toContain('"trainings"."hidden" =');
   });
 
   it("selects the exact raw training fields needed for group vs Individual labels", async () => {
@@ -168,7 +169,8 @@ describe("BookingsRepository.findClientVisibleTrainingForUpdate WHERE filter", (
     expect(sql).toContain('"id" =');
     expect(sql).toContain('"date" >=');
     expect(sql).toContain('"group_id" is not null');
-    expect(sql).toContain('"hidden" =');
+    expect(sql).toContain('"trainings"."hidden" =');
+    expect(sql).toContain('"groups"."hidden" =');
     expect(sql).not.toContain('"trainings"."booked_count" < "trainings"."capacity"');
     expect(rendered.params).toEqual(
       expect.arrayContaining([

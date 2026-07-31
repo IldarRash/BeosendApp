@@ -163,6 +163,7 @@ export class NotificationsRepository {
       .where(
         and(
           eq(tables.bookings.status, "booked"),
+          eq(tables.trainings.hidden, false),
           sql`${tables.trainings.status} in ('open','full')`,
           gte(startsAt, lower),
           lte(startsAt, upper),

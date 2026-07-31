@@ -62,6 +62,7 @@ interface WaitlistRowState {
 /** In-memory stand-in for the waitlist repository (only DB-access layer). */
 class FakeWaitlistRepository {
   training: TrainingLockRow | undefined;
+  lastTrainingLookupOptions: { requireClientVisible?: boolean } | undefined;
   entries: WaitlistRowState[] = [];
   bookings: {
     id: string;
@@ -92,8 +93,10 @@ class FakeWaitlistRepository {
 
   async findTrainingForUpdate(
     _tx: Database,
-    trainingId: string
+    trainingId: string,
+    options: { requireClientVisible?: boolean } = {}
   ): Promise<TrainingLockRow | undefined> {
+    this.lastTrainingLookupOptions = options;
     return this.training && this.training.id === trainingId ? this.training : undefined;
   }
 
@@ -583,6 +586,7 @@ describe("WaitlistService.join", () => {
 
     expect(entry.position).toBe(2);
     expect(entry.status).toBe("waiting");
+    expect(repo.lastTrainingLookupOptions).toEqual({ requireClientVisible: true });
   });
 
   it("rejects joining an individual (group-less) training with a 400", async () => {

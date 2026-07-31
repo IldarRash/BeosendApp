@@ -163,7 +163,7 @@ contracts in the admin `ApiClient`.
 | Method and path | Request | Response and behavior |
 | --- | --- | --- |
 | `GET /monthly-schedule-plans?year=&month=` | `year`, `month` | `monthlySchedulePlanViewSchema.nullable()`. Returns templates, durable dated entries, current allocations, and diagnostics; does not mutate. |
-| `POST /monthly-schedule-plans` | `createMonthlySchedulePlanSchema` | Creates the month's draft; `409` if one already exists. |
+| `POST /monthly-schedule-plans` | `createMonthlySchedulePlanSchema` | Idempotently creates or returns the one shared draft/plan for that month. |
 | `POST /monthly-schedule-plans/:id/templates` | `createMonthlyScheduleTemplateSchema` | Adds one group recurrence before generation, materializes its dated entries, increments plan revision, and returns the refreshed view. |
 | `PATCH /monthly-schedule-plans/:id/templates/:templateId` | `updateMonthlyScheduleTemplateSchema` | Last-write-wins template update. Before generation it rematerializes dated entries; after generation it invokes atomic propagation across every mapped entry/training. |
 | `DELETE /monthly-schedule-plans/:id/templates/:templateId` | no body | Removes a template and its ungenerated entries only before generation; generated template membership is immutable. |
@@ -344,7 +344,7 @@ There is no bot command for creating, approving, generating, publishing, or edit
 ## Acceptance criteria
 
 - An authenticated admin can create one draft for a selected month and add several recurring group
-  entries; a second plan for that month is rejected.
+  entries; a repeated create returns that same unique monthly plan without duplicating it.
 - The month day-cell calendar shows every materialized dated entry and current trainer/court assignment,
   plus all human-readable diagnostics for trainer overlap, preferred/assigned court occupancy,
   rentals, pending holds, blocks, working hours, inactive resources, and courtless trainings.

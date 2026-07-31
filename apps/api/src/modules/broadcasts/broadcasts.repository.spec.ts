@@ -17,6 +17,31 @@ function render(predicate: unknown): { sql: string; params: unknown[] } {
   return { sql: query.sql.toLowerCase(), params: query.params };
 }
 
+describe("BroadcastsRepository.listSlots", () => {
+  it("excludes hidden planner trainings from manual broadcast candidates", async () => {
+    let predicate: unknown;
+    const builder = {
+      from: () => builder,
+      innerJoin: () => builder,
+      where: (value: unknown) => {
+        predicate = value;
+        return builder;
+      },
+      orderBy: async () => []
+    };
+    const db = { select: () => builder } as unknown as Database;
+
+    await new BroadcastsRepository({ db } as unknown as DatabaseService).listSlots(
+      "2026-07-01",
+      "2026-07-31"
+    );
+
+    const sql = render(predicate);
+    expect(sql.sql).toContain('"trainings"."hidden" =');
+    expect(sql.params).toContain(false);
+  });
+});
+
 describe("BroadcastsRepository.filterSameDayFreedSlotRecipients", () => {
   it("excludes the canceller plus clients with booked/pending bookings or waiting/notified entries", async () => {
     const predicates: unknown[] = [];

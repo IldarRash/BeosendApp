@@ -247,6 +247,9 @@ export const monthlyScheduleNotificationScheduleSchema = z
     message: "endTime must be after startTime",
     path: ["endTime"]
   });
+export type MonthlyScheduleNotificationSchedule = z.infer<
+  typeof monthlyScheduleNotificationScheduleSchema
+>;
 
 export const monthlyScheduleNotificationChangeSchema = z
   .object({
@@ -257,6 +260,9 @@ export const monthlyScheduleNotificationChangeSchema = z
     after: monthlyScheduleNotificationScheduleSchema
   })
   .strict();
+export type MonthlyScheduleNotificationChange = z.infer<
+  typeof monthlyScheduleNotificationChangeSchema
+>;
 
 /** Admin-only: recipient channel addresses intentionally never leave the API. */
 export const monthlyScheduleNotificationDeliverySchema = z

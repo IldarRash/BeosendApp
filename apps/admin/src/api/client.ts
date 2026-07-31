@@ -12,6 +12,12 @@ import {
   labelEntrySchema,
   managerContactSchema,
   managerSchema,
+  monthlyScheduleActionResultSchema,
+  monthlyScheduleConflictResultSchema,
+  monthlySchedulePlanViewSchema,
+  createMonthlySchedulePlanSchema,
+  createMonthlyScheduleTemplateSchema,
+  updateMonthlyScheduleTemplateSchema,
   analyticsSummarySchema,
   businessAnalyticsSchema,
   bookingSchema,
@@ -164,6 +170,12 @@ import {
   type ListSubscriptionsQuery,
   type ManagerContact,
   type Manager,
+  type CreateMonthlySchedulePlanInput,
+  type CreateMonthlyScheduleTemplateInput,
+  type MonthlyScheduleActionResult,
+  type MonthlyScheduleConflictResult,
+  type MonthlySchedulePlanView,
+  type UpdateMonthlyScheduleTemplateInput,
   type ListTrainingsQuery,
   type Locale,
   type UpdateLabelInput,
@@ -284,6 +296,14 @@ export class ConflictError extends Error {
   }
 }
 
+/** A planner action can return every current blocking/warning reason in one 409. */
+export class MonthlyScheduleConflictError extends ConflictError {
+  constructor(readonly result: MonthlyScheduleConflictResult) {
+    super(result.conflicts[0]?.message ?? "План нельзя применить из-за конфликтов ресурсов");
+    this.name = "MonthlyScheduleConflictError";
+  }
+}
+
 /**
  * Thin typed client the admin SPA uses to reach apps/api. The console is an
  * interaction layer only: it never owns domain logic or money/availability math.
@@ -354,6 +374,47 @@ export class ApiClient {
 
   health(): Promise<Health> {
     return this.request("/health", healthSchema);
+  }
+
+  getMonthlySchedulePlan(year: number, month: number): Promise<MonthlySchedulePlanView | null> {
+    return this.request(
+      `/monthly-schedule-plans?year=${encodeURIComponent(year)}&month=${encodeURIComponent(month)}`,
+      monthlySchedulePlanViewSchema.nullable()
+    );
+  }
+
+  createMonthlySchedulePlan(input: CreateMonthlySchedulePlanInput): Promise<MonthlySchedulePlanView> {
+    return this.request("/monthly-schedule-plans", monthlySchedulePlanViewSchema, {
+      method: "POST", body: JSON.stringify(createMonthlySchedulePlanSchema.parse(input))
+    });
+  }
+
+  createMonthlyScheduleTemplate(planId: string, input: CreateMonthlyScheduleTemplateInput): Promise<MonthlySchedulePlanView> {
+    return this.request(`/monthly-schedule-plans/${planId}/templates`, monthlySchedulePlanViewSchema, {
+      method: "POST", body: JSON.stringify(createMonthlyScheduleTemplateSchema.parse(input))
+    });
+  }
+
+  updateMonthlyScheduleTemplate(planId: string, templateId: string, input: UpdateMonthlyScheduleTemplateInput): Promise<MonthlyScheduleActionResult> {
+    return this.request(`/monthly-schedule-plans/${planId}/templates/${templateId}`, monthlyScheduleActionResultSchema, {
+      method: "PATCH", body: JSON.stringify(updateMonthlyScheduleTemplateSchema.parse(input))
+    });
+  }
+
+  deleteMonthlyScheduleTemplate(planId: string, templateId: string): Promise<MonthlySchedulePlanView> {
+    return this.request(`/monthly-schedule-plans/${planId}/templates/${templateId}`, monthlySchedulePlanViewSchema, { method: "DELETE" });
+  }
+
+  approveMonthlySchedulePlan(planId: string): Promise<MonthlyScheduleActionResult> {
+    return this.request(`/monthly-schedule-plans/${planId}/approve`, monthlyScheduleActionResultSchema, { method: "POST" });
+  }
+
+  generateMonthlySchedulePlan(planId: string): Promise<MonthlyScheduleActionResult> {
+    return this.request(`/monthly-schedule-plans/${planId}/generate`, monthlyScheduleActionResultSchema, { method: "POST" });
+  }
+
+  publishMonthlySchedulePlan(planId: string): Promise<MonthlyScheduleActionResult> {
+    return this.request(`/monthly-schedule-plans/${planId}/publish`, monthlyScheduleActionResultSchema, { method: "POST" });
   }
 
   /** Exchange a Telegram Login Widget payload for a verified admin session. */
@@ -1716,6 +1777,14 @@ export class ApiClient {
  * any other status stays a generic Error.
  */
 async function errorFromResponse(res: Response, path: string): Promise<Error> {
+  if (res.status === 409) {
+    try {
+      const conflict = monthlyScheduleConflictResultSchema.safeParse(await res.clone().json());
+      if (conflict.success) return new MonthlyScheduleConflictError(conflict.data);
+    } catch {
+      // Keep the ordinary conflict path for non-planner 409 responses.
+    }
+  }
   const message = await readErrorMessage(res, `API ${path} failed: ${res.status}`);
   return res.status === 409 ? new ConflictError(message) : new Error(message);
 }

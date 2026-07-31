@@ -102,7 +102,12 @@ export class GroupsRepository {
    * date falls within [from, to]. Ordered by name; no business rules — the service
    * owns the month range and the role-based field projection.
    */
-  async listMonthMembers(groupId: string, from: string, to: string): Promise<GroupMemberRow[]> {
+  async listMonthMembers(
+    groupId: string,
+    from: string,
+    to: string,
+    includeHiddenTrainings = false
+  ): Promise<GroupMemberRow[]> {
     return this.database.db
       .selectDistinct({
         clientId: tables.clients.id,
@@ -117,7 +122,8 @@ export class GroupsRepository {
           eq(tables.trainings.groupId, groupId),
           eq(tables.bookings.status, "booked"),
           gte(tables.trainings.date, from),
-          lte(tables.trainings.date, to)
+          lte(tables.trainings.date, to),
+          includeHiddenTrainings ? undefined : eq(tables.trainings.hidden, false)
         )
       )
       .orderBy(asc(tables.clients.name));
@@ -171,6 +177,7 @@ export class GroupsRepository {
       .where(
         and(
           eq(tables.trainings.groupId, groupId),
+          eq(tables.trainings.hidden, false),
           inArray(tables.trainings.status, ["open", "full"]),
           gte(tables.trainings.date, from),
           lte(tables.trainings.date, to)

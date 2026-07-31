@@ -57,6 +57,12 @@ const ICONS: Record<string, JSX.Element> = {
       <path d="M3 9h18M8 3v4M16 3v4" />
     </Icon>
   ),
+  schedulePlanner: (
+    <Icon>
+      <rect x="3" y="5" width="18" height="16" rx="2" />
+      <path d="M3 9h18M8 3v4M16 3v4M8 13h2M14 13h2M8 17h2M14 17h2" />
+    </Icon>
+  ),
   trainers: (
     <Icon>
       <circle cx="12" cy="7" r="3.5" />

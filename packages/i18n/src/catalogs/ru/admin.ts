@@ -16,6 +16,7 @@ export const adminRu: Record<string, string> = {
   "admin.nav.overview": "Обзор",
   "admin.nav.groups": "Группы",
   "admin.nav.trainings": "Тренировки",
+  "admin.nav.schedulePlanner": "Планировщик месяца",
   "admin.nav.trainers": "Тренеры",
   "admin.nav.managers": "Администраторы",
   "admin.nav.levels": "Уровни",

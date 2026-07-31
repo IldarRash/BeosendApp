@@ -1,4 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
+import { PgDialect } from "drizzle-orm/pg-core";
 import type { DatabaseService } from "../../db/database.service";
 import { reminderWindow } from "./notification-messages";
 import { NotificationsRepository } from "./notifications.repository";
@@ -64,6 +65,9 @@ describe("NotificationsRepository reminder window formatting", () => {
       );
       expect(timestampParams).not.toContain("2026-07-06 17:30:00");
       expect(timestampParams).not.toContain("2026-07-06 18:00:00");
+      const rendered = new PgDialect().sqlToQuery(query.whereCondition as never);
+      expect(rendered.sql.toLowerCase()).toContain('"trainings"."hidden" =');
+      expect(rendered.params).toContain(false);
     } finally {
       if (originalTimeZone === undefined) {
         delete process.env.TZ;
