@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
+import { act, cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { AppRoot } from "@telegram-apps/telegram-ui";
 import type { ReactNode } from "react";
@@ -9,7 +9,9 @@ import type {
   ClientTrainingDetail,
   MiniappMe,
   MyBookingItem,
-  MyBookingScope
+  MyBookingScope,
+  MyCourtRequestItem,
+  WaitlistAdminItem
 } from "@beosand/types";
 import { LanguageProvider } from "../i18n/LanguageProvider";
 import { useTrainingSchedule } from "../api/hooks";
@@ -47,6 +49,7 @@ const UPCOMING: MyBookingItem = {
   startTime: "18:00",
   endTime: "19:30",
   trainingContextLabel: "Mix",
+  trainingKind: "group",
   trainerName: "Ivan",
   levelName: "Beginner",
   bookingStatus: "booked",
@@ -111,6 +114,7 @@ interface FakeApi {
   getMe: ReturnType<typeof vi.fn>;
   getClientByTelegramId: ReturnType<typeof vi.fn>;
   listMyBookings: ReturnType<typeof vi.fn>;
+  listMyCourtRequestHistory: ReturnType<typeof vi.fn>;
   getMyWaitlist: ReturnType<typeof vi.fn>;
   getClientTrainingDetail: ReturnType<typeof vi.fn>;
   cancelBooking: ReturnType<typeof vi.fn>;
@@ -127,6 +131,7 @@ function makeApi(overrides: Partial<FakeApi> = {}): FakeApi {
     listMyBookings: vi.fn((_clientId: string, scope: MyBookingScope) =>
       Promise.resolve(scope === "upcoming" ? [UPCOMING] : [])
     ),
+    listMyCourtRequestHistory: vi.fn().mockResolvedValue([]),
     getMyWaitlist: vi.fn().mockResolvedValue([]),
     getClientTrainingDetail: vi.fn().mockResolvedValue(DETAIL),
     cancelBooking: vi.fn().mockResolvedValue(CANCELLED_BOOKING),
@@ -172,6 +177,35 @@ beforeEach(() => {
   vi.setSystemTime(FIXED_NOW);
   api = makeApi();
 });
+
+const UPCOMING_RENTAL: MyCourtRequestItem = {
+  id: "77777777-7777-7777-7777-777777777777",
+  date: "2026-06-10",
+  startTime: "10:00",
+  endTime: "11:30",
+  durationHours: 1.5,
+  priceRsd: 6000,
+  status: "confirmed",
+  courtCount: 2,
+  courtNumbers: [1, 3]
+};
+
+const ACTIVE_WAITLIST: WaitlistAdminItem = {
+  id: "88888888-8888-8888-8888-888888888888",
+  clientId: ONBOARDED.id,
+  trainingId: "99999999-9999-9999-9999-999999999999",
+  position: 2,
+  groupSubscriptionId: null,
+  status: "waiting",
+  addedAt: "2026-06-05T10:00:00.000Z",
+  notifiedAt: null,
+  clientName: ONBOARDED.name,
+  date: "2026-06-11",
+  startTime: "18:00",
+  endTime: "19:30",
+  trainingStatus: "full",
+  groupName: "Mix"
+};
 
 afterEach(() => {
   cleanup();
@@ -241,5 +275,137 @@ describe("MyBookingsScreen monthly export", () => {
     fireEvent.click(tabs[0]);
     await waitFor(() => expect(api.listMyBookings).toHaveBeenCalledWith(ONBOARDED.id, "upcoming"));
     expect(api.exportMyBookingsCalendar).not.toHaveBeenCalled();
+  });
+});
+
+describe("MyBookingsScreen unified records", () => {
+  it("keeps the tab loading until the shared client identity resolves", async () => {
+    let resolveClient: (client: Client) => void;
+    const pendingClient = new Promise<Client>((resolve) => {
+      resolveClient = resolve;
+    });
+    api = makeApi({
+      getClientByTelegramId: vi.fn().mockReturnValue(pendingClient),
+      listMyBookings: vi.fn().mockResolvedValue([]),
+      listMyCourtRequestHistory: vi.fn().mockResolvedValue([])
+    });
+    renderWithProviders(<MyBookingsScreen onBrowse={() => {}} />);
+
+    await waitFor(() => expect(api.getClientByTelegramId).toHaveBeenCalledWith(ME.telegramId));
+    expect(document.querySelector(".spinner")).not.toBeNull();
+    expect(screen.queryByText("Нет предстоящих записей")).toBeNull();
+
+    await act(async () => resolveClient!(ONBOARDED));
+    expect(await screen.findByText("Нет предстоящих записей")).toBeTruthy();
+  });
+
+  it("renders localized individual training once, opens its existing detail, and keeps rentals read-only", async () => {
+    const individual = { ...UPCOMING, trainingKind: "individual" as const, trainingContextLabel: "Individual" };
+    api = makeApi({
+      listMyBookings: vi.fn().mockResolvedValue([individual]),
+      listMyCourtRequestHistory: vi.fn().mockResolvedValue([UPCOMING_RENTAL])
+    });
+    renderWithProviders(<MyBookingsScreen onBrowse={() => {}} />);
+
+    expect(await screen.findByText("Индивидуальная тренировка")).toBeTruthy();
+    expect(screen.getAllByText("Индивидуальная тренировка")).toHaveLength(1);
+    expect(screen.getByText("Аренда кортов")).toBeTruthy();
+    expect(screen.getByText("Выбранные корты: 1, 3")).toBeTruthy();
+    expect(screen.getByText("6 000 RSD")).toBeTruthy();
+    expect(screen.getByText("Подтверждено")).toBeTruthy();
+    expect(screen.queryByRole("button", { name: /аренда/i })).toBeNull();
+
+    fireEvent.click(screen.getByRole("listitem", { name: /Корт\./i }));
+    expect(api.getClientTrainingDetail).not.toHaveBeenCalled();
+
+    fireEvent.click(screen.getByText("Индивидуальная тренировка").closest("button") as HTMLElement);
+    await waitFor(() => expect(api.getClientTrainingDetail).toHaveBeenCalledWith(individual.trainingId));
+  });
+
+  it("loads the matching rental-history scope and uses court-count fallback", async () => {
+    const pastRental = { ...UPCOMING_RENTAL, status: "cancelled" as const, courtNumbers: [] };
+    api = makeApi({
+      listMyBookings: vi.fn().mockResolvedValue([]),
+      listMyCourtRequestHistory: vi.fn((scope: MyBookingScope) =>
+        Promise.resolve(scope === "past" ? [pastRental] : [])
+      )
+    });
+    renderWithProviders(<MyBookingsScreen onBrowse={() => {}} />);
+
+    const tabs = screen.getAllByRole("tab");
+    fireEvent.click(tabs[1]);
+    await waitFor(() => expect(api.listMyCourtRequestHistory).toHaveBeenCalledWith("past"));
+    expect(await screen.findByText("Кортов: 2")).toBeTruthy();
+    expect(screen.getByText("Отменено")).toBeTruthy();
+  });
+
+  it("uses one tab-wide loading state while the required rental source is unresolved", async () => {
+    api = makeApi({
+      listMyBookings: vi.fn().mockResolvedValue([]),
+      listMyCourtRequestHistory: vi.fn().mockReturnValue(new Promise(() => {}))
+    });
+    renderWithProviders(<MyBookingsScreen onBrowse={() => {}} />);
+
+    await waitFor(() => expect(api.listMyCourtRequestHistory).toHaveBeenCalledWith("upcoming"));
+    expect(screen.getByRole("status").textContent).toContain("Загрузка…");
+    expect(screen.queryByText("Нет предстоящих записей")).toBeNull();
+  });
+
+  it("treats empty bookings, rentals, and waitlist together as the Upcoming empty state", async () => {
+    api = makeApi({
+      listMyBookings: vi.fn().mockResolvedValue([]),
+      listMyCourtRequestHistory: vi.fn().mockResolvedValue([]),
+      getMyWaitlist: vi.fn().mockResolvedValue([])
+    });
+    renderWithProviders(<MyBookingsScreen onBrowse={() => {}} />);
+
+    expect(await screen.findByText("Нет предстоящих записей")).toBeTruthy();
+  });
+
+  it("does not show a false empty state while a nonempty waitlist is still resolving", async () => {
+    let resolveWaitlist: (items: WaitlistAdminItem[]) => void;
+    const pendingWaitlist = new Promise<WaitlistAdminItem[]>((resolve) => {
+      resolveWaitlist = resolve;
+    });
+    api = makeApi({
+      listMyBookings: vi.fn().mockResolvedValue([]),
+      listMyCourtRequestHistory: vi.fn().mockResolvedValue([]),
+      getMyWaitlist: vi.fn().mockReturnValue(pendingWaitlist)
+    });
+    renderWithProviders(<MyBookingsScreen onBrowse={() => {}} />);
+
+    await waitFor(() => expect(api.getMyWaitlist).toHaveBeenCalled());
+    expect(document.querySelector(".spinner")).not.toBeNull();
+    expect(screen.queryByText("Нет предстоящих записей")).toBeNull();
+
+    await act(async () => resolveWaitlist!([ACTIVE_WAITLIST]));
+    expect(await screen.findByText("В листе ожидания")).toBeTruthy();
+    expect(screen.getByText("в очереди, позиция 2")).toBeTruthy();
+  });
+
+  it("treats a rejected supplementary waitlist as settled when core records are empty", async () => {
+    api = makeApi({
+      listMyBookings: vi.fn().mockResolvedValue([]),
+      listMyCourtRequestHistory: vi.fn().mockResolvedValue([]),
+      getMyWaitlist: vi.fn().mockRejectedValue(new Error("waitlist unavailable"))
+    });
+    renderWithProviders(<MyBookingsScreen onBrowse={() => {}} />);
+
+    expect(await screen.findByText("Нет предстоящих записей")).toBeTruthy();
+    expect(screen.queryByRole("alert")).toBeNull();
+  });
+
+  it.each(["bookings", "rentals"] as const)("shows a tab-wide error when %s fails", async (source) => {
+    api = makeApi({
+      listMyBookings:
+        source === "bookings" ? vi.fn().mockRejectedValue(new Error("records unavailable")) : vi.fn().mockResolvedValue([]),
+      listMyCourtRequestHistory:
+        source === "rentals" ? vi.fn().mockRejectedValue(new Error("rentals unavailable")) : vi.fn().mockResolvedValue([])
+    });
+    renderWithProviders(<MyBookingsScreen onBrowse={() => {}} />);
+
+    expect((await screen.findByRole("alert")).textContent).toContain(
+      source === "bookings" ? "records unavailable" : "rentals unavailable"
+    );
   });
 });

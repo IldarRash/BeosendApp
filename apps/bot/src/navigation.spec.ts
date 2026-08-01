@@ -123,6 +123,7 @@ describe("menu dispatch table", () => {
       startTime: "18:00",
       endTime: "19:30",
       trainingContextLabel: "Group",
+      trainingKind: "group" as const,
       trainerName: "Марко",
       levelName: "Начинающий",
       bookingStatus: "booked" as const,

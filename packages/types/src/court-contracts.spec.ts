@@ -9,11 +9,13 @@ import {
   courtClientGridSchema,
   courtRequestAdminViewSchema,
   courtRequestQueueQuerySchema,
+  myCourtRequestHistoryQuerySchema,
   courtBlockSchema,
   courtBlocksListQuerySchema,
   courtFreeCourtsQuerySchema,
   courtLoadCellSchema,
   courtLoadGridSchema,
+  myCourtRequestItemSchema,
   courtSchema,
   createCourtRequestSchema,
   createCourtBlockSchema,
@@ -33,6 +35,33 @@ const validBlock = {
   endTime: "10:00",
   reason: "Tournament"
 };
+
+describe("myCourtRequestHistoryQuerySchema", () => {
+  it("accepts only a strict upcoming or past scope", () => {
+    expect(myCourtRequestHistoryQuerySchema.safeParse({ scope: "upcoming" }).success).toBe(true);
+    expect(myCourtRequestHistoryQuerySchema.safeParse({ scope: "past" }).success).toBe(true);
+    expect(myCourtRequestHistoryQuerySchema.safeParse({ scope: "all" }).success).toBe(false);
+    expect(
+      myCourtRequestHistoryQuerySchema.safeParse({ scope: "past", clientId: "spoofed" }).success
+    ).toBe(false);
+  });
+
+  it("keeps every persisted rental status valid for history responses", () => {
+    const item = {
+      id: "11111111-1111-1111-1111-111111111111",
+      date: "2026-06-10",
+      startTime: "14:00",
+      endTime: "15:00",
+      durationHours: 1,
+      priceRsd: 2000,
+      courtCount: 1,
+      courtNumbers: []
+    };
+    for (const status of ["pending", "confirmed", "rejected", "cancelled"]) {
+      expect(myCourtRequestItemSchema.safeParse({ ...item, status }).success).toBe(true);
+    }
+  });
+});
 
 describe("createCourtBlockSchema", () => {
   it("accepts a valid block", () => {

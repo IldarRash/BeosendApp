@@ -289,6 +289,9 @@ export function useJoinWaitlist(): UseMutationResult<WaitlistEntry, Error, strin
 /** The shared query-key prefix for every my-bookings request (for invalidation). */
 const MY_BOOKINGS_KEY_PREFIX = "my-bookings";
 
+/** Isolated from the calendar's `my-court-requests` cache and endpoint. */
+const MY_COURT_REQUEST_HISTORY_KEY_PREFIX = "my-court-request-history";
+
 /** The shared query-key prefix for the caller's active waitlist entries. */
 const MY_WAITLIST_KEY_PREFIX = "my-waitlist";
 
@@ -321,6 +324,30 @@ export function useMyBookings(scope: MyBookingScope): UseQueryResult<MyBookingIt
     queryKey: myBookingsQueryKey(clientId ?? "", scope),
     enabled: clientId != null,
     queryFn: () => apiClient.listMyBookings(clientId!, scope)
+  });
+}
+
+/** A scoped My-bookings rental-history key; never shared with the calendar feed. */
+export function myCourtRequestHistoryQueryKey(
+  clientId: string,
+  scope: MyBookingScope
+): readonly [string, string, MyBookingScope] {
+  return [MY_COURT_REQUEST_HISTORY_KEY_PREFIX, clientId, scope] as const;
+}
+
+/**
+ * Caller-owned court rentals for the active My bookings tab. Scope membership and
+ * order are server-decided; this hook only fetches the validated projection.
+ */
+export function useMyCourtRequestHistory(
+  scope: MyBookingScope
+): UseQueryResult<MyCourtRequestItem[]> {
+  const apiClient = useApiClient();
+  const clientId = useResolvedClientId();
+  return useQuery<MyCourtRequestItem[]>({
+    queryKey: myCourtRequestHistoryQueryKey(clientId ?? "", scope),
+    enabled: clientId != null,
+    queryFn: () => apiClient.listMyCourtRequestHistory(scope)
   });
 }
 

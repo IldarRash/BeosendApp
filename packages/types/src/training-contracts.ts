@@ -821,6 +821,8 @@ export const myBookingItemSchema = z.object({
   startTime: timeString,
   endTime: timeString,
   trainingContextLabel,
+  /** Server-derived relation kind; clients must not infer this from display text. */
+  trainingKind: z.enum(["group", "individual"]),
   trainerName: z.string(),
   levelName: z.string(),
   bookingStatus,

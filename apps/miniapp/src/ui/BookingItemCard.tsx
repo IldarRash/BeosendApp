@@ -44,7 +44,11 @@ export function BookingItemCard({ item, onOpen }: BookingItemCardProps): JSX.Ele
   const timeRange = formatTimeRange(item.startTime, item.endTime);
   const statusLabel = t(style.labelKey);
 
-  const rowLabel = `${item.trainingContextLabel}. ${weekday}, ${dayMonth} - ${timeRange}. ${item.trainerName} - ${item.levelName}. ${statusLabel}`;
+  const trainingLabel =
+    item.trainingKind === "individual"
+      ? t("miniapp.myBookings.individualTraining")
+      : item.trainingContextLabel;
+  const rowLabel = `${trainingLabel}. ${weekday}, ${dayMonth} - ${timeRange}. ${item.trainerName} - ${item.levelName}. ${statusLabel}`;
 
   return (
     <button
@@ -54,7 +58,7 @@ export function BookingItemCard({ item, onOpen }: BookingItemCardProps): JSX.Ele
       onClick={() => onOpen(item)}
     >
       <div className="lrow__main">
-        <div className="lrow__title">{item.trainingContextLabel}</div>
+        <div className="lrow__title">{trainingLabel}</div>
         <div className="lrow__sub">
           {weekday}, {dayMonth} - {timeRange}
         </div>

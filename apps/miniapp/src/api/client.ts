@@ -54,6 +54,7 @@ import {
   type MiniappSession,
   type MyBookingItem,
   type MyBookingScope,
+  type MyCourtRequestHistoryQuery,
   type MyCourtRequestItem,
   type OnboardClientInput,
   type SingleBookingResult,
@@ -660,6 +661,16 @@ export class MiniappApiClient {
    */
   listMyCourtRequests(): Promise<MyCourtRequestItem[]> {
     return this.request("/court-requests/mine", myCourtRequestItemsSchema);
+  }
+
+  /**
+   * The caller's scoped court-rental history for My bookings. This deliberately uses
+   * a separate endpoint from the calendar feed: the API owns which terminal rows
+   * belong in Past, while the calendar keeps its availability-safe semantics.
+   */
+  listMyCourtRequestHistory(scope: MyCourtRequestHistoryQuery["scope"]): Promise<MyCourtRequestItem[]> {
+    const qs = new URLSearchParams({ scope }).toString();
+    return this.request(`/court-requests/mine/history?${qs}`, myCourtRequestItemsSchema);
   }
 
 }

@@ -1243,6 +1243,7 @@ describe("myBookingItemSchema", () => {
     startTime: "18:00",
     endTime: "19:30",
     trainingContextLabel: "Individual",
+    trainingKind: "individual",
     trainerName: "Coach",
     levelName: "Beginners",
     bookingStatus: "booked",
@@ -1269,6 +1270,15 @@ describe("myBookingItemSchema", () => {
 
   it("rejects a non-boolean canCancel", () => {
     expect(myBookingItemSchema.safeParse({ ...validItem, canCancel: "yes" }).success).toBe(false);
+  });
+
+  it("requires a known server-derived training kind", () => {
+    const { trainingKind: _omitted, ...withoutKind } = validItem;
+    expect(myBookingItemSchema.safeParse(withoutKind).success).toBe(false);
+    expect(myBookingItemSchema.safeParse({ ...validItem, trainingKind: "one-on-one" }).success).toBe(
+      false
+    );
+    expect(myBookingItemSchema.safeParse({ ...validItem, trainingKind: "group" }).success).toBe(true);
   });
 
   it("rejects a missing, empty, or whitespace-only context label", () => {

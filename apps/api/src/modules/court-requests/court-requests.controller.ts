@@ -18,6 +18,7 @@ import {
   courtClientGridQuerySchema,
   courtFreeCourtsQuerySchema,
   courtRequestQueueQuerySchema,
+  myCourtRequestHistoryQuerySchema,
   createCourtRequestSchema,
   previewCourtRequestSchema,
   reassignCourtRequestSchema,
@@ -99,6 +100,24 @@ export class CourtRequestsController {
   ): Promise<MyCourtRequestItem[]> {
     const actorTelegramId = parseTelegramId(clientTelegramIdHeader ?? telegramIdHeader);
     return this.service.listMine(actorTelegramId);
+  }
+
+  /** Caller-owned rental history for My records; separate from the calendar feed. */
+  @Get("mine/history")
+  async mineHistory(
+    @Headers("x-telegram-id") _rawTelegramIdHeader: string | undefined,
+    @Query() query: unknown,
+    @Headers("x-client-telegram-id") clientTelegramIdHeader?: string
+  ): Promise<MyCourtRequestItem[]> {
+    const parsed = myCourtRequestHistoryQuerySchema.safeParse(query);
+    if (!parsed.success) {
+      throw new BadRequestException("Invalid rental-history query: expected scope=upcoming|past.");
+    }
+    // History is a Mini App self-read: only the verified client-session bridge
+    // may establish identity. The raw header remains accepted by the legacy
+    // calendar route, but is deliberately ignored by this scoped history endpoint.
+    const actorTelegramId = parseTelegramId(clientTelegramIdHeader, "x-client-telegram-id");
+    return this.service.listMineHistory(actorTelegramId, parsed.data.scope);
   }
 
   /**
@@ -293,10 +312,10 @@ export class CourtRequestsController {
   }
 }
 
-function parseTelegramId(raw: string | undefined): number {
+function parseTelegramId(raw: string | undefined, headerName = "x-telegram-id"): number {
   const parsed = telegramIdHeader.safeParse(raw);
   if (!parsed.success) {
-    throw new BadRequestException("Missing or invalid x-telegram-id header.");
+    throw new BadRequestException(`Missing or invalid ${headerName} header.`);
   }
   return parsed.data;
 }

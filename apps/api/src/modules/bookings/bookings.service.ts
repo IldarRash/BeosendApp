@@ -813,32 +813,38 @@ export class BookingsService {
     const today = new Date().toISOString().slice(0, 10);
     const rows = await this.bookings.listForClient(clientId, scope, today);
 
-    return rows.map((row) => {
-      // A `pending` request also holds a seat and is withdrawable by the client,
-      // so it is cancel-eligible exactly like a `booked` one.
-      const canCancel =
-        (row.bookingStatus === "booked" || row.bookingStatus === "pending") &&
-        row.date >= today &&
-        (row.trainingStatus === "open" || row.trainingStatus === "full");
-      const trainingContextLabel =
-        row.groupName ??
-        (row.trainingGroupId === null && row.trainingClientId !== null ? "Individual" : "");
-      return myBookingItemSchema.parse({
-        bookingId: row.bookingId,
-        trainingId: row.trainingId,
-        groupSubscriptionId: row.groupSubscriptionId,
-        date: row.date,
-        dayOfWeek: isoWeekdayOf(row.date),
-        startTime: row.startTime,
-        endTime: row.endTime,
-        trainingContextLabel,
-        trainerName: row.trainerName,
-        levelName: row.levelName,
-        bookingStatus: row.bookingStatus,
-        trainingStatus: row.trainingStatus,
-        canCancel
+    return rows
+      // A groupless training is an individual record only when the training's
+      // authoritative owner is this caller. Fail closed on malformed joins so
+      // another client's individual booking is never projected as the caller's.
+      .filter((row) => row.trainingGroupId !== null || row.trainingClientId === clientId)
+      .map((row) => {
+        // A `pending` request also holds a seat and is withdrawable by the client,
+        // so it is cancel-eligible exactly like a `booked` one.
+        const canCancel =
+          (row.bookingStatus === "booked" || row.bookingStatus === "pending") &&
+          row.date >= today &&
+          (row.trainingStatus === "open" || row.trainingStatus === "full");
+        const trainingContextLabel =
+          row.groupName ??
+          (row.trainingGroupId === null && row.trainingClientId !== null ? "Individual" : "");
+        return myBookingItemSchema.parse({
+          bookingId: row.bookingId,
+          trainingId: row.trainingId,
+          groupSubscriptionId: row.groupSubscriptionId,
+          date: row.date,
+          dayOfWeek: isoWeekdayOf(row.date),
+          startTime: row.startTime,
+          endTime: row.endTime,
+          trainingContextLabel,
+          trainingKind: row.trainingGroupId === null ? "individual" : "group",
+          trainerName: row.trainerName,
+          levelName: row.levelName,
+          bookingStatus: row.bookingStatus,
+          trainingStatus: row.trainingStatus,
+          canCancel
+        });
       });
-    });
   }
 
   /** Mini App: export the caller's own confirmed trainings for one month as ICS. */

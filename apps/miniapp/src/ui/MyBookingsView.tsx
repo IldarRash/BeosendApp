@@ -1,15 +1,29 @@
-import type { MyBookingItem, MyBookingScope, WaitlistAdminItem } from "@beosand/types";
+import type {
+  CourtRequestStatus,
+  MyBookingItem,
+  MyBookingScope,
+  MyCourtRequestItem,
+  WaitlistAdminItem
+} from "@beosand/types";
 import { useT } from "../i18n/LanguageProvider";
 import { BookingItemCard } from "./BookingItemCard";
 import { partitionUpcoming, type SubscriptionGroup } from "./my-bookings-group";
 import { EmptyState, ErrorState, LoadingState } from "./StateView";
-import { dayOfWeekFromDate, formatDayMonth, formatTimeRange, weekdayFullKey } from "./format";
+import {
+  dayOfWeekFromDate,
+  formatDayMonth,
+  formatRsd,
+  formatTimeRange,
+  weekdayFullKey
+} from "./format";
 
 interface MyBookingsViewProps {
   scope: MyBookingScope;
   onScopeChange: (scope: MyBookingScope) => void;
   /** Validated booking items from `GET /bookings/mine` for the active scope. */
   items: ReadonlyArray<MyBookingItem> | undefined;
+  /** Validated, server-scoped rental-history rows for the active tab. */
+  rentals: ReadonlyArray<MyCourtRequestItem> | undefined;
   /**
    * The caller's active waitlist entries from `GET /waitlist/mine`. On the Upcoming
    * scope a subscription's queued dates are folded INTO its card (matched by
@@ -19,6 +33,8 @@ interface MyBookingsViewProps {
    */
   waitlist?: ReadonlyArray<WaitlistAdminItem>;
   isLoading: boolean;
+  /** Upcoming's supplementary waitlist has not settled yet. */
+  isWaitlistPending: boolean;
   /** A request/contract error message to surface verbatim, if any. */
   errorMessage?: string;
   /** Open the shared training detail for a booking row. */
@@ -48,8 +64,10 @@ export function MyBookingsView({
   scope,
   onScopeChange,
   items,
+  rentals,
   waitlist,
   isLoading,
+  isWaitlistPending,
   errorMessage,
   onOpenBooking,
   onBrowse
@@ -62,13 +80,19 @@ export function MyBookingsView({
     ? partitionUpcoming(items ?? [], waitlist ?? [])
     : null;
 
+  // Waitlist is supplementary once core records exist. If both core sources are
+  // empty, however, it must settle before Upcoming may truthfully render empty.
+  const coreIsEmpty = (items?.length ?? 0) === 0 && (rentals?.length ?? 0) === 0;
+  const isWaitingForOnlyPossibleContent = isUpcoming && coreIsEmpty && isWaitlistPending;
+
   // Upcoming is empty only when there is no booking AND no queued date of any kind;
   // Past is empty purely on bookings (it never folds the waitlist).
   const isEmpty = isUpcoming
     ? (partition!.subscriptions.length === 0 &&
         partition!.standalone.length === 0 &&
-        partition!.standaloneWaitlist.length === 0)
-    : (items?.length ?? 0) === 0;
+        partition!.standaloneWaitlist.length === 0 &&
+        (rentals?.length ?? 0) === 0)
+    : (items?.length ?? 0) === 0 && (rentals?.length ?? 0) === 0;
 
   return (
     <div className="screen screen--no-mainbutton">
@@ -96,6 +120,8 @@ export function MyBookingsView({
         <LoadingState />
       ) : errorMessage ? (
         <ErrorState message={errorMessage} />
+      ) : isWaitingForOnlyPossibleContent ? (
+        <LoadingState />
       ) : isEmpty ? (
         isUpcoming ? (
           <EmptyState
@@ -111,9 +137,9 @@ export function MyBookingsView({
           />
         )
       ) : isUpcoming && partition ? (
-        <UpcomingList partition={partition} onOpenBooking={onOpenBooking} />
+        <UpcomingList partition={partition} rentals={rentals ?? []} onOpenBooking={onOpenBooking} />
       ) : (
-        <FlatBookingList items={items ?? []} onOpenBooking={onOpenBooking} />
+        <PastList items={items ?? []} rentals={rentals ?? []} onOpenBooking={onOpenBooking} />
       )}
     </div>
   );
@@ -126,9 +152,11 @@ export function MyBookingsView({
  */
 function UpcomingList({
   partition,
+  rentals,
   onOpenBooking
 }: {
   partition: ReturnType<typeof partitionUpcoming>;
+  rentals: ReadonlyArray<MyCourtRequestItem>;
   onOpenBooking: (item: MyBookingItem) => void;
 }): JSX.Element {
   const t = useT();
@@ -151,6 +179,24 @@ function UpcomingList({
       {partition.standaloneWaitlist.length > 0 && (
         <WaitlistSection items={partition.standaloneWaitlist} />
       )}
+      <RentalSection items={rentals} />
+    </>
+  );
+}
+
+function PastList({
+  items,
+  rentals,
+  onOpenBooking
+}: {
+  items: ReadonlyArray<MyBookingItem>;
+  rentals: ReadonlyArray<MyCourtRequestItem>;
+  onOpenBooking: (item: MyBookingItem) => void;
+}): JSX.Element {
+  return (
+    <>
+      {items.length > 0 && <FlatBookingList items={items} onOpenBooking={onOpenBooking} />}
+      <RentalSection items={rentals} />
     </>
   );
 }
@@ -240,6 +286,65 @@ function WaitlistSection({ items }: { items: ReadonlyArray<WaitlistAdminItem> })
         {items.map((entry) => (
           <WaitlistRow key={entry.id} entry={entry} />
         ))}
+      </div>
+    </section>
+  );
+}
+
+function courtVariant(status: CourtRequestStatus): "co" | "ok" | "warn" | "muted" {
+  switch (status) {
+    case "confirmed":
+      return "ok";
+    case "rejected":
+    case "cancelled":
+      return "muted";
+    default:
+      return "co";
+  }
+}
+
+/** Read-only court-rental history. These are deliberately not training rows/buttons. */
+function RentalSection({ items }: { items: ReadonlyArray<MyCourtRequestItem> }): JSX.Element | null {
+  const t = useT();
+  if (items.length === 0) return null;
+
+  return (
+    <section aria-label={t("miniapp.myBookings.rentalsTitle")}>
+      <div className="tg-sech">{t("miniapp.myBookings.rentalsTitle")}</div>
+      <div className="card" role="list">
+        {items.map((item) => {
+          const timeRange = formatTimeRange(item.startTime, item.endTime);
+          const statusLabel = t(`miniapp.calendar.courtStatus.${item.status}`);
+          const courtsLabel =
+            item.courtNumbers.length > 0
+              ? t("miniapp.court.sentCourts", { courts: item.courtNumbers.join(", ") })
+              : t("miniapp.myBookings.courtCount", { count: item.courtCount });
+          const priceLabel = t("miniapp.browse.price", { price: formatRsd(item.priceRsd) });
+
+          return (
+            <div
+              key={item.id}
+              className="lrow"
+              role="listitem"
+              aria-label={`${t("miniapp.calendar.kindCourt")}. ${formatDayMonth(item.date)}, ${timeRange}. ${courtsLabel}. ${priceLabel}. ${statusLabel}`}
+            >
+              <div className="lrow__main">
+                <div className="lrow__title">{t("miniapp.calendar.kindCourt")}</div>
+                <div className="lrow__sub">
+                  {formatDayMonth(item.date)} - {timeRange}
+                </div>
+                <div className="lrow__sub">{courtsLabel}</div>
+                <div className="lrow__sub">{priceLabel}</div>
+                <div style={{ marginTop: 6 }}>
+                  <span className={`schip schip--${courtVariant(item.status)}`}>
+                    <span className="dot" aria-hidden="true" />
+                    {statusLabel}
+                  </span>
+                </div>
+              </div>
+            </div>
+          );
+        })}
       </div>
     </section>
   );

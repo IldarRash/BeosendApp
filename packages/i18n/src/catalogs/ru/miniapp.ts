@@ -310,6 +310,9 @@ export const miniappRu: Record<string, string> = {
   "miniapp.myBookings.subscription.title": "Абонемент",
   "miniapp.myBookings.subscription.summary":
     "Записей: {booked} · в листе ожидания: {waitlisted}",
+  "miniapp.myBookings.individualTraining": "Индивидуальная тренировка",
+  "miniapp.myBookings.rentalsTitle": "Аренда кортов",
+  "miniapp.myBookings.courtCount": "Кортов: {count}",
 
   // A slot the caller is already booked into: shown non-tappable (✓ added in the UI).
   "miniapp.schedule.alreadyBooked": "Вы записаны",
