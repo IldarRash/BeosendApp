@@ -246,6 +246,13 @@
       "when": 1785492084550,
       "tag": "0034_careful_nicolaos",
       "breakpoints": true
+    },
+    {
+      "idx": 35,
+      "version": "7",
+      "when": 1785528000000,
+      "tag": "0035_backfill_published_monthly_plans",
+      "breakpoints": true
     }
   ]
 }
