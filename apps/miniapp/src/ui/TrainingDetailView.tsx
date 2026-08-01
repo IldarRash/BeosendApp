@@ -1,11 +1,11 @@
 import { useMemo, useState } from "react";
-import type { BookingStatus, ClientTrainingDetail, MyBookingItem } from "@beosand/types";
+import type { BookingStatus, ClientTrainingDetail } from "@beosand/types";
 import { useCancelBooking, useClientTrainingDetail } from "../api/hooks";
 import { resolveErrorMessage } from "../api/errors";
 import { useT } from "../i18n/LanguageProvider";
 import { hapticSelection, hapticSuccess, hapticWarning, useMainButton } from "../tg/buttons";
 import { buildGoogleCalendarTrainingUrl } from "./google-calendar-link";
-import { CancelSheet } from "./CancelSheet";
+import { CancelSheet, type CancelBookingItem } from "./CancelSheet";
 import { FallbackButton } from "./FallbackButton";
 import { formatDayMonth, formatTimeRange, weekdayFullKey } from "./format";
 import { ParticipantsRow } from "./ParticipantsRow";
@@ -244,24 +244,18 @@ function TrainingDetailContent({
   );
 }
 
-function toBookingItem(detail: ClientTrainingDetail): MyBookingItem | null {
+function toBookingItem(detail: ClientTrainingDetail): CancelBookingItem | null {
   if (!detail.bookingId || !detail.bookingStatus) {
     return null;
   }
   return {
     bookingId: detail.bookingId,
-    trainingId: detail.trainingId,
-    groupSubscriptionId: detail.groupSubscriptionId,
     date: detail.date,
     dayOfWeek: detail.dayOfWeek,
     startTime: detail.startTime,
     endTime: detail.endTime,
     trainingContextLabel: detail.trainingContextLabel,
-    trainerName: detail.trainerName,
-    levelName: detail.levelName,
-    bookingStatus: detail.bookingStatus,
-    trainingStatus: detail.trainingStatus,
-    canCancel: detail.canCancel
+    trainerName: detail.trainerName
   };
 }
 

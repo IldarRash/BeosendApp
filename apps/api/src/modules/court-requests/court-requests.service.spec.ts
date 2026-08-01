@@ -1382,18 +1382,25 @@ describe("CourtRequestsService.listMine (client's own requests)", () => {
     };
   }
 
-  function makeMineRepo(input: { client?: { id: string } | null; mine?: MyCourtRequestRow[] }): {
+  function makeMineRepo(input: {
+    client?: { id: string } | null;
+    mine?: MyCourtRequestRow[];
+    history?: MyCourtRequestRow[];
+  }): {
     repo: CourtRequestsRepository;
     listMineForClient: ReturnType<typeof vi.fn>;
+    listHistoryForClient: ReturnType<typeof vi.fn>;
   } {
     const listMineForClient = vi.fn().mockResolvedValue(input.mine ?? []);
+    const listHistoryForClient = vi.fn().mockResolvedValue(input.history ?? []);
     const repo = {
       findActiveClientByTelegramId: vi
         .fn()
         .mockResolvedValue(input.client === undefined ? { id: clientId } : input.client),
-      listMineForClient
+      listMineForClient,
+      listHistoryForClient
     } as unknown as CourtRequestsRepository;
-    return { repo, listMineForClient };
+    return { repo, listMineForClient, listHistoryForClient };
   }
 
   it("returns the caller's own requests with their own court numbers, contract-valid", async () => {
@@ -1440,6 +1447,47 @@ describe("CourtRequestsService.listMine (client's own requests)", () => {
   it("the client-facing contract carries the client's own court numbers but no court id", () => {
     expect(Object.keys(myCourtRequestItemSchema.shape)).not.toContain("courtId");
     expect(Object.keys(myCourtRequestItemSchema.shape)).toContain("courtNumbers");
+  });
+
+  it("uses the isolated scoped history read and preserves terminal statuses", async () => {
+    const { repo, listHistoryForClient, listMineForClient } = makeMineRepo({
+      history: [
+        mineRow({ id: "11111111-1111-1111-1111-111111111111", status: "cancelled" }),
+        mineRow({ id: "22222222-2222-2222-2222-222222222222", status: "rejected" })
+      ]
+    });
+    const service = makeService(repo);
+
+    const result = await service.listMineHistory(clientTg, "past");
+
+    expect(listHistoryForClient).toHaveBeenCalledWith(
+      clientId,
+      "past",
+      expect.stringMatching(/^\d{4}-\d{2}-\d{2}$/)
+    );
+    expect(listMineForClient).not.toHaveBeenCalled();
+    expect(result.map((item) => item.status)).toEqual(["cancelled", "rejected"]);
+  });
+
+  it("keeps pending court numbers redacted in history just as in the calendar feed", async () => {
+    const { repo } = makeMineRepo({
+      history: [mineRow({ status: "pending", courtCount: 2, courtNumbers: [1, 3] })]
+    });
+    const service = makeService(repo);
+
+    const [result] = await service.listMineHistory(clientTg, "upcoming");
+
+    expect(result).toMatchObject({ status: "pending", courtCount: 2, courtNumbers: [] });
+  });
+
+  it("rejects unregistered callers before the history repository is read", async () => {
+    const { repo, listHistoryForClient } = makeMineRepo({ client: null });
+    const service = makeService(repo);
+
+    await expect(service.listMineHistory(clientTg, "upcoming")).rejects.toBeInstanceOf(
+      ForbiddenException
+    );
+    expect(listHistoryForClient).not.toHaveBeenCalled();
   });
 });
 

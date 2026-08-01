@@ -154,6 +154,9 @@ export const miniappEn: Record<string, string> = {
   "miniapp.myBookings.subscription.title": "Subscription",
   "miniapp.myBookings.subscription.summary":
     "Booked: {booked} · waitlisted: {waitlisted}",
+  "miniapp.myBookings.individualTraining": "Individual training",
+  "miniapp.myBookings.rentalsTitle": "Court rentals",
+  "miniapp.myBookings.courtCount": "Courts: {count}",
 
   // --- Group monthly subscription (S7) ---
   "miniapp.group.listTitle": "Groups",

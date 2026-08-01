@@ -159,6 +159,12 @@ export const myCourtRequestItemSchema = z.object({
 });
 export type MyCourtRequestItem = z.infer<typeof myCourtRequestItemSchema>;
 
+/** Strict tab scope for caller-owned rental history (GET /court-requests/mine/history). */
+export const myCourtRequestHistoryQuerySchema = z
+  .object({ scope: z.enum(["upcoming", "past"]) })
+  .strict();
+export type MyCourtRequestHistoryQuery = z.infer<typeof myCourtRequestHistoryQuerySchema>;
+
 export const courtRequestSchema = z.object({
   id: uuid,
   clientId: uuid,

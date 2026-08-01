@@ -1,6 +1,6 @@
 import { useState } from "react";
 import type { MyBookingItem, MyBookingScope } from "@beosand/types";
-import { useMyBookings, useMyWaitlist } from "../api/hooks";
+import { useClient, useMyBookings, useMyCourtRequestHistory, useMyWaitlist } from "../api/hooks";
 import { useT } from "../i18n/LanguageProvider";
 import { hapticSelection } from "../tg/buttons";
 import { MyBookingsView } from "../ui/MyBookingsView";
@@ -21,13 +21,17 @@ export function MyBookingsScreen({ onBrowse }: MyBookingsScreenProps): JSX.Eleme
   const [scope, setScope] = useState<MyBookingScope>("upcoming");
   const [selectedTrainingId, setSelectedTrainingId] = useState<string | null>(null);
 
+  // The tab's required reads stay disabled until this shared identity query resolves.
+  // Include it in loading so disabled reads cannot accidentally produce an empty state.
+  const client = useClient();
   const bookings = useMyBookings(scope);
+  const rentals = useMyCourtRequestHistory(scope);
   const waitlist = useMyWaitlist();
 
   const listError =
-    bookings.error instanceof Error
-      ? bookings.error.message
-      : bookings.isError
+    bookings.error instanceof Error || rentals.error instanceof Error
+      ? (bookings.error instanceof Error ? bookings.error : (rentals.error as Error)).message
+      : bookings.isError || rentals.isError
         ? t("miniapp.myBookings.errorBody")
         : undefined;
 
@@ -50,8 +54,10 @@ export function MyBookingsScreen({ onBrowse }: MyBookingsScreenProps): JSX.Eleme
       scope={scope}
       onScopeChange={setScope}
       items={bookings.data}
+      rentals={rentals.data}
       waitlist={scope === "upcoming" ? waitlist.data : undefined}
-      isLoading={bookings.isLoading}
+      isLoading={client.isPending || bookings.isLoading || rentals.isLoading}
+      isWaitlistPending={scope === "upcoming" && waitlist.isPending}
       errorMessage={listError}
       onOpenBooking={openDetail}
       onBrowse={onBrowse}

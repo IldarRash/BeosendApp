@@ -1,6 +1,20 @@
 import { Injectable } from "@nestjs/common";
-import { and, asc, eq, inArray, isNotNull, ne, sql, tables, type Database } from "@beosand/db";
-import type { Locale } from "@beosand/types";
+import {
+  and,
+  asc,
+  desc,
+  eq,
+  gte,
+  inArray,
+  isNotNull,
+  lt,
+  ne,
+  or,
+  sql,
+  tables,
+  type Database
+} from "@beosand/db";
+import type { Locale, MyBookingScope } from "@beosand/types";
 import { DatabaseService } from "../../db/database.service";
 
 /**
@@ -221,26 +235,65 @@ export class CourtRequestsRepository {
       .groupBy(tables.courtRequests.id)
       .orderBy(asc(tables.courtRequests.date), asc(tables.courtRequests.startTime));
 
-    return rows.map((row) => {
-      const startTime = row.startTime.slice(0, 5);
-      const durationHours = Number(row.durationHours);
-      const endMinutes =
-        Number(startTime.slice(0, 2)) * 60 + Number(startTime.slice(3, 5)) + durationHours * 60;
-      const endTime = `${String(Math.floor(endMinutes / 60)).padStart(2, "0")}:${String(
-        endMinutes % 60
-      ).padStart(2, "0")}`;
-      return {
-        id: row.id,
-        date: row.date,
-        startTime,
-        endTime,
-        durationHours,
-        priceRsd: row.priceRsd,
-        status: row.status,
-        courtCount: row.courtCount,
-        courtNumbers: parseCourtNumbers(row.courtNumbers)
-      };
-    });
+    return rows.map(toMyCourtRequestRow);
+  }
+
+  /**
+   * Isolated caller history query. This must not be reused by calendar or
+   * availability reads: terminal rows belong here only.
+   */
+  async listHistoryForClient(
+    clientId: string,
+    scope: MyBookingScope,
+    today: string
+  ): Promise<MyCourtRequestRow[]> {
+    const membership =
+      scope === "upcoming"
+        ? and(
+            inArray(tables.courtRequests.status, ["pending", "confirmed"]),
+            gte(tables.courtRequests.date, today)
+          )
+        : or(
+            and(
+              inArray(tables.courtRequests.status, ["pending", "confirmed"]),
+              lt(tables.courtRequests.date, today)
+            ),
+            inArray(tables.courtRequests.status, ["rejected", "cancelled"])
+          );
+    const order =
+      scope === "upcoming"
+        ? [
+            asc(tables.courtRequests.date),
+            asc(tables.courtRequests.startTime),
+            asc(tables.courtRequests.id)
+          ]
+        : [
+            desc(tables.courtRequests.date),
+            desc(tables.courtRequests.startTime),
+            desc(tables.courtRequests.id)
+          ];
+    const rows = await this.database.db
+      .select({
+        id: tables.courtRequests.id,
+        date: tables.courtRequests.date,
+        startTime: tables.courtRequests.startTime,
+        durationHours: tables.courtRequests.durationHours,
+        courtCount: tables.courtRequests.courtCount,
+        courtNumbers: courtNumbersAgg,
+        priceRsd: tables.courtRequests.priceRsd,
+        status: tables.courtRequests.status
+      })
+      .from(tables.courtRequests)
+      .leftJoin(
+        tables.courtRequestCourts,
+        eq(tables.courtRequestCourts.requestId, tables.courtRequests.id)
+      )
+      .leftJoin(tables.courts, eq(tables.courtRequestCourts.courtId, tables.courts.id))
+      .where(and(eq(tables.courtRequests.clientId, clientId), membership))
+      .groupBy(tables.courtRequests.id)
+      .orderBy(...order);
+
+    return rows.map(toMyCourtRequestRow);
   }
 
   /** A single request row by id (with its court numbers), or null. */
@@ -688,4 +741,33 @@ function minuteSpan(startTime: string, endTime: string): number {
   const start = Number(startTime.slice(0, 2)) * 60 + Number(startTime.slice(3, 5));
   const end = Number(endTime.slice(0, 2)) * 60 + Number(endTime.slice(3, 5));
   return Math.max(30, end - start);
+}
+
+function toMyCourtRequestRow(row: {
+  id: string;
+  date: string;
+  startTime: string;
+  durationHours: string;
+  priceRsd: number;
+  status: MyCourtRequestRow["status"];
+  courtCount: number;
+  courtNumbers: number[] | null;
+}): MyCourtRequestRow {
+  const startTime = row.startTime.slice(0, 5);
+  const durationHours = Number(row.durationHours);
+  const endMinutes =
+    Number(startTime.slice(0, 2)) * 60 + Number(startTime.slice(3, 5)) + durationHours * 60;
+  return {
+    id: row.id,
+    date: row.date,
+    startTime,
+    endTime: `${String(Math.floor(endMinutes / 60)).padStart(2, "0")}:${String(
+      endMinutes % 60
+    ).padStart(2, "0")}`,
+    durationHours,
+    priceRsd: row.priceRsd,
+    status: row.status,
+    courtCount: row.courtCount,
+    courtNumbers: parseCourtNumbers(row.courtNumbers)
+  };
 }

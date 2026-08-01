@@ -768,6 +768,7 @@ const MY_BOOKING_ITEM: MyBookingItem = {
   startTime: "18:00",
   endTime: "19:30",
   trainingContextLabel: "Individual",
+  trainingKind: "individual",
   trainerName: "Иван",
   levelName: "Начинающий",
   bookingStatus: "booked",
@@ -809,6 +810,39 @@ describe("MiniappApiClient.listMyBookings", () => {
     const client = new MiniappApiClient(BASE);
 
     await expect(client.listMyBookings(CLIENT.id, "upcoming")).rejects.toThrow();
+  });
+});
+
+describe("MiniappApiClient.listMyCourtRequestHistory", () => {
+  const historyItem = {
+    id: "66666666-6666-6666-6666-666666666666",
+    date: "2026-06-10",
+    startTime: "18:00",
+    endTime: "19:30",
+    durationHours: 1.5,
+    priceRsd: 6000,
+    status: "cancelled",
+    courtCount: 2,
+    courtNumbers: []
+  } as const;
+
+  it("uses the isolated scope-aware history endpoint and validates its rows", async () => {
+    const fetchMock = vi.fn().mockResolvedValue(jsonResponse(200, [historyItem]));
+    vi.stubGlobal("fetch", fetchMock);
+    const client = new MiniappApiClient(BASE);
+
+    await expect(client.listMyCourtRequestHistory("past")).resolves.toEqual([historyItem]);
+    expect(fetchMock.mock.calls[0][0]).toBe(`${BASE}/court-requests/mine/history?scope=past`);
+  });
+
+  it("rejects malformed history rows before they reach the records view", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockResolvedValue(jsonResponse(200, [{ ...historyItem, status: "unknown" }]))
+    );
+    const client = new MiniappApiClient(BASE);
+
+    await expect(client.listMyCourtRequestHistory("upcoming")).rejects.toThrow();
   });
 });
 

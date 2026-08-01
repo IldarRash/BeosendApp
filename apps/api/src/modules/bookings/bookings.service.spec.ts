@@ -1551,6 +1551,7 @@ describe("BookingsService.listMine", () => {
     ];
     const [item] = await service.listMine(OWNER_ID, CLIENT_ID, "upcoming");
     expect(item.trainingContextLabel).toBe("Women");
+    expect(item.trainingKind).toBe("group");
   });
 
   it("uses Individual for the caller's own individual training", async () => {
@@ -1559,6 +1560,23 @@ describe("BookingsService.listMine", () => {
     ];
     const [item] = await service.listMine(OWNER_ID, CLIENT_ID, "upcoming");
     expect(item.trainingContextLabel).toBe("Individual");
+    expect(item.trainingKind).toBe("individual");
+  });
+
+  it("excludes groupless rows without an authoritative owner", async () => {
+    bookingsRepo.myRows = [
+      row({ trainingGroupId: null, groupName: null, trainingClientId: null })
+    ];
+
+    await expect(service.listMine(OWNER_ID, CLIENT_ID, "upcoming")).resolves.toEqual([]);
+  });
+
+  it("excludes a groupless training owned by a different client", async () => {
+    bookingsRepo.myRows = [
+      row({ trainingGroupId: null, groupName: null, trainingClientId: OTHER_CLIENT_ID })
+    ];
+
+    await expect(service.listMine(OWNER_ID, CLIENT_ID, "upcoming")).resolves.toEqual([]);
   });
 
   it("does not derive Individual from a missing joined group name when group id is present", async () => {

@@ -21,6 +21,7 @@ import {
   courtSchema,
   freeCourtNumbersSchema,
   myCourtRequestItemSchema,
+  type MyBookingScope,
   courtSlotsCovered,
   durationMinutesOf,
   freeCourtsBySlot,
@@ -351,6 +352,24 @@ export class CourtRequestsService {
     }
 
     const rows = await this.repository.listMineForClient(client.id);
+    return rows.map((row) => this.toClientMineItem(row));
+  }
+
+  /**
+   * Caller-owned rental history. Unlike the calendar-specific read, this has a
+   * server-derived tab scope and intentionally includes terminal request rows.
+   */
+  async listMineHistory(
+    actorTelegramId: number,
+    scope: MyBookingScope
+  ): Promise<MyCourtRequestItem[]> {
+    const client = await this.repository.findActiveClientByTelegramId(actorTelegramId);
+    if (!client) {
+      throw new ForbiddenException("No client is registered for this Telegram account.");
+    }
+
+    const today = new Date().toISOString().slice(0, 10);
+    const rows = await this.repository.listHistoryForClient(client.id, scope, today);
     return rows.map((row) => this.toClientMineItem(row));
   }
 

@@ -69,6 +69,7 @@ const MY_BOOKING: MyBookingItem = {
   startTime: "18:00",
   endTime: "19:30",
   trainingContextLabel: "Individual",
+  trainingKind: "individual",
   trainerName: "Иван",
   levelName: "Начинающий",
   bookingStatus: "booked",

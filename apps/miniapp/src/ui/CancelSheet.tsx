@@ -1,11 +1,10 @@
 import { Button, Modal } from "@telegram-apps/telegram-ui";
-import type { MyBookingItem } from "@beosand/types";
 import { useT } from "../i18n/LanguageProvider";
 import { formatDayMonth, formatTimeRange, weekdayFullKey } from "./format";
 
 interface CancelSheetProps {
   /** The booking being cancelled; `null` keeps the sheet closed. */
-  item: MyBookingItem | null;
+  item: CancelBookingItem | null;
   onOpenChange: (open: boolean) => void;
   /** Run the cancel write for {@link item} (the screen supplies the bookingId). */
   onConfirm: () => void;
@@ -13,6 +12,17 @@ interface CancelSheetProps {
   submitting: boolean;
   /** A 409/error message to surface verbatim above the actions, if any. */
   errorMessage?: string;
+}
+
+/** Detail has all the fields the cancel confirmation needs; it need not invent a list-row kind. */
+export interface CancelBookingItem {
+  bookingId: string;
+  date: string;
+  dayOfWeek: number;
+  startTime: string;
+  endTime: string;
+  trainingContextLabel: string;
+  trainerName: string;
 }
 
 /**

@@ -28,6 +28,7 @@ const item: MyBookingItem = {
   startTime: "18:00",
   endTime: "19:30",
   trainingContextLabel: "Mix",
+  trainingKind: "group",
   trainerName: "Coach",
   levelName: "Beginners",
   bookingStatus: "booked",

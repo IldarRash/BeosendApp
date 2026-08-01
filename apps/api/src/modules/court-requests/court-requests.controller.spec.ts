@@ -1,5 +1,5 @@
 import { BadRequestException, ForbiddenException } from "@nestjs/common";
-import type { CourtClientGrid, CourtRequest, CourtRequestPreview } from "@beosand/types";
+import type { CourtClientGrid, CourtRequest, CourtRequestPreview, MyCourtRequestItem } from "@beosand/types";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { CourtRequestsController } from "./court-requests.controller";
 import type { CourtRequestsService } from "./court-requests.service";
@@ -55,6 +55,18 @@ const created: CourtRequest = {
   decidedBy: null
 };
 
+const mineItem: MyCourtRequestItem = {
+  id: REQUEST_ID,
+  date: "2026-06-10",
+  startTime: "14:00",
+  endTime: "15:00",
+  durationHours: 1,
+  priceRsd: 2000,
+  status: "confirmed",
+  courtCount: 1,
+  courtNumbers: [1]
+};
+
 function makeService(overrides: Partial<CourtRequestsService> = {}): CourtRequestsService {
   return {
     getAvailability: vi.fn(),
@@ -64,6 +76,7 @@ function makeService(overrides: Partial<CourtRequestsService> = {}): CourtReques
     confirmRequest: vi.fn(async () => ({ ...created, status: "confirmed", decidedBy: ACTOR_ID })),
     rejectRequest: vi.fn(async () => ({ ...created, status: "rejected", decidedBy: ACTOR_ID })),
     cancelRequest: vi.fn(async () => ({ ...created, status: "cancelled", decidedBy: ACTOR_ID })),
+    listMineHistory: vi.fn(),
     ...overrides
   } as unknown as CourtRequestsService;
 }
@@ -92,6 +105,39 @@ describe("CourtRequestsController.clientGrid (GET /court-requests/client-grid)",
       controller.clientGrid({ date: "2026-06-10", durationHours: "2.25" })
     ).rejects.toBeInstanceOf(BadRequestException);
     expect(service.clientGrid).not.toHaveBeenCalled();
+  });
+});
+
+describe("CourtRequestsController.mineHistory (GET /court-requests/mine/history)", () => {
+  it("validates the strict scope and resolves only the verified client-session actor", async () => {
+    const service = makeService({ listMineHistory: vi.fn(async () => [mineItem]) });
+    const controller = new CourtRequestsController(service);
+
+    await expect(controller.mineHistory(String(FOREIGN_ID), { scope: "past" }, HEADER)).resolves.toEqual([
+      mineItem
+    ]);
+    expect(service.listMineHistory).toHaveBeenCalledWith(ACTOR_ID, "past");
+  });
+
+  it("rejects a raw-only Telegram header before the history service is called", async () => {
+    const service = makeService();
+    const controller = new CourtRequestsController(service);
+
+    await expect(controller.mineHistory(HEADER, { scope: "upcoming" })).rejects.toBeInstanceOf(
+      BadRequestException
+    );
+    expect(service.listMineHistory).not.toHaveBeenCalled();
+  });
+
+  it("rejects missing, invalid, or client-id-bearing queries before the service", async () => {
+    const service = makeService();
+    const controller = new CourtRequestsController(service);
+
+    await expect(controller.mineHistory(HEADER, {})).rejects.toBeInstanceOf(BadRequestException);
+    await expect(
+      controller.mineHistory(HEADER, { scope: "upcoming", clientId: "spoofed" })
+    ).rejects.toBeInstanceOf(BadRequestException);
+    expect(service.listMineHistory).not.toHaveBeenCalled();
   });
 });
 

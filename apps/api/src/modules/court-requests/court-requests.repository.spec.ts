@@ -59,6 +59,57 @@ describe("CourtRequestsRepository.listMineForClient WHERE filter", () => {
   });
 });
 
+describe("CourtRequestsRepository.listHistoryForClient scope filter", () => {
+  async function renderHistory(scope: "upcoming" | "past"): Promise<{ sql: string; params: unknown[] }> {
+    let where: unknown;
+    const builder = {
+      from: () => builder,
+      leftJoin: () => builder,
+      where: (predicate: unknown) => {
+        where = predicate;
+        return builder;
+      },
+      groupBy: () => builder,
+      orderBy: async () => [] as unknown[]
+    };
+    const db = { select: () => builder } as unknown as Database;
+    const repo = new CourtRequestsRepository({ db } as unknown as DatabaseService);
+
+    await repo.listHistoryForClient("11111111-1111-4111-8111-111111111111", scope, "2026-06-10");
+
+    expect(where).toBeDefined();
+    const query = new PgDialect().sqlToQuery(where as never);
+    return { sql: query.sql.toLowerCase(), params: query.params };
+  }
+
+  it("keeps only today-or-later pending/confirmed rentals in Upcoming", async () => {
+    const { sql, params } = await renderHistory("upcoming");
+
+    expect(sql).toContain('"client_id" =');
+    expect(sql).toContain('"date" >=');
+    expect(params).toEqual([
+      "11111111-1111-4111-8111-111111111111",
+      "pending",
+      "confirmed",
+      "2026-06-10"
+    ]);
+  });
+
+  it("puts past pending/confirmed plus every rejected/cancelled rental in Past", async () => {
+    const { sql, params } = await renderHistory("past");
+
+    expect(sql).toContain('"date" <');
+    expect(params).toEqual([
+      "11111111-1111-4111-8111-111111111111",
+      "pending",
+      "confirmed",
+      "2026-06-10",
+      "rejected",
+      "cancelled"
+    ]);
+  });
+});
+
 describe("CourtModerationTx.cancelConfirmed", () => {
   it("updates only the parent request status/decision fields and keeps court rows", async () => {
     let setValues: unknown;
