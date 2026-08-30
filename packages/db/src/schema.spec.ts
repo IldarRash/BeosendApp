@@ -35,11 +35,16 @@ describe("schema", () => {
     const templateConfig = getTableConfig(schema.monthlyScheduleTemplates);
     const entryConfig = getTableConfig(schema.monthlyScheduleEntries);
     const trainingConfig = getTableConfig(schema.trainings);
-    const planMonthIndex = planConfig.indexes.find((index) => index.config.name === "monthly_schedule_plans_year_month_idx");
+    const planPeriodIndex = planConfig.indexes.find((index) => index.config.name === "monthly_schedule_plans_start_end_idx");
+    const dayOffConfig = getTableConfig(schema.monthlySchedulePlanDaysOff);
+    const dayOffDateIndex = dayOffConfig.indexes.find((index) => index.config.name === "monthly_schedule_plan_days_off_plan_date_idx");
     const templateGroupIndex = templateConfig.indexes.find((index) => index.config.name === "monthly_schedule_templates_plan_group_idx");
     const entryDateIndex = entryConfig.indexes.find((index) => index.config.name === "monthly_schedule_entries_template_date_idx");
     const trainingEntryIndex = trainingConfig.indexes.find((index) => index.config.name === "trainings_monthly_schedule_entry_id_idx");
-    expect(planMonthIndex?.config.unique).toBe(true);
+    expect(planPeriodIndex?.config.unique).toBe(true);
+    expect(planPeriodIndex?.config.columns.map((column) => (column as { name?: string }).name)).toEqual(["start_date", "end_date"]);
+    expect(dayOffDateIndex?.config.unique).toBe(true);
+    expect(dayOffDateIndex?.config.columns.map((column) => (column as { name?: string }).name)).toEqual(["plan_id", "date"]);
     expect(templateGroupIndex?.config.unique).toBe(true);
     expect(entryDateIndex?.config.unique).toBe(true);
     expect(trainingEntryIndex?.config.unique).toBe(true);
@@ -49,6 +54,10 @@ describe("schema", () => {
     expect(schema.monthlyScheduleNotificationDeliveries).not.toHaveProperty("entryId");
     expect(schema.monthlyScheduleNotificationDeliveries).not.toHaveProperty("templateId");
     expect(schema.monthlyScheduleNotificationDeliveries.changes.notNull).toBe(true);
+    expect(planConfig.checks.map((item) => item.name)).toEqual(expect.arrayContaining([
+      "monthly_schedule_plans_period_order",
+      "monthly_schedule_plans_period_length"
+    ]));
     expect(templateConfig.checks.map((item) => item.name)).toEqual(expect.arrayContaining([
       "monthly_schedule_templates_weekdays_present",
       "monthly_schedule_templates_weekdays_range",

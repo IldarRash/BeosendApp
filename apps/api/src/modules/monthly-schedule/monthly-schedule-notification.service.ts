@@ -16,8 +16,8 @@ export interface EnqueueMonthlySchedulePropagation {
   operationId: string;
   planId: string;
   planRevision: number;
-  year: number;
-  month: number;
+  periodStart: string;
+  periodEnd: string;
   oldTrainerId: string;
   newTrainerId: string;
   trainingIds: string[];
@@ -62,8 +62,8 @@ export class MonthlyScheduleNotificationService {
           operationId: input.operationId,
           planId: input.planId,
           planRevision: input.planRevision,
-          year: input.year,
-          month: input.month,
+          periodStart: input.periodStart,
+          periodEnd: input.periodEnd,
           recipientKind: recipient.kind,
           recipientId: recipient.id,
           recipientName: recipient.name,
@@ -91,7 +91,7 @@ export class MonthlyScheduleNotificationService {
 
   private async dispatchOne(delivery: InternalMonthlyScheduleDelivery): Promise<void> {
     const address = parseAddress(delivery.recipientChannelAddress);
-    const text = renderDigest(delivery.changes, delivery.year, delivery.month, address.locale);
+    const text = renderDigest(delivery.changes, delivery.periodStart, delivery.periodEnd, address.locale);
     try {
       if (delivery.recipientKind === "trainer") {
         if (address.telegramId === null) {
@@ -195,8 +195,8 @@ function parseAddress(value: string | null): {
 
 function renderDigest(
   changes: readonly MonthlyScheduleNotificationChange[],
-  year: number,
-  month: number,
+  periodStart: string,
+  periodEnd: string,
   locale: "ru" | "sr" | "en"
 ): string {
   const copy = locale === "en"
@@ -206,7 +206,7 @@ function renderDigest(
       : { title: "Расписание тренировок изменено", trainer: "Тренер", court: "корт", none: "не назначен" };
   const court = (number: number | null) => number === null ? copy.none : `${copy.court} ${number}`;
   return [
-    `${copy.title} · ${String(month).padStart(2, "0")}.${year}:`,
+    `${copy.title} · ${periodStart} — ${periodEnd}:`,
     ...changes.map(
       (change) =>
         `${escapeHtml(change.groupName)}: ` +

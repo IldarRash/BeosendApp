@@ -253,6 +253,13 @@
       "when": 1785528000000,
       "tag": "0035_backfill_published_monthly_plans",
       "breakpoints": true
+    },
+    {
+      "idx": 36,
+      "version": "7",
+      "when": 1785600000000,
+      "tag": "0036_operational_period_schedule_plans",
+      "breakpoints": true
     }
   ]
 }

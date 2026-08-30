@@ -80,6 +80,34 @@ export function monthBounds(year: number, month: number): [string, string] {
 }
 
 /** Current and next calendar month candidates for client-facing monthly booking offers. */
+/** UTC calendar-component helpers used by operational planner periods. */
+function plannerCalendarDate(value: string): Date {
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(value)) throw new Error("Invalid ISO calendar date");
+  const date = new Date(`${value}T00:00:00.000Z`);
+  if (Number.isNaN(date.getTime()) || date.toISOString().slice(0, 10) !== value) throw new Error("Invalid ISO calendar date");
+  return date;
+}
+export function inclusiveDateLength(startDate: string, endDate: string): number {
+  return Math.floor((plannerCalendarDate(endDate).getTime() - plannerCalendarDate(startDate).getTime()) / 86400000) + 1;
+}
+export function enumerateInclusiveDates(startDate: string, endDate: string, maxLength = 84): string[] {
+  const length = inclusiveDateLength(startDate, endDate);
+  if (length < 1 || length > maxLength) throw new Error(`Planner range must contain 1..${maxLength} dates`);
+  const cursor = plannerCalendarDate(startDate); const result: string[] = [];
+  for (let index = 0; index < length; index += 1) { result.push(cursor.toISOString().slice(0, 10)); cursor.setUTCDate(cursor.getUTCDate() + 1); }
+  return result;
+}
+export function plannerTrainingDates(days: readonly DayOfWeek[], startDate: string, endDate: string, daysOff: readonly string[] = []): string[] {
+  const wanted = new Set(days); const off = new Set(daysOff);
+  return enumerateInclusiveDates(startDate, endDate).filter((date) => wanted.has(isoWeekdayOf(date)) && !off.has(date));
+}
+export function shiftInclusiveDateRange(startDate: string, endDate: string, direction: 1 | -1): [string, string] {
+  const length = inclusiveDateLength(startDate, endDate);
+  if (length < 1 || length > 84) throw new Error("Planner range must contain 1..84 dates");
+  const start = plannerCalendarDate(startDate); const end = plannerCalendarDate(endDate);
+  start.setUTCDate(start.getUTCDate() + direction * length); end.setUTCDate(end.getUTCDate() + direction * length);
+  return [start.toISOString().slice(0, 10), end.toISOString().slice(0, 10)];
+}
 export function currentAndNextMonthCandidates(today: string): BookableMonth[] {
   const year = Number(today.slice(0, 4));
   const month = Number(today.slice(5, 7));

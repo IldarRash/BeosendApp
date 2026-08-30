@@ -16,6 +16,8 @@ import {
   monthlyScheduleConflictResultSchema,
   monthlySchedulePlanViewSchema,
   createMonthlySchedulePlanSchema,
+  updateMonthlySchedulePeriodSchema,
+  generateMonthlySchedulePlanSchema,
   createMonthlyScheduleTemplateSchema,
   updateMonthlyScheduleTemplateSchema,
   analyticsSummarySchema,
@@ -171,6 +173,8 @@ import {
   type ManagerContact,
   type Manager,
   type CreateMonthlySchedulePlanInput,
+  type UpdateMonthlySchedulePeriodInput,
+  type GenerateMonthlySchedulePlanInput,
   type CreateMonthlyScheduleTemplateInput,
   type MonthlyScheduleActionResult,
   type MonthlyScheduleConflictResult,
@@ -377,9 +381,9 @@ export class ApiClient {
     return this.request("/health", healthSchema);
   }
 
-  getMonthlySchedulePlan(year: number, month: number): Promise<MonthlySchedulePlanView | null> {
+  getMonthlySchedulePlan(startDate: string, endDate: string): Promise<MonthlySchedulePlanView | null> {
     return this.request(
-      `/monthly-schedule-plans?year=${encodeURIComponent(year)}&month=${encodeURIComponent(month)}`,
+      `/monthly-schedule-plans?startDate=${encodeURIComponent(startDate)}&endDate=${encodeURIComponent(endDate)}`,
       monthlySchedulePlanViewSchema.nullable()
     );
   }
@@ -388,6 +392,18 @@ export class ApiClient {
     return this.request("/monthly-schedule-plans", monthlySchedulePlanViewSchema, {
       method: "POST", body: JSON.stringify(createMonthlySchedulePlanSchema.parse(input))
     });
+  }
+
+  updateMonthlySchedulePeriod(planId: string, input: UpdateMonthlySchedulePeriodInput): Promise<MonthlySchedulePlanView> {
+    return this.request(`/monthly-schedule-plans/${planId}/period`, monthlySchedulePlanViewSchema, { method: "PATCH", body: JSON.stringify(updateMonthlySchedulePeriodSchema.parse(input)) });
+  }
+
+  markMonthlyScheduleDayOff(planId: string, date: string): Promise<MonthlySchedulePlanView> {
+    return this.request(`/monthly-schedule-plans/${planId}/days-off/${encodeURIComponent(date)}`, monthlySchedulePlanViewSchema, { method: "PUT" });
+  }
+
+  unmarkMonthlyScheduleDayOff(planId: string, date: string): Promise<MonthlySchedulePlanView> {
+    return this.request(`/monthly-schedule-plans/${planId}/days-off/${encodeURIComponent(date)}`, monthlySchedulePlanViewSchema, { method: "DELETE" });
   }
 
   createMonthlyScheduleTemplate(planId: string, input: CreateMonthlyScheduleTemplateInput): Promise<MonthlySchedulePlanView> {
@@ -410,8 +426,8 @@ export class ApiClient {
     return this.request(`/monthly-schedule-plans/${planId}/approve`, monthlyScheduleActionResultSchema, { method: "POST" });
   }
 
-  generateMonthlySchedulePlan(planId: string): Promise<MonthlyScheduleActionResult> {
-    return this.request(`/monthly-schedule-plans/${planId}/generate`, monthlyScheduleActionResultSchema, { method: "POST" });
+  generateMonthlySchedulePlan(planId: string, input: GenerateMonthlySchedulePlanInput): Promise<MonthlyScheduleActionResult> {
+    return this.request(`/monthly-schedule-plans/${planId}/generate`, monthlyScheduleActionResultSchema, { method: "POST", body: JSON.stringify(generateMonthlySchedulePlanSchema.parse(input)) });
   }
 
   publishMonthlySchedulePlan(planId: string): Promise<MonthlyScheduleActionResult> {

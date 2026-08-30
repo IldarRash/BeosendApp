@@ -3055,3 +3055,21 @@ button.court-event:focus-visible {
     transform: none;
   }
 }
+
+/* Operational-period planner: local extensions to the shared workbench. */
+.planner-period { display:flex; align-items:end; gap:8px; flex-wrap:wrap; }
+.planner-period .field { min-width:158px; }
+.planner-length { align-self:center; color:var(--ink-600); font-size:12px; white-space:nowrap; }
+.planner-calendar--period { overflow-x:auto; }
+.planner-calendar--period .calendar__week, .planner-calendar--period .calendar__head { min-width:700px; }
+.planner-day { position:relative; min-height:142px; }
+.planner-day__select { width:100%; padding:0; border:0; background:transparent; color:inherit; text-align:left; cursor:pointer; }
+.planner-day--selected { outline:2px solid var(--coral); outline-offset:-2px; }
+.planner-dayoff { margin-top:5px; padding:3px 6px; font-size:10px; }
+.planner-dayoff[aria-pressed="true"] { color:var(--amber-ink); background:var(--amber-soft); border-color:var(--amber); }
+.planner-overlap-badge { display:inline-block; margin:5px 0 0; color:var(--amber-ink); font-size:10px; font-weight:700; }
+.planner-occurrence--prior { background:var(--sand-50); border-style:dashed; color:var(--ink-600); }
+.planner-overlap-banner { display:grid; gap:5px; margin:0 0 16px; padding:12px 14px; border:1px solid color-mix(in srgb,var(--amber) 55%,var(--border)); border-radius:var(--radius); color:var(--amber-ink); background:var(--amber-soft); }
+.planner-overlap-banner strong { color:var(--amber-ink); }.planner-overlap-banner ul { margin:0; padding-left:18px; font-size:12px; }
+.planner-ack { display:flex; gap:8px; align-items:flex-start; margin:10px 0; color:var(--ink-700); }
+@media (max-width:720px) { .planner-period { align-items:stretch; }.planner-period .field { flex:1 1 100%; }.planner-period .btn { min-height:38px; }.planner-day { min-height:112px; } }

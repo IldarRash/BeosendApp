@@ -1,7 +1,7 @@
 import { ConflictException, ForbiddenException, Injectable, Logger, NotFoundException, Optional } from "@nestjs/common";
 import { randomUUID } from "node:crypto";
 import { isAdmin, type Env } from "@beosand/config";
-import { BELGRADE_TZ, monthBounds, monthTrainingDates, monthlyScheduleActionResultSchema, monthlyScheduleConflictResultSchema, monthlySchedulePlanViewSchema, type CreateMonthlySchedulePlanInput, type CreateMonthlyScheduleTemplateInput, type MonthlyScheduleActionResult, type MonthlyScheduleDiagnostic, type MonthlyScheduleEntry, type MonthlyScheduleNotificationChange, type MonthlyScheduleNotificationDelivery, type MonthlyScheduleNotificationDeliveryOutcome, type MonthlySchedulePlanView, type UpdateMonthlyScheduleTemplateInput } from "@beosand/types";
+import { BELGRADE_TZ, plannerTrainingDates, monthlyScheduleActionResultSchema, monthlyScheduleConflictResultSchema, monthlySchedulePlanViewSchema, type CreateMonthlySchedulePlanInput, type UpdateMonthlySchedulePeriodInput, type GenerateMonthlySchedulePlanInput, type CreateMonthlyScheduleTemplateInput, type MonthlyScheduleActionResult, type MonthlyScheduleDiagnostic, type MonthlyScheduleEntry, type MonthlyScheduleNotificationChange, type MonthlyScheduleNotificationDelivery, type MonthlyScheduleNotificationDeliveryOutcome, type MonthlySchedulePlanView, type UpdateMonthlyScheduleTemplateInput } from "@beosand/types";
 import { ENV } from "../../config/config.module";
 import { Inject } from "@nestjs/common";
 import { MonthlyScheduleRepository, type PlanRow, type TemplateRow } from "./monthly-schedule.repository";
@@ -24,8 +24,14 @@ export class MonthlyScheduleService {
     @Optional() private readonly notifications?: MonthlyScheduleNotificationService,
     @Optional() private readonly automations?: BroadcastAutomationsService
   ) {}
-  async get(actor: number, input: { year: number; month: number }): Promise<MonthlySchedulePlanView | null> { this.admin(actor); const plan = await this.repository.findPlanByMonth(input.year, input.month); return plan ? this.read(plan.id) : null; }
-  async listNotificationDeliveries(
+  async get(actor: number, input: { startDate: string; endDate: string }): Promise<MonthlySchedulePlanView | null> { this.admin(actor); const plan = await this.repository.findPlanByPeriod(input.startDate, input.endDate); return plan ? this.read(plan.id) : null; }
+  async markDayOff(actor: number, planId: string, date: string): Promise<MonthlySchedulePlanView> { return this.changeDayOff(actor, planId, date, true); }
+  async unmarkDayOff(actor: number, planId: string, date: string): Promise<MonthlySchedulePlanView> { return this.changeDayOff(actor, planId, date, false); }
+  private async changeDayOff(actor: number, planId: string, date: string, marked: boolean): Promise<MonthlySchedulePlanView> {
+    this.admin(actor); return this.repository.transaction(async (db) => { const plan = await this.lock(planId, db); if (marked) await this.repository.markDayOff(planId, date, db); else await this.repository.unmarkDayOff(planId, date, db); if (plan.generatedAt === null && date >= plan.startDate && date <= plan.endDate) { const view = await this.repository.view(planId, db); const daysOff = (await this.repository.listDaysOff(planId, db)).map((row) => row.date); for (const template of view?.templates ?? []) { const row = await this.repository.findTemplate(planId, template.id, db); if (row) await this.repository.rematerialize(row, plannerTrainingDates(row.daysOfWeek, plan.startDate, plan.endDate, daysOff), db); } await this.bump(plan, actor, db); } return this.read(planId, db); }); }  async updatePeriod(actor: number, planId: string, input: UpdateMonthlySchedulePeriodInput): Promise<MonthlySchedulePlanView> {
+    this.admin(actor);
+    return this.repository.transaction(async (db) => { await this.repository.lockPlannerRange(input.startDate, input.endDate, db); const plan = await this.lock(planId, db); if (plan.generatedAt) throw new ConflictException("Generated plan boundaries are immutable"); await this.repository.updatePlan(planId, { startDate: input.startDate, endDate: input.endDate, updatedBy: actor }, db); const daysOff = (await this.repository.listDaysOff(planId, db)).map((row) => row.date); const view = await this.repository.view(planId, db); for (const item of view?.templates ?? []) { const template = await this.repository.findTemplate(planId, item.id, db); if (template) await this.repository.rematerialize(template, plannerTrainingDates(template.daysOfWeek, input.startDate, input.endDate, daysOff), db); } await this.bump({ ...plan, startDate: input.startDate, endDate: input.endDate }, actor, db); return this.read(planId, db); });
+  }  async listNotificationDeliveries(
     actor: number,
     planId: string,
     outcome?: MonthlyScheduleNotificationDeliveryOutcome
@@ -36,8 +42,8 @@ export class MonthlyScheduleService {
     }
     return this.notifications?.list(planId, outcome) ?? [];
   }
-  async createOrGet(actor: number, input: CreateMonthlySchedulePlanInput): Promise<MonthlySchedulePlanView> { this.admin(actor); return this.repository.transaction(async (db) => { const existing = await this.repository.findPlanByMonth(input.year, input.month, db); const created = existing ? undefined : await this.repository.createPlan(input.year, input.month, actor, db); const plan = existing ?? created ?? await this.repository.findPlanByMonth(input.year, input.month, db); if (!plan) throw new ConflictException("Could not create or read the monthly schedule plan"); return this.read(plan.id, db); }); }
-  async addTemplate(actor: number, planId: string, input: CreateMonthlyScheduleTemplateInput): Promise<MonthlySchedulePlanView> { this.admin(actor); return this.repository.transaction(async (db) => { const plan = await this.lock(planId, db); this.assertEditable(plan); if (!(await this.repository.findReference(input.groupId, input.trainerId, input.preferredCourtId, db))) throw new NotFoundException("Active group, trainer, or preferred court not found"); const duplicate = (await this.repository.view(planId, db))?.templates.some((t) => t.groupId === input.groupId); if (duplicate) throw new ConflictException("A template already exists for this group"); const template = await this.repository.createTemplate(planId, input, db); await this.repository.rematerialize(template, monthTrainingDates(input.daysOfWeek, plan.year, plan.month), db); await this.bump(plan, actor, db); return this.read(planId, db); }); }
+  async createOrGet(actor: number, input: CreateMonthlySchedulePlanInput): Promise<MonthlySchedulePlanView> { this.admin(actor); return this.repository.transaction(async (db) => { const existing = await this.repository.findPlanByPeriod(input.startDate, input.endDate, db); const created = existing ? undefined : await this.repository.createPlan(input.startDate, input.endDate, actor, db); const plan = existing ?? created ?? await this.repository.findPlanByPeriod(input.startDate, input.endDate, db); if (!plan) throw new ConflictException("Could not create or read the monthly schedule plan"); return this.read(plan.id, db); }); }
+  async addTemplate(actor: number, planId: string, input: CreateMonthlyScheduleTemplateInput): Promise<MonthlySchedulePlanView> { this.admin(actor); return this.repository.transaction(async (db) => { const plan = await this.lock(planId, db); this.assertEditable(plan); if (!(await this.repository.findReference(input.groupId, input.trainerId, input.preferredCourtId, db))) throw new NotFoundException("Active group, trainer, or preferred court not found"); const duplicate = (await this.repository.view(planId, db))?.templates.some((t) => t.groupId === input.groupId); if (duplicate) throw new ConflictException("A template already exists for this group"); const template = await this.repository.createTemplate(planId, input, db); const daysOff = (await this.repository.listDaysOff(planId, db)).map((row) => row.date); await this.repository.rematerialize(template, plannerTrainingDates(input.daysOfWeek, plan.startDate, plan.endDate, daysOff), db); await this.bump(plan, actor, db); return this.read(planId, db); }); }
   async updateTemplate(
     actor: number,
     planId: string,
@@ -72,7 +78,7 @@ export class MonthlyScheduleService {
         const template = await this.repository.updateTemplate(templateId, patch, db);
         await this.repository.rematerialize(
           template,
-          monthTrainingDates(template.daysOfWeek, plan.year, plan.month),
+          plannerTrainingDates(template.daysOfWeek, plan.startDate, plan.endDate, (await this.repository.listDaysOff(planId, db)).map((row) => row.date)),
           db
         );
         await this.bump(plan, actor, db);
@@ -85,10 +91,15 @@ export class MonthlyScheduleService {
   async deleteTemplate(actor: number, planId: string, templateId: string): Promise<MonthlySchedulePlanView> { this.admin(actor); return this.repository.transaction(async (db) => { const plan = await this.lock(planId, db); this.assertEditable(plan); if (!(await this.repository.findTemplate(planId, templateId, db))) throw new NotFoundException("Monthly schedule template not found"); await this.repository.deleteTemplate(templateId, db); await this.bump(plan, actor, db); return this.read(planId, db); }); }
   async approve(actor: number, planId: string): Promise<MonthlyScheduleActionResult> { this.admin(actor); return this.repository.transaction(async (db) => { const plan = await this.lock(planId, db); if (plan.status !== "draft") throw new ConflictException("Only a draft plan can be approved"); const view = await this.read(planId, db); if (view.plan.templates.length === 0 || view.plan.entries.length === 0) throw new ConflictException("A plan requires at least one materialized template"); await this.repository.updatePlan(planId, { status:"approved", approvedRevision:plan.revision, approvedAt:new Date(), approvedBy:actor, updatedBy:actor }, db); return this.actionResult(await this.read(planId, db)); }); }
 
-  async generate(actor: number, planId: string): Promise<MonthlyScheduleActionResult> {
+  async generate(actor: number, planId: string, _input: GenerateMonthlySchedulePlanInput = { acknowledgedOverlapPlanIds: [], overlapFingerprint: null }): Promise<MonthlyScheduleActionResult> {
     this.admin(actor);
     return this.repository.transaction(async (db) => {
       const plan = await this.lock(planId, db);
+      await this.repository.lockPlannerRange(plan.startDate, plan.endDate, db);
+      const overlapRows = await this.repository.overlaps(planId, plan.startDate, plan.endDate, db);
+      const overlapIds = overlapRows.rows.map((row) => String(row.id)).sort();
+      const acknowledged = [..._input.acknowledgedOverlapPlanIds].sort();
+      if (overlapIds.join(",") !== acknowledged.join(",")) throw new ConflictException("Current plan overlaps must be acknowledged before generation");
       if (plan.generatedAt !== null) {
         if (plan.generatedRevision !== plan.revision) {
           throw new ConflictException("Generated plan revision must be updated through propagation");
@@ -174,7 +185,7 @@ export class MonthlyScheduleService {
         throw new ConflictException("Every plan entry must map to a generated training");
       }
 
-      const [from, to] = monthBounds(plan.year, plan.month);
+      const [from, to] = [plan.startDate, plan.endDate];
       const context = this.conflictRepository
         ? await this.conflictRepository.load(planId, from, to, db)
         : { resources: [] };
@@ -243,7 +254,7 @@ export class MonthlyScheduleService {
     }
 
     const storedEntries = await this.repository.findEntriesForTemplate(oldTemplate.id, db);
-    const nextDates = monthTrainingDates(nextTemplate.daysOfWeek, plan.year, plan.month);
+    const nextDates = plannerTrainingDates(nextTemplate.daysOfWeek, plan.startDate, plan.endDate);
     if (storedEntries.length !== nextDates.length) {
       this.throwPropagationConflict(
         plan,
@@ -298,7 +309,7 @@ export class MonthlyScheduleService {
         : { ...entry, diagnostics: [] };
     });
 
-    const [from, to] = monthBounds(plan.year, plan.month);
+    const [from, to] = [plan.startDate, plan.endDate];
     const loadedContext = await this.conflictRepository.load(plan.id, from, to, db);
     const context = {
       ...loadedContext,
@@ -470,8 +481,8 @@ export class MonthlyScheduleService {
           operationId: randomUUID(),
           planId: plan.id,
           planRevision: nextRevision,
-          year: plan.year,
-          month: plan.month,
+          periodStart: plan.startDate,
+          periodEnd: plan.endDate,
           oldTrainerId: originalTrainerId,
           newTrainerId: nextTemplate.trainerId,
           trainingIds: updatedTrainingIds,
@@ -501,7 +512,7 @@ export class MonthlyScheduleService {
     let evaluatedPlan = plan;
     let diagnostics = plan.entries.flatMap((entry) => entry.diagnostics);
     if (this.conflictRepository && this.settings && plan.entries.length > 0) {
-      const [from, to] = monthBounds(plan.year, plan.month);
+      const [from, to] = [plan.startDate, plan.endDate];
       const context = await this.conflictRepository.load(id, from, to, db);
       const dates = [...new Set(plan.entries.map((entry) => entry.date))];
       const workingHours = new Map(
@@ -517,10 +528,32 @@ export class MonthlyScheduleService {
       diagnostics = evaluation.diagnostics;
     }
 
+    const daysOff = await this.repository.listDaysOff(plan.id, db);
+    const overlapRows = await this.repository.overlaps(plan.id, plan.startDate, plan.endDate, db);
+    const overlapFingerprint = overlapRows.rows.map((row) => `${row.id}:${row.revision}:${row.startDate}:${row.endDate}`).sort().join("|") || null;
+    const overlapDetails = await Promise.all(overlapRows.rows.map(async (row) => {
+      const source = await this.repository.view(row.id, db);
+      const intersectionStartDate = row.startDate > plan.startDate ? row.startDate : plan.startDate;
+      const intersectionEndDate = row.endDate < plan.endDate ? row.endDate : plan.endDate;
+      const entries = (source?.entries ?? []).filter((entry) => entry.date >= intersectionStartDate && entry.date <= intersectionEndDate);
+      return { row, intersectionStartDate, intersectionEndDate, entries };
+    }));
+    const overlaps = overlapDetails.map(({ row, intersectionStartDate, intersectionEndDate, entries }) => ({
+      planId: row.id, startDate: row.startDate, endDate: row.endDate, status: row.status,
+      intersectionStartDate, intersectionEndDate, entryCount: entries.length,
+      generatedTrainingCount: entries.filter((entry) => entry.trainingId !== null).length
+    }));
+    const overlapEntries = overlapDetails.flatMap(({ row, entries }) => entries.map((entry) => ({ ...entry, sourcePlanId: row.id })));
+    diagnostics = [...diagnostics, ...overlaps.map((overlap) => ({ code: "plan-overlap" as const, severity: "warning" as const, message: "Plan overlaps another operational period", date: overlap.intersectionStartDate, startTime: "00:00", endTime: "00:30", entryId: null, trainingId: null, courtId: null, requestId: null, blockId: null }))];
     const blockingDiagnosticCount = diagnostics.filter((item) => item.severity === "blocking").length;
     const warningDiagnosticCount = diagnostics.filter((item) => item.severity === "warning").length;
     const view = {
       plan: evaluatedPlan,
+      daysOff: daysOff.map((row) => ({ id: row.id, planId: row.planId, date: row.date })),
+      overlaps,
+      overlapEntries,
+      hasOverlap: overlaps.length > 0,
+      overlapFingerprint,
       diagnostics,
       summary: {
         templateCount: evaluatedPlan.templates.length,
@@ -612,7 +645,7 @@ export class MonthlyScheduleService {
   }
 
   private throwPropagationConflict(
-    plan: Pick<PlanRow, "id" | "revision" | "year" | "month">,
+    plan: Pick<PlanRow, "id" | "revision" | "startDate" | "endDate">,
     code: "entry-cardinality-changed" | "source-changed" | "court-unassigned",
     message: string,
     anchor?: {
@@ -627,7 +660,7 @@ export class MonthlyScheduleService {
       code,
       severity: "blocking",
       message,
-      date: anchor?.date ?? `${plan.year}-${String(plan.month).padStart(2, "0")}-01`,
+      date: anchor?.date ?? plan.startDate,
       startTime: anchor?.startTime.slice(0, 5) ?? "00:00",
       endTime: anchor?.endTime.slice(0, 5) ?? "00:30",
       entryId: anchor?.id ?? null,

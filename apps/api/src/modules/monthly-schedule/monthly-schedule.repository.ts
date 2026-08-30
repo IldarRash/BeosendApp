@@ -7,6 +7,14 @@ export type PlanRow = typeof tables.monthlySchedulePlans.$inferSelect;
 export type TemplateRow = typeof tables.monthlyScheduleTemplates.$inferSelect;
 export type EntryRow = typeof tables.monthlyScheduleEntries.$inferSelect;
 
+export interface SchedulePlanOverlapRow {
+  id: string;
+  revision: number;
+  startDate: string;
+  endDate: string;
+  status: "draft" | "approved" | "published";
+}
+
 export interface PropagationRow {
   entryId: string;
   trainingId: string | null;
@@ -18,15 +26,18 @@ export interface PropagationRow {
 export class MonthlyScheduleRepository {
   constructor(private readonly database: DatabaseService) {}
   transaction<T>(work: (db: Database) => Promise<T>): Promise<T> { return this.database.db.transaction(work); }
-  async findPlanByMonth(year: number, month: number, db: Database = this.database.db): Promise<PlanRow | undefined> { return (await db.select().from(tables.monthlySchedulePlans).where(and(eq(tables.monthlySchedulePlans.year, year), eq(tables.monthlySchedulePlans.month, month))).limit(1))[0]; }
-  async findPlan(id: string, db: Database = this.database.db): Promise<PlanRow | undefined> { return (await db.select().from(tables.monthlySchedulePlans).where(eq(tables.monthlySchedulePlans.id, id)).limit(1))[0]; }
+  async findPlanByPeriod(startDate: string, endDate: string, db: Database = this.database.db): Promise<PlanRow | undefined> { return (await db.select().from(tables.monthlySchedulePlans).where(and(eq(tables.monthlySchedulePlans.startDate, startDate), eq(tables.monthlySchedulePlans.endDate, endDate))).limit(1))[0]; }
+  async lockPlannerRange(startDate: string, endDate: string, db: Database): Promise<void> { await db.execute(sql`select pg_advisory_xact_lock(hashtext(${`${startDate}:${endDate}`}))`); }
+  async listDaysOff(planId: string, db: Database = this.database.db) { return db.select().from(tables.monthlySchedulePlanDaysOff).where(eq(tables.monthlySchedulePlanDaysOff.planId, planId)).orderBy(asc(tables.monthlySchedulePlanDaysOff.date)); }
+  async markDayOff(planId: string, date: string, db: Database): Promise<void> { await db.insert(tables.monthlySchedulePlanDaysOff).values({ planId, date }).onConflictDoNothing(); }
+  async unmarkDayOff(planId: string, date: string, db: Database): Promise<void> { await db.delete(tables.monthlySchedulePlanDaysOff).where(and(eq(tables.monthlySchedulePlanDaysOff.planId, planId), eq(tables.monthlySchedulePlanDaysOff.date, date))); }
+  async overlaps(planId: string, startDate: string, endDate: string, db: Database = this.database.db): Promise<{ rows: SchedulePlanOverlapRow[] }> { const result = await db.execute(sql`select id, revision, start_date, end_date, status from monthly_schedule_plans where id <> ${planId} and start_date <= ${endDate}::date and end_date >= ${startDate}::date order by start_date, id`); return { rows: result.rows.map((row) => ({ id: String(row.id), revision: Number(row.revision), startDate: String(row.start_date), endDate: String(row.end_date), status: row.status as SchedulePlanOverlapRow["status"] })) }; }  async findPlan(id: string, db: Database = this.database.db): Promise<PlanRow | undefined> { return (await db.select().from(tables.monthlySchedulePlans).where(eq(tables.monthlySchedulePlans.id, id)).limit(1))[0]; }
   /** Serialize same-plan edits with a real row lock; callers must be inside transaction(). */
   async lockPlan(id: string, db: Database): Promise<PlanRow | undefined> { await db.execute(sql`select id from monthly_schedule_plans where id = ${id} for update`); return this.findPlan(id, db); }
   /** Unique (year, month) plus conflict-ignore makes concurrent create-or-get idempotent. */
-  async createPlan(year: number, month: number, actor: number, db: Database): Promise<PlanRow | undefined> {
-    return (await db.insert(tables.monthlySchedulePlans).values({ year, month, createdBy: actor, updatedBy: actor }).onConflictDoNothing().returning())[0];
+  async createPlan(startDate: string, endDate: string, actor: number, db: Database): Promise<PlanRow | undefined> { return (await db.insert(tables.monthlySchedulePlans).values({ startDate, endDate, createdBy: actor, updatedBy: actor }).onConflictDoNothing().returning())[0];
   }
-  async updatePlan(id: string, patch: Partial<Pick<PlanRow, "status" | "revision" | "approvedRevision" | "approvedAt" | "approvedBy" | "generatedRevision" | "generatedAt" | "publishedAt" | "publishedBy" | "updatedBy">>, db: Database): Promise<PlanRow> { return (await db.update(tables.monthlySchedulePlans).set({ ...patch, updatedAt: new Date() }).where(eq(tables.monthlySchedulePlans.id, id)).returning())[0]; }
+  async updatePlan(id: string, patch: Partial<Pick<PlanRow, "startDate" | "endDate" | "status" | "revision" | "approvedRevision" | "approvedAt" | "approvedBy" | "generatedRevision" | "generatedAt" | "publishedAt" | "publishedBy" | "updatedBy">>, db: Database): Promise<PlanRow> { return (await db.update(tables.monthlySchedulePlans).set({ ...patch, updatedAt: new Date() }).where(eq(tables.monthlySchedulePlans.id, id)).returning())[0]; }
   async createTemplate(planId: string, input: CreateMonthlyScheduleTemplateInput, db: Database): Promise<TemplateRow> { return (await db.insert(tables.monthlyScheduleTemplates).values({ planId, ...input }).returning())[0]; }
   async findTemplate(planId: string, id: string, db: Database): Promise<TemplateRow | undefined> { return (await db.select().from(tables.monthlyScheduleTemplates).where(and(eq(tables.monthlyScheduleTemplates.id, id), eq(tables.monthlyScheduleTemplates.planId, planId))).limit(1))[0]; }
   async updateTemplate(id: string, patch: UpdateMonthlyScheduleTemplateInput, db: Database): Promise<TemplateRow> { return (await db.update(tables.monthlyScheduleTemplates).set({ ...patch, updatedAt: new Date() }).where(eq(tables.monthlyScheduleTemplates.id, id)).returning())[0]; }
@@ -287,7 +298,7 @@ export class MonthlyScheduleRepository {
     const assignedIds = [...new Set(entries.map((row) => row.e.assignedCourtId).filter((courtId): courtId is string => courtId !== null))];
     const assignedCourts = assignedIds.length ? await db.select({ id: tables.courts.id, number: tables.courts.number }).from(tables.courts).where(inArray(tables.courts.id, assignedIds)) : [];
     const assignedNumberById = new Map(assignedCourts.map((court) => [court.id, court.number]));
-    return { id: plan.id, year: plan.year, month: plan.month, timezone: "Europe/Belgrade", status: plan.status, revision: plan.revision, approvedRevision: plan.approvedRevision, generatedRevision: plan.generatedRevision, generatedAt: iso(plan.generatedAt), approvedAt: iso(plan.approvedAt), approvedBy: plan.approvedBy, publishedAt: iso(plan.publishedAt), publishedBy: plan.publishedBy, createdAt: plan.createdAt.toISOString(), updatedAt: plan.updatedAt.toISOString(), templates: templates.map((r) => ({ id:r.t.id, planId:r.t.planId, groupId:r.t.groupId, groupName:r.groupName, levelName:r.levelName, daysOfWeek:r.t.daysOfWeek, startTime:r.t.startTime.slice(0,5), endTime:r.t.endTime.slice(0,5), trainerId:r.t.trainerId, trainerName:r.trainerName, preferredCourtId:r.t.preferredCourtId, preferredCourtNumber:r.courtNumber })), entries: entries.map((r) => ({ id:r.e.id, planId:id, templateId:r.e.templateId, groupId:r.t.groupId, groupName:r.groupName, levelName:r.levelName, date:r.e.date, startTime:r.e.startTime.slice(0,5), endTime:r.e.endTime.slice(0,5), trainerId:r.e.trainerId, trainerName:r.trainerName, preferredCourtId:r.e.preferredCourtId, preferredCourtNumber:r.preferredCourtNumber, assignedCourtId:r.e.assignedCourtId, assignedCourtNumber:r.e.assignedCourtId ? assignedNumberById.get(r.e.assignedCourtId) ?? null : null, trainingId:r.trainingId, trainingStatus:r.trainingStatus, hidden:r.hidden ?? false, diagnostics:[] })) };
+    return { id: plan.id, startDate: plan.startDate, endDate: plan.endDate, timezone: "Europe/Belgrade", status: plan.status, revision: plan.revision, approvedRevision: plan.approvedRevision, generatedRevision: plan.generatedRevision, generatedAt: iso(plan.generatedAt), approvedAt: iso(plan.approvedAt), approvedBy: plan.approvedBy, publishedAt: iso(plan.publishedAt), publishedBy: plan.publishedBy, createdAt: plan.createdAt.toISOString(), updatedAt: plan.updatedAt.toISOString(), templates: templates.map((r) => ({ id:r.t.id, planId:r.t.planId, groupId:r.t.groupId, groupName:r.groupName, levelName:r.levelName, daysOfWeek:r.t.daysOfWeek, startTime:r.t.startTime.slice(0,5), endTime:r.t.endTime.slice(0,5), trainerId:r.t.trainerId, trainerName:r.trainerName, preferredCourtId:r.t.preferredCourtId, preferredCourtNumber:r.courtNumber })), entries: entries.map((r) => ({ id:r.e.id, planId:id, templateId:r.e.templateId, groupId:r.t.groupId, groupName:r.groupName, levelName:r.levelName, date:r.e.date, startTime:r.e.startTime.slice(0,5), endTime:r.e.endTime.slice(0,5), trainerId:r.e.trainerId, trainerName:r.trainerName, preferredCourtId:r.e.preferredCourtId, preferredCourtNumber:r.preferredCourtNumber, assignedCourtId:r.e.assignedCourtId, assignedCourtNumber:r.e.assignedCourtId ? assignedNumberById.get(r.e.assignedCourtId) ?? null : null, trainingId:r.trainingId, trainingStatus:r.trainingStatus, hidden:r.hidden ?? false, diagnostics:[] })) };
   }
 }
 function iso(value: Date | null): string | null { return value?.toISOString() ?? null; }

@@ -14,6 +14,10 @@ import {
   daysInMonth,
   firstNameOf,
   firstWeekdayMondayFirst,
+  inclusiveDateLength,
+  enumerateInclusiveDates,
+  plannerTrainingDates,
+  shiftInclusiveDateRange,
   formatDayMonth,
   freeCourtsBySlot,
   freeSeats,
@@ -137,6 +141,27 @@ describe("monthBounds", () => {
   });
 });
 
+describe("operational planner calendar helpers", () => {
+  it("enumerates inclusive 1, 28, and 84-day ranges and rejects reversed or oversized ranges", () => {
+    expect(enumerateInclusiveDates("2026-08-01", "2026-08-01")).toEqual(["2026-08-01"]);
+    expect(enumerateInclusiveDates("2026-08-01", "2026-08-28")).toHaveLength(28);
+    expect(enumerateInclusiveDates("2026-08-01", "2026-10-23")).toHaveLength(84);
+    expect(() => enumerateInclusiveDates("2026-08-02", "2026-08-01")).toThrow();
+    expect(() => enumerateInclusiveDates("2026-08-01", "2026-10-24")).toThrow();
+  });
+
+  it("materializes arbitrary recurrence only within boundaries, excluding only in-range days off", () => {
+    expect(plannerTrainingDates([1, 3, 6], "2026-12-28", "2027-01-10", ["2026-12-30", "2027-02-01"]))
+      .toEqual(["2026-12-28", "2027-01-02", "2027-01-04", "2027-01-06", "2027-01-09"]);
+  });
+
+  it("shifts by the current inclusive length across leap day and DST without millisecond drift", () => {
+    expect(inclusiveDateLength("2024-02-26", "2024-03-03")).toBe(7);
+    expect(shiftInclusiveDateRange("2024-02-26", "2024-03-03", 1)).toEqual(["2024-03-04", "2024-03-10"]);
+    expect(shiftInclusiveDateRange("2026-03-23", "2026-04-19", 1)).toEqual(["2026-04-20", "2026-05-17"]);
+    expect(shiftInclusiveDateRange("2026-03-23", "2026-04-19", -1)).toEqual(["2026-02-23", "2026-03-22"]);
+  });
+});
 describe("client bookable month helpers", () => {
   it("returns current and next month candidates, including year rollover", () => {
     expect(currentAndNextMonthCandidates("2026-06-15")).toEqual([

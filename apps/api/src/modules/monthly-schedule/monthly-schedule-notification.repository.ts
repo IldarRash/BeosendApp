@@ -13,8 +13,8 @@ export interface EnqueueMonthlyScheduleDigest {
   operationId: string;
   planId: string;
   planRevision: number;
-  year: number;
-  month: number;
+  periodStart: string;
+  periodEnd: string;
   recipientKind: "trainer" | "client";
   recipientId: string;
   recipientName: string;
@@ -234,8 +234,8 @@ function toInternalDelivery(row: DeliveryRow): InternalMonthlyScheduleDelivery {
     operationId: row.operationId,
     planId: row.planId,
     planRevision: row.planRevision,
-    year: row.year,
-    month: row.month,
+    periodStart: row.periodStart,
+    periodEnd: row.periodEnd,
     recipientKind: row.recipientKind,
     recipientId: row.recipientId,
     recipientName: row.recipientName,
