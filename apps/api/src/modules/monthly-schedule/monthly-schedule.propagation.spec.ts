@@ -56,8 +56,8 @@ function propagationHarness(options: { occupied?: boolean; missingMapping?: bool
   };
   const plan: MonthlySchedulePlan = {
     id: PLAN_ID,
-    year: 2026,
-    month: 2,
+    startDate: "2026-02-01",
+    endDate: "2026-02-28",
     timezone: "Europe/Belgrade",
     status: "published",
     revision: 3,
@@ -109,8 +109,8 @@ function propagationHarness(options: { occupied?: boolean; missingMapping?: bool
     transaction: vi.fn(async (work: (db: object) => Promise<unknown>) => work({})),
     lockPlan: vi.fn(async () => ({
       id: PLAN_ID,
-      year: 2026,
-      month: 2,
+      startDate: "2026-02-01",
+      endDate: "2026-02-28",
       status: plan.status,
       revision: plan.revision,
       approvedRevision: plan.approvedRevision,
@@ -144,6 +144,8 @@ function propagationHarness(options: { occupied?: boolean; missingMapping?: bool
     ),
     lockDates: vi.fn(async () => undefined),
     view: vi.fn(async () => plan),
+    listDaysOff: vi.fn(async () => []),
+    overlaps: vi.fn(async () => ({ rows: [] })),
     lockPropagationRows: vi.fn(async () =>
       plan.entries.flatMap((item, index) =>
         options.missingMapping && index === 0

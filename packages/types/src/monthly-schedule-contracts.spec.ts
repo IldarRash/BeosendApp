@@ -6,6 +6,9 @@ import {
   monthlySchedulePlanQuerySchema,
   monthlyScheduleConflictResultSchema,
   monthlyScheduleNotificationDeliverySchema,
+  operationalPeriodSchema,
+  updateMonthlySchedulePeriodSchema,
+  generateMonthlySchedulePlanSchema,
   updateMonthlyScheduleTemplateSchema
 } from "./monthly-schedule-contracts";
 
@@ -18,11 +21,23 @@ const ids = {
 };
 
 describe("monthly schedule contracts", () => {
-  it("validates the bounded shared plan month", () => {
-    expect(createMonthlySchedulePlanSchema.safeParse({ year: 2026, month: 8 }).success).toBe(true);
-    expect(createMonthlySchedulePlanSchema.safeParse({ year: 2026, month: 13 }).success).toBe(false);
-    expect(createMonthlySchedulePlanSchema.safeParse({ year: 2026, month: 8, timezone: "UTC" }).success).toBe(false);
-    expect(monthlySchedulePlanQuerySchema.safeParse({ year: "2026", month: "8" }).success).toBe(true);
+  it("validates strict inclusive operational periods at the 1/28/84-day boundaries", () => {
+    for (const input of [
+      { startDate: "2026-08-01", endDate: "2026-08-01" },
+      { startDate: "2026-08-01", endDate: "2026-08-28" },
+      { startDate: "2026-08-01", endDate: "2026-10-23" }
+    ]) {
+      expect(operationalPeriodSchema.safeParse(input).success).toBe(true);
+      expect(createMonthlySchedulePlanSchema.safeParse(input).success).toBe(true);
+      expect(updateMonthlySchedulePeriodSchema.safeParse(input).success).toBe(true);
+    }
+
+    expect(operationalPeriodSchema.safeParse({ startDate: "2026-08-01", endDate: "2026-10-24" }).success).toBe(false);
+    expect(operationalPeriodSchema.safeParse({ startDate: "2026-08-02", endDate: "2026-08-01" }).success).toBe(false);
+    expect(operationalPeriodSchema.safeParse({ startDate: "2026-02-30", endDate: "2026-03-01" }).success).toBe(false);
+    expect(operationalPeriodSchema.safeParse({ startDate: "2026-08-01", endDate: "2026-08-28", timezone: "UTC" }).success).toBe(false);
+    expect(monthlySchedulePlanQuerySchema.safeParse({ startDate: "2026-08-01", endDate: "2026-08-28" }).success).toBe(true);
+    expect(monthlySchedulePlanQuerySchema.safeParse({ startDate: "2026-08-01" }).success).toBe(false);
   });
 
   it("accepts only strict, aligned recurring schedule input", () => {
@@ -87,8 +102,8 @@ describe("monthly schedule contracts", () => {
       operationId: "77777777-7777-4777-8777-777777777777",
       planId: ids.plan,
       planRevision: 2,
-      year: 2026,
-      month: 8,
+      periodStart: "2026-08-01",
+      periodEnd: "2026-08-28",
       recipientKind: "client",
       recipientId: ids.client,
       recipientName: "Ana",
@@ -116,8 +131,8 @@ describe("monthly schedule contracts", () => {
   it("parses a complete lifecycle action without exposing mutable history fields as inputs", () => {
     const plan = {
       id: ids.plan,
-      year: 2026,
-      month: 8,
+      startDate: "2026-08-01",
+      endDate: "2026-08-28",
       timezone: "Europe/Belgrade",
       status: "approved",
       revision: 2,
@@ -149,7 +164,11 @@ describe("monthly schedule contracts", () => {
     const action = {
       view: {
         plan,
-        diagnostics: [],
+        daysOff: [],
+        overlaps: [],
+        overlapEntries: [],
+        hasOverlap: false,
+        overlapFingerprint: null,        diagnostics: [],
         summary: {
           templateCount: 1,
           entryCount: 0,
@@ -172,5 +191,13 @@ describe("monthly schedule contracts", () => {
       ...action,
       view: { ...action.view, plan: { ...plan, templates: [{ ...plan.templates[0], daysOfWeek: [1, 1] }] } }
     }).success).toBe(false);
+  });
+
+  it("requires a unique explicit overlap acknowledgement set", () => {
+    expect(generateMonthlySchedulePlanSchema.safeParse({ acknowledgedOverlapPlanIds: [], overlapFingerprint: null }).success).toBe(true);
+    expect(generateMonthlySchedulePlanSchema.safeParse({ acknowledgedOverlapPlanIds: [ids.plan], overlapFingerprint: "current-set" }).success).toBe(true);
+    expect(generateMonthlySchedulePlanSchema.safeParse({ acknowledgedOverlapPlanIds: [ids.plan, ids.plan], overlapFingerprint: "current-set" }).success).toBe(false);
+    expect(generateMonthlySchedulePlanSchema.safeParse({}).success).toBe(false);
+    expect(generateMonthlySchedulePlanSchema.safeParse({ acknowledgedOverlapPlanIds: [] }).success).toBe(false);
   });
 });

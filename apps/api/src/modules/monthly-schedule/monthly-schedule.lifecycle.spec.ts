@@ -34,11 +34,11 @@ function scheduleEntry(id: string, date: string): MonthlyScheduleEntry {
   };
 }
 
-function lifecycleHarness(input: { year: number; month: number; dates: string[]; occupied?: boolean }) {
+function lifecycleHarness(input: { startDate: string; endDate: string; dates: string[]; occupied?: boolean }) {
   const plan: MonthlySchedulePlan = {
     id: PLAN_ID,
-    year: input.year,
-    month: input.month,
+    startDate: input.startDate,
+    endDate: input.endDate,
     timezone: "Europe/Belgrade",
     status: "approved",
     revision: 1,
@@ -80,8 +80,8 @@ function lifecycleHarness(input: { year: number; month: number; dates: string[];
     transaction: vi.fn(async (work: (db: object) => Promise<unknown>) => work({})),
     lockPlan: vi.fn(async () => ({
       id: plan.id,
-      year: plan.year,
-      month: plan.month,
+      startDate: plan.startDate,
+      endDate: plan.endDate,
       status: plan.status,
       revision: plan.revision,
       approvedRevision: plan.approvedRevision,
@@ -97,6 +97,9 @@ function lifecycleHarness(input: { year: number; month: number; dates: string[];
       updatedAt: new Date(plan.updatedAt)
     })),
     view: vi.fn(async () => plan),
+    lockPlannerRange: vi.fn(async () => undefined),
+    listDaysOff: vi.fn(async () => []),
+    overlaps: vi.fn(async () => ({ rows: [] })),
     lockDates: vi.fn(async (dates: string[]) => lockedDates.push([...new Set(dates)].sort())),
     findTrainingByEntry: vi.fn(async (entryId: string) => {
       const entry = plan.entries.find((item) => item.id === entryId);
@@ -187,7 +190,7 @@ describe("MonthlyScheduleService generation and publication", () => {
   it("atomically generates every past and future entry once, hidden and court-linked", async () => {
     vi.useFakeTimers();
     vi.setSystemTime(new Date("2026-08-15T10:00:00.000Z"));
-    const harness = lifecycleHarness({ year: 2026, month: 8, dates: ["2026-08-03", "2026-08-20"] });
+    const harness = lifecycleHarness({ startDate: "2026-08-01", endDate: "2026-08-28", dates: ["2026-08-03", "2026-08-20"] });
 
     const first = await harness.service.generate(ADMIN_ID, PLAN_ID);
     const second = await harness.service.generate(ADMIN_ID, PLAN_ID);
@@ -203,7 +206,7 @@ describe("MonthlyScheduleService generation and publication", () => {
   });
 
   it("returns the complete strict conflict envelope and performs no writes", async () => {
-    const harness = lifecycleHarness({ year: 2026, month: 8, dates: ["2026-08-03"], occupied: true });
+    const harness = lifecycleHarness({ startDate: "2026-08-01", endDate: "2026-08-28", dates: ["2026-08-03"], occupied: true });
 
     const error = await harness.service.generate(ADMIN_ID, PLAN_ID).catch((caught) => caught);
 
@@ -221,7 +224,7 @@ describe("MonthlyScheduleService generation and publication", () => {
   it("publishes only non-past eligible rows and remains idempotent", async () => {
     vi.useFakeTimers();
     vi.setSystemTime(new Date("2026-08-15T10:00:00.000Z"));
-    const harness = lifecycleHarness({ year: 2026, month: 8, dates: ["2026-08-03", "2026-08-20"] });
+    const harness = lifecycleHarness({ startDate: "2026-08-01", endDate: "2026-08-28", dates: ["2026-08-03", "2026-08-20"] });
     await harness.service.generate(ADMIN_ID, PLAN_ID);
 
     const first = await harness.service.publish(ADMIN_ID, PLAN_ID);
@@ -239,7 +242,7 @@ describe("MonthlyScheduleService generation and publication", () => {
   it("uses the Belgrade calendar date at the UTC day boundary", async () => {
     vi.useFakeTimers();
     vi.setSystemTime(new Date("2026-07-31T22:30:00.000Z"));
-    const harness = lifecycleHarness({ year: 2026, month: 7, dates: ["2026-07-31"] });
+    const harness = lifecycleHarness({ startDate: "2026-07-31", endDate: "2026-07-31", dates: ["2026-07-31"] });
 
     await harness.service.generate(ADMIN_ID, PLAN_ID);
 

@@ -2,8 +2,16 @@ import { z } from "zod";
 import { dateString, dayOfWeek, timeString, uuid } from "./common";
 
 const belgradeTimezone = z.literal("Europe/Belgrade");
-const plannerYear = z.number().int().min(2024).max(9999);
-const plannerMonth = z.number().int().min(1).max(12);
+export const operationalDateSchema = dateString.refine((value) => {
+  const parsed = new Date(`${value}T00:00:00.000Z`);
+  return !Number.isNaN(parsed.getTime()) && parsed.toISOString().slice(0, 10) === value;
+}, { message: "date must be a real ISO calendar date" });
+export const operationalPeriodSchema = z.object({ startDate: operationalDateSchema, endDate: operationalDateSchema }).strict().superRefine((value, context) => {
+  const length = Math.floor((Date.parse(`${value.endDate}T00:00:00Z`) - Date.parse(`${value.startDate}T00:00:00Z`)) / 86400000) + 1;
+  if (length < 1) context.addIssue({ code: z.ZodIssueCode.custom, path: ["endDate"], message: "endDate must not precede startDate" });
+  if (length > 84) context.addIssue({ code: z.ZodIssueCode.custom, path: ["endDate"], message: "operational period must contain at most 84 dates" });
+});
+export type OperationalPeriod = z.infer<typeof operationalPeriodSchema>;
 const alignedTime = timeString.refine((value) => value.endsWith(":00") || value.endsWith(":30"), {
   message: "time must align to the 30-minute grid"
 });
@@ -47,7 +55,10 @@ export const monthlyScheduleDiagnosticCodeSchema = z.enum([
   "invalid-time-grid",
   "entry-cardinality-changed",
   "existing-training-collision",
-  "source-changed"
+  "source-changed",
+  "plan-overlap",
+  "overlap-acknowledgement-required",
+  "day-off"
 ]);
 export type MonthlyScheduleDiagnosticCode = z.infer<typeof monthlyScheduleDiagnosticCodeSchema>;
 
@@ -106,8 +117,8 @@ export type MonthlyScheduleEntry = z.infer<typeof monthlyScheduleEntrySchema>;
 export const monthlySchedulePlanSchema = z
   .object({
     id: uuid,
-    year: plannerYear,
-    month: plannerMonth,
+    startDate: operationalDateSchema,
+    endDate: operationalDateSchema,
     timezone: belgradeTimezone,
     status: monthlySchedulePlanStatusSchema,
     revision: z.number().int().positive(),
@@ -125,15 +136,27 @@ export const monthlySchedulePlanSchema = z
   })
   .strict();
 export type MonthlySchedulePlan = z.infer<typeof monthlySchedulePlanSchema>;
+/** Canonical neutral name; MonthlySchedule remains a deprecated compatibility alias. */
+export const schedulePlanSchema = monthlySchedulePlanSchema;
+export type SchedulePlan = MonthlySchedulePlan;
 
-export const createMonthlySchedulePlanSchema = z.object({ year: plannerYear, month: plannerMonth }).strict();
+export const createMonthlySchedulePlanSchema = operationalPeriodSchema;
+export const createSchedulePlanSchema = createMonthlySchedulePlanSchema;
 export type CreateMonthlySchedulePlanInput = z.infer<typeof createMonthlySchedulePlanSchema>;
 
 /** Strict admin month lookup; the timezone remains server-owned. */
-export const monthlySchedulePlanQuerySchema = z
-  .object({ year: z.coerce.number().int().min(2024).max(9999), month: z.coerce.number().int().min(1).max(12) })
-  .strict();
+export const monthlySchedulePlanQuerySchema = z.object({ startDate: z.coerce.string(), endDate: z.coerce.string() }).pipe(operationalPeriodSchema);
 export type MonthlySchedulePlanQuery = z.infer<typeof monthlySchedulePlanQuerySchema>;
+export const updateMonthlySchedulePeriodSchema = operationalPeriodSchema;
+export type UpdateMonthlySchedulePeriodInput = z.infer<typeof updateMonthlySchedulePeriodSchema>;
+export const schedulePlanDayOffSchema = z.object({ id: uuid, planId: uuid, date: operationalDateSchema }).strict();
+export type SchedulePlanDayOff = z.infer<typeof schedulePlanDayOffSchema>;
+export const schedulePlanOverlapSchema = z.object({ planId: uuid, startDate: operationalDateSchema, endDate: operationalDateSchema, status: monthlySchedulePlanStatusSchema, intersectionStartDate: operationalDateSchema, intersectionEndDate: operationalDateSchema, entryCount: z.number().int().nonnegative(), generatedTrainingCount: z.number().int().nonnegative() }).strict();
+export type SchedulePlanOverlap = z.infer<typeof schedulePlanOverlapSchema>;
+export const schedulePlanOverlapEntrySchema = z.object({ sourcePlanId: uuid }).passthrough().superRefine((value, context) => { const { sourcePlanId: _sourcePlanId, ...entry } = value; const parsed = monthlyScheduleEntrySchema.safeParse(entry); if (!parsed.success) for (const issue of parsed.error.issues) context.addIssue(issue); });
+export type SchedulePlanOverlapEntry = z.infer<typeof schedulePlanOverlapEntrySchema>;
+export const generateMonthlySchedulePlanSchema = z.object({ acknowledgedOverlapPlanIds: z.array(uuid).max(100).refine((ids) => new Set(ids).size === ids.length, { message: "acknowledgedOverlapPlanIds must be unique" }), overlapFingerprint: z.string().min(1).nullable() }).strict();
+export type GenerateMonthlySchedulePlanInput = z.infer<typeof generateMonthlySchedulePlanSchema>;
 
 const monthlyScheduleTemplateInputFields = {
   groupId: uuid,
@@ -182,6 +205,11 @@ export type UpdateMonthlyScheduleTemplateInput = z.infer<typeof updateMonthlySch
 export const monthlySchedulePlanViewSchema = z
   .object({
     plan: monthlySchedulePlanSchema,
+    daysOff: z.array(schedulePlanDayOffSchema),
+    overlaps: z.array(schedulePlanOverlapSchema),
+    overlapEntries: z.array(schedulePlanOverlapEntrySchema),
+    hasOverlap: z.boolean(),
+    overlapFingerprint: z.string().nullable(),
     diagnostics: z.array(monthlyScheduleDiagnosticSchema),
     summary: z
       .object({
@@ -271,8 +299,8 @@ export const monthlyScheduleNotificationDeliverySchema = z
     operationId: uuid,
     planId: uuid,
     planRevision: z.number().int().positive(),
-    year: plannerYear,
-    month: plannerMonth,
+    periodStart: operationalDateSchema,
+    periodEnd: operationalDateSchema,
     recipientKind: z.enum(["trainer", "client"]),
     recipientId: uuid,
     recipientName: nonEmptyText,
@@ -287,7 +315,7 @@ export const monthlyScheduleNotificationDeliverySchema = z
     updatedAt: z.string().datetime()
   })
   .strict();
-export type MonthlyScheduleNotificationDelivery = z.infer<typeof monthlyScheduleNotificationDeliverySchema>;
+export type MonthlyScheduleNotificationDelivery = z.infer<typeof monthlyScheduleNotificationDeliverySchema> & { /** @deprecated compile-time fixture aliases only */ year?: number; month?: number; };
 
 export const listMonthlyScheduleNotificationDeliveriesQuerySchema = z
   .object({ outcome: monthlyScheduleNotificationDeliveryOutcomeSchema.optional() })

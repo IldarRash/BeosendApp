@@ -1,5 +1,5 @@
-import { BadRequestException, Body, Controller, Delete, Get, Headers, Param, Patch, Post, Query } from "@nestjs/common";
-import { createMonthlySchedulePlanSchema, createMonthlyScheduleTemplateSchema, listMonthlyScheduleNotificationDeliveriesQuerySchema, monthlySchedulePlanQuerySchema, updateMonthlyScheduleTemplateSchema, uuid, type MonthlyScheduleActionResult, type MonthlyScheduleNotificationDelivery, type MonthlySchedulePlanView } from "@beosand/types";
+import { BadRequestException, Body, Controller, Delete, Get, Headers, Param, Patch, Post, Put, Query } from "@nestjs/common";
+import { createMonthlySchedulePlanSchema, createMonthlyScheduleTemplateSchema, generateMonthlySchedulePlanSchema, listMonthlyScheduleNotificationDeliveriesQuerySchema, monthlySchedulePlanQuerySchema, updateMonthlySchedulePeriodSchema, updateMonthlyScheduleTemplateSchema, operationalDateSchema, uuid, type MonthlyScheduleActionResult, type MonthlyScheduleNotificationDelivery, type MonthlySchedulePlanView } from "@beosand/types";
 import type { ZodSchema } from "zod";
 import { MonthlyScheduleService } from "./monthly-schedule.service";
 
@@ -13,7 +13,10 @@ export class MonthlyScheduleController {
   @Patch(":id/templates/:templateId") update(@Headers("x-telegram-id") h: string | undefined, @Param("id") id: string, @Param("templateId") tid: string, @Body() b: unknown): Promise<MonthlyScheduleActionResult> { return this.schedules.updateTemplate(actor(h), parse(uuid, id), parse(uuid, tid), parse(updateMonthlyScheduleTemplateSchema, b ?? {})); }
   @Delete(":id/templates/:templateId") remove(@Headers("x-telegram-id") h: string | undefined, @Param("id") id: string, @Param("templateId") tid: string): Promise<MonthlySchedulePlanView> { return this.schedules.deleteTemplate(actor(h), parse(uuid, id), parse(uuid, tid)); }
   @Post(":id/approve") approve(@Headers("x-telegram-id") h: string | undefined, @Param("id") id: string): Promise<MonthlyScheduleActionResult> { return this.schedules.approve(actor(h), parse(uuid, id)); }
-  @Post(":id/generate") generate(@Headers("x-telegram-id") h: string | undefined, @Param("id") id: string): Promise<MonthlyScheduleActionResult> { return this.schedules.generate(actor(h), parse(uuid, id)); }
+  @Put(":id/days-off/:date") dayOff(@Headers("x-telegram-id") h: string | undefined, @Param("id") id: string, @Param("date") date: string): Promise<MonthlySchedulePlanView> { return this.schedules.markDayOff(actor(h), parse(uuid, id), parse(operationalDateSchema, date)); }
+  @Delete(":id/days-off/:date") removeDayOff(@Headers("x-telegram-id") h: string | undefined, @Param("id") id: string, @Param("date") date: string): Promise<MonthlySchedulePlanView> { return this.schedules.unmarkDayOff(actor(h), parse(uuid, id), parse(operationalDateSchema, date)); }
+  @Patch(":id/period") period(@Headers("x-telegram-id") h: string | undefined, @Param("id") id: string, @Body() b: unknown): Promise<MonthlySchedulePlanView> { return this.schedules.updatePeriod(actor(h), parse(uuid, id), parse(updateMonthlySchedulePeriodSchema, b ?? {})); }
+  @Post(":id/generate") generate(@Headers("x-telegram-id") h: string | undefined, @Param("id") id: string, @Body() b: unknown = {}): Promise<MonthlyScheduleActionResult> { return this.schedules.generate(actor(h), parse(uuid, id), parse(generateMonthlySchedulePlanSchema, b)); }
   @Post(":id/publish") publish(@Headers("x-telegram-id") h: string | undefined, @Param("id") id: string): Promise<MonthlyScheduleActionResult> { return this.schedules.publish(actor(h), parse(uuid, id)); }
 }
 function actor(header: string | undefined): number { const id = Number(header); if (!header || !Number.isInteger(id)) throw new BadRequestException("Missing or invalid x-telegram-id header"); return id; }

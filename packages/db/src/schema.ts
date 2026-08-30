@@ -756,13 +756,13 @@ export const courts = pgTable("courts", {
 
 // --- Monthly schedule planner ---
 
-/** One school-owned plan per Belgrade calendar month; generation is audit metadata, not a lifecycle state. */
+/** One school-owned operational-period plan; generation is audit metadata, not a lifecycle state. */
 export const monthlySchedulePlans = pgTable(
   "monthly_schedule_plans",
   {
     id: uuid("id").primaryKey().defaultRandom(),
-    year: integer("year").notNull(),
-    month: integer("month").notNull(),
+    startDate: date("start_date").notNull(),
+    endDate: date("end_date").notNull(),
     timezone: text("timezone").notNull().default("Europe/Belgrade"),
     status: monthlySchedulePlanStatus("status").notNull().default("draft"),
     revision: integer("revision").notNull().default(1),
@@ -779,9 +779,10 @@ export const monthlySchedulePlans = pgTable(
     updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow()
   },
   (table) => ({
-    monthIdx: uniqueIndex("monthly_schedule_plans_year_month_idx").on(table.year, table.month),
-    yearRange: check("monthly_schedule_plans_year_range", sql`${table.year} >= 2024`),
-    monthRange: check("monthly_schedule_plans_month_range", sql`${table.month} BETWEEN 1 AND 12`),
+    exactPeriodIdx: uniqueIndex("monthly_schedule_plans_start_end_idx").on(table.startDate, table.endDate),
+
+    periodOrder: check("monthly_schedule_plans_period_order", sql`${table.endDate} >= ${table.startDate}`),
+    periodLength: check("monthly_schedule_plans_period_length", sql`${table.endDate} - ${table.startDate} + 1 BETWEEN 1 AND 84`),
     belgradeTimezone: check(
       "monthly_schedule_plans_belgrade_timezone",
       sql`${table.timezone} = 'Europe/Belgrade'`
@@ -790,6 +791,14 @@ export const monthlySchedulePlans = pgTable(
   })
 );
 
+/** Planning intent only. Markers never cancel or alter an existing training/block. */
+export const monthlySchedulePlanDaysOff = pgTable("monthly_schedule_plan_days_off", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  planId: uuid("plan_id").notNull().references(() => monthlySchedulePlans.id, { onDelete: "cascade" }),
+  date: date("date").notNull(),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow()
+}, (table) => ({ planDateIdx: uniqueIndex("monthly_schedule_plan_days_off_plan_date_idx").on(table.planId, table.date) }));
 /** Recurring intent. First release permits exactly one template for a group in a plan. */
 export const monthlyScheduleTemplates = pgTable(
   "monthly_schedule_templates",
@@ -874,8 +883,8 @@ export const monthlyScheduleNotificationDeliveries = pgTable(
       .notNull()
       .references(() => monthlySchedulePlans.id),
     planRevision: integer("plan_revision").notNull(),
-    year: integer("year").notNull(),
-    month: integer("month").notNull(),
+    periodStart: date("period_start").notNull(),
+    periodEnd: date("period_end").notNull(),
     recipientKind: monthlyScheduleNotificationRecipientKind("recipient_kind").notNull(),
     recipientId: uuid("recipient_id").notNull(),
     recipientChannelAddress: text("recipient_channel_address"),
@@ -903,11 +912,7 @@ export const monthlyScheduleNotificationDeliveries = pgTable(
       "monthly_schedule_notification_deliveries_revision_positive",
       sql`${table.planRevision} > 0`
     ),
-    yearRange: check("monthly_schedule_notification_deliveries_year_range", sql`${table.year} >= 2024`),
-    monthRange: check(
-      "monthly_schedule_notification_deliveries_month_range",
-      sql`${table.month} BETWEEN 1 AND 12`
-    ),
+    periodOrder: check("monthly_schedule_notification_deliveries_period_order", sql`${table.periodEnd} >= ${table.periodStart}`),
     attemptsNonnegative: check(
       "monthly_schedule_notification_deliveries_attempts_nonnegative",
       sql`${table.attempts} >= 0`
@@ -1095,6 +1100,7 @@ export const schema = {
   trainingPricingTiers,
   trainings,
   monthlySchedulePlans,
+  monthlySchedulePlanDaysOff,
   monthlyScheduleTemplates,
   monthlyScheduleEntries,
   monthlyScheduleNotificationDeliveries,
