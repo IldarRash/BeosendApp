@@ -93,25 +93,27 @@ export const monthlyScheduleTemplateSchema = orderedAlignedSchedule({
   });
 export type MonthlyScheduleTemplate = z.infer<typeof monthlyScheduleTemplateSchema>;
 
-export const monthlyScheduleEntrySchema = orderedAlignedSchedule({
-    id: uuid,
-    planId: uuid,
-    templateId: uuid,
-    groupId: uuid,
-    groupName: nonEmptyText,
-    levelName: nonEmptyText,
-    date: dateString,
-    trainerId: uuid,
-    trainerName: nonEmptyText,
-    preferredCourtId: uuid.nullable(),
-    preferredCourtNumber: z.number().int().min(1).nullable(),
-    assignedCourtId: uuid.nullable(),
-    assignedCourtNumber: z.number().int().min(1).nullable(),
-    trainingId: uuid.nullable(),
-    trainingStatus: z.enum(["open", "full", "cancelled", "completed"]).nullable(),
-    hidden: z.boolean(),
-    diagnostics: z.array(monthlyScheduleDiagnosticSchema)
-  });
+const monthlyScheduleEntryFields = {
+  id: uuid,
+  planId: uuid,
+  templateId: uuid,
+  groupId: uuid,
+  groupName: nonEmptyText,
+  levelName: nonEmptyText,
+  date: dateString,
+  trainerId: uuid,
+  trainerName: nonEmptyText,
+  preferredCourtId: uuid.nullable(),
+  preferredCourtNumber: z.number().int().min(1).nullable(),
+  assignedCourtId: uuid.nullable(),
+  assignedCourtNumber: z.number().int().min(1).nullable(),
+  trainingId: uuid.nullable(),
+  trainingStatus: z.enum(["open", "full", "cancelled", "completed"]).nullable(),
+  hidden: z.boolean(),
+  diagnostics: z.array(monthlyScheduleDiagnosticSchema)
+};
+
+export const monthlyScheduleEntrySchema = orderedAlignedSchedule(monthlyScheduleEntryFields);
 export type MonthlyScheduleEntry = z.infer<typeof monthlyScheduleEntrySchema>;
 
 export const monthlySchedulePlanSchema = z
@@ -153,7 +155,10 @@ export const schedulePlanDayOffSchema = z.object({ id: uuid, planId: uuid, date:
 export type SchedulePlanDayOff = z.infer<typeof schedulePlanDayOffSchema>;
 export const schedulePlanOverlapSchema = z.object({ planId: uuid, startDate: operationalDateSchema, endDate: operationalDateSchema, status: monthlySchedulePlanStatusSchema, intersectionStartDate: operationalDateSchema, intersectionEndDate: operationalDateSchema, entryCount: z.number().int().nonnegative(), generatedTrainingCount: z.number().int().nonnegative() }).strict();
 export type SchedulePlanOverlap = z.infer<typeof schedulePlanOverlapSchema>;
-export const schedulePlanOverlapEntrySchema = z.object({ sourcePlanId: uuid }).passthrough().superRefine((value, context) => { const { sourcePlanId: _sourcePlanId, ...entry } = value; const parsed = monthlyScheduleEntrySchema.safeParse(entry); if (!parsed.success) for (const issue of parsed.error.issues) context.addIssue(issue); });
+export const schedulePlanOverlapEntrySchema = orderedAlignedSchedule({
+  ...monthlyScheduleEntryFields,
+  sourcePlanId: uuid
+});
 export type SchedulePlanOverlapEntry = z.infer<typeof schedulePlanOverlapEntrySchema>;
 export const generateMonthlySchedulePlanSchema = z.object({ acknowledgedOverlapPlanIds: z.array(uuid).max(100).refine((ids) => new Set(ids).size === ids.length, { message: "acknowledgedOverlapPlanIds must be unique" }), overlapFingerprint: z.string().min(1).nullable() }).strict();
 export type GenerateMonthlySchedulePlanInput = z.infer<typeof generateMonthlySchedulePlanSchema>;
