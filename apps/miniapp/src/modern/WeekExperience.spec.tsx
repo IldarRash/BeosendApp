@@ -1,7 +1,13 @@
 import { fireEvent, render, screen } from "@testing-library/react";
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { Client, ClientRecord, TrainingScheduleSlot } from "@beosand/types";
-import { WeekExperience, addLocalDays, mondayOf } from "./WeekExperience";
+import {
+  WeekExperience,
+  addLocalDays,
+  minimumScheduleDate,
+  mondayOf,
+  normalizeScheduleDate
+} from "./WeekExperience";
 
 const nav = { current: "home", canPop: false, push: vi.fn(), pop: vi.fn(), selectTab: vi.fn() };
 const openConfirm = vi.fn();
@@ -13,12 +19,22 @@ const flow = {
   openConfirm
 };
 let backHandler: (() => void) | undefined;
-const hooks = { records: {} as Record<string, unknown>, schedule: {} as Record<string, unknown> };
+let currentToday = "2026-09-23";
+const FIXED_NOW = new Date("2026-09-23T12:00:00.000Z");
+const hooks = {
+  records: {} as Record<string, unknown>,
+  schedule: {} as Record<string, unknown>,
+  scheduleForQuery: undefined as ((query: Record<string, unknown>) => Record<string, unknown>) | undefined,
+  scheduleQuery: undefined as Record<string, unknown> | undefined
+};
 
 vi.mock("../api/hooks", () => ({
   useClientRecords: () => hooks.records,
   useLevels: () => ({ data: [], isLoading: false }),
-  useTrainingSchedule: () => hooks.schedule
+  useTrainingSchedule: (query: Record<string, unknown>) => {
+    hooks.scheduleQuery = query;
+    return hooks.scheduleForQuery?.(query) ?? hooks.schedule;
+  }
 }));
 vi.mock("../i18n/LanguageProvider", () => ({
   useT: () => (key: string, params?: Record<string, string | number>) =>
@@ -34,7 +50,7 @@ vi.mock("../tg/buttons", () => ({
 vi.mock("../screens/useSlotBookingFlow", () => ({ useSlotBookingFlow: () => flow }));
 vi.mock("../ui/format", async (importOriginal) => {
   const actual = await importOriginal<typeof import("../ui/format")>();
-  return { ...actual, todayLocalDate: () => "2026-09-23" };
+  return { ...actual, todayLocalDate: () => currentToday };
 });
 
 const CLIENT: Client = {
@@ -109,14 +125,23 @@ function page(items: ClientRecord[], hasNextPage = false) {
 
 describe("WeekExperience", () => {
   beforeEach(() => {
+    vi.useFakeTimers({ toFake: ["Date"] });
+    vi.setSystemTime(FIXED_NOW);
     vi.clearAllMocks();
     nav.current = "home";
     nav.canPop = false;
     flow.activeSubView = null;
     flow.isOpen = false;
     backHandler = undefined;
+    currentToday = "2026-09-23";
     hooks.records = page([RECORD]);
     hooks.schedule = { data: [SLOT], isLoading: false, isError: false, error: null };
+    hooks.scheduleForQuery = undefined;
+    hooks.scheduleQuery = undefined;
+  });
+
+  afterEach(() => {
+    vi.useRealTimers();
   });
 
   it("keeps pending records visibly pending with their reason and next action", () => {
@@ -156,6 +181,61 @@ describe("WeekExperience", () => {
     expect(screen.queryByText("miniapp.browse.seats:2")).toBeNull();
     fireEvent.click(screen.getByText("miniapp.records.loadMore"));
     expect(records.fetchNextPage).toHaveBeenCalledOnce();
+  });
+
+  it("blocks a past My Week selection before opening All Trainings", () => {
+    render(<WeekExperience client={CLIENT} />);
+
+    const pastDate = screen.getByRole("button", { name: "2026-09-21" }) as HTMLButtonElement;
+    expect(pastDate.disabled).toBe(true);
+    expect(hooks.scheduleQuery).toMatchObject({ from: "2026-09-23", to: "2026-09-23" });
+    fireEvent.click(screen.getByRole("button", { name: "2026-09-21" }));
+    fireEvent.click(screen.getByText("miniapp.week.allTrainings"));
+    expect(nav.selectTab).toHaveBeenCalledWith("calendar");
+    expect(hooks.scheduleQuery).toMatchObject({ from: "2026-09-23", to: "2026-09-23" });
+  });
+
+  it("guards native past dates while allowing future schedule selections", () => {
+    nav.current = "calendar";
+    render(<WeekExperience client={CLIENT} />);
+    const input = screen.getByLabelText("miniapp.booking.dateLabel");
+
+    expect((input as HTMLInputElement).min).toBe("2026-09-23");
+    fireEvent.change(input, { target: { value: "2026-09-22" } });
+    expect(hooks.scheduleQuery).toMatchObject({ from: "2026-09-23", to: "2026-09-23" });
+    fireEvent.change(input, { target: { value: "2026-09-24" } });
+    expect(hooks.scheduleQuery).toMatchObject({ from: "2026-09-24", to: "2026-09-24" });
+  });
+
+  it("keeps schedule controls usable during loading and hides booking actions", () => {
+    nav.current = "calendar";
+    hooks.schedule = { data: [SLOT], isLoading: true, isError: false, error: null };
+    render(<WeekExperience client={CLIENT} />);
+
+    expect(screen.getByRole("status")).toBeTruthy();
+    expect(screen.queryByText("miniapp.browse.seats:2")).toBeNull();
+    fireEvent.change(screen.getByLabelText("miniapp.booking.dateLabel"), {
+      target: { value: "2026-09-24" }
+    });
+    expect(hooks.scheduleQuery).toMatchObject({ from: "2026-09-24", to: "2026-09-24" });
+  });
+
+  it("keeps controls usable on an error and recovers after a future date query", () => {
+    nav.current = "calendar";
+    hooks.scheduleForQuery = (query) =>
+      query.from === "2026-09-24"
+        ? { data: [SLOT], isLoading: false, isError: false, error: null }
+        : { data: [SLOT], isLoading: false, isError: true, error: new Error("bad range") };
+    render(<WeekExperience client={CLIENT} />);
+
+    expect(screen.getByRole("alert").textContent).toContain("bad range");
+    expect(screen.queryByText("miniapp.browse.seats:2")).toBeNull();
+    fireEvent.change(screen.getByLabelText("miniapp.booking.dateLabel"), {
+      target: { value: "2026-09-24" }
+    });
+    expect(hooks.scheduleQuery).toMatchObject({ from: "2026-09-24", to: "2026-09-24" });
+    expect(screen.queryByRole("alert")).toBeNull();
+    expect(screen.getByText("miniapp.browse.seats:2")).toBeTruthy();
   });
 
   it("does not offer a second booking action for an active training, but keeps a full row actionable for server waitlisting", () => {
@@ -204,5 +284,24 @@ describe("WeekExperience", () => {
   it("builds a Monday-first week across a month boundary", () => {
     expect(mondayOf("2026-03-01")).toBe("2026-02-23");
     expect(addLocalDays("2026-02-23", 6)).toBe("2026-03-01");
+  });
+
+  it("uses the later UTC or local calendar day as the schedule lower bound", () => {
+    expect(minimumScheduleDate("2026-09-22", new Date("2026-09-23T00:05:00.000Z"))).toBe(
+      "2026-09-23"
+    );
+    expect(minimumScheduleDate("2026-09-24", new Date("2026-09-23T23:55:00.000Z"))).toBe(
+      "2026-09-24"
+    );
+  });
+
+  it("normalizes a retained schedule selection when the minimum date advances", () => {
+    nav.current = "calendar";
+    const view = render(<WeekExperience client={CLIENT} />);
+    currentToday = "2026-09-24";
+    view.rerender(<WeekExperience client={CLIENT} />);
+
+    expect(hooks.scheduleQuery).toMatchObject({ from: "2026-09-24", to: "2026-09-24" });
+    expect(normalizeScheduleDate("2026-09-23", "2026-09-24")).toBe("2026-09-24");
   });
 });

@@ -361,6 +361,11 @@
 .week-ui__date-rail button.is-active span {
   color: var(--week-on-accent);
 }
+.week-ui__day:disabled,
+.week-ui__date-rail button:disabled {
+  cursor: not-allowed;
+  opacity: 0.42;
+}
 .week-ui__date-input {
   display: grid;
   grid-template-columns: auto 1fr;
