@@ -53,6 +53,20 @@ export function mondayOf(date: string): string {
   return `${value.getFullYear()}-${String(value.getMonth() + 1).padStart(2, "0")}-${String(value.getDate()).padStart(2, "0")}`;
 }
 
+/**
+ * The API validates schedule windows against its UTC calendar day. A browser can
+ * still be on the previous local day at that boundary, so use the later of the
+ * two dates for every schedule query and picker.
+ */
+export function minimumScheduleDate(localToday: string, now: Date = new Date()): string {
+  const utcToday = now.toISOString().slice(0, 10);
+  return localToday > utcToday ? localToday : utcToday;
+}
+
+export function normalizeScheduleDate(date: string, minimumDate: string): string {
+  return date < minimumDate ? minimumDate : date;
+}
+
 export function isActiveRecord(record: ClientRecord): boolean {
   return !["declined", "cancelled", "attended", "no_show", "completed"].includes(record.status);
 }
@@ -72,20 +86,22 @@ export function WeekExperience({ client }: WeekExperienceProps): JSX.Element {
   const currentRoute = nav.current;
   const scrollRef = useRef<HTMLDivElement>(null);
   const today = todayLocalDate();
+  const minimumDate = minimumScheduleDate(today);
   const weekStart = mondayOf(today);
   const weekDates = useMemo(
     () => WEEKDAYS.map((_, index) => addLocalDays(weekStart, index)),
     [weekStart]
   );
   const [fullCalendar, setFullCalendar] = useState(false);
-  const [selectedDate, setSelectedDate] = useState(today);
+  const [selectedDate, setSelectedDate] = useState(minimumDate);
   const [levelId, setLevelId] = useState(client.levelId ?? "");
   const [timeOfDay, setTimeOfDay] = useState<TimeFilter>("all");
+  const effectiveSelectedDate = normalizeScheduleDate(selectedDate, minimumDate);
   const records = useClientRecords("upcoming");
   const levels = useLevels();
   const schedule = useTrainingSchedule({
-    from: selectedDate,
-    to: selectedDate,
+    from: effectiveSelectedDate,
+    to: effectiveSelectedDate,
     ...(levelId ? { levelId } : {}),
     ...(timeOfDay === "all" ? {} : { timeOfDay })
   });
@@ -109,6 +125,9 @@ export function WeekExperience({ client }: WeekExperienceProps): JSX.Element {
     }
     window.scrollTo({ top: 0, behavior: "auto" });
   }, [currentRoute, fullCalendar, booking.isOpen]);
+  useEffect(() => {
+    if (selectedDate < minimumDate) setSelectedDate(minimumDate);
+  }, [minimumDate, selectedDate]);
   useBackButton(booking.isOpen || fullCalendar || nav.canPop, () => {
     if (booking.isOpen) {
       booking.close();
@@ -131,7 +150,7 @@ export function WeekExperience({ client }: WeekExperienceProps): JSX.Element {
   };
   const openSchedule = (date?: string): void => {
     hapticSelection();
-    if (date) setSelectedDate(date);
+    if (date) setSelectedDate(normalizeScheduleDate(date, minimumDate));
     setFullCalendar(false);
     nav.selectTab("calendar");
   };
@@ -147,6 +166,7 @@ export function WeekExperience({ client }: WeekExperienceProps): JSX.Element {
           <WeekHome
             weekDates={weekDates}
             today={today}
+            minimumDate={minimumDate}
             records={allRecords.filter(
               (record) => record.date >= weekStart && record.date <= weekEnd
             )}
@@ -163,9 +183,10 @@ export function WeekExperience({ client }: WeekExperienceProps): JSX.Element {
           />
         ) : nav.current === "calendar" ? (
           <Schedule
-            date={selectedDate}
+            date={effectiveSelectedDate}
             weekDates={weekDates}
             today={today}
+            minimumDate={minimumDate}
             levelId={levelId}
             timeOfDay={timeOfDay}
             levels={levels.data ?? []}
@@ -179,12 +200,12 @@ export function WeekExperience({ client }: WeekExperienceProps): JSX.Element {
                   : undefined
             }
             recordsIncomplete={
-              records.hasNextPage && !allRecords.some((record) => record.date > selectedDate)
+              records.hasNextPage && !allRecords.some((record) => record.date > effectiveSelectedDate)
             }
             loadingMore={records.isFetchingNextPage}
             onLoadMore={() => void records.fetchNextPage()}
             activeTrainingStatuses={activeTrainingStatuses}
-            onDate={setSelectedDate}
+            onDate={(date) => setSelectedDate(normalizeScheduleDate(date, minimumDate))}
             onLevel={setLevelId}
             onTime={setTimeOfDay}
             onBook={booking.openConfirm}
@@ -229,6 +250,7 @@ export function WeekExperience({ client }: WeekExperienceProps): JSX.Element {
 function WeekHome({
   weekDates,
   today,
+  minimumDate,
   records,
   loading,
   error,
@@ -243,6 +265,7 @@ function WeekHome({
 }: {
   weekDates: string[];
   today: string;
+  minimumDate: string;
   records: ClientRecord[];
   loading: boolean;
   error?: string;
@@ -284,6 +307,7 @@ function WeekHome({
             className={date === today ? "week-ui__day is-today" : "week-ui__day"}
             onClick={() => onSchedule(date)}
             aria-label={date}
+            disabled={date < minimumDate}
           >
             <span>{t(weekdayShortKey(WEEKDAYS[index]!))}</span>
             <strong>{Number(date.slice(8, 10))}</strong>
@@ -341,6 +365,7 @@ function Schedule({
   date,
   weekDates,
   today,
+  minimumDate,
   levelId,
   timeOfDay,
   levels,
@@ -362,6 +387,7 @@ function Schedule({
   date: string;
   weekDates: string[];
   today: string;
+  minimumDate: string;
   levelId: string;
   timeOfDay: TimeFilter;
   levels: { id: string; name: string }[];
@@ -381,8 +407,6 @@ function Schedule({
   onRecords: () => void;
 }): JSX.Element {
   const t = useT();
-  if (loading) return <SectionState kind="loading" />;
-  if (error) return <SectionState kind="error" message={error} />;
   return (
     <>
       <header className="week-ui__heading">
@@ -410,6 +434,7 @@ function Schedule({
             key={item}
             onClick={() => onDate(item)}
             className={item === date ? "is-active" : ""}
+            disabled={item < minimumDate}
           >
             <span>
               {item === today ? t("miniapp.week.today") : t(weekdayShortKey(WEEKDAYS[index]!))}
@@ -423,8 +448,9 @@ function Schedule({
         <input
           type="date"
           value={date}
+          min={minimumDate}
           onChange={(event) => {
-            if (event.target.value) onDate(event.target.value);
+            if (event.target.value >= minimumDate) onDate(event.target.value);
           }}
         />
       </label>
@@ -461,7 +487,11 @@ function Schedule({
         </div>
       )}
       <section className="week-ui__slots" aria-label={t("miniapp.week.sessionsTitle")}>
-        {slots.length === 0 ? (
+        {loading ? (
+          <SectionState kind="loading" />
+        ) : error ? (
+          <SectionState kind="error" message={error} />
+        ) : slots.length === 0 ? (
           <div className="week-ui__empty">
             <strong>{t("miniapp.week.noSessionsTitle")}</strong>
             <span>{t("miniapp.week.noSessionsBody")}</span>

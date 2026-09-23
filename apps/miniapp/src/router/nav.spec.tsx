@@ -61,6 +61,7 @@ interface FakeApi {
 
 let api: FakeApi;
 let startParam: string | null;
+const FIXED_NOW = new Date("2026-09-23T12:00:00.000Z");
 
 // Capture every useBackButton call so we can assert BackButton visibility per
 // route depth and drive its onBack handler (the pop).
@@ -116,6 +117,8 @@ function latestBackButton() {
 }
 
 beforeEach(() => {
+  vi.useFakeTimers({ toFake: ["Date"] });
+  vi.setSystemTime(FIXED_NOW);
   api = makeApi();
   startParam = null;
   backButtonCalls.length = 0;
@@ -124,6 +127,7 @@ beforeEach(() => {
 afterEach(() => {
   cleanup();
   vi.clearAllMocks();
+  vi.useRealTimers();
 });
 
 describe("route table (pure)", () => {
@@ -175,6 +179,35 @@ describe("navigation shell", () => {
     expect(screen.getByRole("navigation")).toBeTruthy();
     // On the root, the BackButton is hidden (canPop === false).
     expect(latestBackButton().visible).toBe(false);
+  });
+
+  it("blocks a past day and never sends an inverted schedule window after All trainings", async () => {
+    api = makeApi({
+      listTrainingSchedule: vi.fn().mockImplementation((query: { from: string; to: string }) => {
+        const utcToday = FIXED_NOW.toISOString().slice(0, 10);
+        const effectiveFrom = query.from < utcToday ? utcToday : query.from;
+        if (query.to < effectiveFrom) return Promise.reject(new Error("inverted window"));
+        return Promise.resolve([]);
+      })
+    });
+    renderWithProviders(<Router />);
+
+    await screen.findByRole("heading", { name: "Моя неделя" });
+    const pastDay = screen.getByRole("button", { name: "2026-09-21" }) as HTMLButtonElement;
+    expect(pastDay.disabled).toBe(true);
+    fireEvent.click(pastDay);
+    fireEvent.click(screen.getByRole("button", { name: "Все тренировки" }));
+    await screen.findByRole("heading", { name: "Когда играем?" });
+
+    expect(api.listTrainingSchedule).toHaveBeenCalled();
+    const scheduleCalls = api.listTrainingSchedule.mock.calls as Array<
+      [{ from: string; to: string }]
+    >;
+    for (const [query] of scheduleCalls) {
+      expect(query.from >= FIXED_NOW.toISOString().slice(0, 10)).toBe(true);
+      expect(query.to >= FIXED_NOW.toISOString().slice(0, 10)).toBe(true);
+    }
+    expect(screen.queryByRole("alert")).toBeNull();
   });
 
   it("renders exactly the client journey rows and no admin/trainer entry", async () => {
