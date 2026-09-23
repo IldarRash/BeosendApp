@@ -10,6 +10,7 @@ import {
   createCourtRequestSchema,
   freeCourtNumbersSchema,
   calendarExportMonthQuerySchema,
+  clientRecordsPageSchema,
   clientTrainingDetailSchema,
   createGroupBookingSchema,
   createSingleBookingSchema,
@@ -35,6 +36,8 @@ import {
   type BookableMonth,
   type Booking,
   type Client,
+  type ClientRecordsPage,
+  type ClientRecordsQuery,
   type ClientTrainingDetail,
   type CourtAvailability,
   type CourtClientGrid,
@@ -452,6 +455,16 @@ export class MiniappApiClient {
   listMyBookings(clientId: string, scope: MyBookingScope): Promise<MyBookingItem[]> {
     const qs = new URLSearchParams({ clientId, scope }).toString();
     return this.request(`/bookings/mine?${qs}`, myBookingItemsSchema);
+  }
+
+  /** API-owned, paginated list of bookings, requests and their terminal history. */
+  listClientRecords(query: ClientRecordsQuery): Promise<ClientRecordsPage> {
+    const qs = new URLSearchParams({
+      scope: query.scope,
+      offset: String(query.offset),
+      limit: String(query.limit)
+    }).toString();
+    return this.request(`/client-records/mine?${qs}`, clientRecordsPageSchema);
   }
 
   /**

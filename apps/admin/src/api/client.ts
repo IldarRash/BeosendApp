@@ -50,6 +50,7 @@ import {
   updateCourtBlockSchema,
   courtLoadGridSchema,
   cancelCourtRequestSchema,
+  rejectCourtRequestSchema,
   reassignCourtRequestSchema,
   generateAllResultSchema,
   generateIndividualResultSchema,
@@ -91,6 +92,11 @@ import {
   waitlistAdminItemSchema,
   waitlistEntrySchema,
   deleteTrainingSeriesResultSchema,
+  cancelBookingSchema,
+  cancelTrainingSchema,
+  decisionReasonSchema,
+  removeWaitlistEntrySchema,
+  recordStatusDeliveryFailureSchema,
   swapWaitlistResultSchema,
   type AdminMe,
   type AdminSession,
@@ -209,6 +215,8 @@ import {
   type TransferGroupResult,
   type UpdateIndividualPriceInput,
   type DeleteTrainingSeriesResult,
+  type DecisionReason,
+  type RecordStatusDeliveryFailure,
   type UpdateClientInput,
   type UpdateGroupInput,
   type UpdateLevelInput,
@@ -576,10 +584,10 @@ export class ApiClient {
    * { requestId }; the server stamps decided_* from the authenticated admin and
    * notifies the client.
    */
-  rejectRequest(id: string): Promise<CourtRequest> {
+  rejectRequest(id: string, reason: DecisionReason): Promise<CourtRequest> {
     return this.request(`/court-requests/${id}/reject`, courtRequestSchema, {
       method: "POST",
-      body: JSON.stringify({ requestId: id })
+      body: JSON.stringify(rejectCourtRequestSchema.parse({ requestId: id, reason }))
     });
   }
 
@@ -589,10 +597,10 @@ export class ApiClient {
    * requests and frees availability by changing the request status. The console
    * only triggers the action and renders the returned, validated request.
    */
-  cancelRequest(id: string): Promise<CourtRequest> {
+  cancelRequest(id: string, reason: DecisionReason): Promise<CourtRequest> {
     return this.request(`/court-requests/${id}/cancel`, courtRequestSchema, {
       method: "POST",
-      body: JSON.stringify(cancelCourtRequestSchema.parse({ requestId: id }))
+      body: JSON.stringify(cancelCourtRequestSchema.parse({ requestId: id, reason }))
     });
   }
 
@@ -873,8 +881,11 @@ export class ApiClient {
    * console computes nothing. Admin-only; returns the now-inactive group. After
    * success the groups list (active only) no longer carries it.
    */
-  deleteGroup(id: string): Promise<Group> {
-    return this.request(`/groups/${id}`, groupSchema, { method: "DELETE" });
+  deleteGroup(id: string, reason: DecisionReason): Promise<Group> {
+    return this.request(`/groups/${id}`, groupSchema, {
+      method: "DELETE",
+      body: JSON.stringify({ reason: decisionReasonSchema.parse(reason) })
+    });
   }
 
   /**
@@ -1005,8 +1016,11 @@ export class ApiClient {
    * notifies booked clients, and removes the row; returns just the deleted id. A
    * cancelled training can be deleted too — the gate is the server's.
    */
-  deleteTraining(id: string): Promise<{ id: string }> {
-    return this.request(`/trainings/${id}`, z.object({ id: uuid }), { method: "DELETE" });
+  deleteTraining(id: string, reason: DecisionReason): Promise<{ id: string }> {
+    return this.request(`/trainings/${id}`, z.object({ id: uuid }), {
+      method: "DELETE",
+      body: JSON.stringify(cancelTrainingSchema.parse({ reason }))
+    });
   }
 
   /**
@@ -1014,9 +1028,10 @@ export class ApiClient {
    * /trainings/:id/series). The server owns the individual-only rule, future-date
    * selection and notifications; the console only renders the returned ids count.
    */
-  deleteTrainingSeries(id: string): Promise<DeleteTrainingSeriesResult> {
+  deleteTrainingSeries(id: string, reason: DecisionReason): Promise<DeleteTrainingSeriesResult> {
     return this.request(`/trainings/${id}/series`, deleteTrainingSeriesResultSchema, {
-      method: "DELETE"
+      method: "DELETE",
+      body: JSON.stringify(cancelTrainingSchema.parse({ reason }))
     });
   }
 
@@ -1124,9 +1139,10 @@ export class ApiClient {
    * recompute, and waitlist promotion. The SPA only sends the booking id and
    * validates the returned booking row.
    */
-  cancelBooking(bookingId: string): Promise<Booking> {
+  cancelBooking(bookingId: string, reason: DecisionReason): Promise<Booking> {
     return this.request(`/bookings/${bookingId}/cancel`, bookingSchema, {
-      method: "POST"
+      method: "POST",
+      body: JSON.stringify(cancelBookingSchema.parse({ reason }))
     });
   }
 
@@ -1273,11 +1289,19 @@ export class ApiClient {
    * body). The server marks it cancelled and returns the updated entry
    * (`waitlistEntrySchema`). Admin-only.
    */
-  removeWaitlistEntry(entryId: string): Promise<WaitlistEntry> {
+  removeWaitlistEntry(entryId: string, reason: DecisionReason): Promise<WaitlistEntry> {
     return this.request(`/waitlist/${entryId}/remove`, waitlistEntrySchema, {
       method: "POST",
-      body: JSON.stringify({})
+      body: JSON.stringify(removeWaitlistEntrySchema.parse({ reason }))
     });
+  }
+
+  /** Failed or uncertain client status notifications, bounded for the admin audit panel. */
+  listRecordStatusDeliveryFailures(limit = 50): Promise<RecordStatusDeliveryFailure[]> {
+    return this.request(
+      `/record-status/delivery-failures?limit=${encodeURIComponent(String(limit))}`,
+      z.array(recordStatusDeliveryFailureSchema)
+    );
   }
 
   // ── Subscription payments (admin) ──────────────────────────────────────────

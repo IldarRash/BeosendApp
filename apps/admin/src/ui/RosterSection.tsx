@@ -2,6 +2,7 @@ import { useState } from "react";
 import type { RosterParticipant } from "@beosand/types";
 import { Button } from "./Button";
 import { Modal } from "./Modal";
+import { useDecisionReason } from "./ReasonFields";
 import { useCancelRosterParticipant, useRoster } from "../hooks/useRoster";
 import { RosterList } from "./RosterList";
 import { useToast } from "./Toast";
@@ -35,6 +36,7 @@ export function RosterSection({ trainingId, t }: RosterSectionProps): JSX.Elemen
   const roster = useRoster(trainingId);
   const remove = useCancelRosterParticipant();
   const [removeTarget, setRemoveTarget] = useState<RosterParticipant | null>(null);
+  const reason = useDecisionReason();
 
   function openRemove(participant: RosterParticipant): void {
     remove.reset();
@@ -47,9 +49,11 @@ export function RosterSection({ trainingId, t }: RosterSectionProps): JSX.Elemen
 
   function submitRemove(): void {
     if (!removeTarget || !roster.data) return;
+    const decision = reason.validate();
+    if (!decision) return;
     const name = removeTarget.clientName;
     remove.mutate(
-      { bookingId: removeTarget.bookingId },
+      { bookingId: removeTarget.bookingId, reason: decision },
       {
         onSuccess: () => {
           notify(t("admin.roster.removed", { client: name }), "success");
@@ -112,21 +116,21 @@ export function RosterSection({ trainingId, t }: RosterSectionProps): JSX.Elemen
             <Button variant="ghost" onClick={closeRemove} disabled={remove.isPending}>
               {t("admin.action.cancel")}
             </Button>
-            <Button variant="danger" disabled={remove.isPending} onClick={submitRemove}>
+              <Button variant="danger" disabled={remove.isPending} onClick={submitRemove}>
               {remove.isPending ? t("admin.roster.removing") : t("admin.roster.removeConfirm")}
             </Button>
           </>
         }
       >
         {removeTarget && roster.data ? (
-          <p>
+          <div className="stack"><p>
             {t("admin.roster.removePrompt", {
               client: removeTarget.clientName,
               date: roster.data.date,
               start: roster.data.startTime,
               end: roster.data.endTime
             })}
-          </p>
+          </p>{reason.fields}</div>
         ) : null}
         {remove.isError ? (
           <p className="state state--error" role="alert">

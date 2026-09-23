@@ -98,7 +98,7 @@ export class NotificationsService {
    * 'booking-confirmed'). Skips if already logged or if the booking row can no
    * longer be rendered. Fire-and-forget: tolerates a send failure.
    */
-  async sendBookingConfirmation(clientId: string, trainingId: string): Promise<void> {
+  async sendBookingConfirmation(clientId: string, trainingId: string, options: { skipTelegram?: boolean } = {}): Promise<void> {
     if (await this.repo.hasBeenSent(clientId, trainingId, "booking-confirmed")) {
       return;
     }
@@ -116,7 +116,7 @@ export class NotificationsService {
     await this.sendAndLog(
       recipient,
       "booking-confirmed",
-      bookingConfirmedMessage(recipient, recipient.language, override)
+      bookingConfirmedMessage(recipient, recipient.language, override), options.skipTelegram
     );
   }
 
@@ -126,7 +126,7 @@ export class NotificationsService {
    * (default §Open questions 2). Idempotent on that earliest training; tolerates a
    * send failure. `trainingIds` are the created bookings' trainings.
    */
-  async sendGroupBookingConfirmation(clientId: string, trainingIds: string[]): Promise<void> {
+  async sendGroupBookingConfirmation(clientId: string, trainingIds: string[], options: { skipTelegram?: boolean } = {}): Promise<void> {
     if (trainingIds.length === 0) {
       return;
     }
@@ -142,7 +142,7 @@ export class NotificationsService {
     await this.sendAndLog(
       anchor,
       "booking-confirmed",
-      groupBookingConfirmedMessage(recipients)
+      groupBookingConfirmedMessage(recipients), options.skipTelegram
     );
   }
 
@@ -175,7 +175,7 @@ export class NotificationsService {
    * is `cancelled` by send time, so the lookup is status-agnostic (mirrors
    * findWaitlistRecipient). Tolerates a send failure.
    */
-  async sendBookingDeclined(clientId: string, trainingId: string): Promise<void> {
+  async sendBookingDeclined(clientId: string, trainingId: string, options: { skipTelegram?: boolean } = {}): Promise<void> {
     if (await this.repo.hasBeenSent(clientId, trainingId, "booking-declined")) {
       return;
     }
@@ -188,7 +188,7 @@ export class NotificationsService {
     await this.sendAndLog(
       recipient,
       "booking-declined",
-      bookingDeclinedMessage(recipient, recipient.language, override)
+      bookingDeclinedMessage(recipient, recipient.language, override), options.skipTelegram
     );
   }
 
@@ -198,7 +198,7 @@ export class NotificationsService {
    * Status-agnostic render (the rows are `cancelled` by send time). Idempotent on
    * that earliest training; tolerates a send failure.
    */
-  async sendGroupBookingDeclined(clientId: string, trainingIds: string[]): Promise<void> {
+  async sendGroupBookingDeclined(clientId: string, trainingIds: string[], options: { skipTelegram?: boolean } = {}): Promise<void> {
     if (trainingIds.length === 0) {
       return;
     }
@@ -211,7 +211,7 @@ export class NotificationsService {
     if (await this.repo.hasBeenSent(clientId, anchor.trainingId, "booking-declined")) {
       return;
     }
-    await this.sendAndLog(anchor, "booking-declined", groupBookingDeclinedMessage(recipients));
+    await this.sendAndLog(anchor, "booking-declined", groupBookingDeclinedMessage(recipients), options.skipTelegram);
   }
 
   /**
@@ -338,7 +338,7 @@ export class NotificationsService {
    * lookup would now return nobody). Exposed for T1.12 (the training-cancel
    * write); not triggered by any endpoint here. Returns the number notified.
    */
-  async sendTrainingCancelled(trainingId: string, clientIds: string[]): Promise<number> {
+  async sendTrainingCancelled(trainingId: string, clientIds: string[], options: { skipTelegram?: boolean } = {}): Promise<number> {
     const recipients = await this.repo.findRecipientsByClientIds(
       trainingId,
       clientIds,
@@ -353,7 +353,7 @@ export class NotificationsService {
       const ok = await this.sendAndLog(
         recipient,
         "training-cancelled",
-        trainingCancelledMessage(recipient, recipient.language, override)
+        trainingCancelledMessage(recipient, recipient.language, override), options.skipTelegram
       );
       if (ok) {
         sent += 1;
@@ -370,7 +370,7 @@ export class NotificationsService {
    * swallowed (the committed promote must never be undone because Telegram was
    * unreachable); returns whether the message was sent.
    */
-  async sendWaitlistPromoted(clientId: string, trainingId: string): Promise<boolean> {
+  async sendWaitlistPromoted(clientId: string, trainingId: string, options: { skipTelegram?: boolean } = {}): Promise<boolean> {
     const recipient = await this.repo.findWaitlistRecipient(clientId, trainingId);
     if (!recipient) {
       this.logger.warn(
@@ -378,7 +378,7 @@ export class NotificationsService {
       );
       return false;
     }
-    if (recipient.telegramId === null) {
+    if (recipient.telegramId === null || options.skipTelegram) {
       // Walk-in client: no Telegram channel. Skip the send.
       this.logger.debug(`Client ${clientId} has no telegram_id; skipping waitlist-promoted`);
       return false;
@@ -415,7 +415,8 @@ export class NotificationsService {
   async sendWaitlistDisplaced(
     clientId: string,
     trainingId: string,
-    position: number
+    position: number,
+    options: { skipTelegram?: boolean } = {}
   ): Promise<boolean> {
     const recipient = await this.repo.findWaitlistRecipient(clientId, trainingId);
     if (!recipient) {
@@ -424,7 +425,7 @@ export class NotificationsService {
       );
       return false;
     }
-    if (recipient.telegramId === null) {
+    if (recipient.telegramId === null || options.skipTelegram) {
       this.logger.debug(`Client ${clientId} has no telegram_id; skipping waitlist-displaced`);
       return false;
     }
@@ -531,30 +532,12 @@ export class NotificationsService {
     }
   }
 
-  /**
-   * Operational DM to every admin (ADMIN_TELEGRAM_IDS) that a new court request was
-   * just created, so a manager can open the moderation queue and confirm/reject it.
-   * This is an inline operational message, NOT one of the client-facing DB templates,
-   * and it carries no send-log row. When ADMIN_URL is set it attaches a single
-   * "Открыть заявку" URL button deep-linking the admin console's court-requests page.
-   * Best-effort: each per-admin send is wrapped so a blocked/failed DM is logged and
-   * skipped — the committed court request is never undone because Telegram was
-   * unreachable. A no-op when no admin ids are configured.
-   */
-  async sendCourtRequestCreatedToAdmins(input: {
-    clientName: string;
-    clientTelegramId: number;
-    date: string;
-    startTime: string;
-    endTime: string;
-    durationHours: number;
-    courtCount: number;
-    priceRsd: number;
-  }): Promise<void> {
+  /** Immutable per-admin render used by the transactional status outbox. */
+  async prepareCourtRequestCreatedAdminMessages(input: {
+    clientName: string; clientTelegramId: number; date: string; startTime: string; endTime: string;
+    durationHours: number; courtCount: number; priceRsd: number;
+  }): Promise<Array<{ telegramId: number; locale: Locale; text: string; replyMarkup: unknown }>> {
     const adminIds = adminTelegramIds(this.env);
-    if (adminIds.length === 0) {
-      return;
-    }
 
     const vars = {
       clientName: escapeHtml(input.clientName),
@@ -567,28 +550,15 @@ export class NotificationsService {
       priceRsd: input.priceRsd
     };
 
-    for (const adminId of adminIds) {
-      try {
-        const locale = await this.resolveStaffLocale(adminId);
-        const override = await this.templates.findOverride("court-request-created-admin", locale);
-        const text = renderNotificationTemplate(
-          resolveTemplateBody("court-request-created-admin", locale, override),
-          vars
-        );
-        const replyMarkup = adminDeepLinkMarkup(
-          this.env.ADMIN_URL,
-          locale,
-          "/court-requests",
-          "bot.notify.openRequest"
-        );
-        await this.sender.sendMessage(adminId, text, replyMarkup);
-      } catch (error) {
-        this.logger.warn(
-          `New-court-request DM to admin ${adminId} failed: ` +
-            (error instanceof Error ? error.message : String(error))
-        );
-      }
-    }
+    return Promise.all(adminIds.map(async (telegramId) => {
+      const locale = await this.resolveStaffLocale(telegramId);
+      const override = await this.templates.findOverride("court-request-created-admin", locale);
+      return {
+        telegramId, locale,
+        text: renderNotificationTemplate(resolveTemplateBody("court-request-created-admin", locale, override), vars),
+        replyMarkup: adminDeepLinkMarkup(this.env.ADMIN_URL, locale, "/court-requests", "bot.notify.openRequest")
+      };
+    }));
   }
 
   /**
@@ -606,12 +576,14 @@ export class NotificationsService {
   private async sendAndLog(
     recipient: NotificationRecipient,
     type: NotificationType,
-    text: string
+    text: string,
+    skipTelegram = false
   ): Promise<boolean> {
     // Skip channels already logged for this (client, training, type) so a resend never
     // duplicates a (client, training, type, channel) send. Legacy rows default to
     // telegram (column default), preserving the telegram-shaped dedup.
     const skip = await this.repo.sentChannels(recipient.clientId, recipient.trainingId, type);
+    if (skipTelegram) skip.add("telegram");
     const results = await this.dispatcher.dispatch(
       {
         clientId: recipient.clientId,

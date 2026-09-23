@@ -28,6 +28,8 @@ import { TrainingPricingModule } from "./modules/training-pricing/training-prici
 import { TrainingsModule } from "./modules/trainings/trainings.module";
 import { WaitlistModule } from "./modules/waitlist/waitlist.module";
 import { RequestLoggingInterceptor } from "./request-logging/request-logging.interceptor";
+import { RecordStatusModule } from "./modules/record-status/record-status.module";
+import { ClientRecordsModule } from "./modules/client-records/client-records.module";
 
 /**
  * Root module. One module per domain is added under src/modules/* as features
@@ -53,6 +55,8 @@ import { RequestLoggingInterceptor } from "./request-logging/request-logging.int
     ClientsModule,
     NotificationTemplatesModule,
     NotificationsModule,
+    RecordStatusModule,
+    ClientRecordsModule,
     WaitlistModule,
     BookingsModule,
     BroadcastsModule,

@@ -18,6 +18,7 @@ import type {
   AutoAssignResult,
   AvailableSlotsQuery,
   BookingStatus,
+  CancelTrainingInput,
   ChangeCapacityInput,
   ClientTrainingDetail,
   CourtCellOccupant,
@@ -86,6 +87,7 @@ import { GroupsRepository } from "../groups/groups.repository";
 import { NotificationsService } from "../notifications/notifications.service";
 import { sanitizeTelegramDiagnostic } from "../notifications/telegram-sender";
 import { SettingsService } from "../settings/settings.service";
+import { captureRecordStatus, captureRecordStatuses } from "../record-status/record-status-capture";
 import { TrainersRepository } from "../trainers/trainers.repository";
 import { TrainingsRepository, type ClientTrainingDetailRow } from "./trainings.repository";
 
@@ -246,7 +248,7 @@ export class TrainingsService {
       // monthly batch (bookGroupMonth) uses. capacity is 1, so the single booking flips
       // open → full via the shared recompute.
       for (const training of trainings) {
-        await this.bookings.insertBooking(tx, {
+        const booking = await this.bookings.insertBooking(tx, {
           clientId: input.clientId,
           trainingId: training.id,
           type: "single",
@@ -254,6 +256,7 @@ export class TrainingsService {
           status: "booked",
           source: "admin"
         });
+        await captureRecordStatus(tx, { kind: "booking", entityId: booking.id, actor: "staff" });
         const newStatus = recomputeTrainingStatus({
           capacity: training.capacity,
           bookedCount: 1,
@@ -928,7 +931,7 @@ export class TrainingsService {
    * while active/pending bookings are cancelled, the training is marked cancelled,
    * and its auto court block is released.
    */
-  async deleteTraining(actorTelegramId: number, id: string): Promise<{ id: string }> {
+  async deleteTraining(actorTelegramId: number, id: string, input: CancelTrainingInput): Promise<{ id: string }> {
     this.assertAdmin(actorTelegramId);
 
     const ref = await this.trainings.findDateById(id);
@@ -948,7 +951,7 @@ export class TrainingsService {
       if (locked.status === "cancelled") {
         return [];
       }
-      return this.cancelOneInTx(tx, id);
+      return this.cancelOneInTx(tx, id, input);
     });
 
     // The training row still exists here, so notification writes stay FK-safe.
@@ -966,8 +969,25 @@ export class TrainingsService {
    * Returns the affected clientIds so the caller can notify after commit. Shared by
    * the single-training cancel and the group-delete cascade.
    */
-  private async cancelOneInTx(tx: Database, id: string): Promise<string[]> {
+  private async cancelOneInTx(tx: Database, id: string, input: CancelTrainingInput): Promise<string[]> {
+    const bookingIds = await this.trainings.findActiveBookingIdsForTraining(tx, id);
     const cancelledClientIds = await this.trainings.cancelBookedBookingsForTraining(tx, id);
+    const waitlistIds = await this.trainings.cancelActiveWaitlistForTraining(tx, id);
+    await captureRecordStatuses(
+      tx,
+      bookingIds.map((bookingId) => ({ kind: "booking" as const, entityId: bookingId, actor: "staff" as const, reason: input.reason })),
+      { batchKey: `training-cancelled:${id}` }
+    );
+    await captureRecordStatuses(
+      tx,
+      waitlistIds.map((waitlistId) => ({
+        kind: "waitlist" as const,
+        entityId: waitlistId,
+        actor: "staff" as const,
+        reason: input.reason
+      })),
+      { batchKey: `training-cancelled-waitlist:${id}` }
+    );
     await this.trainings.markCancelled(tx, id);
     // Free the court: delete this training's auto-block (no-op if absent; a block is
     // not active plan state, so delete is correct). Manual blocks (null link) untouched.
@@ -983,7 +1003,7 @@ export class TrainingsService {
    * collected. After commit each set is notified (a Telegram failure is logged and
    * swallowed so it never undoes the committed cancels). Returns the count cancelled.
    */
-  async cancelFutureTrainingsForGroup(actorTelegramId: number, groupId: string): Promise<number> {
+  async cancelFutureTrainingsForGroup(actorTelegramId: number, groupId: string, input: CancelTrainingInput): Promise<number> {
     this.assertAdmin(actorTelegramId);
 
     const today = new Date().toISOString().slice(0, 10);
@@ -1003,7 +1023,7 @@ export class TrainingsService {
         if (locked.groupId !== groupId || locked.date !== candidate.date || locked.date < today) {
           throw new ConflictException("Training changed while group cancellation was in progress");
         }
-        const clientIds = await this.cancelOneInTx(tx, candidate.id);
+        const clientIds = await this.cancelOneInTx(tx, candidate.id, input);
         results.push({ trainingId: candidate.id, clientIds });
       }
       return results;
@@ -1410,7 +1430,8 @@ export class TrainingsService {
    */
   async deleteIndividualSeries(
     actorTelegramId: number,
-    id: string
+    id: string,
+    input: CancelTrainingInput
   ): Promise<DeleteTrainingSeriesResult> {
     this.assertAdmin(actorTelegramId);
 
@@ -1447,7 +1468,7 @@ export class TrainingsService {
           continue;
         }
         this.assertSameIndividualSeriesTarget(locked, target, "series deletion");
-        const clientIds = await this.cancelOneInTx(tx, seriesId);
+        const clientIds = await this.cancelOneInTx(tx, seriesId, input);
         results.push({ trainingId: seriesId, clientIds });
       }
       return results;
@@ -1786,7 +1807,7 @@ export class TrainingsService {
    */
   private async notifyCancelledSafely(trainingId: string, clientIds: string[]): Promise<void> {
     try {
-      await this.notifications.sendTrainingCancelled(trainingId, clientIds);
+      await this.notifications.sendTrainingCancelled(trainingId, clientIds, { skipTelegram: true });
     } catch (error) {
       this.logger.error(
         "Training-cancelled notification failed (cancellation stands): " +

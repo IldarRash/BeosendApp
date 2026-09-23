@@ -1,18 +1,11 @@
 import { InlineKeyboard } from "grammy";
-import { formatDayMonth, type BookingStatus, type MyBookingItem } from "@beosand/types";
+import { formatDayMonth, type ClientRecord } from "@beosand/types";
 import type { ApiClient } from "./api-client";
 import { backHomeKeyboard, MENU_ACTIONS, NAV_ACTIONS } from "./menu";
 import { showMainMenu, type MenuReplyCtx } from "./navigation";
 import { t, type Catalog } from "./i18n";
-import { weekdayShort } from "./slots";
 
-/**
- * "My bookings" screen (T1.10). Pure render/keyboard helpers kept here so they
- * can be unit-tested without a live bot. The bot is an interaction layer only:
- * the upcoming/past split, ordering and `canCancel` flag all come from the API;
- * nothing is decided here. The cancel write itself is T1.11 — this slice only
- * exposes the button on `canCancel` items.
- */
+const TELEGRAM_TEXT_LIMIT = 4096;
 
 /**
  * Cancel actions (T1.11), both carrying only the bookingId.
@@ -24,8 +17,107 @@ export const MY_BOOKINGS_ACTIONS = {
   /** prefix (15 bytes) + uuid (36 bytes) = 51 bytes, under Telegram's 64. */
   cancelPrefix: "booking:cancel:",
   /** prefix (9 bytes) + uuid (36 bytes) = 45 bytes, under Telegram's 64. */
-  confirmPrefix: "bk:cxlok:"
+  confirmPrefix: "bk:cxlok:",
+  morePrefix: "records:more:"
 } as const;
+
+const RECORD_PAGE_SIZE = 30;
+
+export function moreRecordsData(scope: "upcoming" | "past", offset: number): string {
+  return `${MY_BOOKINGS_ACTIONS.morePrefix}${scope}:${offset}`;
+}
+
+export function parseMoreRecords(data: string | undefined):
+  | { scope: "upcoming" | "past"; offset: number }
+  | undefined {
+  if (data === undefined || !data.startsWith(MY_BOOKINGS_ACTIONS.morePrefix)) return undefined;
+  const [scope, offset] = data.slice(MY_BOOKINGS_ACTIONS.morePrefix.length).split(":");
+  if ((scope !== "upcoming" && scope !== "past") || !/^\d+$/u.test(offset ?? "")) return undefined;
+  return { scope, offset: Number(offset) };
+}
+
+function recordKind(catalog: Catalog, record: ClientRecord): string {
+  return t(catalog, `bot.myBookings.kind.${record.kind}`);
+}
+
+function recordStatus(catalog: Catalog, record: ClientRecord): string {
+  const actor = record.status === "cancelled" && record.actor ? `.${record.actor}` : "";
+  return t(catalog, `bot.myBookings.status.${record.status}${actor}`);
+}
+
+/** Server-owned record classification; the bot only formats its fields. */
+export function formatClientRecord(catalog: Catalog, record: ClientRecord): string {
+  const details = [record.title, record.trainerName, record.levelName].filter((value): value is string => value !== null);
+  const courts = record.courtNumbers.length > 0
+    ? t(catalog, "bot.myBookings.courts", { courts: record.courtNumbers.join(", ") })
+    : record.courtCount === null ? undefined : t(catalog, "bot.myBookings.courtCount", { count: record.courtCount });
+  const price = record.priceRsd === null ? undefined : t(catalog, "bot.myBookings.price", { price: record.priceRsd });
+  const reason = record.reason
+    ? t(catalog, `bot.myBookings.reason.${record.reason.code}`, { comment: record.reason.comment ?? "" })
+    : undefined;
+  const position = record.waitlistPosition === null
+    ? undefined
+    : t(catalog, "bot.myBookings.position", { position: record.waitlistPosition });
+  const next = t(catalog, `bot.myBookings.next.${record.nextAction}`);
+  return [
+    `🏐 ${recordKind(catalog, record)} · ${record.date}, ${record.startTime}–${record.endTime}`,
+    t(catalog, "bot.myBookings.recordStatus", { status: recordStatus(catalog, record) }),
+    details.join(" · ") || undefined,
+    courts,
+    price,
+    position,
+    reason,
+    next
+  ].filter((line): line is string => Boolean(line)).join("\n");
+}
+
+export interface ClientRecordMessage { text: string; records: ClientRecord[] }
+
+/** Split at record boundaries where possible; a single oversized server field is continued, never discarded. */
+export function clientRecordMessages(catalog: Catalog, scope: "upcoming" | "past", records: ClientRecord[]): ClientRecordMessage[] {
+  if (records.length === 0) return [];
+  const header = t(catalog, scope === "upcoming" ? "bot.myBookings.upcomingHeader" : "bot.myBookings.pastHeader");
+  const messages: ClientRecordMessage[] = [];
+  let text = header;
+  let messageRecords: ClientRecord[] = [];
+  const push = () => { if (text) messages.push({ text, records: messageRecords }); };
+  for (const record of records) {
+    let remaining = formatClientRecord(catalog, record);
+    let firstPart = true;
+    while (remaining.length > 0) {
+      const separator = text.length === 0 ? "" : "\n\n";
+      const available = TELEGRAM_TEXT_LIMIT - text.length - separator.length;
+      if (available <= 0) { push(); text = ""; messageRecords = []; continue; }
+      if (remaining.length <= available) {
+        text += `${separator}${remaining}`;
+        messageRecords.push(record);
+        remaining = "";
+      } else if (text !== header && text.length > 0) {
+        push(); text = ""; messageRecords = [];
+      } else {
+        // Preserve every character of an unusually large API field across messages.
+        text += `${separator}${remaining.slice(0, available)}`;
+        remaining = remaining.slice(available);
+        if (!firstPart && remaining.length === 0) messageRecords.push(record);
+        push(); text = ""; messageRecords = [];
+      }
+      firstPart = false;
+    }
+  }
+  push();
+  return messages;
+}
+
+export function clientRecordsKeyboard(catalog: Catalog, records: ClientRecord[], hasMoreUpcoming = false, hasMorePast = false, nextUpcoming: number | null = null, nextPast: number | null = null): InlineKeyboard {
+  const keyboard = new InlineKeyboard();
+  for (const record of records) {
+    if (record.canCancel && record.bookingId) keyboard.text(t(catalog, "bot.myBookings.cancelButton", { date: formatDayMonth(record.date), time: record.startTime }), cancelBookingData(record.bookingId)).row();
+  }
+  if (hasMoreUpcoming && nextUpcoming !== null) keyboard.text(t(catalog, "bot.myBookings.moreUpcoming"), moreRecordsData("upcoming", nextUpcoming)).row();
+  if (hasMorePast && nextPast !== null) keyboard.text(t(catalog, "bot.myBookings.morePast"), moreRecordsData("past", nextPast)).row();
+  appendKeyboard(keyboard, backHomeKeyboard(catalog));
+  return keyboard;
+}
 
 export function cancelBookingData(bookingId: string): string {
   return `${MY_BOOKINGS_ACTIONS.cancelPrefix}${bookingId}`;
@@ -51,69 +143,6 @@ export function parseBookingCancelConfirm(data: string | undefined): string | un
   return data.slice(MY_BOOKINGS_ACTIONS.confirmPrefix.length);
 }
 
-/** Human label for a past item's outcome, when the API has set one. */
-function outcomeLabel(catalog: Catalog, status: BookingStatus): string | undefined {
-  if (status === "attended" || status === "no_show" || status === "cancelled") {
-    return t(catalog, `bot.myBookings.outcome.${status}`);
-  }
-  return undefined;
-}
-
-/** One human-readable line for an upcoming item. All data is server-provided. */
-export function formatUpcomingLine(catalog: Catalog, item: MyBookingItem): string {
-  return [
-    `🏐 ${weekdayShort(catalog, item.dayOfWeek)} ${item.date}, ${item.startTime}–${item.endTime}`,
-    `${item.trainerName} · ${item.levelName}`
-  ].join("\n");
-}
-
-/** One human-readable line for a past item, with its outcome when set. */
-export function formatPastLine(catalog: Catalog, item: MyBookingItem): string {
-  const outcome = outcomeLabel(catalog, item.bookingStatus);
-  const head = `🗓 ${weekdayShort(catalog, item.dayOfWeek)} ${item.date}, ${item.startTime}–${item.endTime}`;
-  return [head, `${item.trainerName} · ${item.levelName}${outcome ? ` · ${outcome}` : ""}`].join(
-    "\n"
-  );
-}
-
-/**
- * Body text: an upcoming section (if any) and a past section (if any). When both
- * are empty, a single "no bookings" line. The bot never computes the split — it
- * just renders the two server-provided lists in order.
- */
-export function renderMyBookingsText(
-  catalog: Catalog,
-  upcoming: MyBookingItem[],
-  past: MyBookingItem[]
-): string {
-  if (upcoming.length === 0 && past.length === 0) {
-    return t(catalog, "bot.myBookings.none");
-  }
-  const blocks: string[] = [];
-  if (upcoming.length > 0) {
-    blocks.push(
-      [
-        t(catalog, "bot.myBookings.upcomingHeader"),
-        "",
-        ...upcoming.map((i) => formatUpcomingLine(catalog, i)).flatMap((l) => [l, ""])
-      ]
-        .join("\n")
-        .trimEnd()
-    );
-  }
-  if (past.length > 0) {
-    blocks.push(
-      [
-        t(catalog, "bot.myBookings.pastHeader"),
-        "",
-        ...past.map((i) => formatPastLine(catalog, i)).flatMap((l) => [l, ""])
-      ]
-        .join("\n")
-        .trimEnd()
-    );
-  }
-  return blocks.join("\n\n");
-}
 
 /** Copy another keyboard's text buttons onto `target` as fresh rows. */
 function appendKeyboard(target: InlineKeyboard, source: InlineKeyboard): void {
@@ -133,20 +162,6 @@ function appendKeyboard(target: InlineKeyboard, source: InlineKeyboard): void {
  * never get a cancel button — `canCancel` is server-computed and never inferred
  * here.
  */
-export function myBookingsKeyboard(catalog: Catalog, upcoming: MyBookingItem[]): InlineKeyboard {
-  const keyboard = new InlineKeyboard();
-  for (const item of upcoming) {
-    if (item.canCancel) {
-      const label = t(catalog, "bot.myBookings.cancelButton", {
-        date: formatDayMonth(item.date),
-        time: item.startTime
-      });
-      keyboard.text(label, cancelBookingData(item.bookingId)).row();
-    }
-  }
-  appendKeyboard(keyboard, backHomeKeyboard(catalog));
-  return keyboard;
-}
 
 /** "Записаться" + back/home footer, shown when the client has no bookings yet. */
 export function noBookingsKeyboard(catalog: Catalog): InlineKeyboard {
@@ -157,7 +172,31 @@ export function noBookingsKeyboard(catalog: Catalog): InlineKeyboard {
 }
 
 /** The slice of ApiClient the "my bookings" handler needs. */
-export type MyBookingsApi = Pick<ApiClient, "getClientByTelegramId" | "listMyBookings">;
+export type MyBookingsApi = Pick<ApiClient, "getClientByTelegramId" | "listClientRecords">;
+
+async function replyRecordMessages(
+  ctx: MenuReplyCtx,
+  catalog: Catalog,
+  pages: Array<{ scope: "upcoming" | "past"; records: ClientRecord[]; hasMore: boolean; nextOffset: number | null }>
+): Promise<void> {
+  const messages = pages.flatMap((page) => clientRecordMessages(catalog, page.scope, page.records).map((message) => ({ ...message, page })));
+  const upcoming = pages.find((page) => page.scope === "upcoming");
+  const past = pages.find((page) => page.scope === "past");
+  for (let index = 0; index < messages.length; index += 1) {
+    const message = messages[index]!;
+    const isLast = index === messages.length - 1;
+    await ctx.reply(message.text, {
+      reply_markup: clientRecordsKeyboard(
+        catalog,
+        message.records,
+        isLast && upcoming?.hasMore === true,
+        isLast && past?.hasMore === true,
+        isLast ? upcoming?.nextOffset ?? null : null,
+        isLast ? past?.nextOffset ?? null : null
+      )
+    });
+  }
+}
 
 /**
  * Entry: resolve the caller's client from their telegram_id, fetch upcoming +
@@ -183,18 +222,26 @@ export async function handleMyBookings(
     return;
   }
   const [upcoming, past] = await Promise.all([
-    api.listMyBookings(client.id, "upcoming", telegramId),
-    api.listMyBookings(client.id, "past", telegramId)
+    api.listClientRecords("upcoming", 0, RECORD_PAGE_SIZE, telegramId),
+    api.listClientRecords("past", 0, RECORD_PAGE_SIZE, telegramId)
   ]);
-  if (upcoming.length === 0 && past.length === 0) {
+  if (upcoming.items.length === 0 && past.items.length === 0) {
     await ctx.reply(t(catalog, "bot.myBookings.none"), {
       reply_markup: noBookingsKeyboard(catalog)
     });
     return;
   }
-  await ctx.reply(renderMyBookingsText(catalog, upcoming, past), {
-    reply_markup: myBookingsKeyboard(catalog, upcoming)
-  });
+  await replyRecordMessages(ctx, catalog, [
+    { scope: "upcoming", records: upcoming.items, hasMore: upcoming.hasMore, nextOffset: upcoming.nextOffset },
+    { scope: "past", records: past.items, hasMore: past.hasMore, nextOffset: past.nextOffset }
+  ]);
+}
+
+/** Load one bounded server page; existing cards stay authoritative and no local merge occurs. */
+export async function handleMoreRecords(ctx: MenuReplyCtx, api: Pick<ApiClient, "listClientRecords">, catalog: Catalog, telegramId: number | undefined, page: { scope: "upcoming" | "past"; offset: number }): Promise<void> {
+  if (telegramId === undefined) return;
+  const records = await api.listClientRecords(page.scope, page.offset, RECORD_PAGE_SIZE, telegramId);
+  await replyRecordMessages(ctx, catalog, [{ scope: page.scope, records: records.items, hasMore: records.hasMore, nextOffset: records.nextOffset }]);
 }
 
 // --- Cancellation flow (T1.11) ---

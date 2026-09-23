@@ -31,6 +31,11 @@ import type { SettingsService } from "../settings/settings.service";
 import type { TrainersRepository } from "../trainers/trainers.repository";
 import type { Client, Trainer } from "@beosand/types";
 
+vi.mock("../record-status/record-status-capture", () => ({
+  captureRecordStatus: vi.fn(async () => true),
+  captureRecordStatuses: vi.fn(async () => [])
+}));
+
 /** No-op domain-events double: the connector emit seam is fire-and-forget here. */
 const fakeDomainEvents = {
   emitTrainingCancelled: (): void => undefined
@@ -48,6 +53,7 @@ const fakeSettings = {
 const ADMIN_ID = 111;
 const NON_ADMIN_ID = 999;
 const GROUP_ID = "11111111-1111-1111-1111-111111111111";
+const STAFF_REASON = { reason: { code: "unavailable" as const, comment: null } };
 
 // September 2026 is entirely in the future for this suite and has
 // 4 Mondays + 5 Wednesdays = 9 trainings.
@@ -438,6 +444,12 @@ class FakeTrainingsRepository {
     this.cancelBookedCalls += 1;
     this.cancelBookedIds.push(id);
     return this.cancelledClientIdsByTraining.get(id) ?? this.cancelledClientIds;
+  }
+  async findActiveBookingIdsForTraining(_tx: Database, _id: string): Promise<string[]> {
+    return [];
+  }
+  async cancelActiveWaitlistForTraining(_tx: Database, _id: string): Promise<string[]> {
+    return [];
   }
 
   // --- Hard-delete purge writes (deleteTraining), recorded in call order. ---
@@ -1768,7 +1780,7 @@ describe("TrainingsService", () => {
 
     it("rejects a non-admin with 403 and purges nothing", async () => {
       trainingsRepo.lock = openLock();
-      await expect(service.deleteTraining(NON_ADMIN_ID, TRAINING_ID)).rejects.toBeInstanceOf(
+      await expect(service.deleteTraining(NON_ADMIN_ID, TRAINING_ID, STAFF_REASON)).rejects.toBeInstanceOf(
         ForbiddenException
       );
       expect(trainingsRepo.cancelBookedCalls).toBe(0);
@@ -1777,7 +1789,7 @@ describe("TrainingsService", () => {
 
     it("404s a missing training (findForUpdate → undefined) and purges nothing", async () => {
       // No seeded lock and no stored row → findForUpdate returns undefined.
-      await expect(service.deleteTraining(ADMIN_ID, TRAINING_ID)).rejects.toBeInstanceOf(
+      await expect(service.deleteTraining(ADMIN_ID, TRAINING_ID, STAFF_REASON)).rejects.toBeInstanceOf(
         NotFoundException
       );
       expect(trainingsRepo.purgeCalls).toEqual([]);
@@ -1794,7 +1806,7 @@ describe("TrainingsService", () => {
         return 0;
       });
 
-      const result = await service.deleteTraining(ADMIN_ID, TRAINING_ID);
+      const result = await service.deleteTraining(ADMIN_ID, TRAINING_ID, STAFF_REASON);
 
       expect(result).toEqual({ id: TRAINING_ID });
       // tx1 cancelled the booked bookings, capturing the affected clientIds.
@@ -1804,7 +1816,7 @@ describe("TrainingsService", () => {
         "client-a",
         "client-b",
         "client-c"
-      ]);
+      ], { skipTelegram: true });
       // Notify happens after tx1 cancellation (and after booking flips) while the
       // row still exists for FK-safe notification-log writes.
       expect(trainingsRepo.purgeCalls).toEqual([`notify:${TRAINING_ID}`]);
@@ -1819,13 +1831,13 @@ describe("TrainingsService", () => {
     it("does not recancel an already-cancelled training and returns {id} (clientIds empty)", async () => {
       trainingsRepo.lock = openLock({ bookedCount: 0, status: "cancelled" });
 
-      const result = await service.deleteTraining(ADMIN_ID, TRAINING_ID);
+      const result = await service.deleteTraining(ADMIN_ID, TRAINING_ID, STAFF_REASON);
 
       expect(result).toEqual({ id: TRAINING_ID });
       // Already cancelled → cancelOneInTx is skipped (no re-flip of bookings).
       expect(trainingsRepo.cancelBookedCalls).toBe(0);
       // Notify is still called, with no affected clients (idempotent, never 500s).
-      expect(notifications.sendTrainingCancelled).toHaveBeenCalledWith(TRAINING_ID, []);
+      expect(notifications.sendTrainingCancelled).toHaveBeenCalledWith(TRAINING_ID, [], { skipTelegram: true });
       // No block delete happens because it is already cancelled in this path.
       expect(trainingsRepo.purgeCalls).toEqual([]);
       expect(courtBlocksRepo.calls).toEqual([
@@ -1839,7 +1851,7 @@ describe("TrainingsService", () => {
       trainingsRepo.lock = openLock({ bookedCount: 1 });
       notifications.sendTrainingCancelled.mockRejectedValueOnce(new Error("telegram down"));
 
-      const result = await service.deleteTraining(ADMIN_ID, TRAINING_ID);
+      const result = await service.deleteTraining(ADMIN_ID, TRAINING_ID, STAFF_REASON);
 
       expect(result).toEqual({ id: TRAINING_ID });
       expect(trainingsRepo.cancelBookedCalls).toBe(1);
@@ -2843,7 +2855,7 @@ describe("TrainingsService", () => {
     });
 
     it("cancels only future non-cancelled trainings, leaving past + already-cancelled untouched", async () => {
-      const count = await service.cancelFutureTrainingsForGroup(ADMIN_ID, GROUP_ID);
+      const count = await service.cancelFutureTrainingsForGroup(ADMIN_ID, GROUP_ID, STAFF_REASON);
 
       expect(count).toBe(2);
       expect(trainingsRepo.markCancelledIds.sort()).toEqual([future1, future2].sort());
@@ -2869,25 +2881,25 @@ describe("TrainingsService", () => {
       trainingsRepo.cancelledClientIdsByTraining.set(future1, ["client-a"]);
       trainingsRepo.cancelledClientIdsByTraining.set(future2, ["client-b", "client-c"]);
 
-      await service.cancelFutureTrainingsForGroup(ADMIN_ID, GROUP_ID);
+      await service.cancelFutureTrainingsForGroup(ADMIN_ID, GROUP_ID, STAFF_REASON);
 
-      expect(notifications.sendTrainingCancelled).toHaveBeenCalledWith(future1, ["client-a"]);
+      expect(notifications.sendTrainingCancelled).toHaveBeenCalledWith(future1, ["client-a"], { skipTelegram: true });
       expect(notifications.sendTrainingCancelled).toHaveBeenCalledWith(future2, [
         "client-b",
         "client-c"
-      ]);
+      ], { skipTelegram: true });
     });
 
     it("is admin-only and cancels nothing for a non-admin", async () => {
       await expect(
-        service.cancelFutureTrainingsForGroup(NON_ADMIN_ID, GROUP_ID)
+        service.cancelFutureTrainingsForGroup(NON_ADMIN_ID, GROUP_ID, STAFF_REASON)
       ).rejects.toBeInstanceOf(ForbiddenException);
       expect(trainingsRepo.markCancelledIds).toHaveLength(0);
     });
 
     it("returns 0 when the group has no future non-cancelled trainings", async () => {
       trainingsRepo.rows = [row({ id: past, date: "2000-01-01" })];
-      const count = await service.cancelFutureTrainingsForGroup(ADMIN_ID, GROUP_ID);
+      const count = await service.cancelFutureTrainingsForGroup(ADMIN_ID, GROUP_ID, STAFF_REASON);
       expect(count).toBe(0);
     });
   });
@@ -3331,17 +3343,17 @@ describe("TrainingsService", () => {
       trainingsRepo.cancelledClientIdsByTraining.set(targetId, ["client-a"]);
       trainingsRepo.cancelledClientIdsByTraining.set(futureId, ["client-b", "client-c"]);
 
-      const result = await service.deleteIndividualSeries(ADMIN_ID, targetId);
+      const result = await service.deleteIndividualSeries(ADMIN_ID, targetId, STAFF_REASON);
 
       expect(result.ids).toEqual([targetId, futureId]);
       expect(trainingsRepo.markCancelledIds).toEqual([targetId, futureId]);
       expect(trainingsRepo.cancelBookedIds).toEqual([targetId, futureId]);
       expect(trainingsRepo.rows.find((row) => row.id === pastId)?.status).toBe("full");
-      expect(notifications.sendTrainingCancelled).toHaveBeenCalledWith(targetId, ["client-a"]);
+      expect(notifications.sendTrainingCancelled).toHaveBeenCalledWith(targetId, ["client-a"], { skipTelegram: true });
       expect(notifications.sendTrainingCancelled).toHaveBeenCalledWith(futureId, [
         "client-b",
         "client-c"
-      ]);
+      ], { skipTelegram: true });
     });
 
     it("rejects non-admin price and series-delete writes before mutating rows", async () => {
@@ -3356,7 +3368,7 @@ describe("TrainingsService", () => {
           { series: false }
         )
       ).rejects.toBeInstanceOf(ForbiddenException);
-      await expect(service.deleteIndividualSeries(NON_ADMIN_ID, targetId)).rejects.toBeInstanceOf(
+      await expect(service.deleteIndividualSeries(NON_ADMIN_ID, targetId, STAFF_REASON)).rejects.toBeInstanceOf(
         ForbiddenException
       );
 
@@ -3376,7 +3388,7 @@ describe("TrainingsService", () => {
           { series: false }
         )
       ).rejects.toBeInstanceOf(BadRequestException);
-      await expect(service.deleteIndividualSeries(ADMIN_ID, targetId)).rejects.toBeInstanceOf(
+      await expect(service.deleteIndividualSeries(ADMIN_ID, targetId, STAFF_REASON)).rejects.toBeInstanceOf(
         BadRequestException
       );
       expect(trainingsRepo.updatePriceIds).toEqual([]);
@@ -3395,7 +3407,7 @@ describe("TrainingsService", () => {
           { series: true }
         )
       ).rejects.toBeInstanceOf(ConflictException);
-      await expect(service.deleteIndividualSeries(ADMIN_ID, targetId)).rejects.toBeInstanceOf(
+      await expect(service.deleteIndividualSeries(ADMIN_ID, targetId, STAFF_REASON)).rejects.toBeInstanceOf(
         ConflictException
       );
       expect(trainingsRepo.updatePriceIds).toEqual([]);
@@ -3415,7 +3427,7 @@ describe("TrainingsService", () => {
           { series: true }
         )
       ).rejects.toBeInstanceOf(ConflictException);
-      await expect(service.deleteIndividualSeries(ADMIN_ID, targetId)).rejects.toBeInstanceOf(
+      await expect(service.deleteIndividualSeries(ADMIN_ID, targetId, STAFF_REASON)).rejects.toBeInstanceOf(
         ConflictException
       );
 

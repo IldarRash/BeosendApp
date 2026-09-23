@@ -5,7 +5,7 @@ import {
   type UseMutationResult,
   type UseQueryResult
 } from "@tanstack/react-query";
-import type { Booking, MarkAttendanceInput, TrainingRoster } from "@beosand/types";
+import type { Booking, DecisionReason, MarkAttendanceInput, TrainingRoster } from "@beosand/types";
 import { useApiClient } from "../api/ApiProvider";
 import { invalidateTrainings } from "./useTrainings";
 import { invalidateWaitlist } from "./useWaitlist";
@@ -61,12 +61,12 @@ export function useMarkAttendance(): UseMutationResult<
 export function useCancelRosterParticipant(): UseMutationResult<
   Booking,
   Error,
-  { bookingId: string }
+  { bookingId: string; reason: DecisionReason }
 > {
   const api = useApiClient();
   const queryClient = useQueryClient();
   return useMutation({
-    mutationFn: ({ bookingId }) => api.cancelBooking(bookingId),
+    mutationFn: ({ bookingId, reason }) => api.cancelBooking(bookingId, reason),
     onSettled: () =>
       Promise.all([
         invalidateRoster(queryClient),

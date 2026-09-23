@@ -228,10 +228,12 @@ describe("CourtRequests page", () => {
     const dialog = screen.getByRole("dialog");
     expect(within(dialog).getByText(/2026-06-10/)).toBeTruthy();
 
+    fireEvent.change(within(dialog).getByLabelText("Причина решения"), { target: { value: "unavailable" } });
+    fireEvent.change(within(dialog).getByLabelText("Комментарий"), { target: { value: "Закрытие корта" } });
     fireEvent.click(within(dialog).getByRole("button", { name: "Отменить заявку" }));
 
     expect(mutate).toHaveBeenCalledTimes(1);
-    expect(mutate.mock.calls[0][0]).toEqual({ id: CONFIRMED.id });
+    expect(mutate.mock.calls[0][0]).toEqual({ id: CONFIRMED.id, reason: { code: "unavailable", comment: "Закрытие корта" } });
   });
 
   it("navigates a request row to the court load grid with date and request id", () => {
@@ -458,10 +460,12 @@ describe("CourtRequests page", () => {
     renderPage();
 
     fireEvent.click(screen.getByRole("button", { name: "Отклонить" }));
+    fireEvent.change(screen.getByLabelText("Причина решения"), { target: { value: "unavailable" } });
+    fireEvent.click(screen.getAllByRole("button", { name: "Отклонить" }).at(-1)!);
 
     expect(mutate).toHaveBeenCalledTimes(1);
     expect(mutate.mock.calls[0][0]).toEqual({
-      id: PENDING.id
+      id: PENDING.id, reason: { code: "unavailable", comment: null }
     });
   });
 });
@@ -470,11 +474,12 @@ describe("ApiClient court request cancel", () => {
   it("POSTs the strict cancel body and parses the returned request", async () => {
     const calls = mockApiFetchOnce(CANCELLED_REQUEST);
 
-    const result = await new ApiClient("http://api.test").cancelRequest(CONFIRMED.id);
+    const reason = { code: "unavailable" as const, comment: null };
+    const result = await new ApiClient("http://api.test").cancelRequest(CONFIRMED.id, reason);
 
     expect(calls[0]?.url).toBe(`http://api.test/court-requests/${CONFIRMED.id}/cancel`);
     expect(calls[0]?.init?.method).toBe("POST");
-    expect(JSON.parse(calls[0]?.init?.body as string)).toEqual({ requestId: CONFIRMED.id });
+    expect(JSON.parse(calls[0]?.init?.body as string)).toEqual({ requestId: CONFIRMED.id, reason });
     expect(result.status).toBe("cancelled");
     expect(result).not.toHaveProperty("clientName");
   });
@@ -482,6 +487,6 @@ describe("ApiClient court request cancel", () => {
   it("rejects a malformed cancel response before rendering can use it", async () => {
     mockApiFetchOnce({ ...CANCELLED_REQUEST, priceRsd: -1 });
 
-    await expect(new ApiClient("http://api.test").cancelRequest(CONFIRMED.id)).rejects.toThrow();
+    await expect(new ApiClient("http://api.test").cancelRequest(CONFIRMED.id, { code: "unavailable", comment: null })).rejects.toThrow();
   });
 });

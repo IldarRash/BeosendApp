@@ -11,7 +11,7 @@ import {
 import type { Env } from "@beosand/config";
 import { isAdmin } from "@beosand/config";
 import { type Database, tables } from "@beosand/db";
-import type { Booking, BookingSource, WaitlistAdminItem, WaitlistEntry } from "@beosand/types";
+import type { Booking, BookingSource, DecisionReason, WaitlistAdminItem, WaitlistEntry } from "@beosand/types";
 import {
   bookingSchema,
   isBookable,
@@ -22,6 +22,7 @@ import {
 import { ENV } from "../../config/config.module";
 import { ClientsRepository } from "../clients/clients.repository";
 import { NotificationsService } from "../notifications/notifications.service";
+import { captureRecordStatus } from "../record-status/record-status-capture";
 import type { BookingPriceSnapshot } from "../training-pricing/training-pricing.repository";
 import { TrainingPricingService } from "../training-pricing/training-pricing.service";
 import {
@@ -137,6 +138,7 @@ export class WaitlistService {
         trainingId: input.trainingId,
         groupSubscriptionId: null
       });
+      await captureRecordStatus(tx, { kind: "waitlist", entityId: created.id, actor: "client" });
 
       this.logger.log(
         `Client ${input.clientId} joined waitlist for training ${input.trainingId} at position ${created.position}`
@@ -238,7 +240,9 @@ export class WaitlistService {
         throw new NotFoundException(`Training ${entry.trainingId} not found`);
       }
       // Admin promote → source "admin".
-      return this.promoteIntoFreeSeat(tx, entry, training, "admin");
+      const created = await this.promoteIntoFreeSeat(tx, entry, training, "admin");
+      await captureRecordStatus(tx, { kind: "booking", entityId: created.id, actor: "staff" });
+      return created;
     });
 
     // Post-commit: tell the promoted client they were booked. Self-tolerant.
@@ -347,6 +351,8 @@ export class WaitlistService {
 
       // 4) The promoted entry is now a booking.
       await this.waitlist.setStatus(tx, entry.id, "promoted");
+      await captureRecordStatus(tx, { kind: "waitlist", entityId: displacedEntry.id, actor: "staff" });
+      await captureRecordStatus(tx, { kind: "booking", entityId: created.id, actor: "staff" });
 
       this.logger.log(
         `Swap on training ${entry.trainingId}: entry ${entry.id} → booking ${created.id}; ` +
@@ -375,7 +381,7 @@ export class WaitlistService {
    * removing it simply drops it from the queue — nothing else runs. Returns the
    * cancelled entry.
    */
-  async removeEntry(actorTelegramId: number, entryId: string): Promise<WaitlistEntry> {
+  async removeEntry(actorTelegramId: number, entryId: string, reason: DecisionReason): Promise<WaitlistEntry> {
     this.assertAdmin(actorTelegramId);
 
     const cancelled = await this.waitlist.transaction(async (tx) => {
@@ -387,6 +393,7 @@ export class WaitlistService {
         throw new ConflictException(`Waitlist entry is not active (status ${entry.status})`);
       }
       const updated = await this.waitlist.setStatus(tx, entry.id, "cancelled");
+      await captureRecordStatus(tx, { kind: "waitlist", entityId: entry.id, actor: "staff", reason });
       this.logger.log(`Admin removed waitlist entry ${entry.id} (was ${entry.status})`);
       return updated;
     });
@@ -439,6 +446,7 @@ export class WaitlistService {
     );
     for (const entry of entries) {
       await this.waitlist.setStatus(tx, entry.id, "cancelled");
+      await captureRecordStatus(tx, { kind: "waitlist", entityId: entry.id, actor: "staff" });
     }
     if (entries.length > 0) {
       this.logger.log(
@@ -626,7 +634,9 @@ export class WaitlistService {
             : undefined;
         }
         // Auto-promote → source "telegram" (the freed-seat decision is system-made).
-        return this.promoteIntoFreeSeat(tx, head, training, "telegram");
+        const created = await this.promoteIntoFreeSeat(tx, head, training, "telegram");
+        await captureRecordStatus(tx, { kind: "booking", entityId: created.id, actor: "system" });
+        return created;
       });
     } catch (error) {
       this.logger.error(
@@ -667,7 +677,7 @@ export class WaitlistService {
   /** Post-commit: notify a promoted client they were auto-booked. Self-tolerant. */
   private async notifyPromotedSafely(clientId: string, trainingId: string): Promise<void> {
     try {
-      await this.notifications.sendWaitlistPromoted(clientId, trainingId);
+      await this.notifications.sendWaitlistPromoted(clientId, trainingId, { skipTelegram: true });
     } catch (error) {
       this.logger.error(
         `Waitlist-promoted notification (client ${clientId}, training ${trainingId}) failed: ` +
@@ -683,7 +693,7 @@ export class WaitlistService {
     position: number
   ): Promise<void> {
     try {
-      await this.notifications.sendWaitlistDisplaced(clientId, trainingId, position);
+      await this.notifications.sendWaitlistDisplaced(clientId, trainingId, position, { skipTelegram: true });
     } catch (error) {
       this.logger.error(
         `Waitlist-displaced notification (client ${clientId}, training ${trainingId}) failed: ` +

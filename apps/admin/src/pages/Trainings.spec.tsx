@@ -448,10 +448,11 @@ describe("Trainings page", () => {
     const dialog = screen.getByRole("dialog", { name: "Удалить тренировку" });
     expect(mutate).not.toHaveBeenCalled();
 
+    fireEvent.change(within(dialog).getByLabelText("Причина решения"), { target: { value: "schedule-change" } });
+    fireEvent.change(within(dialog).getByLabelText("Комментарий"), { target: { value: "Расписание изменено" } });
     fireEvent.click(within(dialog).getByRole("button", { name: "Удалить тренировку" }));
     expect(mutate).toHaveBeenCalledTimes(1);
-    // The delete mutation takes the training id directly (DELETE /trainings/:id).
-    expect(mutate.mock.calls[0][0]).toBe(TRAINING.id);
+    expect(mutate.mock.calls[0][0]).toEqual({ id: TRAINING.id, reason: { code: "schedule-change", comment: "Расписание изменено" } });
   });
 
   it("notifies on a successful delete (no booked-count in the toast)", () => {
@@ -462,6 +463,8 @@ describe("Trainings page", () => {
 
     fireEvent.click(screen.getByRole("button", { name: "Удалить" }));
     const dialog = screen.getByRole("dialog", { name: "Удалить тренировку" });
+    fireEvent.change(within(dialog).getByLabelText("Причина решения"), { target: { value: "unavailable" } });
+    fireEvent.change(within(dialog).getByLabelText("Комментарий"), { target: { value: "Зал недоступен" } });
     fireEvent.click(within(dialog).getByRole("button", { name: "Удалить тренировку" }));
 
     expect(notify).toHaveBeenCalledWith(
@@ -1232,9 +1235,11 @@ describe("Trainings page", () => {
     fireEvent.change(within(dialog).getByLabelText("Что удалить"), {
       target: { value: "series" }
     });
+    fireEvent.change(within(dialog).getByLabelText("Причина решения"), { target: { value: "other" } });
+    fireEvent.change(within(dialog).getByLabelText("Комментарий"), { target: { value: "Серия отменена" } });
     fireEvent.click(within(dialog).getByRole("button", { name: "Удалить тренировку" }));
 
     expect(mutate).toHaveBeenCalledTimes(1);
-    expect(mutate.mock.calls[0][0]).toBe(INDIVIDUAL.id);
+    expect(mutate.mock.calls[0][0]).toEqual({ id: INDIVIDUAL.id, reason: { code: "other", comment: "Серия отменена" } });
   });
 });

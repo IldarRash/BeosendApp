@@ -10,6 +10,7 @@ import type {
   CalendarSubject,
   ConnectorStatusList,
   RequestLoggingSettings,
+  RecordStatusDeliveryFailure,
   TestSendInput,
   TestSendResult,
   UpdateRequestLoggingSettingsInput
@@ -18,6 +19,16 @@ import { useApiClient } from "../api/ApiProvider";
 
 const CONNECTORS_KEY = ["connectors"] as const;
 const REQUEST_LOGGING_KEY = ["settings", "request-logging"] as const;
+const RECORD_STATUS_FAILURES_KEY = ["record-status", "delivery-failures"] as const;
+
+/** Bounded admin audit of failed or uncertain client status notifications. */
+export function useRecordStatusDeliveryFailures(): UseQueryResult<RecordStatusDeliveryFailure[], Error> {
+  const api = useApiClient();
+  return useQuery({
+    queryKey: RECORD_STATUS_FAILURES_KEY,
+    queryFn: () => api.listRecordStatusDeliveryFailures(50)
+  });
+}
 
 /** Connector status list (GET /connectors), validated by the ApiClient. */
 export function useConnectors(): UseQueryResult<ConnectorStatusList, Error> {

@@ -8,6 +8,7 @@ import type { Env } from "@beosand/config";
 import type { Booking, Client, IndividualTrainingRequest, Trainer, Training } from "@beosand/types";
 import type { Database } from "@beosand/db";
 import { beforeEach, describe, expect, it, vi } from "vitest";
+vi.mock("../record-status/record-status-capture", () => ({ captureRecordStatus: vi.fn(async () => true), captureRecordStatuses: vi.fn(async () => []) }));
 import { TrainersService } from "./trainers.service";
 import type { TrainersRepository } from "./trainers.repository";
 import type { ClientsRepository } from "../clients/clients.repository";
@@ -547,12 +548,13 @@ describe("TrainersService", () => {
       expect(lockOrder).toBeLessThan(insertTraining.mock.invocationCallOrder[0]);
       expect(notifications.sendBookingConfirmation).toHaveBeenCalledWith(
         client.id,
-        result.training.id
+        result.training.id,
+        { skipTelegram: true }
       );
     });
 
     it("lets an admin decline without creating a training or booking", async () => {
-      const result = await service.declineIndividualRequest(ADMIN_ID, requestId);
+      const result = await service.declineIndividualRequest(ADMIN_ID, requestId, { code: "unavailable", comment: null });
 
       expect(result).toMatchObject({
         status: "declined",
@@ -637,7 +639,7 @@ describe("TrainersService", () => {
       await expect(service.confirmIndividualRequest(ADMIN_ID, requestId)).rejects.toBeInstanceOf(
         ConflictException
       );
-      await expect(service.declineIndividualRequest(ADMIN_ID, requestId)).rejects.toBeInstanceOf(
+      await expect(service.declineIndividualRequest(ADMIN_ID, requestId, { code: "unavailable", comment: null })).rejects.toBeInstanceOf(
         ConflictException
       );
       expect(repo.insertIndividualTraining).not.toHaveBeenCalled();

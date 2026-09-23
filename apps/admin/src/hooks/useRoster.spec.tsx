@@ -53,10 +53,11 @@ describe("useCancelRosterParticipant", () => {
       wrapper: wrapperFor(queryClient)
     });
 
-    result.current.mutate({ bookingId: BOOKING_ID });
+    const reason = { code: "unavailable" as const, comment: null };
+    result.current.mutate({ bookingId: BOOKING_ID, reason });
 
     await waitFor(() => expect(result.current.isSuccess).toBe(true));
-    expect(api.cancelBooking).toHaveBeenCalledWith(BOOKING_ID);
+    expect(api.cancelBooking).toHaveBeenCalledWith(BOOKING_ID, reason);
 
     const invalidatedKeys = invalidate.mock.calls.map((call) => {
       const filter = call[0] as { queryKey?: readonly unknown[] };

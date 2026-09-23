@@ -156,6 +156,24 @@ describe("NotificationsService", () => {
       });
     });
 
+    it("suppresses only Telegram when the durable status outbox owns that channel", async () => {
+      repo.findClientTrainingRecipients.mockResolvedValue([
+        recipient({ email: "client@example.test", phone: "+381600000000" })
+      ]);
+
+      await service.sendBookingConfirmation("client-1", "training-1", { skipTelegram: true });
+
+      expect(sender.sendMessage).not.toHaveBeenCalled();
+      expect(dispatcher.dispatch).toHaveBeenCalledWith(
+        expect.objectContaining({ email: "client@example.test", phone: "+381600000000" }),
+        expect.any(Set)
+      );
+      const skip = dispatcher.dispatch.mock.calls[0]?.[1] as ReadonlySet<string>;
+      expect(skip.has("telegram")).toBe(true);
+      expect(repo.logSent).toHaveBeenCalledWith(expect.objectContaining({ channel: "email" }));
+      expect(repo.logSent).toHaveBeenCalledWith(expect.objectContaining({ channel: "sms" }));
+    });
+
     it("is idempotent: skips when already logged (no second send)", async () => {
       repo.hasBeenSent.mockResolvedValue(true);
 
@@ -627,7 +645,7 @@ describe("NotificationsService", () => {
   });
 });
 
-describe("NotificationsService.sendCourtRequestCreatedToAdmins", () => {
+describe("NotificationsService.prepareCourtRequestCreatedAdminMessages", () => {
   const detail = {
     clientName: "Ana",
     clientTelegramId: 7001,
@@ -656,14 +674,13 @@ describe("NotificationsService.sendCourtRequestCreatedToAdmins", () => {
     return { service, sender };
   }
 
-  it("DMs every configured admin with the request details", async () => {
-    const { service, sender } = makeService({ ADMIN_TELEGRAM_IDS: ["111", "222"] });
+  it("renders every configured admin's durable receipt", async () => {
+    const { service } = makeService({ ADMIN_TELEGRAM_IDS: ["111", "222"] });
 
-    await service.sendCourtRequestCreatedToAdmins(detail);
+    const messages = await service.prepareCourtRequestCreatedAdminMessages(detail);
 
-    expect(sender.sendMessage).toHaveBeenCalledTimes(2);
-    expect(sender.sendMessage.mock.calls.map((c) => c[0])).toEqual([111, 222]);
-    const text = sender.sendMessage.mock.calls[0][1] as string;
+    expect(messages.map((message) => message.telegramId)).toEqual([111, 222]);
+    const text = messages[0]!.text;
     expect(text).toContain("Новая заявка на корт");
     expect(text).toContain("Ana (id 7001)");
     expect(text).toContain("2026-06-10, 14:00–16:00 (2 ч)");
@@ -675,8 +692,8 @@ describe("NotificationsService.sendCourtRequestCreatedToAdmins", () => {
       ADMIN_TELEGRAM_IDS: ["111"],
       ADMIN_URL: "https://admin.beosand.example"
     });
-    await withUrl.service.sendCourtRequestCreatedToAdmins(detail);
-    const markup = withUrl.sender.sendMessage.mock.calls[0][2];
+    const [withUrlMessage] = await withUrl.service.prepareCourtRequestCreatedAdminMessages(detail);
+    const markup = withUrlMessage!.replyMarkup;
     expect(markup).toEqual({
       inline_keyboard: [
         [{ text: "Открыть заявку", url: "https://admin.beosand.example/court-requests" }]
@@ -684,22 +701,13 @@ describe("NotificationsService.sendCourtRequestCreatedToAdmins", () => {
     });
 
     const withoutUrl = makeService({ ADMIN_TELEGRAM_IDS: ["111"] });
-    await withoutUrl.service.sendCourtRequestCreatedToAdmins(detail);
-    expect(withoutUrl.sender.sendMessage.mock.calls[0][2]).toBeUndefined();
+    const [withoutUrlMessage] = await withoutUrl.service.prepareCourtRequestCreatedAdminMessages(detail);
+    expect(withoutUrlMessage!.replyMarkup).toBeUndefined();
   });
 
   it("is a no-op when no admin ids are configured", async () => {
-    const { service, sender } = makeService({ ADMIN_TELEGRAM_IDS: [] });
-    await service.sendCourtRequestCreatedToAdmins(detail);
-    expect(sender.sendMessage).not.toHaveBeenCalled();
-  });
-
-  it("tolerates a failed/blocked DM and still notifies the remaining admins", async () => {
-    const { service, sender } = makeService({ ADMIN_TELEGRAM_IDS: ["111", "222"] });
-    sender.sendMessage.mockRejectedValueOnce(new Error("blocked"));
-
-    await expect(service.sendCourtRequestCreatedToAdmins(detail)).resolves.toBeUndefined();
-    expect(sender.sendMessage).toHaveBeenCalledTimes(2);
+    const { service } = makeService({ ADMIN_TELEGRAM_IDS: [] });
+    await expect(service.prepareCourtRequestCreatedAdminMessages(detail)).resolves.toEqual([]);
   });
 });
 
@@ -895,10 +903,10 @@ describe("NotificationsService staff DM locale (resolveStaffLocale per admin)", 
     }
   });
 
-  it("DMs each admin the court-request-created text in their own resolved locale", async () => {
-    const { service, sender } = makeService({ ADMIN_TELEGRAM_IDS: ["111", "222", "444"] });
+  it("renders each admin's court-request-created receipt in their own locale", async () => {
+    const { service } = makeService({ ADMIN_TELEGRAM_IDS: ["111", "222", "444"] });
 
-    await service.sendCourtRequestCreatedToAdmins({
+    const messages = await service.prepareCourtRequestCreatedAdminMessages({
       clientName: "Ana",
       clientTelegramId: 7001,
       date: "2026-06-10",
@@ -909,9 +917,7 @@ describe("NotificationsService staff DM locale (resolveStaffLocale per admin)", 
       priceRsd: 8000
     });
 
-    const byAdmin = new Map<number, string>(
-      sender.sendMessage.mock.calls.map((c) => [c[0] as number, c[1] as string])
-    );
+    const byAdmin = new Map<number, string>(messages.map((message) => [message.telegramId, message.text]));
     expect(byAdmin.get(111)).toContain("Новая заявка на корт"); // RU
     expect(byAdmin.get(222)).toContain("Novi zahtev za teren"); // SR
     expect(byAdmin.get(444)).toContain("Novi zahtev za teren"); // env-only → SR fallback

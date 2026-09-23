@@ -14,6 +14,7 @@ import { Button } from "../ui/Button";
 import { DataTable, type Column } from "../ui/DataTable";
 import { TextAreaField, TextField, TimeField } from "../ui/Field";
 import { Modal } from "../ui/Modal";
+import { useDecisionReason } from "../ui/ReasonFields";
 import { useToast } from "../ui/Toast";
 import { useT } from "../i18n/LanguageProvider";
 import {
@@ -1132,6 +1133,7 @@ function RequestDetailModal({
   const detail = useCourtRequestDetail(requestId);
   const cancel = useCancelRequest();
   const reassign = useReassignRequestCourts();
+  const cancelReason = useDecisionReason();
   const resetCancel = cancel.reset;
   const resetReassign = reassign.reset;
   const [mode, setMode] = useState<"detail" | "reassign" | "cancel">("detail");
@@ -1211,8 +1213,10 @@ function RequestDetailModal({
 
   function submitCancel(): void {
     if (!view || view.status !== "confirmed") return;
+    const reason = cancelReason.validate();
+    if (!reason) return;
     cancel.mutate(
-      { id: view.id },
+      { id: view.id, reason },
       {
         onSuccess: () => {
           notify(t("admin.courtRequests.cancelled", { client: view.clientName }), "success");
@@ -1313,6 +1317,7 @@ function RequestDetailModal({
               price: formatRsd(view.priceRsd)
             })}
           </p>
+          {cancelReason.fields}
           {cancel.error ? (
             <p className="state state--error" role="alert">
               {requestActionError(cancel.error, t)}

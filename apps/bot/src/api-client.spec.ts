@@ -342,6 +342,32 @@ describe("ApiClient.listMyBookings", () => {
   });
 });
 
+describe("ApiClient.listClientRecords", () => {
+  afterEach(() => vi.unstubAllGlobals());
+
+  it("requests the bounded unified page with caller identity and validates its status fields", async () => {
+    const record = {
+      id: `booking:${booking.id}`, kind: "booking", entityId: booking.id, status: "confirmed",
+      date: "2026-06-10", startTime: "18:00", endTime: "19:30", title: "Group", trainerName: "Марко",
+      levelName: "Начинающий", trainingKind: "group", trainingId: TRAINING_ID, bookingId: booking.id,
+      groupSubscriptionId: null, courtNumbers: [], courtCount: null, priceRsd: null, waitlistPosition: null,
+      reason: null, actor: null, canCancel: true, nextAction: "attend"
+    };
+    const fetchMock = mockFetch({ items: [record], total: 1, hasMore: true, nextOffset: 30 });
+    await expect(new ApiClient("http://api.test").listClientRecords("upcoming", 0, 30, 999)).resolves.toMatchObject({ items: [record], nextOffset: 30 });
+    const [rawUrl, init] = fetchMock.mock.calls[0] as [string, RequestInit];
+    const url = new URL(rawUrl);
+    expect(url.pathname).toBe("/client-records/mine");
+    expect(url.searchParams.get("limit")).toBe("30");
+    expect((init.headers as Record<string, string>)["x-telegram-id"]).toBe("999");
+  });
+
+  it("rejects a malformed record rather than rendering it", async () => {
+    mockFetch({ items: [{ id: "booking:not-an-id" }], total: 1, hasMore: false, nextOffset: null });
+    await expect(new ApiClient("http://api.test").listClientRecords("past", 0, 30, 999)).rejects.toThrow();
+  });
+});
+
 const waitlistEntry = {
   id: "55555555-5555-5555-5555-555555555555",
   clientId: CLIENT_ID,
@@ -701,7 +727,7 @@ describe("ApiClient individual request decisions", () => {
       }
     });
     await expect(
-      new ApiClient("http://api.test").declineIndividualRequest(REQUEST_ID, 777)
+      new ApiClient("http://api.test").declineIndividualRequest(REQUEST_ID, 777, { code: "unavailable", comment: null })
     ).resolves.toEqual({ ok: true });
     expect(fetchMock.mock.calls[0][0]).toBe(
       `http://api.test/trainers/individual-requests/${REQUEST_ID}/decline`
@@ -716,7 +742,7 @@ describe("ApiClient individual request decisions", () => {
 
     mockFetch({}, false, 403);
     await expect(
-      new ApiClient("http://api.test").declineIndividualRequest(REQUEST_ID, 777)
+      new ApiClient("http://api.test").declineIndividualRequest(REQUEST_ID, 777, { code: "unavailable", comment: null })
     ).resolves.toEqual({ ok: false, reason: "notAuthorized" });
   });
 

@@ -451,10 +451,12 @@ describe("Groups", () => {
     // The confirm copy warns the group is hidden and its future trainings cancelled.
     expect(within(dialog).getByText(/будущие тренировки отменены/)).toBeTruthy();
 
+    fireEvent.change(within(dialog).getByLabelText("Причина решения"), { target: { value: "schedule-change" } });
+    fireEvent.change(within(dialog).getByLabelText("Комментарий"), { target: { value: "Группа закрыта" } });
     fireEvent.click(within(dialog).getByRole("button", { name: "Удалить группу" }));
 
     expect(mutate).toHaveBeenCalledTimes(1);
-    expect(mutate.mock.calls[0][0]).toBe(GROUP.id);
+    expect(mutate.mock.calls[0][0]).toEqual({ id: GROUP.id, reason: { code: "schedule-change", comment: "Группа закрыта" } });
   });
 
   it("does not call the delete mutation until the action is confirmed", () => {

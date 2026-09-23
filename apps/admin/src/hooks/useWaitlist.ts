@@ -7,6 +7,7 @@ import {
 } from "@tanstack/react-query";
 import type {
   Booking,
+  DecisionReason,
   SwapWaitlistResult,
   WaitlistAdminItem,
   WaitlistEntry
@@ -93,11 +94,11 @@ export function useSwapWaitlistEntry(): UseMutationResult<
  * Remove a waitlist entry (POST /waitlist/:entryId/remove). The server marks it
  * cancelled; refreshes the queues on settle so it leaves the table.
  */
-export function useRemoveWaitlistEntry(): UseMutationResult<WaitlistEntry, Error, string> {
+export function useRemoveWaitlistEntry(): UseMutationResult<WaitlistEntry, Error, { entryId: string; reason: DecisionReason }> {
   const api = useApiClient();
   const queryClient = useQueryClient();
   return useMutation({
-    mutationFn: (entryId: string) => api.removeWaitlistEntry(entryId),
+    mutationFn: ({ entryId, reason }) => api.removeWaitlistEntry(entryId, reason),
     onSettled: () => invalidateAfterChange(queryClient)
   });
 }

@@ -480,7 +480,7 @@ function CourtPreviewFlow({
   }, [slotKey]);
 
   if (create.isSuccess) {
-    return <CourtPending courtNumbers={create.data.courtNumbers} onHome={() => nav.pop()} />;
+    return <CourtPending onHome={() => nav.pop()} />;
   }
 
   if (preview.isPending || !preview.data) {
@@ -510,7 +510,7 @@ function CourtPreviewFlow({
     <CourtPreview
       preview={preview.data}
       submitting={create.isPending}
-      errorMessage={resolveErrorMessage(create.error, t)}
+      errorMessage={creationErrorMessage(create.error, t)}
       onSubmit={() => {
         hapticSelection();
         create.mutate(slot, { onSuccess: () => hapticSuccess() });
@@ -596,13 +596,7 @@ function CourtPreview({
 }
 
 /** Pending state keeps server-owned court assignment hidden until confirmation. */
-function CourtPending({
-  courtNumbers,
-  onHome
-}: {
-  courtNumbers: number[];
-  onHome: () => void;
-}): JSX.Element {
+function CourtPending({ onHome }: { onHome: () => void }): JSX.Element {
   const t = useT();
 
   useMainButton({
@@ -616,11 +610,6 @@ function CourtPending({
         <span className="success-badge" aria-hidden="true">{"\u2713"}</span>
         <div className="stateview__title">{t("miniapp.court.sentTitle")}</div>
         <div className="stateview__sub">{t("miniapp.court.sentBody")}</div>
-        {courtNumbers.length > 0 && (
-          <div className="stateview__sub">
-            {t("miniapp.court.sentCourts", { courts: formatCourtNumbers(courtNumbers) })}
-          </div>
-        )}
       </div>
       <FallbackButton text={t("miniapp.court.toHome")} onClick={onHome} />
     </div>
@@ -664,6 +653,11 @@ function durationLabel(duration: CourtDurationHours, t: TranslateFn): string {
 /** Sorted, comma-joined court numbers for a summary line. */
 function formatCourtNumbers(courtNumbers: number[]): string {
   return [...courtNumbers].sort((a, b) => a - b).join(", ");
+}
+
+function creationErrorMessage(error: unknown, t: TranslateFn): string | undefined {
+  if (error instanceof TypeError) return t("miniapp.records.unknownCreate");
+  return resolveErrorMessage(error, t);
 }
 
 function courtGridCellVisualState(

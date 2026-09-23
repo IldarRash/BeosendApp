@@ -15,6 +15,7 @@ import { Button } from "../ui/Button";
 import { DataTable, type Column } from "../ui/DataTable";
 import { DayOfWeekPicker } from "../ui/DayOfWeekPicker";
 import { Modal } from "../ui/Modal";
+import { useDecisionReason } from "../ui/ReasonFields";
 import { NumberField, SelectField, TextField, TimeField, type SelectOption } from "../ui/Field";
 import { useToast } from "../ui/Toast";
 import { useT } from "../i18n/LanguageProvider";
@@ -473,6 +474,7 @@ export function Groups(): JSX.Element {
   const [form, setForm] = useState<GroupFormState>(emptyForm);
   const [membersGroup, setMembersGroup] = useState<Group | null>(null);
   const [deleteTarget, setDeleteTarget] = useState<Group | null>(null);
+  const deleteReason = useDecisionReason();
   const [filterName, setFilterName] = useState("");
   const [filterWeekday, setFilterWeekday] = useState("");
   const [filterTrainerId, setFilterTrainerId] = useState("");
@@ -927,8 +929,10 @@ export function Groups(): JSX.Element {
               disabled={deleteGroup.isPending}
               onClick={() => {
                 if (!deleteTarget) return;
+                const reason = deleteReason.validate();
+                if (!reason) return;
                 const name = deleteTarget.name;
-                deleteGroup.mutate(deleteTarget.id, {
+                deleteGroup.mutate({ id: deleteTarget.id, reason }, {
                   onSuccess: () => {
                     notify(t("admin.groups.deleted", { name }), "success");
                     setDeleteTarget(null);
@@ -944,7 +948,7 @@ export function Groups(): JSX.Element {
           </>
         }
       >
-        {deleteTarget ? <p>{t("admin.groups.deletePrompt", { name: deleteTarget.name })}</p> : null}
+        {deleteTarget ? <div className="stack"><p>{t("admin.groups.deletePrompt", { name: deleteTarget.name })}</p>{deleteReason.fields}</div> : null}
         {deleteGroup.isError ? (
           <p className="state state--error" role="alert">
             {deleteGroup.error.message}

@@ -16,6 +16,7 @@ import {
   type SingleBookingResult,
   type TransferGroupResult,
   calendarExportMonthQuerySchema,
+  cancelBookingSchema,
   confirmBookingSchema,
   createGroupBookingSchema,
   createManualBookingSchema,
@@ -26,7 +27,7 @@ import {
   transferGroupSchema,
   uuid
 } from "@beosand/types";
-import type { ZodSchema } from "zod";
+import { z, type ZodSchema } from "zod";
 import { BookingsService } from "./bookings.service";
 
 interface RawResponse {
@@ -150,11 +151,14 @@ export class BookingsController {
   cancel(
     @Headers("x-telegram-id") telegramIdHeader: string | undefined,
     @Param("id") id: string,
-    @Headers("x-client-telegram-id") clientTelegramIdHeader?: string
+    @Headers("x-client-telegram-id") clientTelegramIdHeader?: string,
+    @Body() body: unknown = {}
   ): Promise<Booking> {
     const actor = resolveClientActor(telegramIdHeader, clientTelegramIdHeader);
     const bookingId = validate(uuid, id);
+    const input = validate(cancelBookingSchema, body ?? {});
     return this.bookings.cancelBooking(actor.telegramId, bookingId, {
+      reason: input.reason,
       allowAdmin: actor.allowAdmin
     });
   }
@@ -189,8 +193,8 @@ export class BookingsController {
   ): Promise<GroupBookingResult> {
     const actorTelegramId = parseTelegramId(telegramIdHeader);
     const subscriptionId = validate(uuid, groupSubscriptionId);
-    validate(declineBookingSchema, body ?? {});
-    return this.bookings.declineSubscription(actorTelegramId, subscriptionId);
+    const input = validate(declineBookingSchema, body ?? {});
+    return this.bookings.declineSubscription(actorTelegramId, subscriptionId, input);
   }
 
   /** Trainer/admin: confirm a single pending booking (pending → booked). Ownership in the service. */
@@ -215,8 +219,8 @@ export class BookingsController {
   ): Promise<Booking> {
     const actorTelegramId = parseTelegramId(telegramIdHeader);
     const bookingId = validate(uuid, id);
-    validate(declineBookingSchema, body ?? {});
-    return this.bookings.declineBooking(actorTelegramId, bookingId);
+    const input = validate(declineBookingSchema, body ?? {});
+    return this.bookings.declineBooking(actorTelegramId, bookingId, input);
   }
 
   /** Trainer/admin: mark a booking attended / no_show (T2.3). Ownership in the service. */
@@ -264,7 +268,7 @@ function resolveClientActor(
 }
 
 /** Zod-validate at the boundary; surface failures as 400 instead of 500. */
-function validate<T>(schema: ZodSchema<T>, input: unknown): T {
+function validate<TSchema extends ZodSchema>(schema: TSchema, input: unknown): z.output<TSchema> {
   const result = schema.safeParse(input);
   if (!result.success) {
     throw new BadRequestException(result.error.issues.map((issue) => issue.message).join("; "));

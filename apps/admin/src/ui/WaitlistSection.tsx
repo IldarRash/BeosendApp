@@ -3,6 +3,7 @@ import type { WaitlistAdminItem } from "@beosand/types";
 import { Button } from "./Button";
 import { DataTable, type Column } from "./DataTable";
 import { Modal } from "./Modal";
+import { useDecisionReason } from "./ReasonFields";
 import { useToast } from "./Toast";
 import { useGroups } from "../hooks/useGroups";
 import {
@@ -64,6 +65,7 @@ export function WaitlistSection({
   const [swapTarget, setSwapTarget] = useState<WaitlistAdminItem | null>(null);
   const [removeTarget, setRemoveTarget] = useState<WaitlistAdminItem | null>(null);
   const [moveTarget, setMoveTarget] = useState<WaitlistAdminItem | null>(null);
+  const reason = useDecisionReason();
 
   // Individual trainings never enter the waitlist flow — render nothing.
   if (groupId === null) {
@@ -84,8 +86,10 @@ export function WaitlistSection({
 
   function submitRemove(): void {
     if (!removeTarget) return;
+    const decision = reason.validate();
+    if (!decision) return;
     const name = removeTarget.clientName;
-    remove.mutate(removeTarget.id, {
+    remove.mutate({ entryId: removeTarget.id, reason: decision }, {
       onSuccess: () => {
         notify(t("admin.waitlist.removed", { client: name }), "success");
         setRemoveTarget(null);
@@ -229,14 +233,14 @@ export function WaitlistSection({
             >
               {t("admin.action.cancel")}
             </Button>
-            <Button variant="danger" disabled={remove.isPending} onClick={submitRemove}>
+              <Button variant="danger" disabled={remove.isPending} onClick={submitRemove}>
               {remove.isPending ? t("admin.waitlist.removing") : t("admin.waitlist.removeConfirm")}
             </Button>
           </>
         }
       >
-        {removeTarget ? (
-          <p>{t("admin.waitlist.removePrompt", { client: removeTarget.clientName })}</p>
+          {removeTarget ? (
+            <div className="stack"><p>{t("admin.waitlist.removePrompt", { client: removeTarget.clientName })}</p>{reason.fields}</div>
         ) : null}
         {remove.isError ? (
           <p className="state state--error" role="alert">

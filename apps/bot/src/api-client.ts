@@ -2,6 +2,8 @@ import {
   bookableMonthsSchema,
   bookingSchema,
   clientSchema,
+  clientRecordsPageSchema,
+  decisionReasonSchema,
   groupBookingResultSchema,
   groupSchema,
   individualRequestDecisionResultSchema,
@@ -23,6 +25,8 @@ import {
   type BookableMonth,
   type Booking,
   type Client,
+  type ClientRecordsPage,
+  type DecisionReason,
   type CreateGroupBookingInput,
   type CreateSingleBookingInput,
   type CreateWaitlistInput,
@@ -391,6 +395,19 @@ export class ApiClient {
     });
   }
 
+  /** Unified, API-classified active/history records for the Telegram client UI. */
+  listClientRecords(
+    scope: "upcoming" | "past",
+    offset: number,
+    limit: number,
+    actorTelegramId: number
+  ): Promise<ClientRecordsPage> {
+    const params = new URLSearchParams({ scope, offset: String(offset), limit: String(limit) });
+    return this.request(`/client-records/mine?${params.toString()}`, clientRecordsPageSchema, {
+      headers: { [TELEGRAM_ID_HEADER]: String(actorTelegramId) }
+    });
+  }
+
   /**
    * Cancel one of the caller's bookings (T1.11). The booking is matched by id;
    * ownership, the seat free, status recompute and (later) waitlist promotion are
@@ -504,8 +521,8 @@ export class ApiClient {
    * (no longer pending) is surfaced as `alreadyDecided`. The bot only forwards
    * the id and renders the outcome.
    */
-  declineBooking(bookingId: string, actorTelegramId: number): Promise<TrainerDecisionResult> {
-    return this.trainerDecision(`/bookings/${bookingId}/decline`, actorTelegramId, bookingSchema);
+  declineBooking(bookingId: string, actorTelegramId: number, reason: DecisionReason): Promise<TrainerDecisionResult> {
+    return this.trainerDecision(`/bookings/${bookingId}/decline`, actorTelegramId, bookingSchema, { reason: decisionReasonSchema.parse(reason) });
   }
 
   /**
@@ -534,12 +551,14 @@ export class ApiClient {
    */
   declineSubscription(
     groupSubscriptionId: string,
-    actorTelegramId: number
+    actorTelegramId: number,
+    reason: DecisionReason
   ): Promise<TrainerDecisionResult> {
     return this.trainerDecision(
       `/bookings/subscription/${groupSubscriptionId}/decline`,
       actorTelegramId,
-      groupBookingResultSchema
+      groupBookingResultSchema,
+      { reason: decisionReasonSchema.parse(reason) }
     );
   }
 
@@ -566,12 +585,14 @@ export class ApiClient {
    */
   declineIndividualRequest(
     requestId: string,
-    actorTelegramId: number
+    actorTelegramId: number,
+    reason: DecisionReason
   ): Promise<TrainerDecisionResult> {
     return this.trainerDecision(
       `/trainers/individual-requests/${requestId}/decline`,
       actorTelegramId,
-      individualRequestDecisionResultSchema
+      individualRequestDecisionResultSchema,
+      { reason: decisionReasonSchema.parse(reason) }
     );
   }
 
@@ -584,7 +605,8 @@ export class ApiClient {
   private async trainerDecision<T>(
     path: string,
     actorTelegramId: number,
-    schema: z.ZodType<T>
+    schema: z.ZodType<T>,
+    body: object = {}
   ): Promise<TrainerDecisionResult> {
     const res = await fetch(`${this.baseUrl}${path}`, {
       method: "POST",
@@ -592,7 +614,7 @@ export class ApiClient {
         "content-type": "application/json",
         [TELEGRAM_ID_HEADER]: String(actorTelegramId)
       },
-      body: JSON.stringify({})
+      body: JSON.stringify(body)
     });
     if (res.status === 409) {
       // Row is no longer pending (double-tap / handled elsewhere): edit the DM.

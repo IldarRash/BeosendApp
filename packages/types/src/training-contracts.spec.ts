@@ -1331,14 +1331,16 @@ describe("bookingStatus (trainer-confirmation)", () => {
 });
 
 describe("confirmBookingSchema / declineBookingSchema (trainer-confirmation)", () => {
-  it("accept an empty body (identity is the path param + header, not the body)", () => {
+  it("keeps confirmation empty but requires a classified decline reason", () => {
     expect(confirmBookingSchema.safeParse({}).success).toBe(true);
-    expect(declineBookingSchema.safeParse({}).success).toBe(true);
+    expect(declineBookingSchema.safeParse({}).success).toBe(false);
+    expect(declineBookingSchema.safeParse({ reason: { code: "unavailable", comment: null } }).success).toBe(true);
+    expect(declineBookingSchema.safeParse({ reason: { code: "other", comment: null } }).success).toBe(false);
   });
 
   it("reject any unknown field (strict — no smuggled bookingId/clientId)", () => {
     expect(confirmBookingSchema.safeParse({ bookingId: "x" }).success).toBe(false);
-    expect(declineBookingSchema.safeParse({ clientId: "x" }).success).toBe(false);
+    expect(declineBookingSchema.safeParse({ reason: { code: "unavailable", comment: null }, clientId: "x" }).success).toBe(false);
     expect(confirmBookingSchema.safeParse({ status: "booked" }).success).toBe(false);
   });
 });

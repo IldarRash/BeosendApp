@@ -11,6 +11,7 @@ import {
   timeString,
   uuid
 } from "./common";
+import { decisionReasonSchema } from "./record-status-contracts";
 import { localeSchema } from "./i18n-contracts";
 
 const trainingContextLabel = z.string().min(1).refine((value) => value.trim().length > 0);
@@ -614,6 +615,10 @@ export type Booking = z.infer<typeof bookingSchema>;
 export const decideIndividualRequestSchema = z.object({}).strict();
 export type DecideIndividualRequestInput = z.infer<typeof decideIndividualRequestSchema>;
 
+/** Declining needs the durable staff decision reason; confirmation remains body-less. */
+export const declineIndividualRequestSchema = z.object({ reason: decisionReasonSchema }).strict();
+export type DeclineIndividualRequestInput = z.infer<typeof declineIndividualRequestSchema>;
+
 /**
  * Result of a trainer/admin individual-request decision. Confirm carries the new
  * individual training plus its owner booking; decline carries only the decided
@@ -1080,8 +1085,16 @@ export type ConfirmBookingInput = z.infer<typeof confirmBookingSchema>;
  * booking to `cancelled`, freeing its held seat. Path param + header identity, so
  * an empty `.strict()` body.
  */
-export const declineBookingSchema = z.object({}).strict();
+export const declineBookingSchema = z.object({ reason: decisionReasonSchema }).strict();
 export type DeclineBookingInput = z.infer<typeof declineBookingSchema>;
+
+/** Client cancellations need no reason; the service requires one for a staff actor. */
+export const cancelBookingSchema = z.object({ reason: decisionReasonSchema.optional() }).strict();
+export type CancelBookingInput = z.infer<typeof cancelBookingSchema>;
+
+/** Every organiser cancellation of a training/series requires a durable reason. */
+export const cancelTrainingSchema = z.object({ reason: decisionReasonSchema }).strict();
+export type CancelTrainingInput = z.infer<typeof cancelTrainingSchema>;
 
 // --- Waitlist (section 9) ---
 export const waitlistStatus = z.enum(["waiting", "notified", "promoted", "expired", "cancelled"]);
@@ -1172,7 +1185,7 @@ export type PromoteWaitlistEntryInput = z.infer<typeof promoteWaitlistEntrySchem
  * promoteWaitlistEntrySchema so the two endpoints stay decoupled even though both
  * bodies are currently empty.
  */
-export const removeWaitlistEntrySchema = z.object({}).strict();
+export const removeWaitlistEntrySchema = z.object({ reason: decisionReasonSchema }).strict();
 export type RemoveWaitlistEntryInput = z.infer<typeof removeWaitlistEntrySchema>;
 
 /**

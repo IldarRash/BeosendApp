@@ -154,6 +154,15 @@ export const monthlyScheduleNotificationDeliveryOutcome = pgEnum("monthly_schedu
   "failed",
   "ambiguous"
 ]);
+/** Durable client-record transition delivery, independent from legacy notification logs. */
+export const recordStatusDeliveryOutcome = pgEnum("record_status_delivery_outcome", [
+  "pending",
+  "processing",
+  "sent",
+  "failed",
+  "ambiguous",
+  "skipped"
+]);
 
 // --- Training domain ---
 
@@ -994,6 +1003,59 @@ export const courtRequestCourts = pgTable(
   })
 );
 
+/**
+ * An immutable client-visible transition snapshot. Domain services insert this in
+ * their own mutation transaction, so committing a status always commits its
+ * notification intent. `transitionKey` is scoped to a semantic operation and
+ * entity, making a later rebooking a distinct event.
+ */
+export const recordStatusEvents = pgTable(
+  "record_status_events",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    transitionKey: text("transition_key").notNull(),
+    recipientClientId: uuid("recipient_client_id").notNull().references(() => clients.id),
+    recordKind: text("record_kind").notNull(),
+    sourceEntityId: uuid("source_entity_id").notNull(),
+    /** DB-issued ordering key; timestamp + random UUID is not a safe sequence. */
+    sequence: bigint("sequence", { mode: "number" }).notNull().generatedAlwaysAsIdentity(),
+    snapshot: jsonb("snapshot").notNull(),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow()
+  },
+  (table) => ({
+    transitionRecipientIdx: uniqueIndex("record_status_events_transition_recipient_idx").on(
+      table.transitionKey,
+      table.recipientClientId
+    ),
+    objectOrderIdx: index("record_status_events_object_order_idx").on(
+      table.recipientClientId,
+      table.sourceEntityId,
+      table.sequence
+    )
+  })
+);
+
+/** One durable Telegram attempt lifecycle for each immutable status transition. */
+export const recordStatusDeliveries = pgTable(
+  "record_status_deliveries",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    eventId: uuid("event_id").notNull().references(() => recordStatusEvents.id, { onDelete: "cascade" }),
+    outcome: recordStatusDeliveryOutcome("outcome").notNull().default("pending"),
+    attempts: integer("attempts").notNull().default(0),
+    claimedAt: timestamp("claimed_at", { withTimezone: true }),
+    nextAttemptAt: timestamp("next_attempt_at", { withTimezone: true }),
+    sentAt: timestamp("sent_at", { withTimezone: true }),
+    lastError: text("last_error"),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow()
+  },
+  (table) => ({
+    eventIdx: uniqueIndex("record_status_deliveries_event_idx").on(table.eventId),
+    claimIdx: index("record_status_deliveries_claim_idx").on(table.outcome, table.nextAttemptAt)
+  })
+);
+
 // --- External connectors (webhooks) ---
 
 /**
@@ -1122,6 +1184,8 @@ export const schema = {
   courtBlocks,
   courtRequests,
   courtRequestCourts,
+  recordStatusEvents,
+  recordStatusDeliveries,
   webhookEndpoints,
   webhookDeliveries,
   uiLabels,

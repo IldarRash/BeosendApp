@@ -6,6 +6,7 @@ import { AppShell } from "../ui/AppShell";
 import { Button } from "../ui/Button";
 import { DataTable, type Column } from "../ui/DataTable";
 import { Modal } from "../ui/Modal";
+import { useDecisionReason } from "../ui/ReasonFields";
 import { useToast } from "../ui/Toast";
 import { useT } from "../i18n/LanguageProvider";
 import { formatRsd } from "../lib/format";
@@ -88,6 +89,7 @@ export function CourtRequests(): JSX.Element {
   const [toConfirm, setToConfirm] = useState<CourtRequestAdminView | null>(null);
   const [toReassign, setToReassign] = useState<CourtRequestAdminView | null>(null);
   const [toCancel, setToCancel] = useState<CourtRequestAdminView | null>(null);
+  const [toReject, setToReject] = useState<CourtRequestAdminView | null>(null);
   const [pickerError, setPickerError] = useState<string | null>(null);
   // The courts the admin has picked in the confirm dialog. Confirm is enabled only
   // when exactly `toConfirm.courtCount` are selected; the server re-checks freeness.
@@ -100,6 +102,8 @@ export function CourtRequests(): JSX.Element {
   const reject = useRejectRequest();
   const cancel = useCancelRequest();
   const reassign = useReassignRequestCourts();
+  const rejectReason = useDecisionReason();
+  const cancelReason = useDecisionReason();
 
   const required = pickerRequest?.courtCount ?? 0;
   const picked = pickedCourtIds.length;
@@ -196,12 +200,17 @@ export function CourtRequests(): JSX.Element {
     );
   }
 
-  function rejectRequest(request: CourtRequestAdminView): void {
+  function rejectRequest(): void {
+    if (!toReject) return;
+    const reason = rejectReason.validate();
+    if (!reason) return;
     reject.mutate(
-      { id: request.id },
+      { id: toReject.id, reason },
       {
-        onSuccess: () =>
-          notify(t("admin.courtRequests.rejected", { client: request.clientName }), "success"),
+        onSuccess: () => {
+          notify(t("admin.courtRequests.rejected", { client: toReject.clientName }), "success");
+          setToReject(null);
+        },
         onError: (error) => notify(errorText(error, t), "error")
       }
     );
@@ -213,8 +222,10 @@ export function CourtRequests(): JSX.Element {
 
   function submitCancel(): void {
     if (!toCancel) return;
+    const reason = cancelReason.validate();
+    if (!reason) return;
     cancel.mutate(
-      { id: toCancel.id },
+      { id: toCancel.id, reason },
       {
         onSuccess: () => {
           notify(t("admin.courtRequests.cancelled", { client: toCancel.clientName }), "success");
@@ -278,7 +289,7 @@ export function CourtRequests(): JSX.Element {
               <Button
                 variant="danger"
                 disabled={reject.isPending}
-                onClick={() => rejectRequest(r)}
+                onClick={() => setToReject(r)}
               >
                 {t("admin.action.reject")}
               </Button>
@@ -365,6 +376,33 @@ export function CourtRequests(): JSX.Element {
         </div>
         </div>
       </section>
+
+      <Modal
+        open={toReject !== null}
+        onClose={() => setToReject(null)}
+        title={t("admin.courtRequests.rejectTitle")}
+        footer={
+          <div className="cluster">
+            <Button variant="ghost" onClick={() => setToReject(null)} disabled={reject.isPending}>
+              {t("admin.action.cancel")}
+            </Button>
+            <Button
+              variant="danger"
+              disabled={reject.isPending}
+              onClick={rejectRequest}
+            >
+              {t("admin.action.reject")}
+            </Button>
+          </div>
+        }
+      >
+        {toReject ? (
+          <div className="stack">
+            <p>{t("admin.courtRequests.rejectPrompt", { client: toReject.clientName })}</p>
+            {rejectReason.fields}
+          </div>
+        ) : null}
+      </Modal>
 
       <Modal
         open={toConfirm !== null}
@@ -570,7 +608,7 @@ export function CourtRequests(): JSX.Element {
         }
       >
         {toCancel ? (
-          <p>
+          <div className="stack"><p>
             {t("admin.courtRequests.cancelSummary", {
               date: toCancel.date,
               start: toCancel.startTime,
@@ -579,7 +617,7 @@ export function CourtRequests(): JSX.Element {
               count: toCancel.courtCount,
               price: formatRsd(toCancel.priceRsd)
             })}
-          </p>
+          </p>{cancelReason.fields}</div>
         ) : null}
       </Modal>
     </AppShell>

@@ -690,12 +690,14 @@ describe("CourtLoad page", () => {
     dialog = screen.getByRole("dialog", {
       name: tr("admin.courtRequests.cancelTitleNamed", { client: DETAIL.clientName })
     });
+    fireEvent.change(within(dialog).getByLabelText("Причина решения"), { target: { value: "staff-unavailable" } });
+    fireEvent.change(within(dialog).getByLabelText("Комментарий"), { target: { value: "Дежурный недоступен" } });
     fireEvent.click(
       within(dialog).getByRole("button", { name: tr("admin.courtRequests.cancelAction") })
     );
 
     expect(mutate).toHaveBeenCalledTimes(1);
-    expect(mutate.mock.calls[0][0]).toEqual({ id: REQUEST_ID });
+    expect(mutate.mock.calls[0][0]).toEqual({ id: REQUEST_ID, reason: { code: "staff-unavailable", comment: "Дежурный недоступен" } });
   });
 
   it("announces request loading and errors with live semantic roles", () => {

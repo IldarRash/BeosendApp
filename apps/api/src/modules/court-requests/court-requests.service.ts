@@ -61,6 +61,8 @@ import {
 import { SettingsService } from "../settings/settings.service";
 import { NotificationsService } from "../notifications/notifications.service";
 import { NotificationTemplatesRepository } from "../notification-templates/notification-templates.repository";
+import { captureRecordStatus } from "../record-status/record-status-capture";
+import { enqueueRecordStatus } from "../record-status/record-status.repository";
 import {
   CourtRequestsRepository,
   type CourtOccupancyRow,
@@ -220,23 +222,35 @@ export class CourtRequestsService {
 
     const picked = input.courtNumbers ?? [];
 
+    const staffMessages = await this.notifications.prepareCourtRequestCreatedAdminMessages({
+      clientName: client.name,
+      clientTelegramId: client.telegramId ?? input.telegramId,
+      date: input.date,
+      startTime: input.startTime,
+      endTime: this.endTimeFor(input.startTime, input.durationHours),
+      durationHours: input.durationHours,
+      courtCount: picked.length || 1,
+      priceRsd: courtPriceRsd(input.durationHours, picked.length || 1)
+    });
+
     if (picked.length === 0) {
-      // Bot single-court path: count 1, no held courts. Re-check count-only freeness.
-      const available = await this.isSlotAvailable(input.date, input.startTime, input.durationHours);
-      if (!available) {
-        throw new ConflictException("No court is available for that time. Pick another start time.");
-      }
-      const row = await this.repository.createPendingRequest({
-        clientId: client.id,
-        date: input.date,
-        startTime: input.startTime,
-        durationHours: input.durationHours,
-        courtCount: 1,
-        priceRsd: courtPriceRsd(input.durationHours, 1),
-        analyticsSessionId: input.analyticsSessionId
+      // Bot single-court path: the date lock makes a repeated tap reuse its one
+      // pending request before availability can change underneath it.
+      const outcome = await this.repository.transaction(async (tx) => {
+        await tx.lockDate(input.date);
+        const existing = await tx.findPendingBotRequest({ clientId: client.id, date: input.date, startTime: input.startTime, durationHours: input.durationHours });
+        if (existing) return { row: existing, created: false };
+        const available = await this.isSlotAvailable(input.date, input.startTime, input.durationHours);
+        if (!available) throw new ConflictException("No court is available for that time. Pick another start time.");
+        const created = await tx.createPendingRequest({
+          clientId: client.id, date: input.date, startTime: input.startTime, durationHours: input.durationHours,
+          courtCount: 1, priceRsd: courtPriceRsd(input.durationHours, 1), analyticsSessionId: input.analyticsSessionId
+        });
+        await captureRecordStatus(tx.database, { kind: "court", entityId: created.id, status: "pending", actor: "client", transitionKey: `court:${created.id}:pending` });
+        await this.enqueueStaffReceipts(tx.database, created, client, staffMessages);
+        return { row: created, created: true };
       });
-      await this.notifyAdminsOfNewRequest(row);
-      return this.toClientEntity(row);
+      return this.toClientEntity(outcome.row);
     }
 
     const slots = courtSlotsCovered(input.startTime, durationMinutesOf(input.durationHours));
@@ -261,7 +275,7 @@ export class CourtRequestsService {
         }
       }
 
-      return tx.createPendingRequest({
+      const created = await tx.createPendingRequest({
         clientId: client.id,
         date: input.date,
         startTime: input.startTime,
@@ -271,41 +285,33 @@ export class CourtRequestsService {
         analyticsSessionId: input.analyticsSessionId,
         courtIds: resolved.map((court) => court.id)
       });
+      await captureRecordStatus(tx.database, { kind: "court", entityId: created.id, status: "pending", actor: "client", transitionKey: `court:${created.id}:pending` });
+      await this.enqueueStaffReceipts(tx.database, created, client, staffMessages);
+      return created;
     });
-
-    await this.notifyAdminsOfNewRequest(row);
     return this.toClientEntity(row);
   }
 
-  /**
-   * Post-commit: DM every admin (ADMIN_TELEGRAM_IDS) the new request's details so a
-   * manager can moderate it. Best-effort and self-tolerant — looks up the client name
-   * via the same join the moderation reads use, and any failure (vanished row,
-   * unreachable Telegram) is logged and swallowed so a committed create is never undone.
-   */
-  private async notifyAdminsOfNewRequest(request: CourtRequestRow): Promise<void> {
-    try {
-      const withClient = await this.repository.findWithClientById(request.id);
-      if (!withClient) {
-        this.logger.warn(`New request ${request.id} vanished before admin notify`);
-        return;
-      }
-      const duration = parseDuration(withClient.durationHours);
-      await this.notifications.sendCourtRequestCreatedToAdmins({
-        clientName: withClient.clientName,
-        clientTelegramId: withClient.clientTelegramId,
-        date: withClient.date,
-        startTime: withClient.startTime.slice(0, 5),
-        endTime: this.endTimeFor(withClient.startTime, duration),
-        durationHours: duration,
-        courtCount: withClient.courtCount,
-        priceRsd: withClient.priceRsd
+  private async enqueueStaffReceipts(
+    tx: import("@beosand/db").Database,
+    request: CourtRequestRow,
+    client: { id: string; telegramId: number | null; language: "ru" | "sr" | "en" },
+    messages: Array<{ telegramId: number; locale: "ru" | "sr" | "en"; text: string; replyMarkup: unknown }>
+  ): Promise<void> {
+    const record = {
+      id: `court:${request.id}`, kind: "court" as const, entityId: request.id, status: "pending" as const,
+      date: request.date, startTime: request.startTime.slice(0, 5),
+      endTime: this.endTimeFor(request.startTime, parseDuration(request.durationHours)),
+      title: "Court rental", trainerName: null, trainingKind: null, levelName: null,
+      trainingId: null, bookingId: null, groupSubscriptionId: null, courtNumbers: [],
+      courtCount: request.courtCount, priceRsd: request.priceRsd, waitlistPosition: null,
+      reason: null, actor: "client" as const, canCancel: false, nextAction: "wait" as const
+    };
+    for (const message of messages) {
+      await enqueueRecordStatus(tx, {
+        transitionKey: `court:${request.id}:created:staff:${message.telegramId}`,
+        snapshot: { record, recipient: { clientId: client.id, telegramId: message.telegramId, locale: message.locale, audience: "staff" as const }, staffMessage: message.text, replyMarkup: message.replyMarkup }
       });
-    } catch (error) {
-      this.logger.warn(
-        `Admin notify for new request ${request.id} failed: ` +
-          (error instanceof Error ? error.message : String(error))
-      );
     }
   }
 
@@ -604,12 +610,14 @@ export class CourtRequestsService {
         }
       }
 
-      return tx.decide({
+      const decided = await tx.decide({
         id: request.id,
         status: "confirmed",
         courtIds,
         decidedBy: callerTelegramId
       });
+      await captureRecordStatus(tx.database, { kind: "court", entityId: decided.id, status: "confirmed", actor: "staff", transitionKey: `court:${decided.id}:confirmed` });
+      return decided;
     });
 
     await this.notifyDecision(updated, "confirmed");
@@ -635,12 +643,14 @@ export class CourtRequestsService {
         throw new ConflictException("This request has already been decided.");
       }
       await tx.lockDate(request.date);
-      return tx.decide({
+      const decided = await tx.decide({
         id: request.id,
         status: "rejected",
         courtIds: [],
         decidedBy: callerTelegramId
       });
+      await captureRecordStatus(tx.database, { kind: "court", entityId: decided.id, status: "declined", actor: "staff", reason: input.reason, transitionKey: `court:${decided.id}:declined` });
+      return decided;
     });
 
     await this.notifyDecision(updated, "rejected");
@@ -667,10 +677,12 @@ export class CourtRequestsService {
         throw new ConflictException("Only confirmed court requests can be cancelled.");
       }
       await tx.lockDate(request.date);
-      return tx.cancelConfirmed({
+      const cancelled = await tx.cancelConfirmed({
         id: request.id,
         decidedBy: callerTelegramId
       });
+      await captureRecordStatus(tx.database, { kind: "court", entityId: cancelled.id, status: "cancelled", actor: "staff", reason: input.reason, transitionKey: `court:${cancelled.id}:cancelled` });
+      return cancelled;
     });
 
     return this.toEntity(updated);
@@ -709,7 +721,7 @@ export class CourtRequestsService {
         telegramId: withClient.clientTelegramId,
         text,
         eventType: "court-request.rejected"
-      });
+      }, new Set(["telegram"]));
       this.domainEvents.emitCourtRequestRejected({
         clientId: withClient.clientId,
         clientName: withClient.clientName,
@@ -742,7 +754,7 @@ export class CourtRequestsService {
       telegramId: withClient.clientTelegramId,
       text,
       eventType: "court-request.confirmed"
-    });
+    }, new Set(["telegram"]));
     // The connector event contract carries a single `courtNumber`; emit the first
     // assigned court (or null), which keeps the discriminated-union schema valid.
     // Listeners that need every court read the request via the API.

@@ -12,6 +12,7 @@ import {
 } from "@nestjs/common";
 import {
   createTrainerSchema,
+  declineIndividualRequestSchema,
   decideIndividualRequestSchema,
   type IndividualRequestDecisionResult,
   individualRequestSchema,
@@ -20,7 +21,7 @@ import {
   updateTrainerSchema,
   uuid
 } from "@beosand/types";
-import { z, type ZodSchema } from "zod";
+import { z, type ZodTypeDef } from "zod";
 import { TrainersService } from "./trainers.service";
 
 const trainersListQuerySchema = z.object({
@@ -112,8 +113,8 @@ export class TrainersController {
   ): Promise<IndividualRequestDecisionResult> {
     const actorTelegramId = parseTelegramId(telegramIdHeader);
     const id = validate(uuid, requestId);
-    validate(decideIndividualRequestSchema, body ?? {});
-    return this.trainers.declineIndividualRequest(actorTelegramId, id);
+    const input = validate(declineIndividualRequestSchema, body ?? {});
+    return this.trainers.declineIndividualRequest(actorTelegramId, id, input.reason);
   }
 }
 
@@ -133,7 +134,7 @@ function parseTelegramId(header: string | undefined): number {
 }
 
 /** Zod-validate at the boundary; surface failures as 400 instead of 500. */
-function validate<T>(schema: ZodSchema<T>, input: unknown): T {
+function validate<T>(schema: z.ZodType<T, ZodTypeDef, unknown>, input: unknown): T {
   const result = schema.safeParse(input);
   if (!result.success) {
     throw new BadRequestException(result.error.issues.map((issue) => issue.message).join("; "));

@@ -35,8 +35,10 @@ import {
 import {
   handleCancelConfirm,
   handleCancelPrompt,
+  handleMoreRecords,
   parseBookingCancel,
-  parseBookingCancelConfirm
+  parseBookingCancelConfirm,
+  parseMoreRecords
 } from "./my-bookings";
 import {
   handleMarkAttendance,
@@ -47,7 +49,7 @@ import {
   parseRoster,
   TRAINER_ACTIONS
 } from "./trainer-today";
-import { handleTrainerDecision, parseTrainerDecision } from "./trainer-confirm";
+import { handleTrainerDecision, handleTrainerDecline, parseTrainerCommentAction, parseTrainerDecision, parseTrainerReason, trainerCommentKeyboard } from "./trainer-confirm";
 import {
   applyFilterEdit,
   FILTER_ACTIONS,
@@ -105,6 +107,7 @@ async function main(): Promise<void> {
   // First entry (UX sections 1–2): new users (API 404) enter onboarding;
   // returning users land on the main menu in their stored language.
   bot.command("start", async (ctx) => {
+    ctx.session.trainerDecline = undefined;
     const telegramId = ctx.from?.id ?? 0;
     const catalog = await resolveCatalog(telegramId);
     await handleStart(ctx, api, catalog, menuFor(telegramId, catalog));
@@ -114,6 +117,7 @@ async function main(): Promise<void> {
   bot.callbackQuery(MENU_ACTIONS.backToMenu, async (ctx) => {
     await ctx.answerCallbackQuery();
     ctx.session.individualRequest = undefined;
+    ctx.session.trainerDecline = undefined;
     const catalog = await resolveCatalog(ctx.from.id);
     await ctx.reply(welcomeText(catalog), { reply_markup: menuFor(ctx.from.id, catalog) });
   });
@@ -122,6 +126,7 @@ async function main(): Promise<void> {
   // chosen locale is persisted on the caller's client via the API.
   bot.callbackQuery(MENU_ACTIONS.language, async (ctx) => {
     await ctx.answerCallbackQuery();
+    ctx.session.trainerDecline = undefined;
     const catalog = await resolveCatalog(ctx.from.id);
     await ctx.reply(t(catalog, "bot.language.prompt"), { reply_markup: languageKeyboard() });
   });
@@ -130,6 +135,7 @@ async function main(): Promise<void> {
   // "trainers only" message (the API resolves the role from telegram_id); the
   // client main menu stays client-only.
   bot.command("today", async (ctx) => {
+    ctx.session.trainerDecline = undefined;
     const catalog = await resolveCatalog(ctx.from?.id);
     await handleTrainerToday(ctx, api, catalog, ctx.from?.id);
   });
@@ -140,6 +146,7 @@ async function main(): Promise<void> {
   // happens from the DMs the API pushes. Non-trainers get the "trainers only"
   // message and never see the list.
   bot.command("upcoming", async (ctx) => {
+    ctx.session.trainerDecline = undefined;
     const catalog = await resolveCatalog(ctx.from?.id);
     await handleTrainerUpcoming(ctx, api, catalog, ctx.from?.id);
   });
@@ -148,6 +155,19 @@ async function main(): Promise<void> {
   // Onboarding's first prompts use the default-locale catalog (no client yet).
   bot.on("message:text", async (ctx) => {
     const catalog = await resolveCatalog(ctx.from?.id);
+    const pendingDecline = ctx.session.trainerDecline;
+    if (pendingDecline) {
+      const comment = ctx.message.text.trim();
+      if ((pendingDecline.code === "other" && comment.length === 0) || comment.length > 500) {
+        await ctx.reply(t(catalog, pendingDecline.code === "other" ? "bot.trainerConfirm.commentPrompt" : "bot.trainerConfirm.commentTooLong"));
+        return;
+      }
+      await handleTrainerDecline(ctx, api, catalog, ctx.from?.id, pendingDecline, comment || null);
+      // Retain the explicit reason/comment if the API call fails so the staff
+      // member can retry; a 409 is rendered as the API-owned stale outcome.
+      ctx.session.trainerDecline = undefined;
+      return;
+    }
     if (await handleIndividualSlotText(ctx, api, catalog, ctx.from?.id)) {
       return;
     }
@@ -159,6 +179,15 @@ async function main(): Promise<void> {
   // erroring, and the spinner is always answered.
   bot.on("callback_query:data", async (ctx) => {
     await ctx.answerCallbackQuery();
+    // A pending decline may survive only its reason/comment callbacks. Any
+    // navigation or other action abandons it, preventing a later ordinary text
+    // message from submitting an old staff decision.
+    const keepsTrainerDecline =
+      parseTrainerReason(ctx.callbackQuery.data) !== undefined ||
+      parseTrainerCommentAction(ctx.callbackQuery.data) !== undefined;
+    if (!keepsTrainerDecline) {
+      ctx.session.trainerDecline = undefined;
+    }
     const individualTrainerId = parseIndividualPick(ctx.callbackQuery.data);
     if (individualTrainerId === undefined) {
       ctx.session.individualRequest = undefined;
@@ -253,6 +282,11 @@ async function main(): Promise<void> {
       await handleCancelConfirm(ctx, api, catalog, ctx.from.id, confirmCancelId);
       return;
     }
+    const moreRecords = parseMoreRecords(ctx.callbackQuery.data);
+    if (moreRecords !== undefined) {
+      await handleMoreRecords(ctx, api, catalog, ctx.from.id, moreRecords);
+      return;
+    }
     // Waitlist is now automatic (frictionless-waitlist): a full-slot booking 409
     // auto-queues the client in handleBookConfirm, and a freed seat auto-books +
     // notifies server-side — there is no client join/accept callback any more.
@@ -281,6 +315,34 @@ async function main(): Promise<void> {
     const trainerDecision = parseTrainerDecision(ctx.callbackQuery.data);
     if (trainerDecision !== undefined) {
       await handleTrainerDecision(ctx, api, catalog, ctx.from.id, trainerDecision);
+      return;
+    }
+    const trainerReason = parseTrainerReason(ctx.callbackQuery.data);
+    if (trainerReason !== undefined) {
+      if (trainerReason.code === "other") {
+        ctx.session.trainerDecline = trainerReason;
+        await ctx.reply(t(catalog, "bot.trainerConfirm.commentPrompt"));
+      } else {
+        try {
+          await ctx.editMessageText(t(catalog, "bot.trainerConfirm.commentPrompt"), {
+            reply_markup: trainerCommentKeyboard(catalog, trainerReason)
+          });
+        } catch {
+          await ctx.reply(t(catalog, "bot.trainerConfirm.commentPrompt"), {
+            reply_markup: trainerCommentKeyboard(catalog, trainerReason)
+          });
+        }
+      }
+      return;
+    }
+    const trainerCommentAction = parseTrainerCommentAction(ctx.callbackQuery.data);
+    if (trainerCommentAction !== undefined) {
+      if (trainerCommentAction.action === "add") {
+        ctx.session.trainerDecline = trainerCommentAction.pending;
+        await ctx.reply(t(catalog, "bot.trainerConfirm.commentPrompt"));
+      } else {
+        await handleTrainerDecline(ctx, api, catalog, ctx.from.id, trainerCommentAction.pending, null);
+      }
       return;
     }
     // Client slot filters (T3.2): chips on the available-slots screen. The bot

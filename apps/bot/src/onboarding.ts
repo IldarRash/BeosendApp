@@ -5,6 +5,7 @@ import type { ApiClient } from "./api-client";
 import { languageKeyboard, parseSetLanguage, welcomeText } from "./menu";
 import type { SlotFilterState } from "./slot-filters";
 import type { PendingIndividualRequest } from "./individual";
+import type { PendingTrainerDecline } from "./trainer-confirm";
 import { asLocale, DEFAULT_LOCALE, t, type Catalog, type Locale } from "./i18n";
 
 /**
@@ -39,6 +40,8 @@ export interface SessionData {
    * only the trainer id while waiting for the client's date/time text.
    */
   individualRequest?: PendingIndividualRequest;
+  /** Pending staff decline is interaction state only; the API owns the decision. */
+  trainerDecline?: PendingTrainerDecline;
 }
 
 export type BotContext = Context & SessionFlavor<SessionData>;

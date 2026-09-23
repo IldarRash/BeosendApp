@@ -32,6 +32,11 @@ import type { TrainingPricingService } from "../training-pricing/training-pricin
 import type { TrainersRepository } from "../trainers/trainers.repository";
 import type { WaitlistService } from "../waitlist/waitlist.service";
 
+vi.mock("../record-status/record-status-capture", () => ({
+  captureRecordStatus: vi.fn(async () => true),
+  captureRecordStatuses: vi.fn(async () => [])
+}));
+
 /** No-op notifications double: confirmation/pending sends are fire-and-forget here. */
 const fakeNotifications = {
   sendBookingConfirmation: async (): Promise<void> => undefined,
@@ -1910,10 +1915,18 @@ describe("BookingsService.cancelBooking", () => {
     bookingsRepo.bookings = [booking({ clientId: OTHER_CLIENT_ID })];
     bookingsRepo.training = { id: TRAINING_ID, capacity: 6, bookedCount: 2, status: "open" };
 
-    const result = await service.cancelBooking(ADMIN_ID, BOOKING_ID);
+    const result = await service.cancelBooking(ADMIN_ID, BOOKING_ID, { reason: { code: "unavailable", comment: null } });
     expect(result.status).toBe("cancelled");
     expect(bookingsRepo.training.bookedCount).toBe(1);
     expect(automationEnqueue).not.toHaveBeenCalled();
+  });
+
+  it("rejects a staff cancellation without a decision reason before changing the booking", async () => {
+    bookingsRepo.bookings = [booking({ clientId: OTHER_CLIENT_ID })];
+    bookingsRepo.training = { id: TRAINING_ID, capacity: 6, bookedCount: 2, status: "open" };
+    await expect(service.cancelBooking(ADMIN_ID, BOOKING_ID)).rejects.toBeInstanceOf(BadRequestException);
+    expect(bookingsRepo.bookings[0]?.status).toBe("booked");
+    expect(bookingsRepo.training.bookedCount).toBe(2);
   });
 
   it("rejects a client-scoped admin cancelling another client's booking", async () => {

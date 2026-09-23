@@ -25,6 +25,11 @@ import type { NotificationsService } from "../notifications/notifications.servic
 import type { SettingsService } from "../settings/settings.service";
 import type { TrainersRepository } from "../trainers/trainers.repository";
 
+vi.mock("../record-status/record-status-capture", () => ({
+  captureRecordStatus: vi.fn(async () => true),
+  captureRecordStatuses: vi.fn(async () => [])
+}));
+
 const ADMIN_ID = 111;
 const NON_ADMIN_ID = 999;
 const GROUP_ID = "11111111-1111-1111-1111-111111111111";
@@ -739,6 +744,8 @@ describe("Admin manager writes (A1)", () => {
         cancelBookedCalls += 1;
         return ["client-a", "client-b"];
       }),
+      findActiveBookingIdsForTraining: vi.fn(async () => []),
+      cancelActiveWaitlistForTraining: vi.fn(async () => []),
       markCancelled: vi.fn(async (_tx: unknown, id: string) => {
         if (!lockRef.current || lockRef.current.id !== id) throw new Error("lock not set");
         lockRef.current = { ...lockRef.current, status: "cancelled" };
@@ -852,18 +859,18 @@ describe("Admin manager writes (A1)", () => {
   describe("DELETE /trainings/:id", () => {
     it("an admin header deletes the training (cancels + notifies) and returns the deleted id", async () => {
       const { controller, lockRef, cancelBookedCalls, notify } = makeController(openLock());
-      const result = await controller.delete(String(ADMIN_ID), TRAINING_ID);
+      const result = await controller.delete(String(ADMIN_ID), TRAINING_ID, { reason: { code: "unavailable", comment: null } });
       expect(result).toEqual({ id: TRAINING_ID });
       // tx1 cancelled the booked bookings and notified the captured clients.
       expect(cancelBookedCalls()).toBe(1);
-      expect(notify).toHaveBeenCalledWith(TRAINING_ID, ["client-a", "client-b"]);
+      expect(notify).toHaveBeenCalledWith(TRAINING_ID, ["client-a", "client-b"], { skipTelegram: true });
       expect(lockRef.current?.status).toBe("cancelled");
     });
 
     // Unsafe path: a non-admin header is 403 and nothing is cancelled / notified / purged.
     it("rejects a non-admin header with 403 and changes nothing", async () => {
       const { controller, lockRef, cancelBookedCalls, notify } = makeController(openLock());
-      await expect(controller.delete(String(NON_ADMIN_ID), TRAINING_ID)).rejects.toBeInstanceOf(
+      await expect(controller.delete(String(NON_ADMIN_ID), TRAINING_ID, { reason: { code: "unavailable", comment: null } })).rejects.toBeInstanceOf(
         ForbiddenException
       );
       expect(lockRef.current?.status).toBe("open");
@@ -873,7 +880,7 @@ describe("Admin manager writes (A1)", () => {
 
     it("404s an unknown training", async () => {
       const { controller } = makeController(undefined);
-      await expect(controller.delete(String(ADMIN_ID), TRAINING_ID)).rejects.toBeInstanceOf(
+      await expect(controller.delete(String(ADMIN_ID), TRAINING_ID, { reason: { code: "unavailable", comment: null } })).rejects.toBeInstanceOf(
         NotFoundException
       );
     });
@@ -883,23 +890,23 @@ describe("Admin manager writes (A1)", () => {
         ...openLock(),
         status: "cancelled"
       });
-      const result = await controller.delete(String(ADMIN_ID), TRAINING_ID);
+      const result = await controller.delete(String(ADMIN_ID), TRAINING_ID, { reason: { code: "unavailable", comment: null } });
       expect(result).toEqual({ id: TRAINING_ID });
       // An already-cancelled training is purged but its bookings are not re-flipped.
       expect(cancelBookedCalls()).toBe(0);
-      expect(notify).toHaveBeenCalledWith(TRAINING_ID, []);
+      expect(notify).toHaveBeenCalledWith(TRAINING_ID, [], { skipTelegram: true });
     });
 
     it("rejects a missing/invalid x-telegram-id header (400) before any work", () => {
       const { controller, cancelBookedCalls } = makeController(openLock());
-      expect(() => controller.delete(undefined, TRAINING_ID)).toThrow(BadRequestException);
-      expect(() => controller.delete("not-a-number", TRAINING_ID)).toThrow(BadRequestException);
+      expect(() => controller.delete(undefined, TRAINING_ID, { reason: { code: "unavailable", comment: null } })).toThrow(BadRequestException);
+      expect(() => controller.delete("not-a-number", TRAINING_ID, { reason: { code: "unavailable", comment: null } })).toThrow(BadRequestException);
       expect(cancelBookedCalls()).toBe(0);
     });
 
     it("rejects a non-uuid path id (Zod) (400)", () => {
       const { controller } = makeController(openLock());
-      expect(() => controller.delete(String(ADMIN_ID), "nope")).toThrow(BadRequestException);
+      expect(() => controller.delete(String(ADMIN_ID), "nope", { reason: { code: "unavailable", comment: null } })).toThrow(BadRequestException);
     });
   });
 
@@ -1347,6 +1354,8 @@ describe("Admin individual price/delete writes", () => {
         return row;
       }),
       cancelBookedBookingsForTraining: vi.fn(async () => [CLIENT_ID]),
+      findActiveBookingIdsForTraining: vi.fn(async () => []),
+      cancelActiveWaitlistForTraining: vi.fn(async () => []),
       markCancelled: vi.fn(async (_tx: unknown, id: string) => {
         cancelledIds.push(id);
         const row = rows.find((training) => training.id === id);
@@ -1433,18 +1442,18 @@ describe("Admin individual price/delete writes", () => {
       individual({ id: futureId, date: "2099-07-13" })
     ]);
 
-    const result = await controller.deleteSeries(String(ADMIN_ID), TRAINING_ID);
+    const result = await controller.deleteSeries(String(ADMIN_ID), TRAINING_ID, { reason: { code: "unavailable", comment: null } });
 
     expect(result.ids).toEqual([TRAINING_ID, futureId]);
     expect(cancelledIds()).toEqual([TRAINING_ID, futureId]);
-    expect(notify).toHaveBeenCalledWith(TRAINING_ID, [CLIENT_ID]);
-    expect(notify).toHaveBeenCalledWith(futureId, [CLIENT_ID]);
+    expect(notify).toHaveBeenCalledWith(TRAINING_ID, [CLIENT_ID], { skipTelegram: true });
+    expect(notify).toHaveBeenCalledWith(futureId, [CLIENT_ID], { skipTelegram: true });
   });
 
   it("DELETE /trainings/:id/series rejects a terminal target", async () => {
     const { controller, cancelledIds } = makeController([individual({ status: "completed" })]);
 
-    await expect(controller.deleteSeries(String(ADMIN_ID), TRAINING_ID)).rejects.toBeInstanceOf(
+    await expect(controller.deleteSeries(String(ADMIN_ID), TRAINING_ID, { reason: { code: "unavailable", comment: null } })).rejects.toBeInstanceOf(
       ConflictException
     );
     expect(cancelledIds()).toEqual([]);

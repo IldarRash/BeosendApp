@@ -772,7 +772,7 @@ describe("reassignCourtRequestSchema (admin confirmed-request court replacement)
 });
 
 describe("rejectCourtRequestSchema (C4 admin reject input)", () => {
-  const validBody = { requestId: uuidA };
+  const validBody = { requestId: uuidA, reason: { code: "unavailable", comment: null } };
 
   it("accepts a valid reject body", () => {
     expect(rejectCourtRequestSchema.safeParse(validBody).success).toBe(true);
@@ -780,6 +780,7 @@ describe("rejectCourtRequestSchema (C4 admin reject input)", () => {
 
   it("requires a uuid requestId", () => {
     expect(rejectCourtRequestSchema.safeParse({ requestId: "nope" }).success).toBe(false);
+    expect(rejectCourtRequestSchema.safeParse({ requestId: uuidA }).success).toBe(false);
     expect(rejectCourtRequestSchema.safeParse({}).success).toBe(false);
   });
 
@@ -798,7 +799,7 @@ describe("rejectCourtRequestSchema (C4 admin reject input)", () => {
 });
 
 describe("cancelCourtRequestSchema (admin cancel confirmed request input)", () => {
-  const validBody = { requestId: uuidA };
+  const validBody = { requestId: uuidA, reason: { code: "schedule-change", comment: null } };
 
   it("accepts a valid cancel body", () => {
     expect(cancelCourtRequestSchema.safeParse(validBody).success).toBe(true);
@@ -806,6 +807,7 @@ describe("cancelCourtRequestSchema (admin cancel confirmed request input)", () =
 
   it("requires a uuid requestId", () => {
     expect(cancelCourtRequestSchema.safeParse({ requestId: "nope" }).success).toBe(false);
+    expect(cancelCourtRequestSchema.safeParse({ requestId: uuidA }).success).toBe(false);
     expect(cancelCourtRequestSchema.safeParse({}).success).toBe(false);
   });
 

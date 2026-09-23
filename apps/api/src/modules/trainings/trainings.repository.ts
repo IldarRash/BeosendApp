@@ -431,6 +431,35 @@ export class TrainingsRepository {
     return rows.map((row) => row.clientId);
   }
 
+  /** IDs of seats that a training cancellation will transition, read in the same tx. */
+  async findActiveBookingIdsForTraining(tx: Database, id: string): Promise<string[]> {
+    const rows = await tx
+      .select({ id: tables.bookings.id })
+      .from(tables.bookings)
+      .where(
+        and(
+          eq(tables.bookings.trainingId, id),
+          inArray(tables.bookings.status, ["booked", "pending"])
+        )
+      );
+    return rows.map((row) => row.id);
+  }
+
+  /** Cancel live queue entries with their training and return their immutable IDs. */
+  async cancelActiveWaitlistForTraining(tx: Database, id: string): Promise<string[]> {
+    const rows = await tx
+      .update(tables.waitlist)
+      .set({ status: "cancelled" })
+      .where(
+        and(
+          eq(tables.waitlist.trainingId, id),
+          inArray(tables.waitlist.status, ["waiting", "notified"])
+        )
+      )
+      .returning({ id: tables.waitlist.id });
+    return rows.map((row) => row.id);
+  }
+
   /**
    * Hard-delete a training's dependent rows + the training itself inside the caller's
    * transaction, used by the admin hard-delete. Each method takes the tx and the
