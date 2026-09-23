@@ -1,6 +1,15 @@
 import { afterEach } from "vitest";
 import { cleanup } from "@testing-library/react";
 
+// jsdom exposes `window.scrollTo` but deliberately throws "not implemented". The
+// app resets document position on route replacement, so provide the browser-shaped
+// no-op in tests while component specs assert their own route state.
+Object.defineProperty(window, "scrollTo", {
+  configurable: true,
+  writable: true,
+  value: () => undefined
+});
+
 /**
  * Global test teardown for the Mini App suite.
  *

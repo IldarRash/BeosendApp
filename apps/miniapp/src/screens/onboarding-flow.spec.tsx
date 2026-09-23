@@ -3,12 +3,7 @@ import { act, cleanup, fireEvent, render, screen, waitFor, within } from "@testi
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { AppRoot } from "@telegram-apps/telegram-ui";
 import type { ReactNode } from "react";
-import type {
-  Client,
-  Level,
-  MiniappMe,
-  OnboardClientInput
-} from "@beosand/types";
+import type { Client, Level, MiniappMe, OnboardClientInput } from "@beosand/types";
 import { LanguageProvider } from "../i18n/LanguageProvider";
 import { OnboardingWizard } from "./OnboardingWizard";
 import { ProfileScreen } from "./ProfileScreen";
@@ -59,6 +54,8 @@ interface FakeApi {
   getClientByTelegramId: ReturnType<typeof vi.fn>;
   onboardClient: ReturnType<typeof vi.fn>;
   setLanguage: ReturnType<typeof vi.fn>;
+  listClientRecords: ReturnType<typeof vi.fn>;
+  listTrainingSchedule: ReturnType<typeof vi.fn>;
 }
 
 let api: FakeApi;
@@ -70,6 +67,10 @@ function makeApi(overrides: Partial<FakeApi> = {}): FakeApi {
     getClientByTelegramId: vi.fn().mockResolvedValue(ONBOARDED),
     onboardClient: vi.fn().mockResolvedValue(ONBOARDED),
     setLanguage: vi.fn().mockResolvedValue(ONBOARDED),
+    listClientRecords: vi
+      .fn()
+      .mockResolvedValue({ items: [], total: 0, hasMore: false, nextOffset: null }),
+    listTrainingSchedule: vi.fn().mockResolvedValue([]),
     ...overrides
   };
 }
@@ -136,7 +137,6 @@ afterEach(() => {
 });
 
 describe("OnboardingWizard", () => {
-
   it("blocks advancing past the name step while the name is empty", async () => {
     api = makeApi({ getMe: vi.fn().mockReturnValue({ ...ME, name: "" }) });
     renderWithProviders(<OnboardingWizard onDone={vi.fn()} />);
@@ -176,7 +176,11 @@ describe("OnboardingWizard", () => {
     primaryButton("Продолжить").click();
     await waitFor(() => expect(screen.getByText("Шаг 4 из 4")).toBeTruthy());
     (await screen.findByLabelText("Не указан")).click();
-    fireEvent.click(screen.getByRole("checkbox", { name: "Я соглашаюсь на такую обработку моих данных при регистрации." }));
+    fireEvent.click(
+      screen.getByRole("checkbox", {
+        name: "Я соглашаюсь на такую обработку моих данных при регистрации."
+      })
+    );
     primaryButton("Готово").click();
 
     await waitFor(() => expect(api.onboardClient).toHaveBeenCalledTimes(1));
@@ -205,7 +209,11 @@ describe("OnboardingWizard", () => {
     primaryButton("Продолжить").click();
     await waitFor(() => expect(screen.getByText("Шаг 4 из 4")).toBeTruthy());
     (await screen.findByLabelText("Мужской")).click();
-    fireEvent.click(screen.getByRole("checkbox", { name: "Я соглашаюсь на такую обработку моих данных при регистрации." }));
+    fireEvent.click(
+      screen.getByRole("checkbox", {
+        name: "Я соглашаюсь на такую обработку моих данных при регистрации."
+      })
+    );
     primaryButton("Готово").click();
 
     await waitFor(() => expect(api.onboardClient).toHaveBeenCalledTimes(1));
@@ -223,7 +231,7 @@ describe("OnboardingWizard", () => {
     expect(screen.getByLabelText("Не указан")).toBeTruthy();
 
     const notice = screen.getByText(
-      "Мы обрабатываем данные вашей регистрации, включая выбранный пол, для предоставления услуг и целевых рассылок. Если вы выберете \"Не указан\", вы все равно можете попасть в аудитории и для мужчин, и для женщин."
+      'Мы обрабатываем данные вашей регистрации, включая выбранный пол, для предоставления услуг и целевых рассылок. Если вы выберете "Не указан", вы все равно можете попасть в аудитории и для мужчин, и для женщин.'
     );
     expect(notice.getAttribute("id")).toBe("onboarding-consent-notice");
 
@@ -256,7 +264,7 @@ describe("OnboardingWizard", () => {
     (await screen.findByLabelText("Женский")).click();
 
     await act(async () => wizardControls.onBack?.());
-    expect((await screen.findByLabelText(LEVEL.name) as HTMLInputElement).checked).toBe(true);
+    expect(((await screen.findByLabelText(LEVEL.name)) as HTMLInputElement).checked).toBe(true);
     primaryButton("Продолжить").click();
     await waitFor(() => expect(screen.getByText("Шаг 4 из 4")).toBeTruthy());
     expect((screen.getByLabelText("Женский") as HTMLInputElement).checked).toBe(true);
@@ -264,12 +272,19 @@ describe("OnboardingWizard", () => {
 
   it("recovers after a failed submission without duplicate calls", async () => {
     const onDone = vi.fn();
-    const onboardClient = vi.fn().mockRejectedValueOnce(new Error("boom")).mockResolvedValueOnce(ONBOARDED);
+    const onboardClient = vi
+      .fn()
+      .mockRejectedValueOnce(new Error("boom"))
+      .mockResolvedValueOnce(ONBOARDED);
     api = makeApi({ onboardClient });
     renderWithProviders(<OnboardingWizard onDone={onDone} />);
     await advanceToGender();
     (await screen.findByLabelText("Не указан")).click();
-    fireEvent.click(screen.getByRole("checkbox", { name: "Я соглашаюсь на такую обработку моих данных при регистрации." }));
+    fireEvent.click(
+      screen.getByRole("checkbox", {
+        name: "Я соглашаюсь на такую обработку моих данных при регистрации."
+      })
+    );
     primaryButton("Готово").click();
     await waitFor(() => expect(screen.getByRole("alert").textContent).toContain("boom"));
     expect(onboardClient).toHaveBeenCalledTimes(1);
@@ -348,7 +363,6 @@ describe("ProfileScreen language switch", () => {
     await waitFor(() => expect(screen.getByText("Настройки")).toBeTruthy());
     expect(screen.getByText("boom")).toBeTruthy();
   });
-
 });
 
 describe("Router onboarding decision", () => {
@@ -364,12 +378,12 @@ describe("Router onboarding decision", () => {
     expect(screen.getByPlaceholderText("Ваше имя")).toBeTruthy();
   });
 
-  it("routes an onboarded caller (200) to the Home menu, not the wizard", async () => {
+  it("routes an onboarded caller (200) to My week, not the wizard", async () => {
     renderWithProviders(<Router />);
 
-    // S2 landing is the Home hub (the section-list menu), not the wizard.
-    await waitFor(() => expect(screen.getByText("Мой календарь")).toBeTruthy());
-    expect(screen.getByText("Тренировки")).toBeTruthy();
+    // The authenticated landing is the week overview.
+    await waitFor(() => expect(screen.getByRole("heading", { name: "Моя неделя" })).toBeTruthy());
+    expect(screen.getByRole("navigation")).toBeTruthy();
     expect(within(document.body).queryByText("Шаг 1 из 4")).toBeNull();
   });
 });

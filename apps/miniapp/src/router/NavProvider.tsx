@@ -13,6 +13,8 @@ export interface NavApi {
   canPop: boolean;
   /** Push a sub-screen. Idempotent on the top entry (re-tapping the current route is a no-op). */
   push: (id: RouteId) => void;
+  /** Select a top-level tab without growing the history stack. */
+  selectTab: (id: RouteId) => void;
   /** Pop the top entry. Guarded so it never empties the stack — Home is the floor. */
   pop: () => void;
 }
@@ -48,9 +50,13 @@ export function NavProvider({ initial = "home", children }: NavProviderProps): J
     setStack((prev) => (prev.length > 1 ? prev.slice(0, -1) : prev));
   }, []);
 
+  const selectTab = useCallback((id: RouteId) => {
+    setStack(id === "home" ? ["home"] : ["home", id]);
+  }, []);
+
   const value = useMemo<NavApi>(
-    () => ({ current: stack[stack.length - 1], canPop: stack.length > 1, push, pop }),
-    [stack, push, pop]
+    () => ({ current: stack[stack.length - 1], canPop: stack.length > 1, push, pop, selectTab }),
+    [stack, push, pop, selectTab]
   );
 
   return <NavContext.Provider value={value}>{children}</NavContext.Provider>;
