@@ -142,9 +142,9 @@ export class CourtRequestsRepository {
   }
 
   /** Resolve the caller's own active client row by telegram_id, or null. */
-  async findActiveClientByTelegramId(telegramId: number): Promise<{ id: string } | null> {
+  async findActiveClientByTelegramId(telegramId: number): Promise<{ id: string; name: string; telegramId: number | null; language: "ru" | "sr" | "en" } | null> {
     const rows = await this.database.db
-      .select({ id: tables.clients.id })
+      .select({ id: tables.clients.id, name: tables.clients.name, telegramId: tables.clients.telegramId, language: tables.clients.language })
       .from(tables.clients)
       .where(
         and(
@@ -529,12 +529,28 @@ function parseCourtNumbers(value: number[] | null): number[] {
 export class CourtModerationTx {
   constructor(private readonly db: TxDb) {}
 
+  /** Same Drizzle transaction for cross-domain outbox facts written by the service. */
+  get database(): Database {
+    return this.db as Database;
+  }
+
   /**
    * Take the per-date advisory lock (xact-scoped). All court writes for a date
    * serialize on it, so the freeness re-check and the write are atomic.
    */
   async lockDate(date: string): Promise<void> {
     await this.db.execute(sql`select pg_advisory_xact_lock(hashtext(${date}))`);
+  }
+
+  /** Idempotency lookup for the bot's unassigned one-court request path. */
+  async findPendingBotRequest(input: Pick<InsertCourtRequest, "clientId" | "date" | "startTime" | "durationHours">): Promise<CourtRequestRow | null> {
+    const [row] = await this.db.select({ id: tables.courtRequests.id }).from(tables.courtRequests).where(and(
+      eq(tables.courtRequests.clientId, input.clientId), eq(tables.courtRequests.date, input.date),
+      eq(tables.courtRequests.startTime, input.startTime), eq(tables.courtRequests.durationHours, String(input.durationHours)),
+      eq(tables.courtRequests.courtCount, 1), eq(tables.courtRequests.status, "pending"),
+      sql`not exists (select 1 from court_request_courts where court_request_courts.request_id = ${tables.courtRequests.id})`
+    )).limit(1);
+    return row ? this.loadRequest(row.id) : null;
   }
 
   /** Insert a pending request and (if picked) its held-court join rows. */

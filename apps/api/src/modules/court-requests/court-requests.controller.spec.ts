@@ -1,6 +1,7 @@
 import { BadRequestException, ForbiddenException } from "@nestjs/common";
 import type { CourtClientGrid, CourtRequest, CourtRequestPreview, MyCourtRequestItem } from "@beosand/types";
 import { beforeEach, describe, expect, it, vi } from "vitest";
+vi.mock("../record-status/record-status-capture", () => ({ captureRecordStatus: vi.fn(async () => true), captureRecordStatuses: vi.fn(async () => []) }));
 import { CourtRequestsController } from "./court-requests.controller";
 import type { CourtRequestsService } from "./court-requests.service";
 
@@ -309,7 +310,7 @@ describe("CourtRequestsController.reject (POST /court-requests/:id/reject)", () 
   });
 
   it("forwards the authenticated admin id and body without decidedBy", async () => {
-    const body = { requestId: REQUEST_ID };
+    const body = { requestId: REQUEST_ID, reason: { code: "unavailable", comment: null } };
 
     await expect(controller.reject(HEADER, REQUEST_ID, body)).resolves.toMatchObject({
       status: "rejected",
@@ -336,7 +337,7 @@ describe("CourtRequestsController.cancel (POST /court-requests/:id/cancel)", () 
   });
 
   it("forwards the authenticated admin id and strict body", async () => {
-    const body = { requestId: REQUEST_ID };
+    const body = { requestId: REQUEST_ID, reason: { code: "unavailable", comment: null } };
 
     await expect(controller.cancel(HEADER, REQUEST_ID, body)).resolves.toMatchObject({
       status: "cancelled",

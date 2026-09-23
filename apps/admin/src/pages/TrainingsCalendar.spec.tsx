@@ -249,10 +249,11 @@ describe("TrainingsCalendar", () => {
     expect(within(dialog).getByText(/получат уведомление об отмене/)).toBeTruthy();
     expect(mutate).not.toHaveBeenCalled();
 
-    // The confirm button fires the delete mutation with the training id (DELETE /trainings/:id).
+    fireEvent.change(within(dialog).getByLabelText("Причина решения"), { target: { value: "unavailable" } });
+    fireEvent.change(within(dialog).getByLabelText("Комментарий"), { target: { value: "Корт закрыт" } });
     fireEvent.click(within(dialog).getByRole("button", { name: "Удалить тренировку" }));
     expect(mutate).toHaveBeenCalledTimes(1);
-    expect(mutate.mock.calls[0][0]).toBe(ITEM.id);
+    expect(mutate.mock.calls[0][0]).toEqual({ id: ITEM.id, reason: { code: "unavailable", comment: "Корт закрыт" } });
   });
 
   it("notifies on a successful delete from the calendar (no booked-count in the toast)", () => {
@@ -264,6 +265,8 @@ describe("TrainingsCalendar", () => {
     fireEvent.click(screen.getByRole("button", { name: /2026-07-06 08:00–09:30/ }));
     const dialog = screen.getByRole("dialog", { name: "Тренировка" });
     fireEvent.click(within(dialog).getByRole("button", { name: "Удалить тренировку" }));
+    fireEvent.change(within(dialog).getByLabelText("Причина решения"), { target: { value: "staff-unavailable" } });
+    fireEvent.change(within(dialog).getByLabelText("Комментарий"), { target: { value: "Тренер недоступен" } });
     fireEvent.click(within(dialog).getByRole("button", { name: "Удалить тренировку" }));
 
     // The success toast carries no {count} placeholder — just the deleted message.

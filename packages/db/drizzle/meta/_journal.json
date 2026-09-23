@@ -260,6 +260,13 @@
       "when": 1785600000000,
       "tag": "0036_operational_period_schedule_plans",
       "breakpoints": true
+    },
+    {
+      "idx": 37,
+      "version": "7",
+      "when": 1790161753410,
+      "tag": "0037_productive_wolfpack",
+      "breakpoints": true
     }
   ]
 }

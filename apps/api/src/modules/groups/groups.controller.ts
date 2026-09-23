@@ -12,6 +12,7 @@ import {
 } from "@nestjs/common";
 import {
   createGroupSchema,
+  cancelTrainingSchema,
   type BookableMonth,
   type Group,
   type GroupMembers,
@@ -19,7 +20,7 @@ import {
   updateGroupSchema,
   uuid
 } from "@beosand/types";
-import type { TypeOf, ZodTypeAny } from "zod";
+import { z, type ZodTypeAny } from "zod";
 import { GroupsService } from "./groups.service";
 
 /** Thin: parse + Zod-validate, resolve actor, call one service method. */
@@ -101,11 +102,12 @@ export class GroupsController {
   @Delete(":id")
   remove(
     @Headers("x-telegram-id") telegramIdHeader: string | undefined,
-    @Param("id") id: string
+    @Param("id") id: string,
+    @Body() body: unknown
   ): Promise<Group> {
     const actorTelegramId = parseTelegramId(telegramIdHeader);
     const groupId = validate(uuid, id);
-    return this.groups.deleteGroup(actorTelegramId, groupId);
+    return this.groups.deleteGroup(actorTelegramId, groupId, validate(cancelTrainingSchema, body ?? {}));
   }
 }
 
@@ -144,7 +146,7 @@ function parseOptionalTelegramId(header: string | undefined): number | undefined
 }
 
 /** Zod-validate at the boundary; surface failures as 400 instead of 500. */
-function validate<TSchema extends ZodTypeAny>(schema: TSchema, input: unknown): TypeOf<TSchema> {
+function validate<TSchema extends ZodTypeAny>(schema: TSchema, input: unknown): z.output<TSchema> {
   const result = schema.safeParse(input);
   if (!result.success) {
     throw new BadRequestException(result.error.issues.map((issue) => issue.message).join("; "));

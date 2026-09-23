@@ -11,6 +11,7 @@ import type { Env } from "@beosand/config";
 import { adminTelegramIds, isAdmin } from "@beosand/config";
 import type {
   Booking,
+  DecisionReason,
   CreateTrainerInput,
   IndividualRequestDecisionResult,
   IndividualRequestInput,
@@ -26,6 +27,7 @@ import {
 import { ENV } from "../../config/config.module";
 import { ClientsRepository } from "../clients/clients.repository";
 import { NotificationsService } from "../notifications/notifications.service";
+import { captureRecordStatus } from "../record-status/record-status-capture";
 import { TrainersRepository } from "./trainers.repository";
 
 /**
@@ -107,7 +109,9 @@ export class TrainersService {
       if (existingTraining) {
         throw new ConflictException("Individual training already exists for this time");
       }
-      return this.trainers.createIndividualRequest(tx, slot);
+      const created = await this.trainers.createIndividualRequest(tx, slot);
+      await captureRecordStatus(tx, { kind: "individual-request", entityId: created.id, status: "pending", actor: "client", transitionKey: `individual-request:${created.id}:pending` });
+      return created;
     });
 
     const trainerDelivered =
@@ -199,6 +203,7 @@ export class TrainersService {
         training.id,
         actorTelegramId
       );
+      await captureRecordStatus(tx, { kind: "booking", entityId: booking.id, status: "confirmed", actor: "staff", transitionKey: `booking:${booking.id}:confirmed` });
       this.logger.log(
         `Confirmed individual request ${request.id}: training ${training.id}, booking ${booking.id}`
       );
@@ -206,7 +211,7 @@ export class TrainersService {
     });
 
     await this.sendConfirmationSafely(() =>
-      this.notifications.sendBookingConfirmation(result.booking.clientId, result.booking.trainingId)
+      this.notifications.sendBookingConfirmation(result.booking.clientId, result.booking.trainingId, { skipTelegram: true })
     );
 
     return individualRequestDecisionResultSchema.parse({
@@ -221,7 +226,8 @@ export class TrainersService {
    */
   async declineIndividualRequest(
     actorTelegramId: number,
-    requestId: string
+    requestId: string,
+    reason: DecisionReason
   ): Promise<IndividualRequestDecisionResult> {
     const result = await this.trainers.transaction(async (tx) => {
       const request = await this.trainers.findIndividualRequestForUpdate(tx, requestId);
@@ -238,6 +244,7 @@ export class TrainersService {
         request.id,
         actorTelegramId
       );
+      await captureRecordStatus(tx, { kind: "individual-request", entityId: decided.id, status: "declined", actor: "staff", reason, transitionKey: `individual-request:${decided.id}:declined` });
       this.logger.log(`Declined individual request ${request.id}`);
       return { status: "declined" as const, request: decided };
     });

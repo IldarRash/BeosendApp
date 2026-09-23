@@ -7,7 +7,7 @@ import {
 import type { Env } from "@beosand/config";
 import type { Database } from "@beosand/db";
 import { type Client, type WaitlistEntry, waitlistAdminItemSchema } from "@beosand/types";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import type { ClientsRepository } from "../clients/clients.repository";
 import type { NotificationsService } from "../notifications/notifications.service";
 import type { BookingPriceSnapshot } from "../training-pricing/training-pricing.repository";
@@ -20,6 +20,11 @@ import type {
 } from "./waitlist.repository";
 import { WaitlistService } from "./waitlist.service";
 
+vi.mock("../record-status/record-status-capture", () => ({
+  captureRecordStatus: vi.fn(async () => true),
+  captureRecordStatuses: vi.fn(async () => [])
+}));
+
 const ADMIN_ID = 111;
 const OWNER_ID = 222;
 const STRANGER_ID = 333;
@@ -27,6 +32,7 @@ const CLIENT_ID = "11111111-1111-1111-1111-111111111111";
 const OTHER_CLIENT_ID = "22222222-2222-2222-2222-222222222222";
 const TRAINING_ID = "33333333-3333-3333-3333-333333333333";
 const GROUP_ID = "55555555-5555-5555-5555-555555555555";
+const STAFF_REASON = { code: "unavailable" as const, comment: null };
 
 const ownerClient: Client = {
   id: CLIENT_ID,
@@ -1441,7 +1447,7 @@ describe("WaitlistService.removeEntry (admin)", () => {
     repo.training = { ...fullTraining };
     const id = seedEntry(repo, { status: "waiting" });
 
-    const removed = await service.removeEntry(ADMIN_ID, id);
+    const removed = await service.removeEntry(ADMIN_ID, id, STAFF_REASON);
 
     expect(removed.status).toBe("cancelled");
     expect(notifications.promoted).toHaveLength(0);
@@ -1452,7 +1458,7 @@ describe("WaitlistService.removeEntry (admin)", () => {
     repo.training = { ...fullTraining };
     const id = seedEntry(repo);
 
-    await expect(service.removeEntry(OWNER_ID, id)).rejects.toBeInstanceOf(ForbiddenException);
+    await expect(service.removeEntry(OWNER_ID, id, STAFF_REASON)).rejects.toBeInstanceOf(ForbiddenException);
     expect(repo.entries.find((e) => e.id === id)?.status).toBe("waiting");
   });
 });

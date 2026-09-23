@@ -74,6 +74,9 @@ export class TelegramSender {
       response = await fetch(url, {
         method: "POST",
         headers: { "content-type": "application/json" },
+        // A worker must not hold a claim indefinitely on a stalled transport.
+        // Timeout remains ambiguous because Telegram might have received it.
+        signal: AbortSignal.timeout(15_000),
         body: JSON.stringify({
           chat_id: telegramId,
           text,

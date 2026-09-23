@@ -37,7 +37,7 @@ function makeDeps(): MenuHandlerDeps {
       listAvailableSlots: vi.fn().mockResolvedValue([]),
       listGroups: vi.fn().mockResolvedValue([]),
       getClientByTelegramId: vi.fn().mockResolvedValue(CLIENT),
-      listMyBookings: vi.fn().mockResolvedValue([]),
+      listClientRecords: vi.fn().mockResolvedValue({ items: [], total: 0, hasMore: false, nextOffset: null }),
       listIndividualTrainers: vi.fn().mockResolvedValue([]),
       listTrainers: vi.fn().mockResolvedValue([]),
       listLevels: vi.fn().mockResolvedValue([]),
@@ -116,30 +116,33 @@ describe("menu dispatch table", () => {
 
   it("renders my bookings sections from the API with a cancel button only on canCancel items", async () => {
     const upcoming = {
+      id: "booking:33333333-3333-3333-3333-333333333333",
+      kind: "booking" as const,
+      entityId: "33333333-3333-3333-3333-333333333333",
       bookingId: "33333333-3333-3333-3333-333333333333",
       trainingId: "11111111-1111-1111-1111-111111111111",
       date: "2026-06-10",
-      dayOfWeek: 3 as const,
       startTime: "18:00",
       endTime: "19:30",
-      trainingContextLabel: "Group",
+      title: "Group",
       trainingKind: "group" as const,
       trainerName: "Марко",
       levelName: "Начинающий",
-      bookingStatus: "booked" as const,
-      trainingStatus: "open" as const,
-      canCancel: true
+      status: "confirmed" as const,
+      groupSubscriptionId: null,
+      courtNumbers: [], courtCount: null, priceRsd: null, waitlistPosition: null,
+      reason: null, actor: null, canCancel: true, nextAction: "attend" as const
     };
     const { ctx, reply } = fakeCtx();
     const localDeps = makeDeps();
-    (localDeps.api.listMyBookings as ReturnType<typeof vi.fn>).mockImplementation(
-      async (_clientId: string, scope: string) =>
-        scope === "upcoming" ? [upcoming] : []
+    (localDeps.api.listClientRecords as ReturnType<typeof vi.fn>).mockImplementation(
+      async (scope: string) =>
+        scope === "upcoming" ? { items: [upcoming], total: 1, hasMore: false, nextOffset: null } : { items: [], total: 0, hasMore: false, nextOffset: null }
     );
     await menuHandlers[MENU_ACTIONS.myBookings]!(ctx, localDeps);
     expect(localDeps.api.getClientByTelegramId).toHaveBeenCalledWith(999);
-    expect(localDeps.api.listMyBookings).toHaveBeenCalledWith(CLIENT.id, "upcoming", 999);
-    expect(localDeps.api.listMyBookings).toHaveBeenCalledWith(CLIENT.id, "past", 999);
+    expect(localDeps.api.listClientRecords).toHaveBeenCalledWith("upcoming", 0, 30, 999);
+    expect(localDeps.api.listClientRecords).toHaveBeenCalledWith("past", 0, 30, 999);
     const callbacks = callbacksOf(reply);
     expect(callbacks).toContain(`booking:cancel:${upcoming.bookingId}`);
     expect(callbacks.slice(-2)).toEqual([NAV_ACTIONS.back, NAV_ACTIONS.home]);

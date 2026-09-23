@@ -3,6 +3,7 @@ import type { Env } from "@beosand/config";
 import type { Database } from "@beosand/db";
 import type { Client, IndividualTrainingRequest, Trainer } from "@beosand/types";
 import { beforeEach, describe, expect, it, vi } from "vitest";
+vi.mock("../record-status/record-status-capture", () => ({ captureRecordStatus: vi.fn(async () => true), captureRecordStatuses: vi.fn(async () => []) }));
 import { TrainersController } from "./trainers.controller";
 import { TrainersService } from "./trainers.service";
 import type { TrainersRepository } from "./trainers.repository";

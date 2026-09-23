@@ -6,6 +6,7 @@ import type {
   CreatedWebhookEndpoint,
   DomainEventType,
   NotificationChannelId,
+  RecordStatusDeliveryFailure,
   WebhookDelivery,
   WebhookEndpoint
 } from "@beosand/types";
@@ -21,6 +22,7 @@ import {
   useConnectors,
   useCsvDownload,
   useRequestLoggingSettings,
+  useRecordStatusDeliveryFailures,
   useRotateCalendarFeed,
   useSheetsSync,
   useTestSend,
@@ -66,10 +68,70 @@ export function Connectors(): JSX.Element {
       </header>
       <StatusPanel t={t} />
       <OperationalSettingsPanel t={t} />
+      <RecordStatusFailuresPanel t={t} />
       <WebhooksPanel t={t} />
       <ExportsPanel t={t} />
       <CalendarPanel t={t} />
     </AppShell>
+  );
+}
+
+export function RecordStatusFailuresPanel({ t }: { t: Translate }): JSX.Element {
+  const failures = useRecordStatusDeliveryFailures();
+  const columns: Column<RecordStatusDeliveryFailure>[] = [
+    { key: "client", header: t("admin.recordStatusFailures.client"), render: (row) => row.clientName },
+    {
+      key: "audience",
+      header: t("admin.recordStatusFailures.audience"),
+      render: (row) => t(`admin.recordStatusFailures.audience.${row.audience}`)
+    },
+    {
+      key: "records",
+      header: t("admin.recordStatusFailures.record"),
+      render: (row) => row.records
+        .map((record) => `${record.date} · ${t(`admin.recordStatusFailures.kind.${record.kind}`)}`)
+        .join(", ")
+    },
+    {
+      key: "outcome",
+      header: t("admin.recordStatusFailures.outcome"),
+      render: (row) => t(`admin.recordStatusFailures.outcome.${row.outcome}`)
+    },
+    { key: "attempts", header: t("admin.recordStatusFailures.attempts"), numeric: true, render: (row) => row.attempts },
+    {
+      key: "updated",
+      header: t("admin.recordStatusFailures.updated"),
+      render: (row) => new Date(row.updatedAt).toLocaleString()
+    }
+  ];
+
+  return (
+    <section className="workspace" aria-labelledby="record-status-failures">
+      <div className="workspace__bar">
+        <div>
+          <h2 id="record-status-failures">{t("admin.recordStatusFailures.title")}</h2>
+          <p className="field__hint">{t("admin.recordStatusFailures.lead")}</p>
+        </div>
+        <Button variant="ghost" onClick={() => void failures.refetch()} disabled={failures.isFetching}>
+          {t("admin.action.refresh")}
+        </Button>
+      </div>
+    <div className="workspace__body">
+      {failures.isLoading ? (
+        <p className="state state--loading">{t("admin.recordStatusFailures.loading")}</p>
+      ) : failures.isError ? (
+        <p className="state state--error" role="alert">{t("admin.recordStatusFailures.error")}</p>
+      ) : (
+        <DataTable
+          caption={t("admin.recordStatusFailures.caption")}
+          columns={columns}
+          rows={failures.data ?? []}
+          rowKey={(row) => row.deliveryId}
+          emptyLabel={t("admin.recordStatusFailures.empty")}
+        />
+      )}
+    </div>
+    </section>
   );
 }
 

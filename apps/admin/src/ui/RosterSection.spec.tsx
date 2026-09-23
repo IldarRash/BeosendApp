@@ -101,10 +101,12 @@ describe("RosterSection remove action", () => {
     expect(mutate).not.toHaveBeenCalled();
     expect(within(dialog).getByText(/2026-07-06, 08:00/)).toBeTruthy();
 
+    fireEvent.change(within(dialog).getByLabelText("Причина решения"), { target: { value: "other" } });
+    fireEvent.change(within(dialog).getByLabelText("Комментарий"), { target: { value: "Клиент попросил отмену" } });
     fireEvent.click(within(dialog).getByRole("button", { name: "Убрать" }));
 
     expect(mutate).toHaveBeenCalledTimes(1);
-    expect(mutate.mock.calls[0][0]).toEqual({ bookingId: BOOKED_ID });
+    expect(mutate.mock.calls[0][0]).toEqual({ bookingId: BOOKED_ID, reason: { code: "other", comment: "Клиент попросил отмену" } });
     expect(notify).toHaveBeenCalledWith(expect.stringContaining("Игорь"), "success");
   });
 

@@ -23,6 +23,7 @@ import type {
   Group,
   GroupMember,
   GroupMembers,
+  CancelTrainingInput,
   UpdateGroupInput
 } from "@beosand/types";
 import { ENV } from "../../config/config.module";
@@ -178,7 +179,7 @@ export class GroupsService {
    * trainings still live (a state the admin couldn't re-trigger from the active list).
    * The row is kept (never hard-deleted) so history and analytics stay intact.
    */
-  async deleteGroup(actorTelegramId: number, id: string): Promise<Group> {
+  async deleteGroup(actorTelegramId: number, id: string, input: CancelTrainingInput): Promise<Group> {
     this.assertAdmin(actorTelegramId);
 
     const existing = await this.groups.findById(id);
@@ -186,7 +187,7 @@ export class GroupsService {
       throw new NotFoundException(`Group ${id} not found`);
     }
 
-    await this.trainings.cancelFutureTrainingsForGroup(actorTelegramId, id);
+    await this.trainings.cancelFutureTrainingsForGroup(actorTelegramId, id, input);
 
     const updated = await this.groups.setInactive(id);
     if (!updated) {

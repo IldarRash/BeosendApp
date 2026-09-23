@@ -30,6 +30,7 @@ const useRotateCalendarFeed = vi.fn();
 const requestLoggingMutate = vi.fn();
 const useRequestLoggingSettings = vi.fn();
 const useUpdateRequestLoggingSettings = vi.fn();
+const useRecordStatusDeliveryFailures = vi.fn();
 vi.mock("../hooks/useConnectors", () => ({
   useConnectors: () => useConnectors(),
   useTestSend: () => useTestSend(),
@@ -39,6 +40,7 @@ vi.mock("../hooks/useConnectors", () => ({
   useRotateCalendarFeed: () => useRotateCalendarFeed(),
   useRequestLoggingSettings: () => useRequestLoggingSettings(),
   useUpdateRequestLoggingSettings: () => useUpdateRequestLoggingSettings()
+  , useRecordStatusDeliveryFailures: () => useRecordStatusDeliveryFailures()
 }));
 
 const useWebhooks = vi.fn();
@@ -107,6 +109,7 @@ beforeEach(() => {
     isPending: false,
     error: null
   });
+  useRecordStatusDeliveryFailures.mockReturnValue({ isLoading: false, isError: false, isFetching: false, data: [], refetch: vi.fn() });
   useWebhooks.mockReturnValue({ isLoading: false, isError: false, data: [sampleWebhook] });
   useCreateWebhook.mockReturnValue({ mutate: createWebhookMutate, isPending: false, error: null });
   useUpdateWebhook.mockReturnValue({ mutate: vi.fn(), isPending: false, error: null });
@@ -117,6 +120,24 @@ beforeEach(() => {
 afterEach(cleanup);
 
 describe("Connectors page", () => {
+  it("shows the delivery-failure empty and error states without exposing transport details", () => {
+    renderPage();
+    expect(screen.getByText("Сбоев доставки нет.")).toBeTruthy();
+
+    cleanup();
+    useRecordStatusDeliveryFailures.mockReturnValue({
+      isLoading: false,
+      isError: true,
+      isFetching: false,
+      error: new Error("audit unavailable"),
+      data: undefined,
+      refetch: vi.fn()
+    });
+    renderPage();
+    expect(screen.getByText("Не удалось загрузить сбои доставки.")).toBeTruthy();
+    expect(screen.queryByText("audit unavailable")).toBeNull();
+  });
+
   it("renders connector status rows with configured/enabled badges", () => {
     renderPage();
     // telegram configured + enabled ("Telegram" also appears as a channel option)

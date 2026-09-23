@@ -14,9 +14,8 @@ import { TrainerRequestScreen } from "./TrainerRequestScreen";
  * IndividualRequestResult — no domain logic, no booking created.
  *
  * Invariants under test:
- *  - delivered:true renders a calm success (role=status), never an alert.
- *  - delivered:false (trainer-unavailable) renders a CALM soft state (role=status),
- *    explicitly NOT an error/alert — it is a 200, not a failure.
+ *  - any successful response renders the durable saved/pending state, never an
+ *    assertion that a trainer received or approved the request.
  *  - the trainer's telegramId is NEVER rendered (no identity/contact leak).
  */
 
@@ -157,7 +156,7 @@ describe("TrainerRequestScreen", () => {
     expect(document.body.textContent).not.toContain("777");
   });
 
-  it("picks a trainer → confirm → request, sending the trainer id, and shows the delivered success", async () => {
+  it("picks a trainer → confirm → request, sending the trainer id, and shows saved pending", async () => {
     renderScreen();
 
     fireEvent.click(await screen.findByRole("button", { name: /Марко/ }));
@@ -176,8 +175,7 @@ describe("TrainerRequestScreen", () => {
       endTime: "19:00"
     });
 
-    // delivered:true → a calm success announced as status, never an alert.
-    const success = await screen.findByText("Запрос отправлен");
+    const success = await screen.findByText("Заявка сохранена");
     expect(success.closest('[role="status"]')).not.toBeNull();
     expect(screen.queryByRole("alert")).toBeNull();
   });
@@ -204,7 +202,7 @@ describe("TrainerRequestScreen", () => {
     });
   });
 
-  it("renders delivered:false (trainer-unavailable) as a CALM soft state, NOT an error", async () => {
+  it("treats delivered:false as a saved pending request, never a trainer-received claim", async () => {
     api = makeApi({
       requestIndividualSession: vi
         .fn()
@@ -216,12 +214,10 @@ describe("TrainerRequestScreen", () => {
     fillIndividualSlot();
     fireEvent.click(await screen.findByRole("button", { name: "Запросить тренировку" }));
 
-    // The soft state is informational (role=status), never a red alert.
-    const soft = await screen.findByText("Тренер сейчас недоступен");
-    expect(soft.closest('[role="status"]')).not.toBeNull();
+    const saved = await screen.findByText("Заявка сохранена");
+    expect(saved.closest('[role="status"]')).not.toBeNull();
     expect(screen.queryByRole("alert")).toBeNull();
-    // It offers a way to pick another trainer rather than treating it as a failure.
-    expect(screen.getByRole("button", { name: "Выбрать другого" })).toBeTruthy();
+    expect(screen.queryByText("Тренер получил ваш запрос и свяжется с вами.")).toBeNull();
   });
 
   it("keeps the request disabled for an invalid time range and shows a validation note", async () => {

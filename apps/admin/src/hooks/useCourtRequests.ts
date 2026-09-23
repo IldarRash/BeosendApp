@@ -9,7 +9,8 @@ import type {
   Court,
   CourtRequest,
   CourtRequestAdminView,
-  CourtRequestStatus
+  CourtRequestStatus,
+  DecisionReason
 } from "@beosand/types";
 import { useApiClient } from "../api/ApiProvider";
 import { COURT_LOAD_KEY } from "./useCourtLoad";
@@ -125,12 +126,12 @@ export function useConfirmRequest(): UseMutationResult<
 export function useRejectRequest(): UseMutationResult<
   CourtRequest,
   Error,
-  { id: string }
+  { id: string; reason: DecisionReason }
 > {
   const api = useApiClient();
   const queryClient = useQueryClient();
   return useMutation({
-    mutationFn: ({ id }) => api.rejectRequest(id),
+    mutationFn: ({ id, reason }) => api.rejectRequest(id, reason),
     // Refetch on settle (see useConfirmRequest): a 409 still needs the queue refreshed.
     onSettled: () => invalidateAfterDecision(queryClient)
   });
@@ -140,12 +141,12 @@ export function useRejectRequest(): UseMutationResult<
 export function useCancelRequest(): UseMutationResult<
   CourtRequest,
   Error,
-  { id: string }
+  { id: string; reason: DecisionReason }
 > {
   const api = useApiClient();
   const queryClient = useQueryClient();
   return useMutation({
-    mutationFn: ({ id }) => api.cancelRequest(id),
+    mutationFn: ({ id, reason }) => api.cancelRequest(id, reason),
     // Refetch on settle (see useConfirmRequest): a 409 still needs stale rows
     // cleared, and confirmed cancellations release occupancy in the load grid.
     onSettled: () => invalidateAfterCancellation(queryClient)

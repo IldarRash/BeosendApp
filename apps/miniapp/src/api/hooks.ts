@@ -1,5 +1,6 @@
 import {
   useMutation,
+  useInfiniteQuery,
   useQuery,
   useQueryClient,
   type UseMutationResult,
@@ -10,6 +11,8 @@ import type {
   BookableMonth,
   Booking,
   Client,
+  ClientRecordsPage,
+  ClientRecordsQuery,
   ClientTrainingDetail,
   CourtAvailability,
   CourtClientGrid,
@@ -222,8 +225,10 @@ export function useRequestIndividual(): UseMutationResult<
   IndividualSessionRequestInput
 > {
   const apiClient = useApiClient();
+  const qc = useQueryClient();
   return useMutation<IndividualRequestResult, Error, IndividualSessionRequestInput>({
-    mutationFn: (input) => apiClient.requestIndividualSession(input)
+    mutationFn: (input) => apiClient.requestIndividualSession(input),
+    onSettled: () => { void qc.invalidateQueries({ queryKey: [CLIENT_RECORDS_KEY_PREFIX] }); }
   });
 }
 
@@ -257,6 +262,7 @@ export function useCreateBooking(): UseMutationResult<SingleBookingResult, Error
       void qc.invalidateQueries({ queryKey: [MY_BOOKINGS_KEY_PREFIX] });
     },
     onSettled: () => {
+      void qc.invalidateQueries({ queryKey: [CLIENT_RECORDS_KEY_PREFIX] });
       void qc.invalidateQueries({ queryKey: [AVAILABLE_SLOTS_KEY_PREFIX] });
       void qc.invalidateQueries({ queryKey: [TRAINING_SCHEDULE_KEY_PREFIX] });
     }
@@ -275,6 +281,7 @@ export function useCreateBooking(): UseMutationResult<SingleBookingResult, Error
  */
 export function useJoinWaitlist(): UseMutationResult<WaitlistEntry, Error, string> {
   const apiClient = useApiClient();
+  const qc = useQueryClient();
   const clientId = useResolvedClientId();
   return useMutation<WaitlistEntry, Error, string>({
     mutationFn: (trainingId) => {
@@ -282,12 +289,34 @@ export function useJoinWaitlist(): UseMutationResult<WaitlistEntry, Error, strin
         throw new Error("No resolved client to join the waitlist for");
       }
       return apiClient.joinWaitlist({ clientId, trainingId });
-    }
+    },
+    onSettled: () => { void qc.invalidateQueries({ queryKey: [CLIENT_RECORDS_KEY_PREFIX] }); }
   });
 }
 
 /** The shared query-key prefix for every my-bookings request (for invalidation). */
 const MY_BOOKINGS_KEY_PREFIX = "my-bookings";
+/** Shared history/read-model refreshed after every client-facing mutation. */
+export const CLIENT_RECORDS_KEY_PREFIX = "client-records";
+const CLIENT_RECORDS_PAGE_SIZE = 30;
+
+export function clientRecordsQueryKey(query: ClientRecordsQuery): readonly [string, string, number, number] {
+  return [CLIENT_RECORDS_KEY_PREFIX, query.scope, query.offset, query.limit] as const;
+}
+
+export function useClientRecords(scope: ClientRecordsQuery["scope"]) {
+  const apiClient = useApiClient();
+  const clientId = useResolvedClientId();
+  return useInfiniteQuery<ClientRecordsPage>({
+    queryKey: [CLIENT_RECORDS_KEY_PREFIX, scope, CLIENT_RECORDS_PAGE_SIZE],
+    enabled: clientId != null,
+    initialPageParam: 0,
+    queryFn: ({ pageParam }) => apiClient.listClientRecords({ scope, offset: pageParam as number, limit: CLIENT_RECORDS_PAGE_SIZE }),
+    getNextPageParam: (lastPage) => lastPage.nextOffset ?? undefined,
+    refetchOnWindowFocus: true,
+    refetchInterval: (state) => state.state.data?.pages.some((page) => page.items.some((record) => record.status === "pending")) ? 20_000 : false
+  });
+}
 
 /** Isolated from the calendar's `my-court-requests` cache and endpoint. */
 const MY_COURT_REQUEST_HISTORY_KEY_PREFIX = "my-court-request-history";
@@ -454,6 +483,7 @@ export function useCancelBooking(): UseMutationResult<Booking, Error, string> {
   return useMutation<Booking, Error, string>({
     mutationFn: (bookingId) => apiClient.cancelBooking(bookingId),
     onSettled: () => {
+      void qc.invalidateQueries({ queryKey: [CLIENT_RECORDS_KEY_PREFIX] });
       void qc.invalidateQueries({ queryKey: [CLIENT_TRAINING_DETAIL_KEY_PREFIX] });
       void qc.invalidateQueries({ queryKey: [MY_BOOKINGS_KEY_PREFIX] });
       void qc.invalidateQueries({ queryKey: [AVAILABLE_SLOTS_KEY_PREFIX] });
@@ -589,6 +619,7 @@ export function useCreateGroupBooking(): UseMutationResult<
       return apiClient.createGroupBooking({ clientId, groupId, year, month });
     },
     onSettled: () => {
+      void qc.invalidateQueries({ queryKey: [CLIENT_RECORDS_KEY_PREFIX] });
       void qc.invalidateQueries({ queryKey: [MY_BOOKINGS_KEY_PREFIX] });
       void qc.invalidateQueries({ queryKey: [AVAILABLE_SLOTS_KEY_PREFIX] });
       void qc.invalidateQueries({ queryKey: [TRAINING_SCHEDULE_KEY_PREFIX] });
@@ -732,6 +763,7 @@ export function useCreateCourtRequest(): UseMutationResult<CourtRequest, Error, 
   return useMutation<CourtRequest, Error, CourtRequestInput>({
     mutationFn: (input) => apiClient.createCourtRequest(input),
     onSettled: (_data, _error, input) => {
+      void qc.invalidateQueries({ queryKey: [CLIENT_RECORDS_KEY_PREFIX] });
       void qc.invalidateQueries({ queryKey: courtAvailabilityQueryKey(input.date) });
       void qc.invalidateQueries({ queryKey: [COURT_CLIENT_GRID_KEY_PREFIX] });
       // The picked courts are now held; refetch every free-courts read so no taken

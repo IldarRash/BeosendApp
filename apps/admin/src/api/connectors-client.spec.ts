@@ -50,6 +50,35 @@ describe("ApiClient.listConnectors", () => {
   });
 });
 
+describe("ApiClient.listRecordStatusDeliveryFailures", () => {
+  const delivery = {
+    deliveryId: "11111111-1111-4111-8111-111111111111",
+    eventId: "22222222-2222-4222-8222-222222222222",
+    clientId: "33333333-3333-4333-8333-333333333333",
+    clientName: "Аня",
+    audience: "client",
+    records: [{ id: "booking:44444444-4444-4444-8444-444444444444", kind: "booking", entityId: "44444444-4444-4444-8444-444444444444", status: "cancelled", date: "2026-09-23", startTime: "10:00", endTime: "11:00", title: null, trainerName: null, trainingKind: "group", levelName: null, trainingId: "55555555-5555-4555-8555-555555555555", bookingId: "44444444-4444-4444-8444-444444444444", groupSubscriptionId: null, courtNumbers: [], courtCount: null, priceRsd: null, waitlistPosition: null, reason: null, actor: "staff", canCancel: false, nextAction: "none" }],
+    outcome: "ambiguous",
+    attempts: 1,
+    lastError: "timeout",
+    createdAt: "2026-09-23T10:00:00.000Z",
+    updatedAt: "2026-09-23T10:01:00.000Z"
+  };
+
+  it("uses the bounded audit path and validates the privacy-safe rows", async () => {
+    const calls = mockFetchOnce([delivery]);
+    const result = await new ApiClient("http://api.test").listRecordStatusDeliveryFailures();
+    expect(calls[0]?.url).toBe("http://api.test/record-status/delivery-failures?limit=50");
+    expect(result[0]?.outcome).toBe("ambiguous");
+  });
+
+  it("rejects a malformed audit row before it can render", async () => {
+    const { outcome: _outcome, ...withoutOutcome } = delivery;
+    mockFetchOnce([withoutOutcome]);
+    await expect(new ApiClient("http://api.test").listRecordStatusDeliveryFailures()).rejects.toThrow();
+  });
+});
+
 describe("ApiClient request logging settings", () => {
   it("parses the current request logging setting", async () => {
     const calls = mockFetchOnce({ detailed: true });

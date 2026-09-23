@@ -5,7 +5,7 @@ import {
   type UseMutationResult,
   type UseQueryResult
 } from "@tanstack/react-query";
-import type { CreateGroupInput, Group, UpdateGroupInput } from "@beosand/types";
+import type { CreateGroupInput, DecisionReason, Group, UpdateGroupInput } from "@beosand/types";
 import { useApiClient } from "../api/ApiProvider";
 
 const GROUPS_KEY = ["groups"] as const;
@@ -46,11 +46,11 @@ export function useUpdateGroup(): UseMutationResult<
  * trainings and notifies members. Invalidates the (active-only) list on success so
  * the group vanishes from the table.
  */
-export function useDeleteGroup(): UseMutationResult<Group, Error, string> {
+export function useDeleteGroup(): UseMutationResult<Group, Error, { id: string; reason: DecisionReason }> {
   const api = useApiClient();
   const queryClient = useQueryClient();
   return useMutation({
-    mutationFn: (id: string) => api.deleteGroup(id),
+    mutationFn: ({ id, reason }) => api.deleteGroup(id, reason),
     onSuccess: () => queryClient.invalidateQueries({ queryKey: GROUPS_KEY })
   });
 }

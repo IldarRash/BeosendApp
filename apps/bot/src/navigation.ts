@@ -40,7 +40,7 @@ export interface MenuHandlerDeps {
     | "listAvailableSlots"
     | "listGroups"
     | "getClientByTelegramId"
-    | "listMyBookings"
+    | "listClientRecords"
     | "listIndividualTrainers"
     | "listTrainers"
     | "listLevels"

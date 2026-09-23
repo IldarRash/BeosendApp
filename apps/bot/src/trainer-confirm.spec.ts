@@ -4,7 +4,11 @@ import { getStaticCatalog } from "@beosand/i18n";
 import {
   decisionOutcomeText,
   handleTrainerDecision,
+  handleTrainerDecline,
+  parseTrainerCommentAction,
+  parseTrainerReason,
   parseTrainerDecision,
+  trainerReasonKeyboard,
   TRAINER_CONFIRM_ACTIONS,
   type TrainerConfirmApi,
   type TrainerDecision
@@ -67,6 +71,22 @@ describe("parseTrainerDecision", () => {
   });
 });
 
+describe("staff decline reason callbacks", () => {
+  const decline: TrainerDecision = { target: "booking", action: "decline", id: BOOKING_ID };
+
+  it("keeps reason callbacks below Telegram's cap and parses IDs only", () => {
+    const callback = trainerReasonKeyboard(ru, decline).inline_keyboard[0]?.[0];
+    const data = callback && "callback_data" in callback ? callback.callback_data : undefined;
+    expect(Buffer.byteLength(data ?? "", "utf8")).toBeLessThanOrEqual(64);
+    expect(parseTrainerReason(data)).toEqual({ decision: decline, code: "unavailable" });
+  });
+
+  it("does not parse unrelated or malformed reason callbacks", () => {
+    expect(parseTrainerReason("tr:why:b:not-a-uuid:nope")).toBeUndefined();
+    expect(parseTrainerCommentAction("other:thing")).toBeUndefined();
+  });
+});
+
 describe("decisionOutcomeText", () => {
   const confirmBooking: TrainerDecision = { target: "booking", action: "confirm", id: BOOKING_ID };
   const declineSub: TrainerDecision = { target: "subscription", action: "decline", id: SUB_ID };
@@ -121,7 +141,7 @@ describe("handleTrainerDecision", () => {
     expect(editMessageText).toHaveBeenCalledWith(CONFIRMED, { reply_markup: undefined });
   });
 
-  it("routes a subscription decline to declineSubscription", async () => {
+  it("opens an explicit reason picker before a subscription decline", async () => {
     const api = fakeApi({ declineSubscription: vi.fn().mockResolvedValue({ ok: true }) });
     const { ctx, editMessageText } = fakeCtx();
     await handleTrainerDecision(ctx, api, ru, 777, {
@@ -129,8 +149,8 @@ describe("handleTrainerDecision", () => {
       action: "decline",
       id: SUB_ID
     });
-    expect(api.declineSubscription).toHaveBeenCalledWith(SUB_ID, 777);
-    expect(editMessageText).toHaveBeenCalledWith(DECLINED, { reply_markup: undefined });
+    expect(api.declineSubscription).not.toHaveBeenCalled();
+    expect(editMessageText.mock.calls[0]?.[0]).toContain("Выберите причину");
   });
 
   it("routes an individual confirm to confirmIndividualRequest", async () => {
@@ -145,15 +165,13 @@ describe("handleTrainerDecision", () => {
     expect(editMessageText).toHaveBeenCalledWith(CONFIRMED, { reply_markup: undefined });
   });
 
-  it("routes an individual decline to declineIndividualRequest", async () => {
+  it("commits an individual decline only with a validated reason", async () => {
     const api = fakeApi({ declineIndividualRequest: vi.fn().mockResolvedValue({ ok: true }) });
     const { ctx, editMessageText } = fakeCtx();
-    await handleTrainerDecision(ctx, api, ru, 777, {
-      target: "individual",
-      action: "decline",
-      id: IND_ID
-    });
-    expect(api.declineIndividualRequest).toHaveBeenCalledWith(IND_ID, 777);
+    await handleTrainerDecline(ctx, api, ru, 777, {
+      decision: { target: "individual", action: "decline", id: IND_ID }, code: "other"
+    }, "Client asked for another time");
+    expect(api.declineIndividualRequest).toHaveBeenCalledWith(IND_ID, 777, { code: "other", comment: "Client asked for another time" });
     expect(editMessageText).toHaveBeenCalledWith(DECLINED, { reply_markup: undefined });
   });
 

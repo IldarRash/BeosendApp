@@ -5,6 +5,8 @@ import {
   NotFoundException
 } from "@nestjs/common";
 import { describe, expect, it, vi } from "vitest";
+vi.mock("../record-status/record-status-capture", () => ({ captureRecordStatus: vi.fn(async () => true), captureRecordStatuses: vi.fn(async () => []) }));
+vi.mock("../record-status/record-status.repository", () => ({ enqueueRecordStatus: vi.fn(async () => true) }));
 import type { Env } from "@beosand/config";
 import { COURT_CLOSE_HOUR, COURT_OPEN_HOUR, myCourtRequestItemSchema } from "@beosand/types";
 import type { ChannelDispatcher } from "../connectors/channels/channel-dispatcher.service";
@@ -21,6 +23,7 @@ import {
   type OccupantRow
 } from "./court-requests.repository";
 import { CourtRequestsService, freeForDuration } from "./court-requests.service";
+import { enqueueRecordStatus } from "../record-status/record-status.repository";
 
 const date = "2026-06-10";
 const adminId = 9001;
@@ -41,7 +44,9 @@ function makeDomainEvents(): DomainEventsService {
 
 function makeNotifications(): NotificationsService {
   return {
-    sendCourtRequestCreatedToAdmins: vi.fn().mockResolvedValue(undefined)
+    prepareCourtRequestCreatedAdminMessages: vi.fn().mockResolvedValue([
+      { telegramId: adminId, locale: "ru", text: "New court request", replyMarkup: undefined }
+    ])
   } as unknown as NotificationsService;
 }
 
@@ -102,27 +107,29 @@ function makeRow(overrides: Partial<CourtRequestRow> = {}): CourtRequestRow {
   };
 }
 
-/**
- * Bot-path repo: the single-court create calls repository.createPendingRequest
- * directly (no picked courts, no held rows). The availability reads come from the
- * join-table-backed requestHoldSpansForDate + blocksForDate.
- */
+/** Bot-path create uses the same transaction as its durable status snapshot. */
 function makeRepo(input: {
   activeCourtCount?: number;
   confirmed?: OccupantRow[];
   blocks?: OccupantRow[];
-  client?: { id: string } | null;
+  client?: { id: string; name: string; telegramId: number | null; language: "ru" | "sr" | "en" } | null;
   created?: CourtRequestRow;
 }): CourtRequestsRepository {
-  return {
+  const repo = {
     countActiveCourts: vi.fn().mockResolvedValue(input.activeCourtCount ?? 6),
     requestHoldSpansForDate: vi.fn().mockResolvedValue(input.confirmed ?? []),
     blocksForDate: vi.fn().mockResolvedValue(input.blocks ?? []),
     findActiveClientByTelegramId: vi
       .fn()
-      .mockResolvedValue(input.client === undefined ? { id: clientId } : input.client),
+      .mockResolvedValue(input.client === undefined ? { id: clientId, name: "Ana", telegramId: 7001, language: "ru" } : input.client),
     createPendingRequest: vi.fn().mockResolvedValue(input.created ?? makeRow()),
     findWithClientById: vi.fn().mockResolvedValue(adminRow({ ...(input.created ?? makeRow()) }))
+  };
+  return {
+    ...repo,
+    transaction: vi.fn(async (work: (tx: CourtModerationTx) => Promise<unknown>) =>
+      work({ createPendingRequest: repo.createPendingRequest, lockDate: vi.fn(), findPendingBotRequest: vi.fn(async () => null), database: {} } as unknown as CourtModerationTx)
+    )
   } as unknown as CourtRequestsRepository;
 }
 
@@ -400,6 +407,30 @@ describe("CourtRequestsService.createRequest (C2 pending creation)", () => {
     expect(arg.courtIds).toBeUndefined();
   });
 
+  it("reuses the bot's pending request without a second staff notification", async () => {
+    // This module-level outbox seam is shared by create-request examples; measure
+    // only this repeated-tap operation, whose one configured staff recipient gets
+    // exactly one durable receipt from the creating transaction.
+    vi.mocked(enqueueRecordStatus).mockClear();
+    const created = makeRow();
+    const findPendingBotRequest = vi.fn().mockResolvedValueOnce(null).mockResolvedValueOnce(created);
+    const createPendingRequest = vi.fn().mockResolvedValue(created);
+    const tx = { lockDate: vi.fn(), findPendingBotRequest, createPendingRequest, database: {} } as unknown as CourtModerationTx;
+    const repo = { ...makeRepo({ created }), transaction: vi.fn(async (work: (value: CourtModerationTx) => Promise<unknown>) => work(tx)) } as unknown as CourtRequestsRepository;
+    const notifications = makeNotifications();
+    const service = makeService(repo, makeDispatcher(), makeDomainEvents(), notifications);
+    const input = { telegramId: tg, date, startTime: "14:00", durationHours: 2 };
+
+    const [first, second] = await Promise.all([service.createRequest(input), service.createRequest(input)]);
+
+    expect(first.id).toBe(created.id);
+    expect(second.id).toBe(created.id);
+    expect(createPendingRequest).toHaveBeenCalledTimes(1);
+    expect(notifications.prepareCourtRequestCreatedAdminMessages).toHaveBeenCalledTimes(2);
+    // Only the transaction that created the request owns client + staff outbox jobs.
+    expect(enqueueRecordStatus).toHaveBeenCalledTimes(1);
+  });
+
   it("with courtNumbers holds the picked courts in a tx but hides them on the pending create response", async () => {
     const created = makeRow({ courtCount: 2, courtNumbers: [1, 3], priceRsd: 8000 });
     const { tx } = makeTx({
@@ -534,7 +565,7 @@ describe("CourtRequestsService.createRequest (C2 pending creation)", () => {
 });
 
 describe("CourtRequestsService.createRequest admin notification", () => {
-  it("DMs the admins with the new request details after the bot-path create", async () => {
+  it("pre-renders one durable staff receipt with the new request details", async () => {
     const repo = makeRepo({ created: makeRow({ priceRsd: 4000, durationHours: "2.0" }) });
     (repo.findWithClientById as ReturnType<typeof vi.fn>).mockResolvedValue(
       adminRow({ clientName: "Ana", clientTelegramId: 7001, priceRsd: 4000, durationHours: "2.0" })
@@ -544,9 +575,9 @@ describe("CourtRequestsService.createRequest admin notification", () => {
 
     await service.createRequest({ telegramId: tg, date, startTime: "14:00", durationHours: 2 });
 
-    const send = notifications.sendCourtRequestCreatedToAdmins as ReturnType<typeof vi.fn>;
-    expect(send).toHaveBeenCalledTimes(1);
-    expect(send.mock.calls[0][0]).toMatchObject({
+    const prepare = notifications.prepareCourtRequestCreatedAdminMessages as ReturnType<typeof vi.fn>;
+    expect(prepare).toHaveBeenCalledTimes(1);
+    expect(prepare.mock.calls[0][0]).toMatchObject({
       clientName: "Ana",
       clientTelegramId: 7001,
       date,
@@ -558,7 +589,7 @@ describe("CourtRequestsService.createRequest admin notification", () => {
     });
   });
 
-  it("DMs the admins after the multi-court (tx) create", async () => {
+  it("pre-renders the multi-court staff receipt inside the create path", async () => {
     const created = makeRow({ courtCount: 2, courtNumbers: [1, 3], priceRsd: 8000 });
     const { tx } = makeTx({
       request: null,
@@ -584,28 +615,25 @@ describe("CourtRequestsService.createRequest admin notification", () => {
       courtNumbers: [1, 3]
     });
 
-    const send = notifications.sendCourtRequestCreatedToAdmins as ReturnType<typeof vi.fn>;
-    expect(send).toHaveBeenCalledTimes(1);
-    expect(send.mock.calls[0][0]).toMatchObject({ courtCount: 2, priceRsd: 8000 });
+    const prepare = notifications.prepareCourtRequestCreatedAdminMessages as ReturnType<typeof vi.fn>;
+    expect(prepare).toHaveBeenCalledTimes(1);
+    expect(prepare.mock.calls[0][0]).toMatchObject({ courtCount: 2, priceRsd: 8000 });
   });
 
-  it("returns the created request even when the admin notification throws", async () => {
+  it("does not create a request when staff receipt preparation fails", async () => {
     const repo = makeRepo({ created: makeRow() });
     const notifications = makeNotifications();
-    (notifications.sendCourtRequestCreatedToAdmins as ReturnType<typeof vi.fn>).mockRejectedValue(
+    (notifications.prepareCourtRequestCreatedAdminMessages as ReturnType<typeof vi.fn>).mockRejectedValue(
       new Error("telegram unreachable")
     );
     const service = makeService(repo, makeDispatcher(), makeDomainEvents(), notifications);
 
-    const result = await service.createRequest({
+    await expect(service.createRequest({
       telegramId: tg,
       date,
       startTime: "14:00",
       durationHours: 2
-    });
-
-    expect(result.status).toBe("pending");
-    expect(notifications.sendCourtRequestCreatedToAdmins).toHaveBeenCalled();
+    })).rejects.toThrow("telegram unreachable");
   });
 });
 
@@ -1194,7 +1222,7 @@ describe("6-per-hour limit still enforced (C3 read ↔ C4 confirm share the help
 describe("CourtRequestsService.rejectRequest (C4 admin)", () => {
   it("rejects a non-admin caller", async () => {
     const service = makeService(makeModerationRepo({}));
-    await expect(service.rejectRequest(123, { requestId })).rejects.toBeInstanceOf(
+    await expect(service.rejectRequest(123, { requestId, reason: { code: "unavailable", comment: null } })).rejects.toBeInstanceOf(
       ForbiddenException
     );
   });
@@ -1205,7 +1233,7 @@ describe("CourtRequestsService.rejectRequest (C4 admin)", () => {
     const domainEvents = makeDomainEvents();
     const service = makeService(makeModerationRepo({ tx }), dispatcher, domainEvents);
 
-    const result = await service.rejectRequest(adminId, { requestId });
+    const result = await service.rejectRequest(adminId, { requestId, reason: { code: "unavailable", comment: null } });
 
     expect(result.status).toBe("rejected");
     expect(decide).toHaveBeenCalledWith(
@@ -1224,7 +1252,7 @@ describe("CourtRequestsService.rejectRequest (C4 admin)", () => {
   it("refuses a non-pending request", async () => {
     const { tx } = makeTx({ request: makeRow({ status: "rejected" }) });
     const service = makeService(makeModerationRepo({ tx }));
-    await expect(service.rejectRequest(adminId, { requestId })).rejects.toBeInstanceOf(
+    await expect(service.rejectRequest(adminId, { requestId, reason: { code: "unavailable", comment: null } })).rejects.toBeInstanceOf(
       ConflictException
     );
   });
@@ -1235,7 +1263,7 @@ describe("CourtRequestsService.cancelRequest (admin confirmed cancellation)", ()
     const repo = makeModerationRepo({});
     const service = makeService(repo);
 
-    await expect(service.cancelRequest(123, { requestId })).rejects.toBeInstanceOf(
+    await expect(service.cancelRequest(123, { requestId, reason: { code: "unavailable", comment: null } })).rejects.toBeInstanceOf(
       ForbiddenException
     );
     expect(repo.transaction).not.toHaveBeenCalled();
@@ -1246,7 +1274,7 @@ describe("CourtRequestsService.cancelRequest (admin confirmed cancellation)", ()
     const { tx } = makeTx({ request: confirmed });
     const service = makeService(makeModerationRepo({ tx }));
 
-    const result = await service.cancelRequest(adminId, { requestId });
+    const result = await service.cancelRequest(adminId, { requestId, reason: { code: "unavailable", comment: null } });
 
     expect(result.status).toBe("cancelled");
     expect(result.decidedBy).toBe(adminId);
@@ -1259,7 +1287,7 @@ describe("CourtRequestsService.cancelRequest (admin confirmed cancellation)", ()
     const { tx } = makeTx({ request: makeRow({ status: "pending" }) });
     const service = makeService(makeModerationRepo({ tx }));
 
-    await expect(service.cancelRequest(adminId, { requestId })).rejects.toBeInstanceOf(
+    await expect(service.cancelRequest(adminId, { requestId, reason: { code: "unavailable", comment: null } })).rejects.toBeInstanceOf(
       ConflictException
     );
     expect(tx.cancelConfirmed).not.toHaveBeenCalled();
@@ -1269,7 +1297,7 @@ describe("CourtRequestsService.cancelRequest (admin confirmed cancellation)", ()
     const { tx } = makeTx({ request: null });
     const service = makeService(makeModerationRepo({ tx }));
 
-    await expect(service.cancelRequest(adminId, { requestId })).rejects.toBeInstanceOf(
+    await expect(service.cancelRequest(adminId, { requestId, reason: { code: "unavailable", comment: null } })).rejects.toBeInstanceOf(
       NotFoundException
     );
   });
@@ -1327,7 +1355,7 @@ describe("CourtRequestsService.notifyDecision locale (client's language)", () =>
     );
     const service = makeService(repo, dispatcher);
 
-    await service.rejectRequest(adminId, { requestId });
+    await service.rejectRequest(adminId, { requestId, reason: { code: "unavailable", comment: null } });
 
     const text = (dispatcher.dispatch as ReturnType<typeof vi.fn>).mock.calls[0][0].text as string;
     expect(text).toContain("izaberite, molimo, drugo vreme");
@@ -1356,7 +1384,7 @@ describe("CourtRequestsService.notifyDecision locale (client's language)", () =>
       makeSettings()
     );
 
-    await service.rejectRequest(adminId, { requestId });
+    await service.rejectRequest(adminId, { requestId, reason: { code: "unavailable", comment: null } });
 
     const text = (dispatcher.dispatch as ReturnType<typeof vi.fn>).mock.calls[0][0].text as string;
     expect(text).toBe("SR custom za 2026-06-10");

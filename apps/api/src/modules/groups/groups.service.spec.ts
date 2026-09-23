@@ -11,6 +11,7 @@ import type { TrainingsService } from "../trainings/trainings.service";
 const ADMIN_ID = 111;
 const NON_ADMIN_ID = 999;
 const COURT_ID = "44444444-4444-4444-4444-444444444444";
+const STAFF_REASON = { reason: { code: "unavailable" as const, comment: null } };
 
 const baseInput: CreateGroupInput = {
   name: "Intermediate",
@@ -309,7 +310,7 @@ describe("GroupsService", () => {
       const created = await service.create(ADMIN_ID, baseInput);
       trainingsService.cancelCount = 5;
 
-      const result = await service.deleteGroup(ADMIN_ID, created.id);
+      const result = await service.deleteGroup(ADMIN_ID, created.id, STAFF_REASON);
 
       expect(result.status).toBe("inactive");
       // Cascade ran for this group with the acting admin.
@@ -323,7 +324,7 @@ describe("GroupsService", () => {
     it("rejects a non-admin with ForbiddenException and never touches the group or trainings", async () => {
       const created = await service.create(ADMIN_ID, baseInput);
 
-      await expect(service.deleteGroup(NON_ADMIN_ID, created.id)).rejects.toBeInstanceOf(
+      await expect(service.deleteGroup(NON_ADMIN_ID, created.id, STAFF_REASON)).rejects.toBeInstanceOf(
         ForbiddenException
       );
       expect(trainingsService.cancelledFor).toHaveLength(0);
@@ -333,7 +334,7 @@ describe("GroupsService", () => {
 
     it("404s a missing group before any inactivation or cascade", async () => {
       await expect(
-        service.deleteGroup(ADMIN_ID, "33333333-3333-3333-3333-333333333333")
+        service.deleteGroup(ADMIN_ID, "33333333-3333-3333-3333-333333333333", STAFF_REASON)
       ).rejects.toBeInstanceOf(NotFoundException);
       expect(trainingsService.cancelledFor).toHaveLength(0);
     });

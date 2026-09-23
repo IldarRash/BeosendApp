@@ -21,6 +21,7 @@ import { AppShell } from "../ui/AppShell";
 import { Button } from "../ui/Button";
 import { DataTable, type Column } from "../ui/DataTable";
 import { Modal } from "../ui/Modal";
+import { useDecisionReason } from "../ui/ReasonFields";
 import { DayOfWeekPicker } from "../ui/DayOfWeekPicker";
 import { TrainingRosterModal } from "../ui/TrainingRosterModal";
 import { NumberField, SelectField, TextField, TimeField, type SelectOption } from "../ui/Field";
@@ -261,6 +262,7 @@ export function Trainings(): JSX.Element {
   // ── Delete ─────────────────────────────────────────────────────────────
   const [deleteTarget, setDeleteTarget] = useState<Training | null>(null);
   const [deleteScope, setDeleteScope] = useState<DeleteScope>("single");
+  const deleteReason = useDecisionReason();
   const del = useDeleteTraining();
   const deleteSeries = useDeleteTrainingSeries();
 
@@ -731,8 +733,10 @@ export function Trainings(): JSX.Element {
               disabled={deletePending}
               onClick={() => {
                 if (!deleteTarget) return;
+                const reason = deleteReason.validate();
+                if (!reason) return;
                 if (deleteAsSeries) {
-                  deleteSeries.mutate(deleteTarget.id, {
+                  deleteSeries.mutate({ id: deleteTarget.id, reason }, {
                     onSuccess: (result) => {
                       setDeleteTarget(null);
                       notify(
@@ -743,7 +747,7 @@ export function Trainings(): JSX.Element {
                   });
                   return;
                 }
-                del.mutate(deleteTarget.id, {
+                del.mutate({ id: deleteTarget.id, reason }, {
                   onSuccess: () => {
                     setDeleteTarget(null);
                     notify(t("admin.trainings.deleted"), "success");
@@ -757,14 +761,14 @@ export function Trainings(): JSX.Element {
         }
       >
         {deleteTarget ? (
-          <p>
+          <div className="stack"><p>
             {t("admin.trainings.deletePrompt", {
               date: deleteTarget.date,
               start: deleteTarget.startTime,
               end: deleteTarget.endTime,
               count: deleteTarget.bookedCount
             })}
-          </p>
+          </p>{deleteReason.fields}</div>
         ) : null}
         {deleteTarget && isIndividualTraining(deleteTarget) ? (
           <SelectField

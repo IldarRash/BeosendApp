@@ -13,7 +13,9 @@ import type { Env } from "@beosand/config";
 import { isAdmin } from "@beosand/config";
 import type {
   Booking,
+  CancelBookingInput,
   CalendarExportMonthQuery,
+  DeclineBookingInput,
   CreateManualBookingInput,
   GroupBookingResult,
   MarkAttendanceInput,
@@ -43,6 +45,7 @@ import { BroadcastAutomationsService } from "../broadcast-automations/broadcast-
 import { ClientsRepository } from "../clients/clients.repository";
 import { renderTrainingIcs } from "../connectors/calendar/calendar-ics";
 import { DomainEventsService } from "../connectors/domain-events.service";
+import { captureRecordStatus, captureRecordStatuses } from "../record-status/record-status-capture";
 import { GroupsRepository } from "../groups/groups.repository";
 import { NotificationsService } from "../notifications/notifications.service";
 import { sanitizeTelegramDiagnostic } from "../notifications/telegram-sender";
@@ -78,6 +81,7 @@ interface CreateGroupInput {
 interface ClientOwnershipOptions {
   allowAdmin?: boolean;
   analyticsSessionId?: string;
+  reason?: CancelBookingInput["reason"];
 }
 
 /**
@@ -150,13 +154,15 @@ export class BookingsService {
           status: training.status
         })
       ) {
-        return this.bookSeat(tx, {
+        const created = await this.bookSeat(tx, {
           clientId: input.clientId,
           training,
           type: "single",
           source: "telegram",
           analyticsSessionId: options.analyticsSessionId
         });
+        await captureRecordStatus(tx, { kind: "booking", entityId: created.id, actor: "client" });
+        return created;
       }
 
       if (training.status === "cancelled" || training.status === "completed") {
@@ -173,6 +179,7 @@ export class BookingsService {
       if (!entry) {
         throw new ConflictException("Client is already on the waitlist for this training");
       }
+      await captureRecordStatus(tx, { kind: "waitlist", entityId: entry.id, actor: "client" });
 
       return {
         status: "waitlisted" as const,
@@ -189,7 +196,7 @@ export class BookingsService {
     // the booking or surface as an error to the caller. All sends are idempotent and
     // swallow errors; we still guard so a pre-send DB hiccup cannot 500 the booking.
     await this.sendConfirmationSafely(() =>
-      this.notifications.sendBookingConfirmation(input.clientId, input.trainingId)
+      this.notifications.sendBookingConfirmation(input.clientId, input.trainingId, { skipTelegram: true })
     );
     // Connector seam: emit the typed booking.created event (no listener yet).
     await this.emitBookingCreatedSafely([
@@ -271,13 +278,15 @@ export class BookingsService {
 
       // Auto-confirm ('booked'): an admin/trainer booking from the console is the
       // decision itself — there is no separate confirmation step to wait on.
-      return this.bookSeat(tx, {
+      const created = await this.bookSeat(tx, {
         clientId: input.clientId,
         training: trainingForSeat,
         type: "single",
         source,
         payment
       });
+      await captureRecordStatus(tx, { kind: "booking", entityId: created.id, actor: "staff" });
+      return created;
     });
 
     this.logger.log(`Manual booking ${booking.id} (source ${source}) by actor ${actorTelegramId}`);
@@ -286,7 +295,7 @@ export class BookingsService {
     // a walk-in has none, so the send is skipped (never throws, booking stands).
     if (recipientTelegramId !== null) {
       await this.sendConfirmationSafely(() =>
-        this.notifications.sendBookingConfirmation(input.clientId, input.trainingId)
+        this.notifications.sendBookingConfirmation(input.clientId, input.trainingId, { skipTelegram: true })
       );
     }
     // Connector seam: emit booking.created (fires for walk-ins too, no telegram DM).
@@ -488,6 +497,14 @@ export class BookingsService {
           "No trainings generated for this group in the selected month"
         );
       }
+      await captureRecordStatuses(
+        tx,
+        [
+          ...created.map(({ booking }) => ({ kind: "booking" as const, entityId: booking.id, actor: "client" as const })),
+          ...waitlisted.map(({ id }) => ({ kind: "waitlist" as const, entityId: id, actor: "client" as const }))
+        ],
+        { batchKey: `group-booking:${groupSubscriptionId}` }
+      );
 
       return { groupSubscriptionId, created: created.map((c) => c.booking), waitlisted, skipped };
     });
@@ -504,7 +521,7 @@ export class BookingsService {
     // the committed booking.
     if (createdTrainingIds.length > 0) {
       await this.sendConfirmationSafely(() =>
-        this.notifications.sendGroupBookingConfirmation(input.clientId, createdTrainingIds)
+        this.notifications.sendGroupBookingConfirmation(input.clientId, createdTrainingIds, { skipTelegram: true })
       );
       // Connector seam: one booking.created per created instance of the batch.
       await this.emitBookingCreatedSafely(
@@ -562,7 +579,7 @@ export class BookingsService {
     }
   ): Promise<{
     created: Array<{ booking: Booking; date: string }>;
-    waitlisted: Array<{ date: string; position: number }>;
+    waitlisted: Array<{ id: string; date: string; position: number }>;
     skipped: string[];
     trainingCount: number;
   }> {
@@ -576,7 +593,7 @@ export class BookingsService {
     );
 
     const created: Array<{ booking: Booking; date: string }> = [];
-    const waitlisted: Array<{ date: string; position: number }> = [];
+    const waitlisted: Array<{ id: string; date: string; position: number }> = [];
     const skipped: string[] = [];
 
     for (const training of trainings) {
@@ -616,7 +633,7 @@ export class BookingsService {
           groupSubscriptionId
         });
         if (entry) {
-          waitlisted.push({ date: training.date, position: entry.position });
+          waitlisted.push({ id: entry.id, date: training.date, position: entry.position });
         } else {
           skipped.push(training.date);
         }
@@ -740,6 +757,12 @@ export class BookingsService {
           status: training.status
         });
         await this.bookings.updateTrainingCount(tx, row.trainingId, newCount, newStatus);
+        await captureRecordStatus(tx, {
+          kind: "booking",
+          entityId: row.bookingId,
+          actor: "staff",
+          reason: { code: "schedule-change", comment: "Transferred to another group" }
+        });
         cancelledDates.push(row.date);
       }
 
@@ -772,6 +795,11 @@ export class BookingsService {
           "Target group has no bookable future trainings in the selected month"
         );
       }
+      await captureRecordStatuses(
+        tx,
+        created.map(({ booking }) => ({ kind: "booking" as const, entityId: booking.id, actor: "staff" as const })),
+        { batchKey: `group-transfer:${groupSubscriptionId}` }
+      );
 
       return {
         movedDates: created.map((c) => c.date),
@@ -902,6 +930,14 @@ export class BookingsService {
       const actorClient = await this.clients.findByTelegramId(actorTelegramId, tx);
       await this.assertOwnsClient(actorTelegramId, booking.clientId, options);
 
+      // `allowAdmin` authorizes the raw bot/admin path but does not identify who
+      // performed the action.  Determine the actor from the resolved owner row so
+      // a staff cancellation is never recorded as a client withdrawal.
+      const actor = actorClient?.id === booking.clientId ? "client" : "staff";
+      if (actor === "staff" && !options.reason) {
+        throw new BadRequestException("A staff cancellation requires a decision reason");
+      }
+
       if (booking.status !== "booked" && booking.status !== "pending") {
         // Already cancelled/attended/no_show/waitlist — nothing to free; typed 409.
         // A `pending` request holds a seat, so it IS cancellable (a client withdraw).
@@ -922,6 +958,12 @@ export class BookingsService {
         status: training.status
       });
       await this.bookings.updateTrainingCount(tx, booking.trainingId, newCount, newStatus);
+      await captureRecordStatus(tx, {
+        kind: "booking",
+        entityId: bookingId,
+        actor,
+        ...(options.reason ? { reason: options.reason } : {})
+      });
 
       this.logger.log(
         `Cancelled booking ${bookingId} on training ${booking.trainingId} (${newCount}/${training.capacity}, ${newStatus})`
@@ -1052,12 +1094,13 @@ export class BookingsService {
         updated = applySnapshot(updated, snapshot);
       }
       this.logger.log(`Confirmed booking ${bookingId} on training ${booking.trainingId}`);
+      await captureRecordStatus(tx, { kind: "booking", entityId: bookingId, actor: "staff" });
       return { updated, clientId: booking.clientId, trainingId: booking.trainingId };
     });
 
     // Post-commit: the seat is now final, send the standard confirmation DM.
     await this.sendConfirmationSafely(() =>
-      this.notifications.sendBookingConfirmation(result.clientId, result.trainingId)
+      this.notifications.sendBookingConfirmation(result.clientId, result.trainingId, { skipTelegram: true })
     );
     // Connector seam: the trainer-confirmed booking is now created/final.
     await this.emitBookingCreatedSafely([
@@ -1079,7 +1122,11 @@ export class BookingsService {
    * recompute (full→open), then — post-commit, SAME ordering as cancelBooking — the
    * client booking-declined DM and waitlist promotion against the freed seat.
    */
-  async declineBooking(actorTelegramId: number, bookingId: string): Promise<Booking> {
+  async declineBooking(
+    actorTelegramId: number,
+    bookingId: string,
+    input: DeclineBookingInput = { reason: { code: "other", comment: "Administrative decision" } }
+  ): Promise<Booking> {
     const result = await this.bookings.transaction(async (tx) => {
       const booking = await this.bookings.findBookingForUpdate(tx, bookingId);
       if (!booking) {
@@ -1103,6 +1150,13 @@ export class BookingsService {
         status: training.status
       });
       await this.bookings.updateTrainingCount(tx, booking.trainingId, newCount, newStatus);
+      await captureRecordStatus(tx, {
+        kind: "booking",
+        entityId: bookingId,
+        status: "declined",
+        actor: "staff",
+        reason: input.reason
+      });
       this.logger.log(
         `Declined booking ${bookingId} on training ${booking.trainingId} ` +
           `(${newCount}/${training.capacity}, ${newStatus})`
@@ -1113,7 +1167,7 @@ export class BookingsService {
     // Post-commit, SAME ordering as cancelBooking: tell the client, then promote
     // the waitlist head against the now-free seat. Both are self-tolerant.
     await this.sendConfirmationSafely(() =>
-      this.notifications.sendBookingDeclined(result.clientId, result.trainingId)
+      this.notifications.sendBookingDeclined(result.clientId, result.trainingId, { skipTelegram: true })
     );
     // Connector seam: emit booking.declined alongside the decline DM.
     await this.emitBookingDeclinedSafely([
@@ -1160,6 +1214,11 @@ export class BookingsService {
       this.logger.log(
         `Confirmed subscription ${groupSubscriptionId}: ${pending.length} bookings → booked`
       );
+      await captureRecordStatuses(
+        tx,
+        pending.map((row) => ({ kind: "booking" as const, entityId: row.id, actor: "staff" as const })),
+        { batchKey: `subscription-confirmed:${groupSubscriptionId}` }
+      );
       return {
         clientId: pending[0].clientId,
         trainingIds: pending.map((row) => row.trainingId),
@@ -1168,7 +1227,7 @@ export class BookingsService {
     });
 
     await this.sendConfirmationSafely(() =>
-      this.notifications.sendGroupBookingConfirmation(result.clientId, result.trainingIds)
+      this.notifications.sendGroupBookingConfirmation(result.clientId, result.trainingIds, { skipTelegram: true })
     );
     // Connector seam: one booking.created per confirmed instance of the batch.
     await this.emitBookingCreatedSafely(
@@ -1199,7 +1258,8 @@ export class BookingsService {
    */
   async declineSubscription(
     actorTelegramId: number,
-    groupSubscriptionId: string
+    groupSubscriptionId: string,
+    input: DeclineBookingInput = { reason: { code: "other", comment: "Administrative decision" } }
   ): Promise<GroupBookingResult> {
     const result = await this.bookings.transaction(async (tx) => {
       const pending = await this.loadDecidableBatch(tx, actorTelegramId, groupSubscriptionId);
@@ -1221,6 +1281,17 @@ export class BookingsService {
       this.logger.log(
         `Declined subscription ${groupSubscriptionId}: ${pending.length} bookings → cancelled`
       );
+      await captureRecordStatuses(
+        tx,
+        pending.map((row) => ({
+          kind: "booking" as const,
+          entityId: row.id,
+          status: "declined" as const,
+          actor: "staff" as const,
+          reason: input.reason
+        })),
+        { batchKey: `subscription-declined:${groupSubscriptionId}` }
+      );
       return {
         clientId: pending[0].clientId,
         trainingIds: pending.map((row) => row.trainingId),
@@ -1231,7 +1302,7 @@ export class BookingsService {
     // One summary decline DM, then promote each freed training (self-tolerant).
     const clientId = result.clientId;
     await this.sendConfirmationSafely(() =>
-      this.notifications.sendGroupBookingDeclined(clientId, result.trainingIds)
+      this.notifications.sendGroupBookingDeclined(clientId, result.trainingIds, { skipTelegram: true })
     );
     // Connector seam: one booking.declined per declined instance of the batch.
     await this.emitBookingDeclinedSafely(

@@ -43,10 +43,11 @@ describe("useCancelRequest", () => {
       wrapper: wrapperFor(client)
     });
 
-    result.current.mutate({ id: REQUEST_ID });
+    const reason = { code: "unavailable" as const, comment: null };
+    result.current.mutate({ id: REQUEST_ID, reason });
 
     await waitFor(() => expect(result.current.isError).toBe(true));
-    expect(api.cancelRequest).toHaveBeenCalledWith(REQUEST_ID);
+    expect(api.cancelRequest).toHaveBeenCalledWith(REQUEST_ID, reason);
 
     const invalidatedKeys = invalidate.mock.calls.map((call) => {
       const filter = call[0] as { queryKey?: readonly unknown[] };

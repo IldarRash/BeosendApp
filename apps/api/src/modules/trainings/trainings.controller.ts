@@ -17,6 +17,7 @@ import {
   assignCourtSchema,
   autoAssignCourtsSchema,
   availableSlotsQuerySchema,
+  cancelTrainingSchema,
   changeCapacitySchema,
   generateAllMonthSchema,
   generateIndividualMonthSchema,
@@ -44,7 +45,7 @@ import {
   type TrainingRoster,
   type TrainingScheduleSlot
 } from "@beosand/types";
-import type { TypeOf, ZodTypeAny } from "zod";
+import { z, type ZodTypeAny } from "zod";
 import { ENV } from "../../config/config.module";
 import { TrainingsService } from "./trainings.service";
 
@@ -216,22 +217,24 @@ export class TrainingsController {
   @Delete(":id")
   delete(
     @Headers("x-telegram-id") telegramIdHeader: string | undefined,
-    @Param("id") id: string
+    @Param("id") id: string,
+    @Body() body: unknown
   ): Promise<{ id: string }> {
     const actorTelegramId = parseTelegramId(telegramIdHeader);
     const trainingId = validate(uuid, id);
-    return this.trainings.deleteTraining(actorTelegramId, trainingId);
+    return this.trainings.deleteTraining(actorTelegramId, trainingId, validate(cancelTrainingSchema, body ?? {}));
   }
 
   /** Admin: soft-cancel this individual training plus its future series siblings. */
   @Delete(":id/series")
   deleteSeries(
     @Headers("x-telegram-id") telegramIdHeader: string | undefined,
-    @Param("id") id: string
+    @Param("id") id: string,
+    @Body() body: unknown
   ): Promise<DeleteTrainingSeriesResult> {
     const actorTelegramId = parseTelegramId(telegramIdHeader);
     const trainingId = validate(uuid, id);
-    return this.trainings.deleteIndividualSeries(actorTelegramId, trainingId);
+    return this.trainings.deleteIndividualSeries(actorTelegramId, trainingId, validate(cancelTrainingSchema, body ?? {}));
   }
 
   /** Admin: auto-place every orphaned training on a date onto a free court. Gated in the service. */
@@ -407,7 +410,7 @@ function parseTelegramId(
 }
 
 /** Zod-validate at the boundary; surface failures as 400 instead of 500. */
-function validate<TSchema extends ZodTypeAny>(schema: TSchema, input: unknown): TypeOf<TSchema> {
+function validate<TSchema extends ZodTypeAny>(schema: TSchema, input: unknown): z.output<TSchema> {
   const result = schema.safeParse(input);
   if (!result.success) {
     throw new BadRequestException(result.error.issues.map((issue) => issue.message).join("; "));

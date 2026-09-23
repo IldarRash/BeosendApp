@@ -16,6 +16,7 @@ import type {
   RescheduleTrainingInput,
   Training,
   TrainingCalendarItem,
+  DecisionReason,
   DeleteTrainingSeriesResult,
   UpdateTrainingScheduleCourtInput,
   UpdateIndividualPriceInput
@@ -99,11 +100,11 @@ export function useGenerateAllGroups(): UseMutationResult<
 }
 
 /** Delete a training; refreshes the lists on success. */
-export function useDeleteTraining(): UseMutationResult<{ id: string }, Error, string> {
+export function useDeleteTraining(): UseMutationResult<{ id: string }, Error, { id: string; reason: DecisionReason }> {
   const api = useApiClient();
   const queryClient = useQueryClient();
   return useMutation({
-    mutationFn: (id: string) => api.deleteTraining(id),
+    mutationFn: ({ id, reason }) => api.deleteTraining(id, reason),
     onSuccess: () => invalidateTrainings(queryClient)
   });
 }
@@ -112,12 +113,12 @@ export function useDeleteTraining(): UseMutationResult<{ id: string }, Error, st
 export function useDeleteTrainingSeries(): UseMutationResult<
   DeleteTrainingSeriesResult,
   Error,
-  string
+  { id: string; reason: DecisionReason }
 > {
   const api = useApiClient();
   const queryClient = useQueryClient();
   return useMutation({
-    mutationFn: (id: string) => api.deleteTrainingSeries(id),
+    mutationFn: ({ id, reason }) => api.deleteTrainingSeries(id, reason),
     onSuccess: () => invalidateTrainings(queryClient)
   });
 }

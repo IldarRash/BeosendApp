@@ -7,8 +7,7 @@ import { useT, type TranslateFn } from "../i18n/LanguageProvider";
 import { useNav } from "../router/NavProvider";
 import { hapticSelection, hapticSuccess, useMainButton } from "../tg/buttons";
 import { FallbackButton } from "../ui/FallbackButton";
-import { SecondaryButton } from "../ui/SecondaryButton";
-import { Glyph, MenuIcon } from "../ui/icons";
+import { MenuIcon } from "../ui/icons";
 import { EmptyState, ErrorState, LoadingState } from "../ui/StateView";
 import {
   dayOfWeekFromDate,
@@ -176,7 +175,7 @@ function TrainerFlow({
     <TrainerConfirm
       trainer={trainer}
       submitting={request.isPending}
-      errorMessage={resolveErrorMessage(request.error, t)}
+      errorMessage={creationErrorMessage(request.error, t)}
       slot={slot}
       onSlotChange={setSlot}
       onConfirm={() => {
@@ -346,27 +345,23 @@ function TrainerConfirm({
 }
 
 /**
- * The result, rendered straight from {@link IndividualRequestResult}: a calm success
- * when the trainer was DM'd, or — when `delivered:false` — a calm soft "trainer
- * unavailable" state. The soft state is informational (a 200), so it is announced as a
- * `role="status"` region with a muted chip, NEVER a red `role="alert"` error.
+ * A successful response means the durable request was saved. Delivery is an internal
+ * staff-routing outcome, never a promise that the trainer received or approved it.
  */
 function TrainerResult({
   result,
   onHome,
-  onPickAnother
+  onPickAnother: _onPickAnother
 }: {
   result: IndividualRequestResult;
   onHome: () => void;
   onPickAnother: () => void;
 }): JSX.Element {
-  if (result.delivered) {
-    return <TrainerDelivered onHome={onHome} />;
-  }
-  return <TrainerUnavailable onHome={onHome} onPickAnother={onPickAnother} />;
+  void result;
+  return <TrainerDelivered onHome={onHome} />;
 }
 
-/** Delivered-success state: the request reached the trainer. */
+/** Saved-request state. Delivery routing is deliberately not shown as approval. */
 function TrainerDelivered({ onHome }: { onHome: () => void }): JSX.Element {
   const t = useT();
 
@@ -390,44 +385,14 @@ function TrainerDelivered({ onHome }: { onHome: () => void }): JSX.Element {
   );
 }
 
-/**
- * The calm soft state for `delivered:false` (the trainer has no/unreachable Telegram
- * channel): a muted chip + header + body on a status surface — never an error. The
- * primary action returns to the list to pick another trainer.
- */
-function TrainerUnavailable({
-  onHome,
-  onPickAnother
-}: {
-  onHome: () => void;
-  onPickAnother: () => void;
-}): JSX.Element {
-  const t = useT();
-
-  useMainButton({
-    text: t("miniapp.individual.pickAnother"),
-    onClick: onPickAnother
-  });
-
-  return (
-    <div className="screen" role="status" aria-live="polite">
-      <Placeholder
-        header={t("miniapp.individual.unavailableTitle")}
-        description={t("miniapp.individual.unavailableBody")}
-      >
-        <span className="waitlist-badge waitlist-badge--muted" aria-hidden="true">
-          <Glyph name="individual" />
-        </span>
-      </Placeholder>
-      <FallbackButton text={t("miniapp.individual.pickAnother")} onClick={onPickAnother} />
-      <SecondaryButton text={t("miniapp.individual.toHome")} onClick={onHome} />
-    </div>
-  );
-}
-
 /** The neutral main/guest type label for a trainer; never the telegramId. */
 function trainerTypeLabel(type: Trainer["type"], t: TranslateFn): string {
   return t(type === "main" ? "miniapp.individual.typeMain" : "miniapp.individual.typeGuest");
+}
+
+function creationErrorMessage(error: unknown, t: TranslateFn): string | undefined {
+  if (error instanceof TypeError) return t("miniapp.records.unknownCreate");
+  return resolveErrorMessage(error, t);
 }
 
 interface IndividualSlot {

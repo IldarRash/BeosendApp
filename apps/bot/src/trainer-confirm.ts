@@ -1,4 +1,5 @@
-import type { Context } from "grammy";
+import { InlineKeyboard, type Context } from "grammy";
+import { decisionReasonSchema, type DecisionReason, type DecisionReasonCode } from "@beosand/types";
 import type { ApiClient, TrainerDecisionResult } from "./api-client";
 import { t, type Catalog } from "./i18n";
 
@@ -33,6 +34,55 @@ export interface TrainerDecision {
   target: "booking" | "subscription" | "individual";
   action: "confirm" | "decline";
   id: string;
+}
+
+export interface PendingTrainerDecline {
+  decision: TrainerDecision;
+  code: DecisionReasonCode;
+}
+
+export const TRAINER_REASON_ACTIONS = { prefix: "tr:why:", addPrefix: "tr:add:", goPrefix: "tr:go:" } as const;
+const targetCode = (target: TrainerDecision["target"]) => target === "booking" ? "b" : target === "subscription" ? "s" : "i";
+const targetFromCode = (target: string): TrainerDecision["target"] | undefined => target === "b" ? "booking" : target === "s" ? "subscription" : target === "i" ? "individual" : undefined;
+const reasonCode = (code: string): DecisionReasonCode | undefined => ["unavailable", "schedule-change", "staff-unavailable", "other"].includes(code) ? code as DecisionReasonCode : undefined;
+
+function reasonData(prefix: string, decision: TrainerDecision, code: DecisionReasonCode): string {
+  return `${prefix}${targetCode(decision.target)}:${decision.id}:${code}`;
+}
+
+function parseReasonData(data: string | undefined, prefix: string): PendingTrainerDecline | undefined {
+  if (!data?.startsWith(prefix)) return undefined;
+  const [target, id, code] = data.slice(prefix.length).split(":");
+  const parsedTarget = targetFromCode(target ?? "");
+  const parsedCode = reasonCode(code ?? "");
+  if (!parsedTarget || !parsedCode || !id) return undefined;
+  return { decision: { target: parsedTarget, action: "decline", id }, code: parsedCode };
+}
+
+export function parseTrainerReason(data: string | undefined): PendingTrainerDecline | undefined {
+  return parseReasonData(data, TRAINER_REASON_ACTIONS.prefix);
+}
+
+export function parseTrainerCommentAction(data: string | undefined): { action: "add" | "go"; pending: PendingTrainerDecline } | undefined {
+  const add = parseReasonData(data, TRAINER_REASON_ACTIONS.addPrefix);
+  if (add) return { action: "add", pending: add };
+  const go = parseReasonData(data, TRAINER_REASON_ACTIONS.goPrefix);
+  return go ? { action: "go", pending: go } : undefined;
+}
+
+export function trainerReasonKeyboard(catalog: Catalog, decision: TrainerDecision): InlineKeyboard {
+  const keyboard = new InlineKeyboard();
+  for (const code of ["unavailable", "schedule-change", "staff-unavailable", "other"] as const) {
+    keyboard.text(t(catalog, `bot.trainerConfirm.reason.${code}`), reasonData(TRAINER_REASON_ACTIONS.prefix, decision, code)).row();
+  }
+  return keyboard;
+}
+
+export function trainerCommentKeyboard(catalog: Catalog, pending: PendingTrainerDecline): InlineKeyboard {
+  return new InlineKeyboard()
+    .text(t(catalog, "bot.trainerConfirm.addComment"), reasonData(TRAINER_REASON_ACTIONS.addPrefix, pending.decision, pending.code))
+    .row()
+    .text(t(catalog, "bot.trainerConfirm.withoutComment"), reasonData(TRAINER_REASON_ACTIONS.goPrefix, pending.decision, pending.code));
 }
 
 /**
@@ -104,21 +154,22 @@ export type TrainerConfirmApi = Pick<
 function callDecision(
   api: TrainerConfirmApi,
   decision: TrainerDecision,
-  telegramId: number
+  telegramId: number,
+  reason?: DecisionReason
 ): Promise<TrainerDecisionResult> {
   if (decision.target === "booking") {
     return decision.action === "confirm"
       ? api.confirmBooking(decision.id, telegramId)
-      : api.declineBooking(decision.id, telegramId);
+      : api.declineBooking(decision.id, telegramId, reason!);
   }
   if (decision.target === "individual") {
     return decision.action === "confirm"
       ? api.confirmIndividualRequest(decision.id, telegramId)
-      : api.declineIndividualRequest(decision.id, telegramId);
+      : api.declineIndividualRequest(decision.id, telegramId, reason!);
   }
   return decision.action === "confirm"
     ? api.confirmSubscription(decision.id, telegramId)
-    : api.declineSubscription(decision.id, telegramId);
+    : api.declineSubscription(decision.id, telegramId, reason!);
 }
 
 /** The outcome text shown in the edited DM, keyed off the API's typed result. */
@@ -156,12 +207,48 @@ export async function handleTrainerDecision(
   if (telegramId === undefined) {
     return;
   }
+  if (decision.action === "decline") {
+    try {
+      await ctx.editMessageText(t(catalog, "bot.trainerConfirm.pickReason"), {
+        reply_markup: trainerReasonKeyboard(catalog, decision)
+      });
+    } catch {
+      await ctx.reply(t(catalog, "bot.trainerConfirm.pickReason"), {
+        reply_markup: trainerReasonKeyboard(catalog, decision)
+      });
+    }
+    return;
+  }
   const result = await callDecision(api, decision, telegramId);
   const text = decisionOutcomeText(catalog, decision, result);
   try {
     await ctx.editMessageText(text, { reply_markup: undefined });
   } catch {
     // The DM is too old to edit (or was deleted): still confirm the outcome.
+    await ctx.reply(text);
+  }
+}
+
+/** Commit a staff decline only after an explicit reason (and optional comment) was collected. */
+export async function handleTrainerDecline(
+  ctx: Context,
+  api: TrainerConfirmApi,
+  catalog: Catalog,
+  telegramId: number | undefined,
+  pending: PendingTrainerDecline,
+  comment: string | null
+): Promise<void> {
+  if (telegramId === undefined) return;
+  const parsed = decisionReasonSchema.safeParse({ code: pending.code, comment });
+  if (!parsed.success) {
+    await ctx.reply(t(catalog, "bot.trainerConfirm.commentPrompt"));
+    return;
+  }
+  const result = await callDecision(api, pending.decision, telegramId, parsed.data);
+  const text = decisionOutcomeText(catalog, pending.decision, result);
+  try {
+    await ctx.editMessageText(text, { reply_markup: undefined });
+  } catch {
     await ctx.reply(text);
   }
 }

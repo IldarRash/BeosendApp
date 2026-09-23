@@ -9,6 +9,7 @@ import {
   uuid
 } from "./common";
 import { courtWorkingHoursSchema } from "./settings-contracts";
+import { decisionReasonSchema } from "./record-status-contracts";
 
 /** Editions 2: court rental requests. Clients request time only; admin assigns the court. */
 
@@ -332,7 +333,8 @@ export type ReassignCourtRequest = z.infer<typeof reassignCourtRequestSchema>;
 /** C4 — admin rejects a pending request. Stamps decided_*; notifies the client. */
 export const rejectCourtRequestSchema = z
   .object({
-    requestId: uuid
+    requestId: uuid,
+    reason: decisionReasonSchema
   })
   .strict();
 export type RejectCourtRequest = z.infer<typeof rejectCourtRequestSchema>;
@@ -343,7 +345,8 @@ export type RejectCourtRequest = z.infer<typeof rejectCourtRequestSchema>;
  */
 export const cancelCourtRequestSchema = z
   .object({
-    requestId: uuid
+    requestId: uuid,
+    reason: decisionReasonSchema
   })
   .strict();
 export type CancelCourtRequest = z.infer<typeof cancelCourtRequestSchema>;

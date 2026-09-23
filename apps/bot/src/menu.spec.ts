@@ -23,8 +23,9 @@ function callbacksOf(keyboard: { inline_keyboard: unknown[][] }): (string | unde
 }
 
 describe("mainMenuKeyboard", () => {
-  it("renders only contact + language now that booking flows live in the Mini App", () => {
+  it("renders status history, contact, and language while booking flows live in the Mini App", () => {
     expect(callbacksOf(mainMenuKeyboard(ru))).toEqual([
+      MENU_ACTIONS.myBookings,
       MENU_ACTIONS.contactManager,
       MENU_ACTIONS.language
     ]);
@@ -36,7 +37,7 @@ describe("mainMenuKeyboard", () => {
     expect(callbacks).not.toContain(MENU_ACTIONS.availableTrainings);
     expect(callbacks).not.toContain(MENU_ACTIONS.joinGroup);
     expect(callbacks).not.toContain(MENU_ACTIONS.individual);
-    expect(callbacks).not.toContain(MENU_ACTIONS.myBookings);
+    expect(callbacks).toContain(MENU_ACTIONS.myBookings);
   });
 
   it("omits the Mini App web_app button when no URL is configured", () => {

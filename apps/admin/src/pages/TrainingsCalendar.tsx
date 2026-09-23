@@ -9,6 +9,7 @@ import {
 } from "@beosand/types";
 import { Button } from "../ui/Button";
 import { Modal } from "../ui/Modal";
+import { useDecisionReason } from "../ui/ReasonFields";
 import { SelectField, type SelectOption } from "../ui/Field";
 import { useToast } from "../ui/Toast";
 import { useT } from "../i18n/LanguageProvider";
@@ -326,6 +327,7 @@ function TrainingDetailModal({
   const detail = useTrainingDetail(id);
   const del = useDeleteTraining();
   const [confirming, setConfirming] = useState(false);
+  const deleteReason = useDecisionReason();
 
   // Reset the confirm step + any stale mutation error whenever a new event opens.
   const [lastId, setLastId] = useState<string | null>(null);
@@ -345,7 +347,9 @@ function TrainingDetailModal({
 
   function submitDelete(): void {
     if (!item) return;
-    del.mutate(item.id, {
+    const reason = deleteReason.validate();
+    if (!reason) return;
+    del.mutate({ id: item.id, reason }, {
       onSuccess: () => {
         notify(t("admin.calendar.deleted"), "success");
         close();
@@ -393,13 +397,13 @@ function TrainingDetailModal({
           <TrainingDetailBody item={item} t={t} />
           <RosterSection trainingId={item.id} t={t} />
           {confirming ? (
-            <p role="alert">
+            <div className="stack"><p role="alert">
               {t("admin.calendar.deletePrompt", {
                 date: item.date,
                 start: item.startTime,
                 end: item.endTime
               })}
-            </p>
+            </p>{deleteReason.fields}</div>
           ) : null}
         </div>
       ) : null}

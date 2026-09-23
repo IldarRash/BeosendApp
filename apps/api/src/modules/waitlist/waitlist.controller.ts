@@ -10,7 +10,7 @@ import {
   swapWaitlistEntrySchema,
   uuid
 } from "@beosand/types";
-import type { ZodSchema } from "zod";
+import { z, type ZodSchema } from "zod";
 import { WaitlistService } from "./waitlist.service";
 
 /** Thin: parse + Zod-validate, resolve actor, call one service method (T2.1 + admin tools). */
@@ -91,8 +91,8 @@ export class WaitlistController {
   ): Promise<WaitlistEntry> {
     const actorTelegramId = parseTelegramId(telegramIdHeader);
     const id = validate(uuid, entryId);
-    validate(removeWaitlistEntrySchema, body ?? {});
-    return this.waitlist.removeEntry(actorTelegramId, id);
+    const input = validate(removeWaitlistEntrySchema, body ?? {});
+    return this.waitlist.removeEntry(actorTelegramId, id, input.reason);
   }
 }
 
@@ -127,7 +127,7 @@ function resolveClientActor(
 }
 
 /** Zod-validate at the boundary; surface failures as 400 instead of 500. */
-function validate<T>(schema: ZodSchema<T>, input: unknown): T {
+function validate<TSchema extends ZodSchema>(schema: TSchema, input: unknown): z.output<TSchema> {
   const result = schema.safeParse(input);
   if (!result.success) {
     throw new BadRequestException(result.error.issues.map((issue) => issue.message).join("; "));

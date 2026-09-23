@@ -32,6 +32,7 @@ const nullableBookingSnapshot = {
   bookingOrdinalInMonth: null,
   priceSnapshotAt: null
 };
+const DECISION_REASON = { code: "unavailable" as const, comment: null };
 
 describe("ApiClient.health", () => {
   afterEach(() => {
@@ -947,7 +948,7 @@ describe("ApiClient individual trainings & reschedule", () => {
 
   it("DELETEs an individual series and validates returned ids", async () => {
     const calls = mockFetchOnce({ ids: [TRAINING_ID] });
-    const result = await new ApiClient("http://api.test").deleteTrainingSeries(TRAINING_ID);
+    const result = await new ApiClient("http://api.test").deleteTrainingSeries(TRAINING_ID, DECISION_REASON);
     expect(calls[0]?.url).toBe(`http://api.test/trainings/${TRAINING_ID}/series`);
     expect(calls[0]?.init?.method).toBe("DELETE");
     expect(result.ids).toEqual([TRAINING_ID]);
@@ -955,7 +956,7 @@ describe("ApiClient individual trainings & reschedule", () => {
 
   it("rejects a malformed delete-series result (contract enforced)", async () => {
     mockFetchOnce({ ids: ["not-a-uuid"] });
-    await expect(new ApiClient("http://api.test").deleteTrainingSeries(TRAINING_ID)).rejects.toThrow();
+    await expect(new ApiClient("http://api.test").deleteTrainingSeries(TRAINING_ID, DECISION_REASON)).rejects.toThrow();
   });
 });
 
@@ -2031,7 +2032,7 @@ describe("ApiClient court assignment & group delete (slices 4+5)", () => {
 
   it("DELETEs the group path and validates the returned (now inactive) group", async () => {
     const calls = mockFetchOnce(group);
-    const result = await new ApiClient("http://api.test").deleteGroup(GROUP_ID);
+    const result = await new ApiClient("http://api.test").deleteGroup(GROUP_ID, DECISION_REASON);
     expect(calls[0]?.url).toBe(`http://api.test/groups/${GROUP_ID}`);
     expect(calls[0]?.init?.method).toBe("DELETE");
     expect(result.status).toBe("inactive");
@@ -2041,7 +2042,7 @@ describe("ApiClient court assignment & group delete (slices 4+5)", () => {
     // A missing required `name` fails the group contract.
     const { name: _omit, ...withoutName } = group;
     mockFetchOnce(withoutName);
-    await expect(new ApiClient("http://api.test").deleteGroup(GROUP_ID)).rejects.toThrow();
+    await expect(new ApiClient("http://api.test").deleteGroup(GROUP_ID, DECISION_REASON)).rejects.toThrow();
   });
 });
 
@@ -2075,7 +2076,7 @@ describe("ApiClient training delete & client edit", () => {
 
   it("DELETEs the training path and validates the returned {id}", async () => {
     const calls = mockFetchOnce({ id: TRAINING_ID });
-    const result = await new ApiClient("http://api.test").deleteTraining(TRAINING_ID);
+    const result = await new ApiClient("http://api.test").deleteTraining(TRAINING_ID, DECISION_REASON);
     expect(calls[0]?.url).toBe(`http://api.test/trainings/${TRAINING_ID}`);
     expect(calls[0]?.init?.method).toBe("DELETE");
     expect(result.id).toBe(TRAINING_ID);
@@ -2085,14 +2086,14 @@ describe("ApiClient training delete & client edit", () => {
     // The id must be a uuid; a non-uuid value fails the contract.
     mockFetchOnce({ id: "not-a-uuid" });
     await expect(
-      new ApiClient("http://api.test").deleteTraining(TRAINING_ID)
+      new ApiClient("http://api.test").deleteTraining(TRAINING_ID, DECISION_REASON)
     ).rejects.toThrow();
   });
 
   it("surfaces a 409 from delete-training as a typed ConflictError", async () => {
     mockFetchOnce({ statusCode: 409, message: "Conflict" }, false, 409);
     await expect(
-      new ApiClient("http://api.test").deleteTraining(TRAINING_ID)
+      new ApiClient("http://api.test").deleteTraining(TRAINING_ID, DECISION_REASON)
     ).rejects.toBeInstanceOf(ConflictError);
   });
 
@@ -2237,17 +2238,17 @@ describe("ApiClient waitlist admin tools", () => {
 
   it("cancels a roster booking through the existing booking cancel path", async () => {
     const calls = mockFetchOnce({ ...booking, status: "cancelled" });
-    const result = await new ApiClient("http://api.test").cancelBooking(BOOKING_ID);
+    const result = await new ApiClient("http://api.test").cancelBooking(BOOKING_ID, DECISION_REASON);
     expect(calls[0]?.url).toBe(`http://api.test/bookings/${BOOKING_ID}/cancel`);
     expect(calls[0]?.init?.method).toBe("POST");
-    expect(calls[0]?.init?.body).toBeUndefined();
+    expect(JSON.parse(calls[0]?.init?.body as string)).toEqual({ reason: DECISION_REASON });
     expect(result.status).toBe("cancelled");
   });
 
   it("rejects a malformed cancel-booking response (contract enforced)", async () => {
     const { paymentStatus: _omit, ...withoutPaymentStatus } = booking;
     mockFetchOnce({ ...withoutPaymentStatus, status: "cancelled" });
-    await expect(new ApiClient("http://api.test").cancelBooking(BOOKING_ID)).rejects.toThrow();
+    await expect(new ApiClient("http://api.test").cancelBooking(BOOKING_ID, DECISION_REASON)).rejects.toThrow();
   });
 
   it("reads a training's waitlist and validates the enriched rows", async () => {
@@ -2301,7 +2302,7 @@ describe("ApiClient waitlist admin tools", () => {
 
   it("removes an entry and validates the returned waitlist entry", async () => {
     const calls = mockFetchOnce({ ...entry, status: "cancelled" });
-    const result = await new ApiClient("http://api.test").removeWaitlistEntry(ENTRY_ID);
+    const result = await new ApiClient("http://api.test").removeWaitlistEntry(ENTRY_ID, DECISION_REASON);
     expect(calls[0]?.url).toBe(`http://api.test/waitlist/${ENTRY_ID}/remove`);
     expect(calls[0]?.init?.method).toBe("POST");
     expect(result.status).toBe("cancelled");
