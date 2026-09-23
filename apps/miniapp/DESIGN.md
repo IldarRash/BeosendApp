@@ -140,6 +140,7 @@ Controls are softly rounded rather than pill-heavy: 9–14px for inputs, buttons
 
 - **Week strip:** seven equal columns with a circular cobalt today marker and small dots for dates containing a personal record.
 - **Date rail:** horizontally scrollable 68px date tiles. The selected date becomes cobalt with white weekday and number.
+- **Calendar date picker:** a native-focus `<dialog>` sheet opens from the date control. It keeps 44px targets, uses a muted seven-column weekday row, disables dates before the API-safe minimum, and scrolls inside an 85dvh panel. Its dark surface is `#202b3b`, distinct from the main `#17202d` canvas.
 - **Segmented control:** two equal 48px controls on a cool-gray track; only the active segment is filled cobalt.
 
 ### Agenda and schedule rows

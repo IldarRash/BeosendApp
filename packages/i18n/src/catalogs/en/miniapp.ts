@@ -20,7 +20,7 @@ export const miniappEn: Record<string, string> = {
   "miniapp.onboarding.genderUnspecified": "Not specified",
   "miniapp.onboarding.genderRequired": "Choose a gender to continue.",
   "miniapp.onboarding.consentNotice":
-    "We process your onboarding data, including the gender you select, to provide our services and target broadcast audiences. If you choose \"Not specified\", you may still be included in both male and female audiences.",
+    'We process your onboarding data, including the gender you select, to provide our services and target broadcast audiences. If you choose "Not specified", you may still be included in both male and female audiences.',
   "miniapp.onboarding.consentLabel": "I consent to this processing of my onboarding data.",
   "miniapp.onboarding.consentRequired": "Please confirm your consent to continue.",
 
@@ -152,8 +152,7 @@ export const miniappEn: Record<string, string> = {
   "miniapp.myBookings.waitlistTitle": "On the waitlist",
   "miniapp.myBookings.waitlistPosition": "queued, position {position}",
   "miniapp.myBookings.subscription.title": "Subscription",
-  "miniapp.myBookings.subscription.summary":
-    "Booked: {booked} · waitlisted: {waitlisted}",
+  "miniapp.myBookings.subscription.summary": "Booked: {booked} · waitlisted: {waitlisted}",
   "miniapp.myBookings.individualTraining": "Individual training",
   "miniapp.myBookings.rentalsTitle": "Court rentals",
   "miniapp.myBookings.courtCount": "Courts: {count}",
@@ -181,7 +180,8 @@ export const miniappEn: Record<string, string> = {
   "miniapp.group.pendingTitle": "Request sent",
   "miniapp.group.pendingCount": "Awaiting confirmation for {count} trainings",
   "miniapp.group.waitlistedHeader": "Queued: {count}",
-  "miniapp.group.waitlistedNote": "The month is paid. These dates were full — you're queued, we'll notify you.",
+  "miniapp.group.waitlistedNote":
+    "The month is paid. These dates were full — you're queued, we'll notify you.",
   "miniapp.group.skippedHeader": "Skipped dates (no seats)",
   "miniapp.group.toMyBookings": "My bookings",
   "miniapp.group.toHome": "Home",
@@ -216,7 +216,8 @@ export const miniappEn: Record<string, string> = {
     "We'll send coach “{name}” your proposed time. The coach or admin will confirm or suggest another option.",
   "miniapp.individual.request": "Request a training",
   "miniapp.individual.sentTitle": "Request saved",
-  "miniapp.individual.sentBody": "Your request awaits confirmation. We will notify you here of the decision.",
+  "miniapp.individual.sentBody":
+    "Your request awaits confirmation. We will notify you here of the decision.",
   "miniapp.individual.toHome": "Home",
   "miniapp.individual.unavailableTitle": "The coach is unavailable right now",
   "miniapp.individual.unavailableBody":
@@ -246,7 +247,8 @@ export const miniappEn: Record<string, string> = {
   "miniapp.court.previewBody": "Your picked courts are held for you until an admin confirms.",
   "miniapp.court.submit": "Send request",
   "miniapp.court.sentTitle": "Request saved",
-  "miniapp.court.sentBody": "Your request awaits administrator confirmation. We will notify you here of the decision.",
+  "miniapp.court.sentBody":
+    "Your request awaits administrator confirmation. We will notify you here of the decision.",
   "miniapp.court.sentCourts": "Picked courts: {courts}",
   "miniapp.court.toHome": "Home",
   "miniapp.court.unavailableTitle": "This time was taken",
@@ -271,7 +273,8 @@ export const miniappEn: Record<string, string> = {
   "miniapp.schedule.alreadyBooked": "You're booked",
   "miniapp.training.roster.title": "Who's signed up",
   "miniapp.training.roster.empty": "No one signed up yet",
-  "miniapp.training.roster.private": "Participants are visible after you book or join the waitlist.",
+  "miniapp.training.roster.private":
+    "Participants are visible after you book or join the waitlist.",
   "miniapp.training.waitlist.title": "Waitlist",
 
   // --- My calendar (court + training) ---
@@ -339,7 +342,8 @@ export const miniappEn: Record<string, string> = {
   "miniapp.records.reasonCode.schedule-change": "Schedule change",
   "miniapp.records.reasonCode.staff-unavailable": "Staff unavailable",
   "miniapp.records.reasonCode.other": "Other reason",
-  "miniapp.records.unknownCreate": "We could not confirm the server response. The request may be saved — check My bookings and requests before submitting again.",
+  "miniapp.records.unknownCreate":
+    "We could not confirm the server response. The request may be saved — check My bookings and requests before submitting again.",
   "miniapp.records.price": "{price} RSD",
   "miniapp.week.aria": "My week and schedule",
   "miniapp.week.tabsAria": "Main navigation",
@@ -378,5 +382,9 @@ export const miniappEn: Record<string, string> = {
   "miniapp.week.schedulePartialTitle": "More bookings need loading",
   "miniapp.week.schedulePartialBody": "We will check whether you already have this session.",
   "miniapp.week.scheduleLoadingRecords": "Checking your bookings",
-  "miniapp.week.individualHint": "Choose a time and goal"
+  "miniapp.week.individualHint": "Choose a time and goal",
+  "miniapp.week.datePickerTitle": "Choose a date",
+  "miniapp.week.datePickerClose": "Close date picker",
+  "miniapp.week.datePickerPrevious": "Previous month",
+  "miniapp.week.datePickerNext": "Next month"
 };

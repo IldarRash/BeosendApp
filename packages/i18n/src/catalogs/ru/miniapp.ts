@@ -25,7 +25,7 @@ export const miniappRu: Record<string, string> = {
   "miniapp.onboarding.genderUnspecified": "Не указан",
   "miniapp.onboarding.genderRequired": "Выберите пол, чтобы продолжить.",
   "miniapp.onboarding.consentNotice":
-    "Мы обрабатываем данные вашей регистрации, включая выбранный пол, для предоставления услуг и целевых рассылок. Если вы выберете \"Не указан\", вы все равно можете попасть в аудитории и для мужчин, и для женщин.",
+    'Мы обрабатываем данные вашей регистрации, включая выбранный пол, для предоставления услуг и целевых рассылок. Если вы выберете "Не указан", вы все равно можете попасть в аудитории и для мужчин, и для женщин.',
   "miniapp.onboarding.consentLabel": "Я соглашаюсь на такую обработку моих данных при регистрации.",
   "miniapp.onboarding.consentRequired": "Подтвердите согласие, чтобы продолжить.",
 
@@ -162,7 +162,8 @@ export const miniappRu: Record<string, string> = {
   "miniapp.group.pendingCount": "Ожидает подтверждения по {count} тренировкам",
   // Waitlisted dates: full dates the client was queued on (month paid, место в очереди).
   "miniapp.group.waitlistedHeader": "В очереди: {count}",
-  "miniapp.group.waitlistedNote": "Месяц оплачен. Эти даты были заняты — вы в очереди, мы уведомим вас.",
+  "miniapp.group.waitlistedNote":
+    "Месяц оплачен. Эти даты были заняты — вы в очереди, мы уведомим вас.",
   "miniapp.group.skippedHeader": "Пропущенные даты (нет мест)",
   "miniapp.group.toMyBookings": "К моим записям",
   "miniapp.group.toHome": "На главную",
@@ -213,7 +214,8 @@ export const miniappRu: Record<string, string> = {
   "miniapp.individual.toHome": "На главную",
   // Calm soft state when the trainer is unreachable (a 200 delivered:false — NOT an error).
   "miniapp.individual.unavailableTitle": "Тренер сейчас недоступен",
-  "miniapp.individual.unavailableBody": "Пока не получилось связаться. Попробуйте выбрать другого тренера.",
+  "miniapp.individual.unavailableBody":
+    "Пока не получилось связаться. Попробуйте выбрать другого тренера.",
   "miniapp.individual.pickAnother": "Выбрать другого",
 
   // --- Court rental request (S9) ---
@@ -241,7 +243,8 @@ export const miniappRu: Record<string, string> = {
   "miniapp.court.courtsLabel": "Корты",
   // Step 5 — price preview ({price} is RSD from the server, for the picked courts).
   "miniapp.court.previewTitle": "Подтверждение заявки",
-  "miniapp.court.previewBody": "Выбранные корты закреплены за вами до подтверждения администратором.",
+  "miniapp.court.previewBody":
+    "Выбранные корты закреплены за вами до подтверждения администратором.",
   "miniapp.court.submit": "Отправить заявку",
   // Step 6 — pending. Court numbers are redacted until admin confirmation.
   "miniapp.court.sentTitle": "Заявка сохранена",
@@ -308,8 +311,7 @@ export const miniappRu: Record<string, string> = {
   "miniapp.myBookings.waitlistPosition": "в очереди, позиция {position}",
   // Monthly subscription card on the Upcoming tab: booked + waitlisted dates together.
   "miniapp.myBookings.subscription.title": "Абонемент",
-  "miniapp.myBookings.subscription.summary":
-    "Записей: {booked} · в листе ожидания: {waitlisted}",
+  "miniapp.myBookings.subscription.summary": "Записей: {booked} · в листе ожидания: {waitlisted}",
   "miniapp.myBookings.individualTraining": "Индивидуальная тренировка",
   "miniapp.myBookings.rentalsTitle": "Аренда кортов",
   "miniapp.myBookings.courtCount": "Кортов: {count}",
@@ -389,7 +391,8 @@ export const miniappRu: Record<string, string> = {
   "miniapp.records.reasonCode.schedule-change": "Изменение расписания",
   "miniapp.records.reasonCode.staff-unavailable": "Сотрудник недоступен",
   "miniapp.records.reasonCode.other": "Другая причина",
-  "miniapp.records.unknownCreate": "Не удалось подтвердить ответ сервера. Заявка могла сохраниться — проверьте «Мои записи и заявки» перед повторной отправкой.",
+  "miniapp.records.unknownCreate":
+    "Не удалось подтвердить ответ сервера. Заявка могла сохраниться — проверьте «Мои записи и заявки» перед повторной отправкой.",
   "miniapp.records.price": "{price} RSD",
   "miniapp.week.aria": "Моя неделя и расписание",
   "miniapp.week.tabsAria": "Основная навигация",
@@ -428,5 +431,9 @@ export const miniappRu: Record<string, string> = {
   "miniapp.week.schedulePartialTitle": "Нужно загрузить ещё записи",
   "miniapp.week.schedulePartialBody": "Проверим, нет ли у вас записи на выбранное занятие.",
   "miniapp.week.scheduleLoadingRecords": "Проверяем ваши записи",
-  "miniapp.week.individualHint": "Подобрать время и задачу"
+  "miniapp.week.individualHint": "Подобрать время и задачу",
+  "miniapp.week.datePickerTitle": "Выбрать дату",
+  "miniapp.week.datePickerClose": "Закрыть выбор даты",
+  "miniapp.week.datePickerPrevious": "Предыдущий месяц",
+  "miniapp.week.datePickerNext": "Следующий месяц"
 };
