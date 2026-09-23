@@ -206,7 +206,7 @@ flowchart TD
 | E | frontend-implementer / worker Mini App; D | Единый список, история, результаты действий; формы причин; UI-тесты и визуальная проверка | succeeded |
 | F | bot-implementer; D | Статусы списка, история, сбор причины, актуальные ответы; тесты callback и API client | succeeded |
 | G | root + выбранные проверяющие; E и F | Интеграция, correctness/security review, полный набор проверок, runtime-сценарии | succeeded |
-| H | root; G | Итог, результаты проверок, миграция/rollout handoff, ограничения | running |
+| H | root; G | Итог, результаты проверок, миграция/rollout handoff, ограничения | succeeded |
 
 Правила графа:
 
@@ -358,3 +358,11 @@ flowchart TD
 - Перед production rollout применить migration 0037, затем выпускать API, bot,
   admin и Mini App согласованно: staff-команды теперь требуют тело с причиной.
   Существующим строкам не выдумываются причины и не рассылаются старые уведомления.
+### Передача H
+
+- Реализация опубликована в ready-for-review PR: https://github.com/IldarRash/BeosendApp/pull/74.
+- Рабочая ветка: `codex/booking-status-transparency`; базовая ветка: `main`.
+- Результат CI привязан к актуальной голове PR и доступен в его Checks.
+- Временные HTTP/Vite серверы остановлены; синтетические записи очищены.
+  Изолированная fixture-БД сохранена для повторения проверок.
+- Merge, production migration, deployment и реальные сообщения не выполнялись.
