@@ -1,12 +1,12 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { act, cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { AppRoot } from "@telegram-apps/telegram-ui";
 import type { ReactNode } from "react";
 import type { Client, Level, MiniappMe } from "@beosand/types";
 import { LanguageProvider } from "../i18n/LanguageProvider";
 import { Router } from "./Router";
-import { HOME_SECTIONS, resolveStartParam, resolveStartTarget, toRouteId } from "./routes";
+import { resolveStartParam, resolveStartTarget, toRouteId } from "./routes";
 
 /**
  * S2 navigation-shell tests. Two layers:
@@ -55,6 +55,8 @@ interface FakeApi {
   getClientByTelegramId: ReturnType<typeof vi.fn>;
   onboardClient: ReturnType<typeof vi.fn>;
   setLanguage: ReturnType<typeof vi.fn>;
+  listClientRecords: ReturnType<typeof vi.fn>;
+  listTrainingSchedule: ReturnType<typeof vi.fn>;
 }
 
 let api: FakeApi;
@@ -71,6 +73,10 @@ function makeApi(overrides: Partial<FakeApi> = {}): FakeApi {
     getClientByTelegramId: vi.fn().mockResolvedValue(ONBOARDED),
     onboardClient: vi.fn().mockResolvedValue(ONBOARDED),
     setLanguage: vi.fn().mockResolvedValue(ONBOARDED),
+    listClientRecords: vi
+      .fn()
+      .mockResolvedValue({ items: [], total: 0, hasMore: false, nextOffset: null }),
+    listTrainingSchedule: vi.fn().mockResolvedValue([]),
     ...overrides
   };
 }
@@ -154,33 +160,26 @@ describe("route table (pure)", () => {
   });
 
   it("exposes exactly the client journeys — no admin/trainer entry", () => {
-    const ids = HOME_SECTIONS.flatMap((s) => s.items.map((i) => i.routeId)).sort();
-    expect(ids).toEqual([
-      "calendar",
-      "court",
-      "group",
-      "individual",
-      "my-bookings",
-      "profile"
-    ]);
+    const ids = ["calendar", "court", "group", "individual", "my-bookings", "profile"];
+    expect(ids.map(toRouteId)).toEqual(ids);
+    expect(toRouteId("admin")).toBeNull();
   });
 });
 
 describe("navigation shell", () => {
-  it("lands an onboarded client on the Home menu with BackButton hidden", async () => {
+  it("lands an onboarded client on My week with BackButton hidden", async () => {
     renderWithProviders(<Router />);
 
     // The Home hub renders the section headers and journey rows.
-    await screen.findByText("Мой календарь");
-    expect(screen.getByText("Тренировки")).toBeTruthy();
-    expect(screen.getByText("Аренда корта")).toBeTruthy();
+    await screen.findByRole("heading", { name: "Моя неделя" });
+    expect(screen.getByRole("navigation")).toBeTruthy();
     // On the root, the BackButton is hidden (canPop === false).
     expect(latestBackButton().visible).toBe(false);
   });
 
   it("renders exactly the client journey rows and no admin/trainer entry", async () => {
     renderWithProviders(<Router />);
-    await screen.findByText("Мой календарь");
+    await screen.findByRole("heading", { name: "Моя неделя" });
 
     // The hub is the client surface: nothing manager/trainer-only is ever surfaced
     // (the held token is scope:"client"; the menu has no role branch by construction).
@@ -192,17 +191,15 @@ describe("navigation shell", () => {
     // Exactly the client journey rows — Home has no MainButton and no BackButton at
     // the root. The persistent top app bar adds one always-present avatar button
     // ("Профиль"), which is not a journey row, so it is excluded from the count.
-    const journeyRows = screen
-      .getAllByRole("button")
-      .filter((el) => el.getAttribute("aria-label") !== "Профиль");
-    expect(journeyRows).toHaveLength(HOME_SECTIONS.flatMap((s) => s.items).length);
+    expect(screen.getByRole("navigation").querySelectorAll("button")).toHaveLength(4);
   });
 
   it("pushes a journey on tap and shows the BackButton, which pops to Home", async () => {
     renderWithProviders(<Router />);
 
     // Open the court rental request flow (S9 — the last placeholder, now a real screen).
-    fireEvent.click(await screen.findByText("Аренда корта"));
+    fireEvent.click(await screen.findByRole("button", { name: "Расписание" }));
+    fireEvent.click(await screen.findByRole("button", { name: "Аренда кортов" }));
 
     // The court flow opens as one selection screen with the date strip and duration
     // choices visible together, and the BackButton is now visible (a sub-screen).
@@ -211,14 +208,18 @@ describe("navigation shell", () => {
     expect(latestBackButton().visible).toBe(true);
 
     // Firing the BackButton's onBack pops back to the Home menu.
-    latestBackButton().onBack();
-    await waitFor(() => expect(screen.getByText("Тренировки")).toBeTruthy());
+    act(() => latestBackButton().onBack());
+    await waitFor(() =>
+      expect(screen.getByRole("heading", { name: "Когда играем?" })).toBeTruthy()
+    );
+    act(() => latestBackButton().onBack());
+    await screen.findByRole("heading", { name: "Моя неделя" });
     expect(latestBackButton().visible).toBe(false);
   });
 
   it("opens the existing ProfileScreen for the profile route", async () => {
     renderWithProviders(<Router />);
-    fireEvent.click(await screen.findByText("Профиль и язык"));
+    fireEvent.click(await screen.findByRole("button", { name: "Профиль" }));
 
     // ProfileScreen renders the settings section + the language row.
     await screen.findByText("Настройки");
@@ -234,8 +235,8 @@ describe("navigation shell", () => {
     await screen.findByText("Настройки");
     expect(latestBackButton().visible).toBe(true);
 
-    latestBackButton().onBack();
-    await waitFor(() => expect(screen.getByText("Тренировки")).toBeTruthy());
+    act(() => latestBackButton().onBack());
+    await waitFor(() => expect(screen.getByRole("heading", { name: "Моя неделя" })).toBeTruthy());
   });
 
   it("opens Home for an unknown/unreachable deep link, never an error", async () => {
@@ -244,7 +245,7 @@ describe("navigation shell", () => {
     startParam = "waitlist_999";
     renderWithProviders(<Router />);
 
-    await screen.findByText("Мой календарь");
+    await screen.findByRole("heading", { name: "Моя неделя" });
     expect(latestBackButton().visible).toBe(false);
   });
 

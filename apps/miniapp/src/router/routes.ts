@@ -1,16 +1,4 @@
-import type { HomeMenuSection } from "../screens/HomeScreen";
-import type { IconName } from "../ui/icons";
-
-/**
- * The Mini App's route table — a local UI concern, NOT a domain contract, so it
- * lives here and never in `@beosand/types`. Navigation is a tiny typed in-memory
- * stack (no router library: Telegram Mini Apps have no browser URL/history bar —
- * back-navigation is the native BackButton — and the surface is a shallow
- * hub-and-spoke). A closed union of route ids makes an unknown route a *type
- * error* rather than a runtime 404.
- */
-
-/** Every reachable client route. `home` is the stack root; the rest are pushable. */
+/** Client-only routes. Existing Telegram deep-link prefixes remain stable. */
 export type RouteId =
   | "home"
   | "my-bookings"
@@ -19,89 +7,8 @@ export type RouteId =
   | "court"
   | "calendar"
   | "profile";
-
-/** The pushable sub-screens (everything except the `home` root). */
 export type SubRouteId = Exclude<RouteId, "home">;
-
-/**
- * One Home-menu journey: its route id, the leading coral icon, and the i18n keys
- * for its label + one-line hint. This is the single source of truth for the menu
- * and the deep-link map, so the two can never drift.
- */
-interface MenuEntry {
-  id: SubRouteId;
-  icon: IconName;
-  labelKey: string;
-  hintKey: string;
-}
-
-/**
- * The client journeys, grouped for visual rhythm. The list is statically the client
- * journeys — there is no role branch and no admin/trainer entry by construction (the
- * held token is `scope:"client"`).
- *
- * The Trainings section leads with a single "Мой календарь" tile: ONE Google-style month
- * calendar merging today's bookable sessions, the user's own trainings, and court
- * rentals — its day view enters the inline booking flow. Single booking and waitlist are
- * deliberately NOT menu entries — they are reached from inside that calendar day view,
- * not the Home hub.
- */
-const MENU_GROUPS: ReadonlyArray<{ headerKey: string; items: ReadonlyArray<MenuEntry> }> = [
-  {
-    headerKey: "miniapp.home.sectionTrainings",
-    items: [
-      {
-        id: "calendar",
-        icon: "calendar",
-        labelKey: "miniapp.home.calendar",
-        hintKey: "miniapp.home.calendarHint"
-      },
-      {
-        id: "my-bookings",
-        icon: "myBookings",
-        labelKey: "miniapp.home.myBookings",
-        hintKey: "miniapp.home.myBookingsHint"
-      },
-      { id: "group", icon: "group", labelKey: "miniapp.home.group", hintKey: "miniapp.home.groupHint" },
-      {
-        id: "individual",
-        icon: "individual",
-        labelKey: "miniapp.home.individual",
-        hintKey: "miniapp.home.individualHint"
-      }
-    ]
-  },
-  {
-    headerKey: "miniapp.home.sectionCourts",
-    items: [
-      { id: "court", icon: "court", labelKey: "miniapp.home.court", hintKey: "miniapp.home.courtHint" }
-    ]
-  },
-  {
-    headerKey: "miniapp.home.sectionAccount",
-    items: [
-      { id: "profile", icon: "profile", labelKey: "miniapp.home.profile", hintKey: "miniapp.home.profileHint" }
-    ]
-  }
-];
-
-/**
- * The Home menu, shaped for the presentational {@link HomeScreen} (which takes the
- * route id as a bare `string` so it never imports this union — a clean
- * design/wiring seam). Built from {@link MENU_GROUPS} so the menu and the
- * deep-link map share one source.
- */
-export const HOME_SECTIONS: ReadonlyArray<HomeMenuSection> = MENU_GROUPS.map((group) => ({
-  headerKey: group.headerKey,
-  items: group.items.map((item) => ({
-    routeId: item.id,
-    icon: item.icon,
-    labelKey: item.labelKey,
-    hintKey: item.hintKey
-  }))
-}));
-
-/** Every valid route id, for narrowing a bare string from the presentational HomeScreen. */
+/** Every valid route id, for narrowing a bare string from external navigation input. */
 const ROUTE_IDS: ReadonlySet<RouteId> = new Set<RouteId>([
   "home",
   "my-bookings",
@@ -113,7 +20,7 @@ const ROUTE_IDS: ReadonlySet<RouteId> = new Set<RouteId>([
 ]);
 
 /**
- * Narrow a bare string (HomeScreen reports the tapped row's route id as a `string`
+ * Narrow a bare string (external navigation may supply a bare string
  * so it never imports this union) to a {@link RouteId}, or `null` if it isn't one.
  * In practice the menu only ever emits real ids; this keeps the wiring type-safe
  * without an `as` cast.
@@ -128,9 +35,9 @@ export function toRouteId(value: string): RouteId | null {
  *
  *   home (or empty/absent) → home (default)
  *   browse                 → calendar      (legacy "записаться" deep link → the unified
- *                                           calendar, its replacement)
+ *                                           schedule, its replacement)
  *   schedule               → calendar      (legacy schedule deep link → the unified
- *                                           calendar that replaced it)
+ *                                           schedule that replaced it)
  *   mybookings             → my-bookings   (reminder + waitlist-promotion notifications)
  *   group                  → group
  *   individual             → individual
@@ -144,7 +51,7 @@ export function toRouteId(value: string): RouteId | null {
  */
 const DEEP_LINK_ROUTES: Readonly<Record<string, RouteId>> = {
   home: "home",
-  // The legacy "записаться" and "schedule" deep links both land on the unified calendar.
+  // The legacy "записаться" and "schedule" deep links both land on the schedule.
   browse: "calendar",
   schedule: "calendar",
   mybookings: "my-bookings",

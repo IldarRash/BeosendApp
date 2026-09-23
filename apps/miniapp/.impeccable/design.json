@@ -1,0 +1,89 @@
+{
+  "schemaVersion": 2,
+  "generatedAt": "2026-09-23T19:58:00+02:00",
+  "title": "Design System: BeoSand Mini App",
+  "extensions": {
+    "colorMeta": {
+      "canvas": { "role": "neutral", "displayName": "Telegram Canvas", "canonical": "#fff", "tonalRamp": ["#17202d", "#344255", "#64748b", "#aebacc", "#dfe6ef", "#eef2f7", "#f5f8fc", "#fff"] },
+      "ink": { "role": "neutral", "displayName": "Agenda Navy", "canonical": "#152538", "tonalRamp": ["#0d1622", "#152538", "#263a50", "#64748b", "#aebacc", "#d5deea", "#edf2f8", "#f5f8fc"] },
+      "cobalt": { "role": "primary", "displayName": "Schedule Cobalt", "canonical": "#234ed8", "tonalRamp": ["#0d2577", "#1538a3", "#234ed8", "#3c67d2", "#6689e3", "#8eafff", "#c9d7ff", "#eef3ff"] },
+      "confirmed": { "role": "secondary", "displayName": "Confirmed Green", "canonical": "#116333", "tonalRamp": ["#0b3920", "#116333", "#237c48", "#56a871", "#8bce9f", "#a5ebbd", "#d3f4dc", "#e3f7ea"] },
+      "pending": { "role": "tertiary", "displayName": "Pending Amber", "canonical": "#914400", "tonalRamp": ["#4b270d", "#6d350a", "#914400", "#b7630d", "#d99137", "#ffd08a", "#ffe3b8", "#fff1d8"] }
+    },
+    "typographyMeta": {
+      "display": { "displayName": "Schedule Display", "purpose": "Page-level week and schedule headings." },
+      "body": { "displayName": "Telegram Body", "purpose": "Record details, supporting text, and standard controls." },
+      "time": { "displayName": "Tabular Time", "purpose": "Aligned start-time columns in agenda and schedule rows." }
+    },
+    "shadows": [
+      { "name": "selected-segment", "value": "0 5px 12px rgba(35,78,216,.24)", "purpose": "Lift the selected tab inside a segmented control." },
+      { "name": "primary-action", "value": "0 8px 18px rgba(35,78,216,.26)", "purpose": "Give the primary scheduling action a restrained affordance." }
+    ],
+    "motion": [],
+    "breakpoints": [
+      { "name": "compact", "value": "350px" },
+      { "name": "shell-max", "value": "640px" }
+    ]
+  },
+  "components": [
+    {
+      "name": "Primary Schedule Action",
+      "kind": "button",
+      "refersTo": "button-primary",
+      "description": "The full-width action that opens an allowed scheduling path.",
+      "html": "<button class=\"ds-primary\">ADD TRAINING</button>",
+      "css": ".ds-primary { width: 100%; min-height: 54px; border: 0; border-radius: 14px; background: #234ed8; color: #fff; font: 750 17px -apple-system, BlinkMacSystemFont, 'SF Pro Text', system-ui, sans-serif; box-shadow: 0 8px 18px rgba(35,78,216,.26); cursor: pointer; } .ds-primary:hover { background: #1538a3; } .ds-primary:focus-visible { outline: 3px solid #234ed8; outline-offset: 2px; } .ds-primary:active { transform: translateY(1px); }"
+    },
+    {
+      "name": "Selected Date Tile",
+      "kind": "chip",
+      "refersTo": "date-selected",
+      "description": "A compact day tile in the horizontally scrollable schedule rail.",
+      "html": "<button class=\"ds-date\"><span>WED</span><strong>23</strong></button>",
+      "css": ".ds-date { display: grid; align-content: center; gap: 4px; width: 68px; min-height: 74px; border: 1px solid #234ed8; border-radius: 13px; background: #234ed8; color: #fff; font-family: -apple-system, BlinkMacSystemFont, 'SF Pro Text', system-ui, sans-serif; cursor: pointer; } .ds-date span { font-size: 12px; font-weight: 650; } .ds-date strong { font-size: 24px; line-height: 1; } .ds-date:hover { background: #1538a3; } .ds-date:focus-visible { outline: 3px solid #8eafff; outline-offset: 2px; }"
+    },
+    {
+      "name": "Confirmed Status",
+      "kind": "chip",
+      "refersTo": "status-confirmed",
+      "description": "A server-owned confirmed-state label; color is never the only carrier of meaning.",
+      "html": "<span class=\"ds-status-confirmed\">CONFIRMED</span>",
+      "css": ".ds-status-confirmed { display: inline-block; padding: 7px 10px; border-radius: 999px; background: #e3f7ea; color: #116333; font: 700 13px -apple-system, BlinkMacSystemFont, 'SF Pro Text', system-ui, sans-serif; }"
+    },
+    {
+      "name": "Waitlist Status",
+      "kind": "chip",
+      "refersTo": "status-pending",
+      "description": "An amber text-bearing status for pending or waitlist outcomes.",
+      "html": "<span class=\"ds-status-pending\">WAITLIST</span>",
+      "css": ".ds-status-pending { display: inline-block; padding: 7px 10px; border-radius: 999px; background: #fff1d8; color: #914400; font: 700 13px -apple-system, BlinkMacSystemFont, 'SF Pro Text', system-ui, sans-serif; }"
+    },
+    {
+      "name": "Agenda Row",
+      "kind": "card",
+      "refersTo": "agenda-row",
+      "description": "A time-led personal record with quiet supporting detail and status.",
+      "html": "<article class=\"ds-agenda\"><time>18:30</time><div><strong>GROUP TRAINING</strong><span>Coach · 18:30–20:00 · Intermediate</span><em>CONFIRMED</em></div></article>",
+      "css": ".ds-agenda { display: grid; grid-template-columns: 78px 1fr; gap: 16px; padding: 16px 0; color: #152538; font-family: -apple-system, BlinkMacSystemFont, 'SF Pro Text', system-ui, sans-serif; } .ds-agenda time { font-size: 26px; line-height: 1; font-weight: 780; letter-spacing: -.04em; font-variant-numeric: tabular-nums; } .ds-agenda div { display: grid; gap: 7px; min-width: 0; padding-left: 16px; box-shadow: inset 2px 0 0 #dfe6ef; } .ds-agenda strong { font-size: 18px; line-height: 1.2; } .ds-agenda span { color: #64748b; font-size: 14px; line-height: 1.35; } .ds-agenda em { justify-self: start; padding: 7px 10px; border-radius: 999px; background: #e3f7ea; color: #116333; font-size: 13px; font-style: normal; font-weight: 700; }"
+    },
+    {
+      "name": "Bottom Navigation",
+      "kind": "nav",
+      "refersTo": "bottom-navigation",
+      "description": "The sticky four-route Telegram-sized navigation bar.",
+      "html": "<nav class=\"ds-nav\"><button class=\"is-active\" aria-current=\"page\">⌂<small>HOME</small></button><button>□<small>SCHEDULE</small></button><button>▤<small>RECORDS</small></button><button>○<small>PROFILE</small></button></nav>",
+      "css": ".ds-nav { display: grid; grid-template-columns: repeat(4, 1fr); gap: 4px; padding: 8px; border-top: 1px solid #dfe6ef; background: #fff; font-family: -apple-system, BlinkMacSystemFont, 'SF Pro Text', system-ui, sans-serif; } .ds-nav button { display: grid; justify-items: center; gap: 4px; min-height: 50px; border: 0; background: transparent; color: #64748b; font-size: 23px; cursor: pointer; } .ds-nav small { font-size: 11px; font-weight: 700; } .ds-nav button.is-active { color: #234ed8; } .ds-nav button:hover { color: #1538a3; } .ds-nav button:focus-visible { outline: 3px solid #234ed8; outline-offset: 2px; }"
+    }
+  ],
+  "narrative": {
+    "northStar": "The Calm Week Ledger",
+    "overview": "The Mini App presents a client's immediate schedule as a quiet, date-led plan inside Telegram. White/cool-gray surfaces, navy text, and cobalt selection keep times and allowed actions prominent. The server owns availability and lifecycle state; the UI renders that result with a written status label.",
+    "keyCharacteristics": ["Telegram-native light and dark surfaces", "Week-first personal agenda", "Date-level schedule browsing", "Text-bearing server-owned status", "Flat mobile layout with selective cobalt elevation"],
+    "rules": [
+      { "name": "Status Is Evidence", "body": "Status colors always accompany a server-provided label; controls do not infer state.", "section": "colors" },
+      { "name": "Flat By Default", "body": "Use borders, spacing, and tonal fills for grouping; reserve shadows for selected cobalt controls.", "section": "elevation" }
+    ],
+    "dos": ["Do lead with date, time, state, and permitted next action.", "Do preserve Telegram host chrome and its active dark theme.", "Do reuse legacy flows behind the week shell where they remain established."],
+    "donts": ["Don't use color alone for booking state.", "Don't invent availability, price, permissions, or lifecycle transitions in the client.", "Don't add promotional hero treatments or card mosaics to task flows."]
+  }
+}

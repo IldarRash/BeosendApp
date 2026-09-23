@@ -29,6 +29,10 @@ export interface SlotBookingFlow {
   openConfirm: (slot: SlotCard) => void;
   /** The active confirm sub-view element, or null when on the list. */
   activeSubView: JSX.Element | null;
+  /** True while the confirmation/result sub-view owns the screen. */
+  isOpen: boolean;
+  /** Close the sub-view unless its booking mutation is still in flight. */
+  close: () => void;
 }
 
 /**
@@ -54,6 +58,12 @@ export function useSlotBookingFlow(
   };
 
   const backToList = (): void => {
+    // Leaving while the write is pending would make its terminal result disappear and
+    // invite a duplicate tap after the route changes. Keep the confirmation visible
+    // until the API has settled.
+    if (booking.isPending) {
+      return;
+    }
     booking.reset();
     setSelected(null);
   };
@@ -101,5 +111,5 @@ export function useSlotBookingFlow(
     );
   }
 
-  return { openConfirm, activeSubView };
+  return { openConfirm, activeSubView, isOpen: selected !== null, close: backToList };
 }
