@@ -383,9 +383,5 @@ export const miniappSr: Record<string, string> = {
   "miniapp.week.schedulePartialTitle": "Potrebno je učitati još prijava",
   "miniapp.week.schedulePartialBody": "Proverićemo da li ste već prijavljeni na ovaj trening.",
   "miniapp.week.scheduleLoadingRecords": "Proveravamo vaše prijave",
-  "miniapp.week.individualHint": "Izaberite vreme i cilj",
-  "miniapp.week.datePickerTitle": "Izaberite datum",
-  "miniapp.week.datePickerClose": "Zatvori izbor datuma",
-  "miniapp.week.datePickerPrevious": "Prethodni mesec",
-  "miniapp.week.datePickerNext": "Sledeći mesec"
+  "miniapp.week.individualHint": "Izaberite vreme i cilj"
 };

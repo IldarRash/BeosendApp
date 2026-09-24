@@ -183,12 +183,14 @@ export function trainingScheduleQueryKey(
  * decides `trainingStatus` and `bookable`; the Mini App only renders and books.
  */
 export function useTrainingSchedule(
-  query: TrainingScheduleQuery
+  query: TrainingScheduleQuery,
+  options: { enabled?: boolean } = {}
 ): UseQueryResult<TrainingScheduleSlot[]> {
   const client = useApiClient();
   return useQuery<TrainingScheduleSlot[]>({
     queryKey: trainingScheduleQueryKey(query),
-    queryFn: () => client.listTrainingSchedule(query)
+    queryFn: () => client.listTrainingSchedule(query),
+    enabled: options.enabled
   });
 }
 

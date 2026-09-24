@@ -1,8 +1,8 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { act, cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { AppRoot } from "@telegram-apps/telegram-ui";
-import type { ReactNode } from "react";
+import { createRef, type ReactNode } from "react";
 import {
   trainingScheduleSlotSchema,
   type Booking,
@@ -15,7 +15,7 @@ import {
   type WaitlistEntry
 } from "@beosand/types";
 import { LanguageProvider } from "../i18n/LanguageProvider";
-import { CalendarScreen } from "./CalendarScreen";
+import { CalendarScreen, type CalendarScreenHandle } from "./CalendarScreen";
 
 /**
  * Personal-calendar tests: the month grid + day agenda now merge THREE feeds — the
@@ -210,24 +210,24 @@ function makeApi(overrides: Partial<FakeApi> = {}): FakeApi {
   return {
     getMe: vi.fn().mockReturnValue(ME),
     getClientByTelegramId: vi.fn().mockResolvedValue(ONBOARDED),
-    listMyBookings: vi.fn().mockImplementation((_id: string, scope: string) =>
-      Promise.resolve(scope === "upcoming" ? [MY_BOOKING] : [])
-    ),
+    listMyBookings: vi
+      .fn()
+      .mockImplementation((_id: string, scope: string) =>
+        Promise.resolve(scope === "upcoming" ? [MY_BOOKING] : [])
+      ),
     listMyCourtRequests: vi.fn().mockResolvedValue([MY_COURT]),
     listTrainingSchedule: vi.fn().mockResolvedValue([SLOT_ALREADY_BOOKED, SLOT_FREE]),
     createSingleBooking: vi.fn().mockResolvedValue(BOOKING),
     // The confirm step reads the slot's participants — default to an empty roster.
-    getTrainingParticipants: vi
-      .fn()
-      .mockImplementation((trainingId: string) =>
-        Promise.resolve({
-          trainingId,
-          participantCount: 0,
-          participants: [],
-          waitlistCount: 0,
-          waitlist: []
-        })
-      ),
+    getTrainingParticipants: vi.fn().mockImplementation((trainingId: string) =>
+      Promise.resolve({
+        trainingId,
+        participantCount: 0,
+        participants: [],
+        waitlistCount: 0,
+        waitlist: []
+      })
+    ),
     getClientTrainingDetail: vi.fn().mockResolvedValue(TRAINING_DETAIL),
     ...overrides
   };
@@ -270,6 +270,88 @@ afterEach(() => {
 });
 
 describe("CalendarScreen merged feeds", () => {
+  it("does not query a fully past month, then safely queries the next future month", async () => {
+    renderWithProviders(<CalendarScreen />);
+
+    await waitFor(() => expect(api.listTrainingSchedule).toHaveBeenCalledTimes(1));
+    fireEvent.click(await screen.findByRole("button", { name: "Предыдущий месяц" }));
+    await screen.findByText("Май 2026");
+    expect(api.listTrainingSchedule).toHaveBeenCalledTimes(1);
+
+    fireEvent.click(screen.getByRole("button", { name: "Следующий месяц" }));
+    await screen.findByText("Июнь 2026");
+    fireEvent.click(screen.getByRole("button", { name: "Следующий месяц" }));
+    await waitFor(() =>
+      expect(api.listTrainingSchedule).toHaveBeenLastCalledWith({
+        from: "2026-07-01",
+        to: "2026-07-31"
+      })
+    );
+  });
+
+  it("opens a supplied date in its month with that day selected", async () => {
+    renderWithProviders(<CalendarScreen initialDate="2026-07-10" />);
+
+    await screen.findByText("Июль 2026");
+    expect(screen.getByRole("gridcell", { name: /^10 число/ }).getAttribute("aria-selected")).toBe(
+      "true"
+    );
+    await waitFor(() =>
+      expect(api.listTrainingSchedule).toHaveBeenCalledWith({
+        from: "2026-07-01",
+        to: "2026-07-31"
+      })
+    );
+  });
+
+  it("uses the calendar Back handle to close a training detail before leaving the calendar", async () => {
+    const ref = createRef<CalendarScreenHandle>();
+    const onBack = vi.fn();
+    renderWithProviders(<CalendarScreen ref={ref} onBack={onBack} />);
+
+    fireEvent.click(await screen.findByRole("gridcell", { name: /^10 число/ }));
+    fireEvent.click(await screen.findByRole("listitem", { name: /18:00/ }));
+    await screen.findByText("Individual");
+
+    act(() => ref.current?.goBack());
+    expect(await screen.findByRole("gridcell", { name: /^10 число/ })).toBeTruthy();
+    expect(onBack).not.toHaveBeenCalled();
+    act(() => ref.current?.goBack());
+    expect(onBack).toHaveBeenCalledOnce();
+  });
+
+  it("keeps a pending booking confirmation open when the calendar Back handle is used", async () => {
+    let resolveBooking: ((value: Booking) => void) | undefined;
+    api = makeApi({
+      createSingleBooking: vi.fn(
+        () =>
+          new Promise<Booking>((resolve) => {
+            resolveBooking = resolve;
+          })
+      )
+    });
+    const ref = createRef<CalendarScreenHandle>();
+    const onBack = vi.fn();
+    renderWithProviders(<CalendarScreen ref={ref} onBack={onBack} />);
+
+    fireEvent.click(await screen.findByRole("gridcell", { name: /^10 число/ }));
+    fireEvent.click(await screen.findByRole("listitem", { name: /^Доступно/ }));
+    fireEvent.click(await screen.findByRole("button", { name: "Записаться" }));
+    await waitFor(() => expect(api.createSingleBooking).toHaveBeenCalledOnce());
+
+    act(() => ref.current?.goBack());
+    expect(screen.getByText("Подтверждение записи")).toBeTruthy();
+    expect(onBack).not.toHaveBeenCalled();
+
+    await act(async () => resolveBooking?.(BOOKING));
+    await screen.findByText("Вы записаны!");
+    act(() => ref.current?.goBack());
+    expect(await screen.findByRole("gridcell", { name: /^10 число/ })).toBeTruthy();
+    expect(onBack).not.toHaveBeenCalled();
+    act(() => ref.current?.goBack());
+    expect(onBack).toHaveBeenCalledOnce();
+  });
+
   it("shows the legend and up to two inline event labels per cell with a '+N ещё' overflow", async () => {
     renderWithProviders(<CalendarScreen />);
 
@@ -383,9 +465,7 @@ describe("CalendarScreen merged feeds", () => {
     const url = new URL(String(href));
     expect(target).toBe("_blank");
     expect(features).toBe("noopener,noreferrer");
-    expect(url.origin + url.pathname).toBe(
-      "https://calendar.google.com/calendar/r/eventedit"
-    );
+    expect(url.origin + url.pathname).toBe("https://calendar.google.com/calendar/r/eventedit");
     expect(url.searchParams.get("action")).toBe("TEMPLATE");
     expect(url.searchParams.get("text")).toBe("BeoSand: тренировка Начинающий");
     expect(url.searchParams.get("dates")).toBe("20260610T160000Z/20260610T173000Z");
@@ -452,9 +532,11 @@ describe("CalendarScreen merged feeds", () => {
     const { trainingContextLabel: _omitted, ...slotWithoutLabel } = SLOT_FREE;
     api = makeApi({
       getMe: vi.fn().mockReturnValue({ ...ME, language: "en" }),
-      listTrainingSchedule: vi.fn().mockImplementation(async () =>
-        trainingScheduleSlotSchema.array().parse([slotWithoutLabel])
-      )
+      listTrainingSchedule: vi
+        .fn()
+        .mockImplementation(async () =>
+          trainingScheduleSlotSchema.array().parse([slotWithoutLabel])
+        )
     });
 
     renderWithProviders(<CalendarScreen />);

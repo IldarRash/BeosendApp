@@ -22,12 +22,6 @@ import { GroupBookingScreen } from "../screens/GroupBookingScreen";
 import { MyBookingsScreen } from "../screens/MyBookingsScreen";
 import { ProfileScreen } from "../screens/ProfileScreen";
 import { TrainerRequestScreen } from "../screens/TrainerRequestScreen";
-import {
-  CalendarGlyph,
-  ChevronGlyph,
-  ScheduleDateSheet,
-  formatScheduleDate
-} from "./ScheduleDateSheet";
 import "./week-experience.css";
 
 export interface WeekExperienceProps {
@@ -99,7 +93,8 @@ export function WeekExperience({ client }: WeekExperienceProps): JSX.Element {
     [weekStart]
   );
   const [fullCalendar, setFullCalendar] = useState(false);
-  const [dateSheetOpen, setDateSheetOpen] = useState(false);
+  const [calendarInitialDate, setCalendarInitialDate] = useState<string | null>(null);
+  const calendarRef = useRef<import("../screens/CalendarScreen").CalendarScreenHandle>(null);
   const [selectedDate, setSelectedDate] = useState(minimumDate);
   const [levelId, setLevelId] = useState(client.levelId ?? "");
   const [timeOfDay, setTimeOfDay] = useState<TimeFilter>("all");
@@ -139,13 +134,11 @@ export function WeekExperience({ client }: WeekExperienceProps): JSX.Element {
   useEffect(() => {
     if (selectedDate < minimumDate) setSelectedDate(minimumDate);
   }, [minimumDate, selectedDate]);
-  useBackButton(booking.isOpen || fullCalendar || dateSheetOpen || nav.canPop, () => {
+  useBackButton(booking.isOpen || fullCalendar || nav.canPop, () => {
     if (booking.isOpen) {
       booking.close();
-    } else if (dateSheetOpen) {
-      setDateSheetOpen(false);
     } else if (fullCalendar) {
-      setFullCalendar(false);
+      calendarRef.current?.goBack();
     } else {
       nav.pop();
     }
@@ -167,6 +160,10 @@ export function WeekExperience({ client }: WeekExperienceProps): JSX.Element {
     setFullCalendar(false);
     nav.selectTab("calendar");
   };
+  const openCalendar = (date: string): void => {
+    setCalendarInitialDate(date);
+    setFullCalendar(true);
+  };
 
   if (booking.activeSubView) return <div className="week-ui">{booking.activeSubView}</div>;
 
@@ -174,7 +171,12 @@ export function WeekExperience({ client }: WeekExperienceProps): JSX.Element {
     <main className="week-ui" aria-label={t("miniapp.week.aria")}>
       <div className="week-ui__scroll" ref={scrollRef}>
         {fullCalendar ? (
-          <CalendarScreen />
+          <CalendarScreen
+            ref={calendarRef}
+            initialDate={calendarInitialDate ?? effectiveSelectedDate}
+            onDateChange={(date) => setSelectedDate(normalizeScheduleDate(date, minimumDate))}
+            onBack={() => setFullCalendar(false)}
+          />
         ) : nav.current === "home" ? (
           <WeekHome
             weekDates={weekDates}
@@ -190,7 +192,7 @@ export function WeekExperience({ client }: WeekExperienceProps): JSX.Element {
             onLoadMore={() => void records.fetchNextPage()}
             onSchedule={openSchedule}
             onRecords={() => selectTab("my-bookings")}
-            onCalendar={() => setFullCalendar(true)}
+            onCalendar={() => openCalendar(today)}
             onGroup={() => selectTab("group")}
             onIndividual={() => selectTab("individual")}
           />
@@ -220,7 +222,7 @@ export function WeekExperience({ client }: WeekExperienceProps): JSX.Element {
             onLoadMore={() => void records.fetchNextPage()}
             activeTrainingStatuses={activeTrainingStatuses}
             onDate={(date) => setSelectedDate(normalizeScheduleDate(date, minimumDate))}
-            onOpenDateSheet={() => setDateSheetOpen(true)}
+            onOpenCalendar={() => openCalendar(effectiveSelectedDate)}
             onLevel={setLevelId}
             onTime={setTimeOfDay}
             onBook={booking.openConfirm}
@@ -232,13 +234,6 @@ export function WeekExperience({ client }: WeekExperienceProps): JSX.Element {
           renderLegacyRoute(nav.current, client, openSchedule)
         )}
       </div>
-      <ScheduleDateSheet
-        open={dateSheetOpen}
-        date={effectiveSelectedDate}
-        minimumDate={minimumDate}
-        onClose={() => setDateSheetOpen(false)}
-        onDate={(date) => setSelectedDate(normalizeScheduleDate(date, minimumDate))}
-      />
       <nav className="week-ui__tabs" aria-label={t("miniapp.week.tabsAria")}>
         <TabButton
           active={nav.current === "home" && !fullCalendar}
@@ -399,7 +394,7 @@ function Schedule({
   onLoadMore,
   activeTrainingStatuses,
   onDate,
-  onOpenDateSheet,
+  onOpenCalendar,
   onLevel,
   onTime,
   onBook,
@@ -422,7 +417,7 @@ function Schedule({
   onLoadMore: () => void;
   activeTrainingStatuses: ReadonlyMap<string, ClientRecord["status"]>;
   onDate: (date: string) => void;
-  onOpenDateSheet: () => void;
+  onOpenCalendar: () => void;
   onLevel: (id: string) => void;
   onTime: (time: TimeFilter) => void;
   onBook: (slot: TrainingScheduleSlot) => void;
@@ -468,15 +463,10 @@ function Schedule({
           </button>
         ))}
       </div>
-      <button
-        type="button"
-        className="week-ui__date-trigger"
-        onClick={onOpenDateSheet}
-        aria-haspopup="dialog"
-      >
-        <CalendarGlyph />
+      <button type="button" className="week-ui__date-trigger" onClick={onOpenCalendar}>
+        <CalendarIcon />
         <span>{formatScheduleDate(date, locale)}</span>
-        <ChevronGlyph />
+        <Arrow />
       </button>
       <div className="week-ui__filters">
         <label>
@@ -703,6 +693,15 @@ function CalendarIcon(): JSX.Element {
       <path d="M3.5 9.5h17M8 3.5v3M16 3.5v3" />
     </svg>
   );
+}
+
+function formatScheduleDate(value: string, locale: string): string {
+  return new Intl.DateTimeFormat(locale === "sr" ? "sr-Latn" : locale, {
+    weekday: "short",
+    day: "numeric",
+    month: "long",
+    year: "numeric"
+  }).format(new Date(`${value}T12:00:00`));
 }
 function TabButton({
   active,

@@ -431,9 +431,5 @@ export const miniappRu: Record<string, string> = {
   "miniapp.week.schedulePartialTitle": "Нужно загрузить ещё записи",
   "miniapp.week.schedulePartialBody": "Проверим, нет ли у вас записи на выбранное занятие.",
   "miniapp.week.scheduleLoadingRecords": "Проверяем ваши записи",
-  "miniapp.week.individualHint": "Подобрать время и задачу",
-  "miniapp.week.datePickerTitle": "Выбрать дату",
-  "miniapp.week.datePickerClose": "Закрыть выбор даты",
-  "miniapp.week.datePickerPrevious": "Предыдущий месяц",
-  "miniapp.week.datePickerNext": "Следующий месяц"
+  "miniapp.week.individualHint": "Подобрать время и задачу"
 };

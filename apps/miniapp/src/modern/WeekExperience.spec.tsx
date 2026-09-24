@@ -1,4 +1,5 @@
-import { cleanup, fireEvent, render, screen } from "@testing-library/react";
+import { act, cleanup, fireEvent, render, screen } from "@testing-library/react";
+import { forwardRef, useImperativeHandle } from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { Client, ClientRecord, TrainingScheduleSlot } from "@beosand/types";
 import {
@@ -21,8 +22,6 @@ const flow = {
 let backHandler: (() => void) | undefined;
 let currentToday = "2026-09-23";
 const FIXED_NOW = new Date("2026-09-23T12:00:00.000Z");
-const originalShowModal = Object.getOwnPropertyDescriptor(HTMLDialogElement.prototype, "showModal");
-const originalClose = Object.getOwnPropertyDescriptor(HTMLDialogElement.prototype, "close");
 const hooks = {
   records: {} as Record<string, unknown>,
   schedule: {} as Record<string, unknown>,
@@ -53,6 +52,29 @@ vi.mock("../tg/buttons", () => ({
   })
 }));
 vi.mock("../screens/useSlotBookingFlow", () => ({ useSlotBookingFlow: () => flow }));
+vi.mock("../screens/CalendarScreen", () => ({
+  CalendarScreen: forwardRef(function CalendarScreen(
+    {
+      initialDate,
+      onDateChange,
+      onBack
+    }: {
+      initialDate?: string;
+      onDateChange?: (date: string) => void;
+      onBack?: () => void;
+    },
+    ref
+  ) {
+    useImperativeHandle(ref, () => ({ goBack: () => onBack?.() }), [onBack]);
+    return (
+      <div data-testid="calendar-screen" data-initial-date={initialDate}>
+        <button type="button" onClick={() => onDateChange?.("2026-10-05")}>
+          select calendar date
+        </button>
+      </div>
+    );
+  })
+}));
 vi.mock("../ui/format", async (importOriginal) => {
   const actual = await importOriginal<typeof import("../ui/format")>();
   return { ...actual, todayLocalDate: () => currentToday };
@@ -143,28 +165,11 @@ describe("WeekExperience", () => {
     hooks.schedule = { data: [SLOT], isLoading: false, isError: false, error: null };
     hooks.scheduleForQuery = undefined;
     hooks.scheduleQuery = undefined;
-    Object.defineProperty(HTMLDialogElement.prototype, "showModal", {
-      configurable: true,
-      value(this: HTMLDialogElement) {
-        this.setAttribute("open", "");
-      }
-    });
-    Object.defineProperty(HTMLDialogElement.prototype, "close", {
-      configurable: true,
-      value(this: HTMLDialogElement) {
-        this.removeAttribute("open");
-      }
-    });
   });
 
   afterEach(() => {
     vi.useRealTimers();
     cleanup();
-    if (originalShowModal)
-      Object.defineProperty(HTMLDialogElement.prototype, "showModal", originalShowModal);
-    else delete (HTMLDialogElement.prototype as Partial<HTMLDialogElement>).showModal;
-    if (originalClose) Object.defineProperty(HTMLDialogElement.prototype, "close", originalClose);
-    else delete (HTMLDialogElement.prototype as Partial<HTMLDialogElement>).close;
   });
 
   it("keeps pending records visibly pending with their reason and next action", () => {
@@ -218,11 +223,13 @@ describe("WeekExperience", () => {
     expect(hooks.scheduleQuery).toMatchObject({ from: "2026-09-23", to: "2026-09-23" });
   });
 
-  it("opens the date sheet and keeps native Back inside the sheet before navigation", () => {
+  it("opens the existing calendar from the schedule date control and keeps native Back in it", () => {
     nav.current = "calendar";
     render(<WeekExperience client={CLIENT} />);
-    fireEvent.click(document.querySelector<HTMLButtonElement>('button[aria-haspopup="dialog"]')!);
-    backHandler?.();
+    fireEvent.click(screen.getByText(/сентября 2026/i));
+    expect(screen.getByTestId("calendar-screen")).toBeTruthy();
+    expect(document.querySelector("dialog")).toBeNull();
+    act(() => backHandler?.());
     expect(nav.pop).not.toHaveBeenCalled();
     expect(hooks.scheduleQuery).toMatchObject({ from: "2026-09-23", to: "2026-09-23" });
   });
@@ -234,8 +241,7 @@ describe("WeekExperience", () => {
 
     expect(screen.getByRole("status")).toBeTruthy();
     expect(screen.queryByText("miniapp.browse.seats:2")).toBeNull();
-    fireEvent.click(document.querySelector<HTMLButtonElement>('button[aria-haspopup="dialog"]')!);
-    fireEvent.click(screen.getByRole("button", { name: /^четверг, 24 сентября 2026/i }));
+    fireEvent.click(document.querySelectorAll<HTMLButtonElement>(".week-ui__date-rail button")[3]!);
     expect(hooks.scheduleQuery).toMatchObject({ from: "2026-09-24", to: "2026-09-24" });
   });
 
@@ -249,8 +255,7 @@ describe("WeekExperience", () => {
 
     expect(screen.getByRole("alert").textContent).toContain("bad range");
     expect(screen.queryByText("miniapp.browse.seats:2")).toBeNull();
-    fireEvent.click(document.querySelector<HTMLButtonElement>('button[aria-haspopup="dialog"]')!);
-    fireEvent.click(screen.getByRole("button", { name: /^четверг, 24 сентября 2026/i }));
+    fireEvent.click(document.querySelectorAll<HTMLButtonElement>(".week-ui__date-rail button")[3]!);
     expect(hooks.scheduleQuery).toMatchObject({ from: "2026-09-24", to: "2026-09-24" });
     expect(screen.queryByRole("alert")).toBeNull();
     expect(screen.getByText("miniapp.browse.seats:2")).toBeTruthy();
@@ -294,21 +299,25 @@ describe("WeekExperience", () => {
     flow.isOpen = true;
     flow.activeSubView = <div>confirmation</div>;
     render(<WeekExperience client={CLIENT} />);
-    backHandler?.();
+    act(() => backHandler?.());
     expect(closeConfirm).toHaveBeenCalledOnce();
     expect(nav.pop).not.toHaveBeenCalled();
   });
 
-  it("uses a sheet date for the schedule query and moves the schedule rail to that week", () => {
+  it("retains a future date selected in the calendar when returning to the schedule", () => {
     nav.current = "calendar";
     const view = render(<WeekExperience client={CLIENT} />);
 
-    fireEvent.click(document.querySelector<HTMLButtonElement>('button[aria-haspopup="dialog"]')!);
-    fireEvent.click(screen.getByRole("button", { name: "miniapp.week.datePickerNext" }));
-    fireEvent.click(screen.getByRole("button", { name: /^понедельник, 5 октября 2026/i }));
+    fireEvent.click(screen.getByText(/сентября 2026/i));
+    expect(screen.getByTestId("calendar-screen").dataset.initialDate).toBe("2026-09-23");
+    fireEvent.click(screen.getByText("select calendar date"));
+    act(() => backHandler?.());
 
+    expect(screen.queryByTestId("calendar-screen")).toBeNull();
     expect(hooks.scheduleQuery).toMatchObject({ from: "2026-10-05", to: "2026-10-05" });
-    expect(document.querySelector(".week-ui__date-rail .is-active")?.textContent).toContain("5");
+    expect(document.querySelector(".week-ui__date-rail .is-active")?.textContent ?? "").toContain(
+      "5"
+    );
 
     nav.current = "home";
     view.rerender(<WeekExperience client={CLIENT} />);
