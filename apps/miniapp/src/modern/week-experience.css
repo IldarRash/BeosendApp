@@ -338,7 +338,10 @@
   overflow-x: auto;
   margin-bottom: 12px;
   padding-bottom: 3px;
-  scrollbar-width: thin;
+  scrollbar-width: none;
+}
+.week-ui__date-rail::-webkit-scrollbar {
+  display: none;
 }
 .week-ui__date-rail button {
   flex: 0 0 68px;
@@ -366,23 +369,28 @@
   cursor: not-allowed;
   opacity: 0.42;
 }
-.week-ui__date-input {
+.week-ui__date-trigger {
   display: grid;
-  grid-template-columns: auto 1fr;
+  grid-template-columns: 24px 1fr 20px;
   align-items: center;
-  gap: 8px;
+  width: 100%;
+  min-height: 54px;
+  gap: 10px;
   margin: 0 0 16px;
-  color: var(--week-subtle);
-  font-size: 12px;
-  font-weight: 700;
-}
-.week-ui__date-input input {
-  min-width: 0;
+  padding: 0 14px;
   border: 1px solid var(--week-line);
-  border-radius: 9px;
-  padding: 7px;
+  border-radius: 12px;
   color: var(--week-ink);
   background: transparent;
+  font-size: 15px;
+  font-weight: 700;
+  text-align: left;
+}
+.week-ui__date-trigger svg {
+  width: 22px;
+  fill: none;
+  stroke: var(--week-blue);
+  stroke-width: 1.8;
 }
 .week-ui__filters {
   display: grid;

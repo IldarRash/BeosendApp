@@ -20,8 +20,9 @@ export const miniappSr: Record<string, string> = {
   "miniapp.onboarding.genderUnspecified": "Nije navedeno",
   "miniapp.onboarding.genderRequired": "Izaberite pol da biste nastavili.",
   "miniapp.onboarding.consentNotice":
-    "Obrađujemo podatke iz registracije, uključujući izabrani pol, radi pružanja usluga i ciljanog slanja obaveštenja. Ako izaberete \"Nije navedeno\", i dalje možete biti uključeni u publiku i za muškarce i za žene.",
-  "miniapp.onboarding.consentLabel": "Saglasan/saglasna sam sa ovom obradom mojih podataka iz registracije.",
+    'Obrađujemo podatke iz registracije, uključujući izabrani pol, radi pružanja usluga i ciljanog slanja obaveštenja. Ako izaberete "Nije navedeno", i dalje možete biti uključeni u publiku i za muškarce i za žene.',
+  "miniapp.onboarding.consentLabel":
+    "Saglasan/saglasna sam sa ovom obradom mojih podataka iz registracije.",
   "miniapp.onboarding.consentRequired": "Potvrdite saglasnost da biste nastavili.",
 
   // --- Primary actions ---
@@ -43,7 +44,8 @@ export const miniappSr: Record<string, string> = {
   "miniapp.home.court": "Iznajmljivanje terena",
   "miniapp.home.courtHint": "Zahtev za slobodan teren",
   "miniapp.home.calendar": "Moj kalendar",
-  "miniapp.home.calendarHint": "Jedan kalendar: današnji treninzi, moje prijave i iznajmljivanje terena",
+  "miniapp.home.calendarHint":
+    "Jedan kalendar: današnji treninzi, moje prijave i iznajmljivanje terena",
   "miniapp.home.profile": "Profil i jezik",
   "miniapp.home.profileHint": "Vaši podaci i jezik interfejsa",
   "miniapp.home.placeholderTitle": "Uskoro",
@@ -152,8 +154,7 @@ export const miniappSr: Record<string, string> = {
   "miniapp.myBookings.waitlistTitle": "Na listi čekanja",
   "miniapp.myBookings.waitlistPosition": "na čekanju, pozicija {position}",
   "miniapp.myBookings.subscription.title": "Pretplata",
-  "miniapp.myBookings.subscription.summary":
-    "Prijava: {booked} · na listi čekanja: {waitlisted}",
+  "miniapp.myBookings.subscription.summary": "Prijava: {booked} · na listi čekanja: {waitlisted}",
   "miniapp.myBookings.individualTraining": "Individualni trening",
   "miniapp.myBookings.rentalsTitle": "Iznajmljivanje terena",
   "miniapp.myBookings.courtCount": "Tereni: {count}",
@@ -181,7 +182,8 @@ export const miniappSr: Record<string, string> = {
   "miniapp.group.pendingTitle": "Zahtev je poslat",
   "miniapp.group.pendingCount": "Čeka potvrdu za {count} treninga",
   "miniapp.group.waitlistedHeader": "Na čekanju: {count}",
-  "miniapp.group.waitlistedNote": "Mesec je plaćen. Ovi datumi su bili popunjeni — na listi ste čekanja, obavestićemo vas.",
+  "miniapp.group.waitlistedNote":
+    "Mesec je plaćen. Ovi datumi su bili popunjeni — na listi ste čekanja, obavestićemo vas.",
   "miniapp.group.skippedHeader": "Preskočeni datumi (nema mesta)",
   "miniapp.group.toMyBookings": "Na moje prijave",
   "miniapp.group.toHome": "Na početnu",
@@ -246,7 +248,8 @@ export const miniappSr: Record<string, string> = {
   "miniapp.court.previewBody": "Izabrani tereni su rezervisani za vas do potvrde administratora.",
   "miniapp.court.submit": "Pošalji zahtev",
   "miniapp.court.sentTitle": "Zahtev je sačuvan",
-  "miniapp.court.sentBody": "Zahtev čeka potvrdu administratora. O odluci ćemo vas obavestiti ovde.",
+  "miniapp.court.sentBody":
+    "Zahtev čeka potvrdu administratora. O odluci ćemo vas obavestiti ovde.",
   "miniapp.court.sentCourts": "Izabrani tereni: {courts}",
   "miniapp.court.toHome": "Početna",
   "miniapp.court.unavailableTitle": "Ovo vreme je zauzeto",
@@ -271,7 +274,8 @@ export const miniappSr: Record<string, string> = {
   "miniapp.schedule.alreadyBooked": "Prijavljeni ste",
   "miniapp.training.roster.title": "Ko je prijavljen",
   "miniapp.training.roster.empty": "Još niko nije prijavljen",
-  "miniapp.training.roster.private": "Učesnici su vidljivi kada se prijavite ili uđete u listu čekanja.",
+  "miniapp.training.roster.private":
+    "Učesnici su vidljivi kada se prijavite ili uđete u listu čekanja.",
   "miniapp.training.waitlist.title": "Lista čekanja",
 
   // --- My calendar (court + training) ---
@@ -339,7 +343,8 @@ export const miniappSr: Record<string, string> = {
   "miniapp.records.reasonCode.schedule-change": "Promena rasporeda",
   "miniapp.records.reasonCode.staff-unavailable": "Osoblje nije dostupno",
   "miniapp.records.reasonCode.other": "Drugi razlog",
-  "miniapp.records.unknownCreate": "Nismo mogli da potvrdimo odgovor servera. Zahtev je možda sačuvan — proverite Moje rezervacije i zahteve pre ponovnog slanja.",
+  "miniapp.records.unknownCreate":
+    "Nismo mogli da potvrdimo odgovor servera. Zahtev je možda sačuvan — proverite Moje rezervacije i zahteve pre ponovnog slanja.",
   "miniapp.records.price": "{price} RSD",
   "miniapp.week.aria": "Moja nedelja i raspored",
   "miniapp.week.tabsAria": "Glavna navigacija",
@@ -378,5 +383,9 @@ export const miniappSr: Record<string, string> = {
   "miniapp.week.schedulePartialTitle": "Potrebno je učitati još prijava",
   "miniapp.week.schedulePartialBody": "Proverićemo da li ste već prijavljeni na ovaj trening.",
   "miniapp.week.scheduleLoadingRecords": "Proveravamo vaše prijave",
-  "miniapp.week.individualHint": "Izaberite vreme i cilj"
+  "miniapp.week.individualHint": "Izaberite vreme i cilj",
+  "miniapp.week.datePickerTitle": "Izaberite datum",
+  "miniapp.week.datePickerClose": "Zatvori izbor datuma",
+  "miniapp.week.datePickerPrevious": "Prethodni mesec",
+  "miniapp.week.datePickerNext": "Sledeći mesec"
 };

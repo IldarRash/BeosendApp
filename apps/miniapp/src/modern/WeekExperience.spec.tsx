@@ -1,4 +1,4 @@
-import { fireEvent, render, screen } from "@testing-library/react";
+import { cleanup, fireEvent, render, screen } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { Client, ClientRecord, TrainingScheduleSlot } from "@beosand/types";
 import {
@@ -21,10 +21,14 @@ const flow = {
 let backHandler: (() => void) | undefined;
 let currentToday = "2026-09-23";
 const FIXED_NOW = new Date("2026-09-23T12:00:00.000Z");
+const originalShowModal = Object.getOwnPropertyDescriptor(HTMLDialogElement.prototype, "showModal");
+const originalClose = Object.getOwnPropertyDescriptor(HTMLDialogElement.prototype, "close");
 const hooks = {
   records: {} as Record<string, unknown>,
   schedule: {} as Record<string, unknown>,
-  scheduleForQuery: undefined as ((query: Record<string, unknown>) => Record<string, unknown>) | undefined,
+  scheduleForQuery: undefined as
+    | ((query: Record<string, unknown>) => Record<string, unknown>)
+    | undefined,
   scheduleQuery: undefined as Record<string, unknown> | undefined
 };
 
@@ -38,7 +42,8 @@ vi.mock("../api/hooks", () => ({
 }));
 vi.mock("../i18n/LanguageProvider", () => ({
   useT: () => (key: string, params?: Record<string, string | number>) =>
-    params ? `${key}:${Object.values(params).join(",")}` : key
+    params ? `${key}:${Object.values(params).join(",")}` : key,
+  useLanguage: () => ({ locale: "ru" })
 }));
 vi.mock("../router/NavProvider", () => ({ useNav: () => nav }));
 vi.mock("../tg/buttons", () => ({
@@ -138,10 +143,28 @@ describe("WeekExperience", () => {
     hooks.schedule = { data: [SLOT], isLoading: false, isError: false, error: null };
     hooks.scheduleForQuery = undefined;
     hooks.scheduleQuery = undefined;
+    Object.defineProperty(HTMLDialogElement.prototype, "showModal", {
+      configurable: true,
+      value(this: HTMLDialogElement) {
+        this.setAttribute("open", "");
+      }
+    });
+    Object.defineProperty(HTMLDialogElement.prototype, "close", {
+      configurable: true,
+      value(this: HTMLDialogElement) {
+        this.removeAttribute("open");
+      }
+    });
   });
 
   afterEach(() => {
     vi.useRealTimers();
+    cleanup();
+    if (originalShowModal)
+      Object.defineProperty(HTMLDialogElement.prototype, "showModal", originalShowModal);
+    else delete (HTMLDialogElement.prototype as Partial<HTMLDialogElement>).showModal;
+    if (originalClose) Object.defineProperty(HTMLDialogElement.prototype, "close", originalClose);
+    else delete (HTMLDialogElement.prototype as Partial<HTMLDialogElement>).close;
   });
 
   it("keeps pending records visibly pending with their reason and next action", () => {
@@ -195,16 +218,13 @@ describe("WeekExperience", () => {
     expect(hooks.scheduleQuery).toMatchObject({ from: "2026-09-23", to: "2026-09-23" });
   });
 
-  it("guards native past dates while allowing future schedule selections", () => {
+  it("opens the date sheet and keeps native Back inside the sheet before navigation", () => {
     nav.current = "calendar";
     render(<WeekExperience client={CLIENT} />);
-    const input = screen.getByLabelText("miniapp.booking.dateLabel");
-
-    expect((input as HTMLInputElement).min).toBe("2026-09-23");
-    fireEvent.change(input, { target: { value: "2026-09-22" } });
+    fireEvent.click(document.querySelector<HTMLButtonElement>('button[aria-haspopup="dialog"]')!);
+    backHandler?.();
+    expect(nav.pop).not.toHaveBeenCalled();
     expect(hooks.scheduleQuery).toMatchObject({ from: "2026-09-23", to: "2026-09-23" });
-    fireEvent.change(input, { target: { value: "2026-09-24" } });
-    expect(hooks.scheduleQuery).toMatchObject({ from: "2026-09-24", to: "2026-09-24" });
   });
 
   it("keeps schedule controls usable during loading and hides booking actions", () => {
@@ -214,9 +234,8 @@ describe("WeekExperience", () => {
 
     expect(screen.getByRole("status")).toBeTruthy();
     expect(screen.queryByText("miniapp.browse.seats:2")).toBeNull();
-    fireEvent.change(screen.getByLabelText("miniapp.booking.dateLabel"), {
-      target: { value: "2026-09-24" }
-    });
+    fireEvent.click(document.querySelector<HTMLButtonElement>('button[aria-haspopup="dialog"]')!);
+    fireEvent.click(screen.getByRole("button", { name: /^четверг, 24 сентября 2026/i }));
     expect(hooks.scheduleQuery).toMatchObject({ from: "2026-09-24", to: "2026-09-24" });
   });
 
@@ -230,9 +249,8 @@ describe("WeekExperience", () => {
 
     expect(screen.getByRole("alert").textContent).toContain("bad range");
     expect(screen.queryByText("miniapp.browse.seats:2")).toBeNull();
-    fireEvent.change(screen.getByLabelText("miniapp.booking.dateLabel"), {
-      target: { value: "2026-09-24" }
-    });
+    fireEvent.click(document.querySelector<HTMLButtonElement>('button[aria-haspopup="dialog"]')!);
+    fireEvent.click(screen.getByRole("button", { name: /^четверг, 24 сентября 2026/i }));
     expect(hooks.scheduleQuery).toMatchObject({ from: "2026-09-24", to: "2026-09-24" });
     expect(screen.queryByRole("alert")).toBeNull();
     expect(screen.getByText("miniapp.browse.seats:2")).toBeTruthy();
@@ -279,6 +297,23 @@ describe("WeekExperience", () => {
     backHandler?.();
     expect(closeConfirm).toHaveBeenCalledOnce();
     expect(nav.pop).not.toHaveBeenCalled();
+  });
+
+  it("uses a sheet date for the schedule query and moves the schedule rail to that week", () => {
+    nav.current = "calendar";
+    const view = render(<WeekExperience client={CLIENT} />);
+
+    fireEvent.click(document.querySelector<HTMLButtonElement>('button[aria-haspopup="dialog"]')!);
+    fireEvent.click(screen.getByRole("button", { name: "miniapp.week.datePickerNext" }));
+    fireEvent.click(screen.getByRole("button", { name: /^понедельник, 5 октября 2026/i }));
+
+    expect(hooks.scheduleQuery).toMatchObject({ from: "2026-10-05", to: "2026-10-05" });
+    expect(document.querySelector(".week-ui__date-rail .is-active")?.textContent).toContain("5");
+
+    nav.current = "home";
+    view.rerender(<WeekExperience client={CLIENT} />);
+    expect(screen.getByRole("button", { name: "2026-09-21" })).toBeTruthy();
+    expect(screen.getByRole("button", { name: "2026-09-27" })).toBeTruthy();
   });
 
   it("builds a Monday-first week across a month boundary", () => {
