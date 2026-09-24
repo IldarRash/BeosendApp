@@ -382,9 +382,5 @@ export const miniappEn: Record<string, string> = {
   "miniapp.week.schedulePartialTitle": "More bookings need loading",
   "miniapp.week.schedulePartialBody": "We will check whether you already have this session.",
   "miniapp.week.scheduleLoadingRecords": "Checking your bookings",
-  "miniapp.week.individualHint": "Choose a time and goal",
-  "miniapp.week.datePickerTitle": "Choose a date",
-  "miniapp.week.datePickerClose": "Close date picker",
-  "miniapp.week.datePickerPrevious": "Previous month",
-  "miniapp.week.datePickerNext": "Next month"
+  "miniapp.week.individualHint": "Choose a time and goal"
 };

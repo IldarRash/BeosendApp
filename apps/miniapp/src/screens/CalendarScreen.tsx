@@ -1,4 +1,11 @@
-import { useMemo, useState } from "react";
+import {
+  forwardRef,
+  useEffect,
+  useImperativeHandle,
+  useMemo,
+  useState,
+  type ForwardedRef
+} from "react";
 import type {
   BookingStatus,
   CourtRequestStatus,
@@ -181,16 +188,34 @@ function courtStatusKey(status: CourtRequestStatus): string {
  * Both booking scopes (upcoming + past) are merged so a month shows completed and
  * future trainings alike; court requests are the single `/court-requests/mine` feed.
  */
-export function CalendarScreen(): JSX.Element {
+export interface CalendarScreenHandle {
+  goBack: () => void;
+}
+
+export interface CalendarScreenProps {
+  initialDate?: string;
+  onDateChange?: (date: string) => void;
+  onBack?: () => void;
+}
+
+export const CalendarScreen = forwardRef(CalendarScreenContent);
+
+function CalendarScreenContent(
+  { initialDate, onDateChange, onBack }: CalendarScreenProps,
+  ref: ForwardedRef<CalendarScreenHandle>
+): JSX.Element {
   const t = useT();
   const today = todayLocalDate();
+  const utcToday = new Date().toISOString().slice(0, 10);
+  const minimumDate = today > utcToday ? today : utcToday;
+  const openedDate = initialDate ?? today;
   const [cursor, setCursor] = useState(() => ({
-    year: Number(today.slice(0, 4)),
-    month: Number(today.slice(5, 7))
+    year: Number(openedDate.slice(0, 4)),
+    month: Number(openedDate.slice(5, 7))
   }));
   // Open on today's agenda (Google-style) rather than a blank grid: a step or a re-tap
   // can still clear the selection back to null.
-  const [selectedDate, setSelectedDate] = useState<string | null>(today);
+  const [selectedDate, setSelectedDate] = useState<string | null>(openedDate);
   const [selectedTrainingId, setSelectedTrainingId] = useState<string | null>(null);
 
   const upcoming = useMyBookings("upcoming");
@@ -199,12 +224,23 @@ export function CalendarScreen(): JSX.Element {
 
   // Available bookable slots for the whole visible month (its first → last day). The
   // server owns availability over this window; the Mini App only produces the range.
-  const slotsQuery = useMemo<TrainingScheduleQuery>(() => {
-    const from = isoDate(cursor.year, cursor.month, 1);
-    const to = isoDate(cursor.year, cursor.month, daysInMonth(cursor.year, cursor.month));
-    return { from, to } satisfies TrainingScheduleQuery;
-  }, [cursor]);
-  const schedule = useTrainingSchedule(slotsQuery);
+  const { slotsQuery, scheduleEnabled } = useMemo(() => {
+    const monthStart = isoDate(cursor.year, cursor.month, 1);
+    const monthEnd = isoDate(cursor.year, cursor.month, daysInMonth(cursor.year, cursor.month));
+    const from = monthStart > minimumDate ? monthStart : minimumDate;
+    const enabled = from <= monthEnd;
+    return {
+      slotsQuery: { from, to: enabled ? monthEnd : from } satisfies TrainingScheduleQuery,
+      scheduleEnabled: enabled
+    };
+  }, [cursor, minimumDate]);
+  const schedule = useTrainingSchedule(slotsQuery, { enabled: scheduleEnabled });
+
+  useEffect(() => {
+    if (!initialDate) return;
+    setCursor({ year: Number(initialDate.slice(0, 4)), month: Number(initialDate.slice(5, 7)) });
+    setSelectedDate(initialDate);
+  }, [initialDate]);
 
   // The set of trainingIds the caller is actively booked into (upcoming + past). It both
   // dedupes booked slots out of the available feed AND guards the booking flow: if the
@@ -219,7 +255,7 @@ export function CalendarScreen(): JSX.Element {
   const flow = useSlotBookingFlow(bookedTrainingIds);
 
   const isLoading =
-    upcoming.isLoading || past.isLoading || courts.isLoading || schedule.isLoading;
+    upcoming.isLoading || past.isLoading || courts.isLoading || (scheduleEnabled && schedule.isLoading);
   const errorMessage =
     upcoming.error instanceof Error
       ? upcoming.error.message
@@ -227,9 +263,9 @@ export function CalendarScreen(): JSX.Element {
         ? past.error.message
         : courts.error instanceof Error
           ? courts.error.message
-          : schedule.error instanceof Error
+          : scheduleEnabled && schedule.error instanceof Error
             ? schedule.error.message
-            : upcoming.isError || past.isError || courts.isError || schedule.isError
+            : upcoming.isError || past.isError || courts.isError || (scheduleEnabled && schedule.isError)
               ? t("miniapp.calendar.errorBody")
               : undefined;
 
@@ -238,7 +274,10 @@ export function CalendarScreen(): JSX.Element {
   // booked training never shows as BOTH "available" (green) and "my booking" (coral).
   const byDate = useMemo(() => {
     const bookings = [...(upcoming.data ?? []), ...(past.data ?? [])];
-    const scheduleSlots = dedupeAvailableSlots(schedule.data ?? [], bookedTrainingIds);
+    const scheduleSlots = dedupeAvailableSlots(
+      scheduleEnabled ? schedule.data ?? [] : [],
+      bookedTrainingIds
+    );
     const items: CalendarItem[] = [
       ...scheduleSlots.map(
         (s): CalendarItem => ({ kind: "available", date: s.date, id: s.trainingId, slot: s })
@@ -257,7 +296,7 @@ export function CalendarScreen(): JSX.Element {
       a.date === b.date ? itemTime(a).localeCompare(itemTime(b)) : a.date.localeCompare(b.date)
     );
     return indexByDate(ordered);
-  }, [upcoming.data, past.data, courts.data, schedule.data, bookedTrainingIds]);
+  }, [upcoming.data, past.data, courts.data, schedule.data, scheduleEnabled, bookedTrainingIds]);
 
   const weeks = useMemo(() => monthWeeks(cursor.year, cursor.month), [cursor]);
   const monthLabel = `${t(monthKey(cursor.month))} ${cursor.year}`;
@@ -272,7 +311,22 @@ export function CalendarScreen(): JSX.Element {
   const pickDay = (iso: string): void => {
     hapticSelection();
     setSelectedDate((prev) => (prev === iso ? null : iso));
+    onDateChange?.(iso);
   };
+
+  const goBack = (): void => {
+    if (flow.isOpen) {
+      flow.close();
+      return;
+    }
+    if (selectedTrainingId) {
+      setSelectedTrainingId(null);
+      return;
+    }
+    onBack?.();
+  };
+
+  useImperativeHandle(ref, () => ({ goBack }));
 
   // The chosen-slot confirm / waitlist sub-flow takes over the whole screen when active.
   if (flow.activeSubView) {
@@ -291,6 +345,7 @@ export function CalendarScreen(): JSX.Element {
   if (isLoading) {
     return (
       <div className="screen screen__center">
+        <CalendarBackButton onBack={onBack ? goBack : undefined} />
         <LoadingState />
       </div>
     );
@@ -298,6 +353,7 @@ export function CalendarScreen(): JSX.Element {
   if (errorMessage !== undefined) {
     return (
       <div className="screen screen__center">
+        <CalendarBackButton onBack={onBack ? goBack : undefined} />
         <ErrorState message={errorMessage} />
       </div>
     );
@@ -307,6 +363,7 @@ export function CalendarScreen(): JSX.Element {
 
   return (
     <div className="screen screen--no-mainbutton">
+      <CalendarBackButton onBack={onBack ? goBack : undefined} />
       <h1 className="screen__title">{t("miniapp.calendar.title")}</h1>
 
       <div className="cal-legend" role="list" aria-label={t("miniapp.calendar.legendAria")}>
@@ -403,6 +460,15 @@ export function CalendarScreen(): JSX.Element {
       )}
     </div>
   );
+}
+
+function CalendarBackButton({ onBack }: { onBack?: () => void }): JSX.Element | null {
+  const t = useT();
+  return onBack ? (
+    <button type="button" className="calendar-back" onClick={onBack}>
+      <span aria-hidden="true">‹</span> {t("miniapp.group.back")}
+    </button>
+  ) : null;
 }
 
 /**
