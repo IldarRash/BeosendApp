@@ -4,7 +4,7 @@ import { isAdmin, type Env } from "@beosand/config";
 import { BELGRADE_TZ, plannerTrainingDates, monthlyScheduleActionResultSchema, monthlyScheduleConflictResultSchema, monthlySchedulePlanViewSchema, type CreateMonthlySchedulePlanInput, type UpdateMonthlySchedulePeriodInput, type GenerateMonthlySchedulePlanInput, type CreateMonthlyScheduleTemplateInput, type MonthlyScheduleActionResult, type MonthlyScheduleDiagnostic, type MonthlyScheduleEntry, type MonthlyScheduleNotificationChange, type MonthlyScheduleNotificationDelivery, type MonthlyScheduleNotificationDeliveryOutcome, type MonthlySchedulePlanView, type UpdateMonthlyScheduleTemplateInput } from "@beosand/types";
 import { ENV } from "../../config/config.module";
 import { Inject } from "@nestjs/common";
-import { MonthlyScheduleRepository, type PlanRow, type TemplateRow } from "./monthly-schedule.repository";
+import { MonthlyScheduleRepository, type PlanRow, type SchedulePlanOverlapRow, type TemplateRow } from "./monthly-schedule.repository";
 import { SettingsService } from "../settings/settings.service";
 import { MonthlyScheduleConflictRepository } from "./monthly-schedule-conflict.repository";
 import { evaluateMonthlyScheduleEntries } from "./monthly-schedule-conflicts";
@@ -96,8 +96,8 @@ export class MonthlyScheduleService {
     return this.repository.transaction(async (db) => {
       const plan = await this.lock(planId, db);
       await this.repository.lockPlannerRange(plan.startDate, plan.endDate, db);
-      const overlapRows = await this.repository.overlaps(planId, plan.startDate, plan.endDate, db);
-      const overlapIds = overlapRows.rows.map((row) => String(row.id)).sort();
+      const effectiveOverlaps = await this.effectiveOverlaps(plan, db);
+      const overlapIds = effectiveOverlaps.map(({ row }) => row.id).sort();
       const acknowledged = [..._input.acknowledgedOverlapPlanIds].sort();
       if (overlapIds.join(",") !== acknowledged.join(",")) throw new ConflictException("Current plan overlaps must be acknowledged before generation");
       if (plan.generatedAt !== null) {
@@ -529,15 +529,8 @@ export class MonthlyScheduleService {
     }
 
     const daysOff = await this.repository.listDaysOff(plan.id, db);
-    const overlapRows = await this.repository.overlaps(plan.id, plan.startDate, plan.endDate, db);
-    const overlapFingerprint = overlapRows.rows.map((row) => `${row.id}:${row.revision}:${row.startDate}:${row.endDate}`).sort().join("|") || null;
-    const overlapDetails = await Promise.all(overlapRows.rows.map(async (row) => {
-      const source = await this.repository.view(row.id, db);
-      const intersectionStartDate = row.startDate > plan.startDate ? row.startDate : plan.startDate;
-      const intersectionEndDate = row.endDate < plan.endDate ? row.endDate : plan.endDate;
-      const entries = (source?.entries ?? []).filter((entry) => entry.date >= intersectionStartDate && entry.date <= intersectionEndDate);
-      return { row, intersectionStartDate, intersectionEndDate, entries };
-    }));
+    const overlapDetails = await this.effectiveOverlaps(plan, db);
+    const overlapFingerprint = this.overlapFingerprint(overlapDetails.map(({ row }) => row));
     const overlaps = overlapDetails.map(({ row, intersectionStartDate, intersectionEndDate, entries }) => ({
       planId: row.id, startDate: row.startDate, endDate: row.endDate, status: row.status,
       intersectionStartDate, intersectionEndDate, entryCount: entries.length,
@@ -584,6 +577,41 @@ export class MonthlyScheduleService {
       }
     };
     return monthlySchedulePlanViewSchema.parse(view);
+  }
+
+  /**
+   * A period alone is not an operational conflict. A source plan contributes only
+   * surviving, intersecting work: cancelled trainings were released, and a
+   * generated plan cannot reserve a row whose generated training no longer exists.
+   * Ungenerated draft entries remain deliberate work and must still be acknowledged.
+   */
+  private async effectiveOverlaps(
+    plan: Pick<MonthlySchedulePlanView["plan"], "id" | "startDate" | "endDate">,
+    db?: Parameters<MonthlyScheduleRepository["view"]>[1]
+  ): Promise<Array<{
+    row: SchedulePlanOverlapRow;
+    intersectionStartDate: string;
+    intersectionEndDate: string;
+    entries: MonthlyScheduleEntry[];
+  }>> {
+    const overlapRows = await this.repository.overlaps(plan.id, plan.startDate, plan.endDate, db);
+    const details = await Promise.all(overlapRows.rows.map(async (row) => {
+      const source = await this.repository.view(row.id, db);
+      const intersectionStartDate = row.startDate > plan.startDate ? row.startDate : plan.startDate;
+      const intersectionEndDate = row.endDate < plan.endDate ? row.endDate : plan.endDate;
+      const entries = (source?.entries ?? []).filter((entry) =>
+        entry.date >= intersectionStartDate &&
+        entry.date <= intersectionEndDate &&
+        entry.trainingStatus !== "cancelled" &&
+        (source === undefined || source.generatedAt === null || entry.trainingId !== null)
+      );
+      return { row, intersectionStartDate, intersectionEndDate, entries };
+    }));
+    return details.filter(({ entries }) => entries.length > 0);
+  }
+
+  private overlapFingerprint(rows: readonly SchedulePlanOverlapRow[]): string | null {
+    return rows.map((row) => `${row.id}:${row.revision}:${row.startDate}:${row.endDate}`).sort().join("|") || null;
   }
   private admin(actor: number): void { if (!isAdmin(this.env, actor)) throw new ForbiddenException("Admin privileges required"); }
   private async enqueuePublishedEventsSafely(trainingIds: readonly string[]): Promise<void> {
