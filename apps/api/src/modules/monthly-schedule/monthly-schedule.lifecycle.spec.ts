@@ -2,6 +2,7 @@ import { ConflictException } from "@nestjs/common";
 import type { MonthlyScheduleEntry, MonthlySchedulePlan } from "@beosand/types";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { MonthlyScheduleService } from "./monthly-schedule.service";
+import type { SchedulePlanOverlapRow } from "./monthly-schedule.repository";
 
 const PLAN_ID = "11111111-1111-4111-8111-111111111111";
 const TEMPLATE_ID = "22222222-2222-4222-8222-222222222222";
@@ -34,7 +35,29 @@ function scheduleEntry(id: string, date: string): MonthlyScheduleEntry {
   };
 }
 
-function lifecycleHarness(input: { startDate: string; endDate: string; dates: string[]; occupied?: boolean }) {
+function overlapSource(id: string, entries: MonthlyScheduleEntry[], generatedAt: string | null, status: MonthlySchedulePlan["status"] = "approved"): MonthlySchedulePlan {
+  return {
+    id,
+    startDate: "2026-08-01",
+    endDate: "2026-08-28",
+    timezone: "Europe/Belgrade",
+    status,
+    revision: 1,
+    approvedRevision: status === "approved" ? 1 : null,
+    generatedRevision: generatedAt ? 1 : null,
+    generatedAt,
+    approvedAt: "2026-01-01T00:00:00.000Z",
+    approvedBy: ADMIN_ID,
+    publishedAt: null,
+    publishedBy: null,
+    createdAt: "2026-01-01T00:00:00.000Z",
+    updatedAt: "2026-01-01T00:00:00.000Z",
+    templates: [],
+    entries
+  };
+}
+
+function lifecycleHarness(input: { startDate: string; endDate: string; dates: string[]; occupied?: boolean; existingTraining?: boolean; sources?: MonthlySchedulePlan[] }) {
   const plan: MonthlySchedulePlan = {
     id: PLAN_ID,
     startDate: input.startDate,
@@ -96,10 +119,11 @@ function lifecycleHarness(input: { startDate: string; endDate: string; dates: st
       createdAt: new Date(plan.createdAt),
       updatedAt: new Date(plan.updatedAt)
     })),
-    view: vi.fn(async () => plan),
+    findPlanByPeriod: vi.fn(async () => ({ id: plan.id })),
+    view: vi.fn(async (planId: string) => planId === PLAN_ID ? plan : input.sources?.find((source) => source.id === planId)),
     lockPlannerRange: vi.fn(async () => undefined),
     listDaysOff: vi.fn(async () => []),
-    overlaps: vi.fn(async () => ({ rows: [] })),
+    overlaps: vi.fn(async (): Promise<{ rows: SchedulePlanOverlapRow[] }> => ({ rows: [] })),
     lockDates: vi.fn(async (dates: string[]) => lockedDates.push([...new Set(dates)].sort())),
     findTrainingByEntry: vi.fn(async (entryId: string) => {
       const entry = plan.entries.find((item) => item.id === entryId);
@@ -153,7 +177,9 @@ function lifecycleHarness(input: { startDate: string; endDate: string; dates: st
         }
       ],
       courts: [{ id: COURT_ID, number: 1, status: "active" }],
-      trainings: [],
+      trainings: input.existingTraining
+        ? [{ id: "99999999-9999-4999-8999-999999999999", monthlyScheduleEntryId: null, groupId: GROUP_ID, trainerId: TRAINER_ID, date: input.dates[0], startTime: "18:00", endTime: "19:00", status: "open" }]
+        : [],
       occupancy: input.occupied
         ? [
             {
@@ -187,6 +213,65 @@ function lifecycleHarness(input: { startDate: string; endDate: string; dates: st
 afterEach(() => vi.useRealTimers());
 
 describe("MonthlyScheduleService generation and publication", () => {
+  it("does not acknowledge empty, cancelled, removed, or out-of-range source work", async () => {
+    const emptyId = "aaaaaaa1-aaaa-4aaa-8aaa-aaaaaaaaaaaa";
+    const cancelledId = "aaaaaaa2-aaaa-4aaa-8aaa-aaaaaaaaaaaa";
+    const removedId = "aaaaaaa3-aaaa-4aaa-8aaa-aaaaaaaaaaaa";
+    const outsideId = "aaaaaaa4-aaaa-4aaa-8aaa-aaaaaaaaaaaa";
+    const harness = lifecycleHarness({
+      startDate: "2026-08-01",
+      endDate: "2026-08-28",
+      dates: ["2026-08-17"],
+      sources: [
+        overlapSource(emptyId, [], "2026-08-01T00:00:00.000Z"),
+        overlapSource(cancelledId, [{ ...scheduleEntry("aaaaaaa5-aaaa-4aaa-8aaa-aaaaaaaaaaaa", "2026-08-17"), planId: cancelledId, trainingId: "aaaaaaa6-aaaa-4aaa-8aaa-aaaaaaaaaaaa", trainingStatus: "cancelled" }], "2026-08-01T00:00:00.000Z"),
+        overlapSource(removedId, [{ ...scheduleEntry("aaaaaaa7-aaaa-4aaa-8aaa-aaaaaaaaaaaa", "2026-08-17"), planId: removedId }], "2026-08-01T00:00:00.000Z"),
+        overlapSource(outsideId, [{ ...scheduleEntry("aaaaaaa8-aaaa-4aaa-8aaa-aaaaaaaaaaaa", "2026-09-01"), planId: outsideId }], null)
+      ]
+    });
+    vi.mocked(harness.repository.overlaps).mockResolvedValue({
+      rows: [emptyId, cancelledId, removedId, outsideId].map((id) => ({ id, revision: 1, startDate: "2026-08-01", endDate: "2026-08-28", status: "approved" }))
+    });
+
+    const result = await harness.service.generate(ADMIN_ID, PLAN_ID);
+
+    expect(result.view.hasOverlap).toBe(false);
+    expect(result.view.overlapFingerprint).toBeNull();
+    expect(result.createdTrainingIds).toHaveLength(1);
+  });
+
+  it("retains ungenerated drafts and active generated rows as overlaps", async () => {
+    const draftId = "bbbbbbb1-bbbb-4bbb-8bbb-bbbbbbbbbbbb";
+    const mixedId = "bbbbbbb2-bbbb-4bbb-8bbb-bbbbbbbbbbbb";
+    const draft = overlapSource(draftId, [{ ...scheduleEntry("bbbbbbb3-bbbb-4bbb-8bbb-bbbbbbbbbbbb", "2026-08-17"), planId: draftId }], null, "draft");
+    const mixed = overlapSource(
+      mixedId,
+      [
+        { ...scheduleEntry("bbbbbbb4-bbbb-4bbb-8bbb-bbbbbbbbbbbb", "2026-08-17"), planId: mixedId, trainingId: "bbbbbbb5-bbbb-4bbb-8bbb-bbbbbbbbbbbb", trainingStatus: "cancelled" },
+        { ...scheduleEntry("bbbbbbb6-bbbb-4bbb-8bbb-bbbbbbbbbbbb", "2026-08-17"), planId: mixedId, trainingId: "bbbbbbb7-bbbb-4bbb-8bbb-bbbbbbbbbbbb", trainingStatus: "open", hidden: true }
+      ],
+      "2026-08-01T00:00:00.000Z"
+    );
+    const harness = lifecycleHarness({ startDate: "2026-08-01", endDate: "2026-08-28", dates: ["2026-08-17"], existingTraining: true, sources: [draft, mixed] });
+    vi.mocked(harness.repository.overlaps).mockResolvedValue({
+      rows: [draftId, mixedId].map((id) => ({ id, revision: 1, startDate: "2026-08-01", endDate: "2026-08-28", status: "approved" }))
+    });
+    const fingerprint = `${draftId}:1:2026-08-01:2026-08-28|${mixedId}:1:2026-08-01:2026-08-28`;
+
+    const preview = await harness.service.get(ADMIN_ID, { startDate: "2026-08-01", endDate: "2026-08-28" });
+    expect(preview?.overlaps.map((overlap) => overlap.planId)).toEqual([draftId, mixedId]);
+    expect(preview?.overlapEntries.map((entry) => entry.id)).toEqual(["bbbbbbb3-bbbb-4bbb-8bbb-bbbbbbbbbbbb", "bbbbbbb6-bbbb-4bbb-8bbb-bbbbbbbbbbbb"]);
+    expect(preview?.overlapEntries.find((entry) => entry.sourcePlanId === mixedId)?.hidden).toBe(true);
+    await expect(harness.service.generate(ADMIN_ID, PLAN_ID)).rejects.toBeInstanceOf(ConflictException);
+    expect(harness.generatedWrites()).toBe(0);
+    await expect(harness.service.generate(ADMIN_ID, PLAN_ID, {
+      acknowledgedOverlapPlanIds: [draftId, mixedId],
+      overlapFingerprint: fingerprint
+    })).rejects.toBeInstanceOf(ConflictException);
+    expect(harness.generatedWrites()).toBe(0);
+    expect(mixed.entries.find((entry) => entry.trainingStatus === "cancelled")?.trainingStatus).toBe("cancelled");
+  });
+
   it("atomically generates every past and future entry once, hidden and court-linked", async () => {
     vi.useFakeTimers();
     vi.setSystemTime(new Date("2026-08-15T10:00:00.000Z"));
