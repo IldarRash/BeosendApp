@@ -721,6 +721,11 @@ export class CourtModerationTx {
 
   /** Cancel a confirmed request without deleting its assigned-court history. */
   async cancelConfirmed(input: { id: string; decidedBy: number }): Promise<CourtRequestRow> {
+    return this.cancelActive(input);
+  }
+
+  /** Cancels a service-validated active request without deleting court history. */
+  async cancelActive(input: { id: string; decidedBy: number }): Promise<CourtRequestRow> {
     await this.db
       .update(tables.courtRequests)
       .set({

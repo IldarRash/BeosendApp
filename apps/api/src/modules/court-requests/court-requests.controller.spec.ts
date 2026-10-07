@@ -65,7 +65,8 @@ const mineItem: MyCourtRequestItem = {
   priceRsd: 2000,
   status: "confirmed",
   courtCount: 1,
-  courtNumbers: [1]
+  courtNumbers: [1],
+  canCancel: true
 };
 
 function makeService(overrides: Partial<CourtRequestsService> = {}): CourtRequestsService {
@@ -77,6 +78,7 @@ function makeService(overrides: Partial<CourtRequestsService> = {}): CourtReques
     confirmRequest: vi.fn(async () => ({ ...created, status: "confirmed", decidedBy: ACTOR_ID })),
     rejectRequest: vi.fn(async () => ({ ...created, status: "rejected", decidedBy: ACTOR_ID })),
     cancelRequest: vi.fn(async () => ({ ...created, status: "cancelled", decidedBy: ACTOR_ID })),
+    cancelOwnRequest: vi.fn(async () => ({ ...created, status: "cancelled", decidedBy: ACTOR_ID })),
     listMineHistory: vi.fn(),
     ...overrides
   } as unknown as CourtRequestsService;
@@ -344,6 +346,12 @@ describe("CourtRequestsController.cancel (POST /court-requests/:id/cancel)", () 
       decidedBy: ACTOR_ID
     });
     expect(service.cancelRequest).toHaveBeenCalledWith(ACTOR_ID, body);
+  });
+
+  it("uses the verified client header for self-cancellation without a staff reason", async () => {
+    await expect(controller.cancel(String(FOREIGN_ID), REQUEST_ID, { requestId: REQUEST_ID }, HEADER)).resolves.toMatchObject({ status: "cancelled" });
+    expect(service.cancelOwnRequest).toHaveBeenCalledWith(ACTOR_ID, { requestId: REQUEST_ID });
+    expect(service.cancelRequest).not.toHaveBeenCalled();
   });
 
   it("rejects a path/body mismatch before calling the service", async () => {

@@ -13,6 +13,7 @@ import {
 import { z } from "zod";
 import {
   cancelCourtRequestSchema,
+  cancelOwnCourtRequestSchema,
   confirmCourtRequestSchema,
   courtAvailabilityQuerySchema,
   courtClientGridQuerySchema,
@@ -289,26 +290,25 @@ export class CourtRequestsController {
   }
 
   /**
-   * Admin-only cancel for a confirmed request. Pending requests stay reject-only;
-   * cancellation stamps the actor and releases load because occupancy reads only
-   * count pending/confirmed requests.
+   * A verified Mini App client may cancel their own future active request. The
+   * existing raw-admin route keeps its reason-required confirmed-only policy.
    */
   @Post(":id/cancel")
   async cancel(
     @Headers("x-telegram-id") rawTelegramId: string | undefined,
     @Param("id") rawId: string,
-    @Body() body: unknown
+    @Body() body: unknown,
+    @Headers("x-client-telegram-id") clientTelegramIdHeader?: string
   ): Promise<CourtRequest> {
-    const telegramId = parseTelegramId(rawTelegramId);
     const id = parseRequestId(rawId);
+    if (clientTelegramIdHeader) {
+      const parsed = cancelOwnCourtRequestSchema.safeParse(body);
+      if (!parsed.success || parsed.data.requestId !== id) throw new BadRequestException("Invalid cancel body.");
+      return this.service.cancelOwnRequest(parseTelegramId(clientTelegramIdHeader, "x-client-telegram-id"), parsed.data);
+    }
     const parsed = cancelCourtRequestSchema.safeParse(body);
-    if (!parsed.success) {
-      throw new BadRequestException("Invalid cancel body: expected { requestId }.");
-    }
-    if (parsed.data.requestId !== id) {
-      throw new BadRequestException("Path id and body requestId must match.");
-    }
-    return this.service.cancelRequest(telegramId, parsed.data);
+    if (!parsed.success || parsed.data.requestId !== id) throw new BadRequestException("Invalid cancel body.");
+    return this.service.cancelRequest(parseTelegramId(rawTelegramId), parsed.data);
   }
 }
 

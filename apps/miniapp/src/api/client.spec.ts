@@ -823,7 +823,8 @@ describe("MiniappApiClient.listMyCourtRequestHistory", () => {
     priceRsd: 6000,
     status: "cancelled",
     courtCount: 2,
-    courtNumbers: []
+    courtNumbers: [],
+    canCancel: false
   } as const;
 
   it("uses the isolated scope-aware history endpoint and validates its rows", async () => {
@@ -1431,6 +1432,42 @@ describe("MiniappApiClient.createCourtRequest", () => {
     await expect(
       client.createCourtRequest({ date: "2026-06-10", startTime: "08:00", durationHours: 1.5 })
     ).rejects.toBeInstanceOf(AuthError);
+  });
+});
+
+describe("MiniappApiClient.cancelCourtRequest", () => {
+  it("POSTs the strict owner payload and validates the cancelled court request", async () => {
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce(jsonResponse(200, SESSION))
+      .mockResolvedValueOnce(jsonResponse(200, { ...COURT_REQUEST, status: "cancelled" }));
+    vi.stubGlobal("fetch", fetchMock);
+    const client = new MiniappApiClient(BASE);
+    await client.authenticate("init-data-raw");
+
+    await expect(client.cancelCourtRequest(COURT_REQUEST.id)).resolves.toMatchObject({
+      id: COURT_REQUEST.id,
+      status: "cancelled"
+    });
+    const [url, init] = fetchMock.mock.calls[1];
+    expect(url).toBe(`${BASE}/court-requests/${COURT_REQUEST.id}/cancel`);
+    expect((init as RequestInit).method).toBe("POST");
+    expect(JSON.parse((init as RequestInit).body as string)).toEqual({ requestId: COURT_REQUEST.id });
+  });
+
+  it("surfaces a stale owner cancellation as ConflictError", async () => {
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce(jsonResponse(200, SESSION))
+      .mockResolvedValueOnce(jsonResponse(409, { message: "Заявка уже отменена." }));
+    vi.stubGlobal("fetch", fetchMock);
+    const client = new MiniappApiClient(BASE);
+    await client.authenticate("init-data-raw");
+
+    await expect(client.cancelCourtRequest(COURT_REQUEST.id)).rejects.toMatchObject({
+      name: "ConflictError",
+      message: "Заявка уже отменена."
+    });
   });
 });
 

@@ -29,6 +29,7 @@ import {
   minutesOfDay,
   timeOfMinutes,
   type CancelCourtRequest,
+  type CancelOwnCourtRequest,
   type ConfirmCourtRequest,
   type Court,
   type CourtAvailability,
@@ -68,8 +69,10 @@ import {
   type CourtOccupancyRow,
   type CourtRequestAdminRow,
   type CourtRequestRow,
+  type MyCourtRequestRow,
   type OccupantRow
 } from "./court-requests.repository";
+import { courtRequestStarted } from "./court-request-time";
 
 /**
  * Court availability + court-request moderation. Holds the per-hour limit rule (an
@@ -688,6 +691,24 @@ export class CourtRequestsService {
     return this.toEntity(updated);
   }
 
+  /** Client-only cancellation of an owned, future pending/confirmed request. */
+  async cancelOwnRequest(callerTelegramId: number, input: CancelOwnCourtRequest): Promise<CourtRequest> {
+    const client = await this.repository.findActiveClientByTelegramId(callerTelegramId);
+    if (!client) throw new ForbiddenException("No client is registered for this Telegram account.");
+    const updated = await this.repository.transaction(async (tx) => {
+      const request = await tx.lockRequest(input.requestId);
+      if (!request) throw new NotFoundException("No court request with that id.");
+      if (request.clientId !== client.id) throw new ForbiddenException("You can only cancel your own court requests.");
+      if (request.status !== "pending" && request.status !== "confirmed") throw new ConflictException("Only active court requests can be cancelled.");
+      await tx.lockDate(request.date);
+      if (courtRequestStarted(request.date, request.startTime)) throw new ConflictException("Court requests cannot be cancelled after they start.");
+      const cancelled = await tx.cancelActive({ id: request.id, decidedBy: callerTelegramId });
+      await captureRecordStatus(tx.database, { kind: "court", entityId: cancelled.id, status: "cancelled", actor: "client", transitionKey: `court:${cancelled.id}:cancelled` });
+      return cancelled;
+    });
+    return this.toEntity(updated);
+  }
+
   /**
    * Post-commit: look up the client + the request's court numbers, notify the client
    * via the connectors ChannelDispatcher (telegram-only in Slice 0), and emit the
@@ -804,10 +825,13 @@ export class CourtRequestsService {
    * Client-facing "mine" row. Same redaction rule as create: a pending hold is
    * internal until an admin confirms the final court assignment.
    */
-  private toClientMineItem(row: MyCourtRequestItem): MyCourtRequestItem {
+  private toClientMineItem(row: MyCourtRequestRow): MyCourtRequestItem {
+    const active = row.status === "pending" || row.status === "confirmed";
+    const canCancel = active && !courtRequestStarted(row.date, row.startTime);
     return myCourtRequestItemSchema.parse({
       ...row,
-      courtNumbers: confirmedCourtNumbers(row)
+      courtNumbers: confirmedCourtNumbers(row),
+      canCancel
     });
   }
 
@@ -863,7 +887,7 @@ export class CourtRequestsService {
 
   /** A confirmed court request can be reassigned only before its local start time. */
   private assertFutureRequest(request: Pick<CourtRequestRow, "date" | "startTime">): void {
-    if (requestStarted(request.date, request.startTime)) {
+    if (courtRequestStarted(request.date, request.startTime)) {
       throw new ConflictException("Past court requests cannot be reassigned.");
     }
   }
@@ -919,17 +943,6 @@ export class CourtRequestsService {
 
 function confirmedCourtNumbers(row: { status: CourtRequestStatus; courtNumbers: number[] }): number[] {
   return row.status === "confirmed" ? row.courtNumbers : [];
-}
-
-function requestStarted(date: string, startTime: string, now = new Date()): boolean {
-  const today = [
-    now.getFullYear(),
-    String(now.getMonth() + 1).padStart(2, "0"),
-    String(now.getDate()).padStart(2, "0")
-  ].join("-");
-  if (date < today) return true;
-  if (date > today) return false;
-  return minutesOfDay(startTime.slice(0, 5)) <= now.getHours() * 60 + now.getMinutes();
 }
 
 /** Drop duplicate ids preserving order. */

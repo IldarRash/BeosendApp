@@ -61,7 +61,7 @@ describeDatabase("client-records PostgreSQL visibility and snapshots", () => {
   });
   afterAll(async () => { await connection?.pool.end(); });
 
-  it("keeps a pending court's selected number private, non-cancellable, and captures its event in the write transaction", async () => {
+  it("keeps a pending court's selected number private, cancellable before its start, and captures its event in the write transaction", async () => {
     const owner = await client();
     const courtId = randomUUID(); ids.courts.push(courtId);
     await connection.db.insert(tables.courts).values({ id: courtId, number: 6, status: "active" });
@@ -70,7 +70,7 @@ describeDatabase("client-records PostgreSQL visibility and snapshots", () => {
     await connection.db.insert(tables.courtRequestCourts).values({ requestId, courtId });
     await connection.db.transaction((tx) => captureRecordStatus(tx, { kind: "court", entityId: requestId, actor: "client" }));
     const page = await records.mine(owner.telegramId, { scope: "upcoming", offset: 0, limit: 30 });
-    expect(page.items).toContainEqual(expect.objectContaining({ entityId: requestId, courtNumbers: [], canCancel: false, status: "pending" }));
+    expect(page.items).toContainEqual(expect.objectContaining({ entityId: requestId, courtNumbers: [], canCancel: true, status: "pending" }));
     const events = await connection.db.select().from(tables.recordStatusEvents).where(eq(tables.recordStatusEvents.sourceEntityId, requestId));
     expect(events).toHaveLength(1);
   });

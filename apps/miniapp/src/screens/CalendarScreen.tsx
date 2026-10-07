@@ -3,6 +3,7 @@ import {
   useEffect,
   useImperativeHandle,
   useMemo,
+  useRef,
   useState,
   type ForwardedRef
 } from "react";
@@ -16,6 +17,7 @@ import type {
   TrainingScheduleSlot
 } from "@beosand/types";
 import {
+  useCancelCourtRequest,
   useMyBookings,
   useMyCourtRequests,
   useTrainingSchedule
@@ -42,6 +44,7 @@ import {
 } from "../ui/format";
 import { ErrorState, LoadingState } from "../ui/StateView";
 import { TrainingDetailView } from "../ui/TrainingDetailView";
+import { CourtCancelSheet } from "../ui/CourtCancelSheet";
 import { useSlotBookingFlow } from "./useSlotBookingFlow";
 
 /** Monday-first weekday header keys (reusing the short weekday labels). */
@@ -217,10 +220,13 @@ function CalendarScreenContent(
   // can still clear the selection back to null.
   const [selectedDate, setSelectedDate] = useState<string | null>(openedDate);
   const [selectedTrainingId, setSelectedTrainingId] = useState<string | null>(null);
+  const [courtToCancel, setCourtToCancel] = useState<MyCourtRequestItem | null>(null);
+  const courtCancelInFlight = useRef(false);
 
   const upcoming = useMyBookings("upcoming");
   const past = useMyBookings("past");
   const courts = useMyCourtRequests();
+  const cancelCourt = useCancelCourtRequest();
 
   // Available bookable slots for the whole visible month (its first → last day). The
   // server owns availability over this window; the Mini App only produces the range.
@@ -456,8 +462,27 @@ function CalendarScreenContent(
             hapticSelection();
             setSelectedTrainingId(item.trainingId);
           }}
+          onCancelCourt={(item) => {
+            hapticSelection();
+            cancelCourt.reset();
+            setCourtToCancel(item);
+          }}
         />
       )}
+      <CourtCancelSheet
+        item={courtToCancel}
+        onOpenChange={(open) => { if (!open) { cancelCourt.reset(); setCourtToCancel(null); } }}
+        onConfirm={() => {
+          if (!courtToCancel || courtCancelInFlight.current) return;
+          courtCancelInFlight.current = true;
+          cancelCourt.mutate(courtToCancel.id, {
+            onSuccess: () => setCourtToCancel(null),
+            onSettled: () => { courtCancelInFlight.current = false; }
+          });
+        }}
+        submitting={cancelCourt.isPending}
+        errorMessage={cancelCourt.error instanceof Error ? cancelCourt.error.message : undefined}
+      />
     </div>
   );
 }
@@ -502,7 +527,8 @@ function DayAgenda({
   items,
   emptyVisible,
   onBook,
-  onOpenTraining
+  onOpenTraining,
+  onCancelCourt
 }: {
   items: ReadonlyArray<CalendarItem>;
   emptyVisible: boolean;
@@ -510,6 +536,7 @@ function DayAgenda({
   onBook: (slot: SlotCard) => void;
   /** Open the participant-visible detail for a training the caller already joined. */
   onOpenTraining: (item: MyBookingItem) => void;
+  onCancelCourt: (item: MyCourtRequestItem) => void;
 }): JSX.Element | null {
   const t = useT();
 
@@ -530,7 +557,7 @@ function DayAgenda({
           case "training":
             return <TrainingRow key={item.id} item={item.booking} onOpen={onOpenTraining} />;
           case "court":
-            return <CourtRow key={item.id} item={item.court} />;
+            return <CourtRow key={item.id} item={item.court} onCancel={() => onCancelCourt(item.court)} />;
         }
       })}
     </div>
@@ -638,7 +665,7 @@ function TrainingRow({
  * confirmed client-facing court numbers when the API includes them. Pending responses
  * carry `courtNumbers: []`, so pending rows omit the court-number line.
  */
-function CourtRow({ item }: { item: MyCourtRequestItem }): JSX.Element {
+function CourtRow({ item, onCancel }: { item: MyCourtRequestItem; onCancel: () => void }): JSX.Element {
   const t = useT();
   const variant = courtVariant(item.status);
   const statusLabel = t(courtStatusKey(item.status));
@@ -678,6 +705,7 @@ function CourtRow({ item }: { item: MyCourtRequestItem }): JSX.Element {
             {statusLabel}
           </span>
         </div>
+        {item.canCancel ? <button type="button" className="fallback-btn" onClick={onCancel}>{t("miniapp.records.cancelCourtAction")}</button> : null}
       </div>
     </div>
   );
