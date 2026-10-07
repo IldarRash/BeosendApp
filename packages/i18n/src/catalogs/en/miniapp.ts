@@ -345,6 +345,11 @@ export const miniappEn: Record<string, string> = {
   "miniapp.records.unknownCreate":
     "We could not confirm the server response. The request may be saved — check My bookings and requests before submitting again.",
   "miniapp.records.price": "{price} RSD",
+  "miniapp.records.cancelCourtAction": "Cancel rental",
+  "miniapp.records.cancelCourtTitle": "Cancel this court rental?",
+  "miniapp.records.cancelCourtBody": "Your court rental will be cancelled. This action cannot be undone.",
+  "miniapp.records.cancelCourtKeep": "Keep rental",
+  "miniapp.records.cancelCourtConfirm": "Cancel rental",
   "miniapp.week.aria": "My week and schedule",
   "miniapp.week.tabsAria": "Main navigation",
   "miniapp.week.tab.home": "Home",

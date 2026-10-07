@@ -467,6 +467,23 @@ export function useMyCourtRequests(): UseQueryResult<MyCourtRequestItem[]> {
   });
 }
 
+/** Cancels an own court request and refreshes its history and released availability. */
+export function useCancelCourtRequest(): UseMutationResult<CourtRequest, Error, string> {
+  const apiClient = useApiClient();
+  const qc = useQueryClient();
+  return useMutation<CourtRequest, Error, string>({
+    mutationFn: (requestId) => apiClient.cancelCourtRequest(requestId),
+    onSettled: () => {
+      void qc.invalidateQueries({ queryKey: [CLIENT_RECORDS_KEY_PREFIX] });
+      void qc.invalidateQueries({ queryKey: ["my-court-requests"] });
+      void qc.invalidateQueries({ queryKey: [MY_COURT_REQUEST_HISTORY_KEY_PREFIX] });
+      void qc.invalidateQueries({ queryKey: [COURT_AVAILABILITY_KEY_PREFIX] });
+      void qc.invalidateQueries({ queryKey: [COURT_CLIENT_GRID_KEY_PREFIX] });
+      void qc.invalidateQueries({ queryKey: [FREE_COURTS_KEY_PREFIX] });
+    }
+  });
+}
+
 /**
  * Cancel one of the caller's bookings (POST /bookings/:id/cancel). The mutation
  * argument is the bookingId; the server enforces ownership from the verified session,

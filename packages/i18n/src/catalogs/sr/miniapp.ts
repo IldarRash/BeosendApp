@@ -346,6 +346,11 @@ export const miniappSr: Record<string, string> = {
   "miniapp.records.unknownCreate":
     "Nismo mogli da potvrdimo odgovor servera. Zahtev je možda sačuvan — proverite Moje rezervacije i zahteve pre ponovnog slanja.",
   "miniapp.records.price": "{price} RSD",
+  "miniapp.records.cancelCourtAction": "Otkaži iznajmljivanje",
+  "miniapp.records.cancelCourtTitle": "Otkaži iznajmljivanje terena?",
+  "miniapp.records.cancelCourtBody": "Vaše iznajmljivanje terena će biti otkazano. Ova radnja se ne može opozvati.",
+  "miniapp.records.cancelCourtKeep": "Zadrži iznajmljivanje",
+  "miniapp.records.cancelCourtConfirm": "Otkaži iznajmljivanje",
   "miniapp.week.aria": "Moja nedelja i raspored",
   "miniapp.week.tabsAria": "Glavna navigacija",
   "miniapp.week.tab.home": "Početna",

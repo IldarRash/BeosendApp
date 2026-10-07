@@ -2,6 +2,7 @@ import { z } from "zod";
 import {
   bookingSchema,
   bookableMonthsSchema,
+  cancelOwnCourtRequestSchema,
   clientSchema,
   courtAvailabilitySchema,
   courtClientGridSchema,
@@ -684,6 +685,14 @@ export class MiniappApiClient {
   listMyCourtRequestHistory(scope: MyCourtRequestHistoryQuery["scope"]): Promise<MyCourtRequestItem[]> {
     const qs = new URLSearchParams({ scope }).toString();
     return this.request(`/court-requests/mine/history?${qs}`, myCourtRequestItemsSchema);
+  }
+
+  /** Cancels the caller's own court request; identity and eligibility stay server-owned. */
+  cancelCourtRequest(requestId: string): Promise<CourtRequest> {
+    return this.request(`/court-requests/${requestId}/cancel`, courtRequestSchema, {
+      method: "POST",
+      body: JSON.stringify(cancelOwnCourtRequestSchema.parse({ requestId }))
+    });
   }
 
 }

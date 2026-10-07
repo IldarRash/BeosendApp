@@ -24,6 +24,8 @@ import {
 } from "./court-requests.repository";
 import { CourtRequestsService, freeForDuration } from "./court-requests.service";
 import { enqueueRecordStatus } from "../record-status/record-status.repository";
+import { captureRecordStatus } from "../record-status/record-status-capture";
+import { courtRequestStarted } from "./court-request-time";
 
 const date = "2026-06-10";
 const adminId = 9001;
@@ -715,6 +717,9 @@ function makeTx(input: {
       decidedAt: new Date("2026-06-03T12:00:00.000Z")
     })
   );
+  const cancelActive = vi.fn(async (args: { id: string; decidedBy: number }) =>
+    makeRow({ ...(input.request ?? {}), id: args.id, status: "cancelled", decidedBy: args.decidedBy, decidedAt: new Date("2026-06-03T12:00:00.000Z") })
+  );
   const reassignCourts = vi.fn(async (args: { id: string; courtIds: string[] }) =>
     makeRow({
       ...(input.request ?? {}),
@@ -744,6 +749,7 @@ function makeTx(input: {
     blocksByCourtForDate: vi.fn().mockResolvedValue(input.blocks ?? []),
     decide,
     cancelConfirmed,
+    cancelActive,
     reassignCourts
   } as unknown as CourtModerationTx;
   return { tx, decide };
@@ -757,6 +763,7 @@ function makeModerationRepo(input: {
   activeCourts?: { id: string; number: number }[];
   confirmed?: CourtOccupancyRow[];
   blocks?: CourtOccupancyRow[];
+  client?: { id: string } | null;
 }): CourtRequestsRepository {
   return {
     transaction: vi.fn(async (work: (tx: CourtModerationTx) => Promise<unknown>) =>
@@ -773,6 +780,7 @@ function makeModerationRepo(input: {
     ),
     requestHoldCourtOccupancyForDate: vi.fn().mockResolvedValue(input.confirmed ?? []),
     blocksByCourtForDate: vi.fn().mockResolvedValue(input.blocks ?? [])
+    ,findActiveClientByTelegramId: vi.fn().mockResolvedValue(input.client === undefined ? { id: clientId } : input.client)
   } as unknown as CourtRequestsRepository;
 }
 
@@ -1300,6 +1308,62 @@ describe("CourtRequestsService.cancelRequest (admin confirmed cancellation)", ()
     await expect(service.cancelRequest(adminId, { requestId, reason: { code: "unavailable", comment: null } })).rejects.toBeInstanceOf(
       NotFoundException
     );
+  });
+});
+
+describe("CourtRequestsService.cancelOwnRequest", () => {
+  it("cancels an owned future pending request after locking its date and records the client actor", async () => {
+    const future = makeRow({ date: "2099-06-10", status: "pending", courtNumbers: [1] });
+    const { tx } = makeTx({ request: future });
+    const service = makeService(makeModerationRepo({ tx }));
+
+    const result = await service.cancelOwnRequest(7001, { requestId });
+
+    expect(result).toMatchObject({ status: "cancelled", decidedBy: 7001, courtNumbers: [1] });
+    expect(tx.lockDate).toHaveBeenCalledWith("2099-06-10");
+    expect(tx.cancelActive).toHaveBeenCalledWith({ id: requestId, decidedBy: 7001 });
+    expect(captureRecordStatus).toHaveBeenCalledWith(tx.database, {
+      kind: "court", entityId: requestId, status: "cancelled", actor: "client",
+      transitionKey: `court:${requestId}:cancelled`
+    });
+  });
+
+  it("allows a future confirmed request too", async () => {
+    const { tx } = makeTx({ request: makeRow({ date: "2099-06-10", status: "confirmed", courtNumbers: [2] }) });
+    const service = makeService(makeModerationRepo({ tx }));
+    await expect(service.cancelOwnRequest(7001, { requestId })).resolves.toMatchObject({ status: "cancelled", courtNumbers: [2] });
+  });
+
+  it("rejects another client's request without cancelling it", async () => {
+    const { tx } = makeTx({ request: makeRow({ clientId: "33333333-3333-4333-8333-333333333333", date: "2099-06-10" }) });
+    const service = makeService(makeModerationRepo({ tx }));
+
+    await expect(service.cancelOwnRequest(7001, { requestId })).rejects.toBeInstanceOf(ForbiddenException);
+    expect(tx.cancelActive).not.toHaveBeenCalled();
+  });
+
+  it("rejects a request that has already started after acquiring both locks", async () => {
+    const { tx } = makeTx({ request: makeRow({ date: "2000-01-01", status: "confirmed" }) });
+    const service = makeService(makeModerationRepo({ tx }));
+
+    await expect(service.cancelOwnRequest(7001, { requestId })).rejects.toBeInstanceOf(ConflictException);
+    expect(tx.lockDate).toHaveBeenCalledWith("2000-01-01");
+    expect(tx.cancelActive).not.toHaveBeenCalled();
+  });
+
+  it("rejects terminal requests", async () => {
+    const { tx } = makeTx({ request: makeRow({ date: "2099-06-10", status: "cancelled" }) });
+    const service = makeService(makeModerationRepo({ tx }));
+    await expect(service.cancelOwnRequest(7001, { requestId })).rejects.toBeInstanceOf(ConflictException);
+    expect(tx.cancelActive).not.toHaveBeenCalled();
+  });
+});
+
+describe("courtRequestStarted", () => {
+  it("closes cancellation at the first occurrence of a repeated DST wall time", () => {
+    expect(courtRequestStarted("2026-10-25", "02:30", new Date("2026-10-25T00:15:00.000Z"))).toBe(false);
+    expect(courtRequestStarted("2026-10-25", "02:30", new Date("2026-10-25T00:45:00.000Z"))).toBe(true);
+    expect(courtRequestStarted("2026-10-25", "02:30", new Date("2026-10-25T01:00:00.000Z"))).toBe(true);
   });
 });
 

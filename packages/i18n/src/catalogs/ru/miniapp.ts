@@ -394,6 +394,11 @@ export const miniappRu: Record<string, string> = {
   "miniapp.records.unknownCreate":
     "Не удалось подтвердить ответ сервера. Заявка могла сохраниться — проверьте «Мои записи и заявки» перед повторной отправкой.",
   "miniapp.records.price": "{price} RSD",
+  "miniapp.records.cancelCourtAction": "Отменить аренду",
+  "miniapp.records.cancelCourtTitle": "Отменить аренду корта?",
+  "miniapp.records.cancelCourtBody": "Ваша аренда корта будет отменена. Это действие нельзя отменить.",
+  "miniapp.records.cancelCourtKeep": "Оставить аренду",
+  "miniapp.records.cancelCourtConfirm": "Отменить аренду",
   "miniapp.week.aria": "Моя неделя и расписание",
   "miniapp.week.tabsAria": "Основная навигация",
   "miniapp.week.tab.home": "Главная",

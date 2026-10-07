@@ -156,7 +156,9 @@ export const myCourtRequestItemSchema = z.object({
   /** How many courts the request is for (≥1). */
   courtCount: z.number().int().min(1),
   /** The court numbers the client picked/holds (empty for a legacy bot request with none). */
-  courtNumbers: z.array(courtNumber)
+  courtNumbers: z.array(courtNumber),
+  /** Server-derived self-service action; the client must never calculate eligibility. */
+  canCancel: z.boolean()
 });
 export type MyCourtRequestItem = z.infer<typeof myCourtRequestItemSchema>;
 
@@ -350,6 +352,10 @@ export const cancelCourtRequestSchema = z
   })
   .strict();
 export type CancelCourtRequest = z.infer<typeof cancelCourtRequestSchema>;
+
+/** Client self-service cancellation. A client supplies no staff decision reason. */
+export const cancelOwnCourtRequestSchema = z.object({ requestId: uuid }).strict();
+export type CancelOwnCourtRequest = z.infer<typeof cancelOwnCourtRequestSchema>;
 
 /** C4 — filter for the admin moderation queue read. Defaults to the pending queue. */
 export const courtRequestQueueQuerySchema = z.object({

@@ -72,7 +72,7 @@ export class ClientRecordsRepository {
     for (const row of rows) { const value = grouped.get(row.request.id) ?? { request: row.request, courts: [] }; if (row.court) value.courts.push(row.court.number); grouped.set(row.request.id, value); }
     return [...grouped.values()].map(({ request, courts }) => {
       const status = request.status === "rejected" ? "declined" : request.status;
-      return base({ id: `court:${request.id}`, kind: "court", entityId: request.id, status, date: request.date, startTime: short(request.startTime), endTime: endTime(request.startTime, Number(request.durationHours)), title: null, trainerName: null, trainingKind: null, levelName: null, trainingId: null, bookingId: null, groupSubscriptionId: null, courtNumbers: request.status === "confirmed" ? courts.sort((a, b) => a - b) : [], courtCount: request.courtCount, priceRsd: request.priceRsd, canCancel: false, nextAction: nextAction(status) });
+      return base({ id: `court:${request.id}`, kind: "court", entityId: request.id, status, date: request.date, startTime: short(request.startTime), endTime: endTime(request.startTime, Number(request.durationHours)), title: null, trainerName: null, trainingKind: null, levelName: null, trainingId: null, bookingId: null, groupSubscriptionId: null, courtNumbers: request.status === "confirmed" ? courts.sort((a, b) => a - b) : [], courtCount: request.courtCount, priceRsd: request.priceRsd, canCancel: request.status === "pending" || request.status === "confirmed", nextAction: nextAction(status) });
     });
   }
 

@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import {
   COURT_COUNT,
   cancelCourtRequestSchema,
+  cancelOwnCourtRequestSchema,
   confirmCourtRequestSchema,
   courtAvailabilityQuerySchema,
   courtAvailabilitySchema,
@@ -55,7 +56,8 @@ describe("myCourtRequestHistoryQuerySchema", () => {
       durationHours: 1,
       priceRsd: 2000,
       courtCount: 1,
-      courtNumbers: []
+      courtNumbers: [],
+      canCancel: false
     };
     for (const status of ["pending", "confirmed", "rejected", "cancelled"]) {
       expect(myCourtRequestItemSchema.safeParse({ ...item, status }).success).toBe(true);
@@ -823,6 +825,13 @@ describe("cancelCourtRequestSchema (admin cancel confirmed request input)", () =
         expect(result.error.issues[0]?.code).toBe("unrecognized_keys");
       }
     }
+  });
+});
+
+describe("cancelOwnCourtRequestSchema", () => {
+  it("accepts only the request id and no staff decision metadata", () => {
+    expect(cancelOwnCourtRequestSchema.safeParse({ requestId: uuidA }).success).toBe(true);
+    expect(cancelOwnCourtRequestSchema.safeParse({ requestId: uuidA, reason: { code: "unavailable", comment: null } }).success).toBe(false);
   });
 });
 

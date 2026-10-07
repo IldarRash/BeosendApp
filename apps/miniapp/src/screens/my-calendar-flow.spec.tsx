@@ -114,7 +114,8 @@ const MY_COURT: MyCourtRequestItem = {
   priceRsd: 2000,
   status: "pending",
   courtCount: 1,
-  courtNumbers: []
+  courtNumbers: [],
+  canCancel: false
 };
 
 // /trainings/available returns BOTH the already-booked training (must be deduped) and a
@@ -202,6 +203,7 @@ interface FakeApi {
   createSingleBooking: ReturnType<typeof vi.fn>;
   getTrainingParticipants: ReturnType<typeof vi.fn>;
   getClientTrainingDetail: ReturnType<typeof vi.fn>;
+  cancelCourtRequest: ReturnType<typeof vi.fn>;
 }
 
 let api: FakeApi;
@@ -229,6 +231,7 @@ function makeApi(overrides: Partial<FakeApi> = {}): FakeApi {
       })
     ),
     getClientTrainingDetail: vi.fn().mockResolvedValue(TRAINING_DETAIL),
+    cancelCourtRequest: vi.fn().mockResolvedValue({}),
     ...overrides
   };
 }
@@ -270,6 +273,15 @@ afterEach(() => {
 });
 
 describe("CalendarScreen merged feeds", () => {
+  it("offers cancellation only for a server-cancellable court and opens its confirmation", async () => {
+    const cancellableCourt = { ...MY_COURT, status: "confirmed" as const, canCancel: true };
+    api = makeApi({ listMyCourtRequests: vi.fn().mockResolvedValue([cancellableCourt]) });
+    renderWithProviders(<CalendarScreen />);
+    fireEvent.click(await screen.findByRole("gridcell", { name: /^10 число/ }));
+    fireEvent.click(await screen.findByRole("button", { name: "Отменить аренду" }));
+    expect(screen.getByRole("dialog", { name: "Отменить аренду корта?" })).toBeTruthy();
+  });
+
   it("does not query a fully past month, then safely queries the next future month", async () => {
     renderWithProviders(<CalendarScreen />);
 

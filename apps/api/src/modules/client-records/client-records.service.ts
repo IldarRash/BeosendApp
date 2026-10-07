@@ -1,6 +1,7 @@
 import { ForbiddenException, Injectable } from "@nestjs/common";
 import { clientRecordsPageSchema, type ClientRecordsPage, type ClientRecordsQuery } from "@beosand/types";
 import { ClientRecordsRepository } from "./client-records.repository";
+import { courtRequestStarted } from "../court-requests/court-request-time";
 
 @Injectable()
 export class ClientRecordsService {
@@ -15,7 +16,10 @@ export class ClientRecordsService {
     const scoped = result.records.map((record) => {
       const event = latest.get(record.entityId);
       const status = record.status === "cancelled" && event?.status === "declined" ? "declined" : record.status;
-      return { ...record, reason: event?.reason ?? null, actor: event?.actor ?? null, status, canCancel: record.canCancel && record.date >= today && !terminal(status) };
+      const canCancel = record.kind === "court"
+        ? record.canCancel && !courtRequestStarted(record.date, record.startTime) && !terminal(status)
+        : record.canCancel && record.date >= today && !terminal(status);
+      return { ...record, reason: event?.reason ?? null, actor: event?.actor ?? null, status, canCancel };
     }).filter((record) => query.scope === "upcoming" ? record.date >= today && !terminal(record.status) : record.date < today || terminal(record.status));
     scoped.sort((a, b) => query.scope === "upcoming" ? a.date.localeCompare(b.date) || a.startTime.localeCompare(b.startTime) || a.id.localeCompare(b.id) : b.date.localeCompare(a.date) || b.startTime.localeCompare(a.startTime) || b.id.localeCompare(a.id));
     const items = scoped.slice(query.offset, query.offset + query.limit);
