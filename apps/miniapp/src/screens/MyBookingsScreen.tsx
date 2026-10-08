@@ -1,4 +1,5 @@
 import { useMemo, useRef, useState } from "react";
+import { Button } from "@telegram-apps/telegram-ui";
 import type { ClientRecord, MyBookingScope } from "@beosand/types";
 import { useCancelCourtRequest, useClientRecords } from "../api/hooks";
 import { useT } from "../i18n/LanguageProvider";
@@ -81,7 +82,7 @@ function RecordRow({ record, onOpen, onCancelCourt }: { record: ClientRecord; on
   const editable = record.kind === "booking" && record.canCancel && record.trainingId != null;
   const cancellableCourt = record.kind === "court" && record.canCancel;
   if (editable) return <button type="button" className="lrow records-row" role="listitem" onClick={onOpen} aria-label={`${title}. ${dateTime}`}>{content}</button>;
-  return <div className="lrow records-row" role="listitem">{content}{cancellableCourt ? <button type="button" className="fallback-btn" onClick={onCancelCourt}>{t("miniapp.records.cancelCourtAction")}</button> : null}</div>;
+  return <div className="lrow records-row" role="listitem">{content}{cancellableCourt ? <Button size="m" mode="outline" onClick={onCancelCourt}>{t("miniapp.records.cancelCourtAction")}</Button> : null}</div>;
 }
 
 function statusVariant(status: ClientRecord["status"]): "ok" | "warn" | "co" | "muted" {

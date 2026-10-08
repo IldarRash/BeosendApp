@@ -7,6 +7,7 @@ import {
   useState,
   type ForwardedRef
 } from "react";
+import { Button } from "@telegram-apps/telegram-ui";
 import type {
   BookingStatus,
   CourtRequestStatus,
@@ -705,7 +706,7 @@ function CourtRow({ item, onCancel }: { item: MyCourtRequestItem; onCancel: () =
             {statusLabel}
           </span>
         </div>
-        {item.canCancel ? <button type="button" className="fallback-btn" onClick={onCancel}>{t("miniapp.records.cancelCourtAction")}</button> : null}
+        {item.canCancel ? <Button size="m" mode="outline" onClick={onCancel}>{t("miniapp.records.cancelCourtAction")}</Button> : null}
       </div>
     </div>
   );
