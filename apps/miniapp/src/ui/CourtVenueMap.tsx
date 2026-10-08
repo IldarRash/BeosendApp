@@ -48,7 +48,17 @@ export function CourtVenueMap({
         role="group"
         aria-label={assigned ? `${labels.title}: ${labels.yourCourt} ${selectedList}` : `${labels.title}: ${labels.unassigned}`}
       >
-        <span className="court-venue-map__facility court-venue-map__facility--lockers">{labels.lockers}</span>
+        <svg aria-hidden="true" className="court-venue-map__boundary" viewBox="0 0 320 220" preserveAspectRatio="none">
+          <rect x="3" y="3" width="314" height="214" rx="14" />
+          <path d="M14 110h292" />
+        </svg>
+        <span className="court-venue-map__facility court-venue-map__facility--lockers">
+          <svg aria-hidden="true" className="court-venue-map__facility-icon" viewBox="0 0 20 20">
+            <rect x="2.5" y="3" width="15" height="14" rx="1.5" />
+            <path d="M2.5 8h15M7.5 3v14M12.5 3v14" />
+          </svg>
+          <span>{labels.lockers}</span>
+        </span>
         <div className="court-venue-map__courts">
           {COURT_LAYOUT.map((court, index) =>
             court === null ? (
@@ -60,6 +70,10 @@ export function CourtVenueMap({
                 key={court}
                 role="img"
               >
+                <svg aria-hidden="true" className="court-venue-map__court-diagram" viewBox="0 0 90 120" preserveAspectRatio="none">
+                  <rect x="5" y="4" width="80" height="112" rx="5" />
+                  <path d="M5 60h80" />
+                </svg>
                 <span aria-hidden="true">{court}</span>
                 {selectedCourts.has(court) ? (
                   <svg aria-hidden="true" className="court-venue-map__selected-mark" viewBox="0 0 16 16">
@@ -70,7 +84,12 @@ export function CourtVenueMap({
             )
           )}
         </div>
-        <span className="court-venue-map__facility court-venue-map__facility--entrance">{labels.entrance}</span>
+        <span className="court-venue-map__facility court-venue-map__facility--entrance">
+          <svg aria-hidden="true" className="court-venue-map__facility-icon" viewBox="0 0 20 20">
+            <path d="M3 17V3h10v14M6 10h10M13 6l4 4-4 4" />
+          </svg>
+          <span>{labels.entrance}</span>
+        </span>
       </div>
 
       <ul className="court-venue-map__legend" aria-label={labels.title}>
