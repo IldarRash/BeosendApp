@@ -382,6 +382,19 @@ export class CourtRequestsService {
     return rows.map((row) => this.toClientMineItem(row));
   }
 
+  /** Resolve one request through the caller's active client record only. */
+  async getMineDetail(actorTelegramId: number, requestId: string): Promise<MyCourtRequestItem> {
+    const client = await this.repository.findActiveClientByTelegramId(actorTelegramId);
+    if (!client) {
+      throw new ForbiddenException("No client is registered for this Telegram account.");
+    }
+    const row = await this.repository.findMineById(client.id, requestId);
+    if (!row) {
+      throw new NotFoundException("No court request with that id.");
+    }
+    return this.toClientMineItem(row);
+  }
+
   /**
    * C4 — the admin moderation queue (default: pending), joined with the client's
    * name/telegram, a derived end time, and the request's court numbers. Admin-only.

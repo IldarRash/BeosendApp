@@ -238,6 +238,31 @@ export class CourtRequestsRepository {
     return rows.map(toMyCourtRequestRow);
   }
 
+  /** One caller-owned request; foreign and missing ids deliberately look identical. */
+  async findMineById(clientId: string, requestId: string): Promise<MyCourtRequestRow | null> {
+    const rows = await this.database.db
+      .select({
+        id: tables.courtRequests.id,
+        date: tables.courtRequests.date,
+        startTime: tables.courtRequests.startTime,
+        durationHours: tables.courtRequests.durationHours,
+        courtCount: tables.courtRequests.courtCount,
+        courtNumbers: courtNumbersAgg,
+        priceRsd: tables.courtRequests.priceRsd,
+        status: tables.courtRequests.status
+      })
+      .from(tables.courtRequests)
+      .leftJoin(
+        tables.courtRequestCourts,
+        eq(tables.courtRequests.id, tables.courtRequestCourts.requestId)
+      )
+      .leftJoin(tables.courts, eq(tables.courtRequestCourts.courtId, tables.courts.id))
+      .where(and(eq(tables.courtRequests.clientId, clientId), eq(tables.courtRequests.id, requestId)))
+      .groupBy(tables.courtRequests.id)
+      .limit(1);
+    return rows[0] ? toMyCourtRequestRow(rows[0]) : null;
+  }
+
   /**
    * Isolated caller history query. This must not be reused by calendar or
    * availability reads: terminal rows belong here only.

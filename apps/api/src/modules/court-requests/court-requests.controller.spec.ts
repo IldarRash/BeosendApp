@@ -80,6 +80,7 @@ function makeService(overrides: Partial<CourtRequestsService> = {}): CourtReques
     cancelRequest: vi.fn(async () => ({ ...created, status: "cancelled", decidedBy: ACTOR_ID })),
     cancelOwnRequest: vi.fn(async () => ({ ...created, status: "cancelled", decidedBy: ACTOR_ID })),
     listMineHistory: vi.fn(),
+    getMineDetail: vi.fn(async () => mineItem),
     ...overrides
   } as unknown as CourtRequestsService;
 }
@@ -141,6 +142,25 @@ describe("CourtRequestsController.mineHistory (GET /court-requests/mine/history)
       controller.mineHistory(HEADER, { scope: "upcoming", clientId: "spoofed" })
     ).rejects.toBeInstanceOf(BadRequestException);
     expect(service.listMineHistory).not.toHaveBeenCalled();
+  });
+});
+
+describe("CourtRequestsController.mineDetail (GET /court-requests/mine/:id)", () => {
+  it("uses only the verified client-session header and forwards a valid id", async () => {
+    const service = makeService();
+    const controller = new CourtRequestsController(service);
+
+    await expect(controller.mineDetail(String(FOREIGN_ID), REQUEST_ID, HEADER)).resolves.toEqual(mineItem);
+    expect(service.getMineDetail).toHaveBeenCalledWith(ACTOR_ID, REQUEST_ID);
+  });
+
+  it("rejects a raw-only or malformed client-session request before the service", async () => {
+    const service = makeService();
+    const controller = new CourtRequestsController(service);
+
+    await expect(controller.mineDetail(HEADER, REQUEST_ID)).rejects.toBeInstanceOf(BadRequestException);
+    await expect(controller.mineDetail(undefined, "not-a-uuid", HEADER)).rejects.toBeInstanceOf(BadRequestException);
+    expect(service.getMineDetail).not.toHaveBeenCalled();
   });
 });
 
