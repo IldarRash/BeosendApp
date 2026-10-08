@@ -258,6 +258,26 @@ export const miniappRu: Record<string, string> = {
   // Conflict fallback (used only when a ConflictError carries no message).
   "miniapp.court.conflict": "Не удалось отправить заявку. Возможно, это время уже заняли.",
 
+  // --- Детали аренды корта ---
+  "miniapp.courtDetail.title": "Аренда корта",
+  "miniapp.courtDetail.back": "Назад",
+  "miniapp.courtDetail.date": "Дата",
+  "miniapp.courtDetail.time": "Время",
+  "miniapp.courtDetail.duration": "Длительность",
+  "miniapp.courtDetail.count": "Корты",
+  "miniapp.courtDetail.price": "Стоимость",
+  "miniapp.courtDetail.status": "Статус",
+  "miniapp.courtDetail.courts": "Корты: {courts}",
+  "miniapp.courtDetail.mapTitle": "Схема кортов",
+  "miniapp.courtDetail.lockers": "Раздевалки",
+  "miniapp.courtDetail.entrance": "Вход",
+  "miniapp.courtDetail.yourCourt": "Ваш корт",
+  "miniapp.courtDetail.otherCourts": "Другие корты",
+  "miniapp.courtDetail.unassigned": "Корты будут указаны после подтверждения.",
+  "miniapp.courtDetail.noAssignment": "Назначенных кортов нет.",
+  "miniapp.courtDetail.assignedCourts": "Назначенные корты",
+  "miniapp.courtDetail.court": "Корт {number}",
+
   // --- Month names (1 = Январь … 12 = Декабрь) ---
   "miniapp.month.1": "Январь",
   "miniapp.month.2": "Февраль",

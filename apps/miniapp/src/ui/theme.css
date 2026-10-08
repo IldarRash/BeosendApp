@@ -280,6 +280,14 @@ body {
   font-weight: 600;
 }
 
+.tg-sbtn:focus-visible {
+  outline: 2px solid var(--co);
+  outline-offset: 2px;
+}
+
+/* Keep secondary-button text legible on the dark coral wash without changing the shared accent tokens. */
+.tg-theme--dark .tg-sbtn { color: #ff9d88; }
+
 .screen {
   padding: var(--beosand-screen-pad);
   display: flex;
@@ -1739,3 +1747,138 @@ button.slot { display: block; }
   color: var(--tg-hint);
 }
 .cal-legend__item { display: inline-flex; align-items: center; gap: 6px; }
+
+/* =========================================================
+ * Court venue map — static orientation plan for a rental record
+ * ========================================================= */
+.court-venue-map {
+  display: grid;
+  gap: 12px;
+  color: var(--tg-text);
+}
+
+.court-venue-map__header {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.court-venue-map__title {
+  margin: 0;
+  font: 700 17px/1.2 var(--ff);
+  letter-spacing: -0.01em;
+}
+
+.court-venue-map__status {
+  margin: 0;
+  color: var(--tg-subtitle);
+  font-size: 13px;
+  line-height: 1.3;
+  text-align: end;
+}
+
+.court-venue-map__plan {
+  display: grid;
+  gap: 12px;
+  padding: 12px;
+  border: 1px solid var(--tg-sep);
+  border-radius: var(--r);
+  background: var(--tg-secondary);
+}
+
+.court-venue-map__facility {
+  width: fit-content;
+  min-height: 28px;
+  display: inline-flex;
+  align-items: center;
+  padding: 4px 8px;
+  border: 1px solid var(--tg-sep);
+  border-radius: 8px;
+  background: var(--tg-bg);
+  color: var(--tg-subtitle);
+  font-size: 11px;
+  font-weight: 650;
+  line-height: 1.2;
+}
+
+.court-venue-map__facility--lockers { justify-self: start; }
+.court-venue-map__facility--entrance { justify-self: center; }
+
+.court-venue-map__courts {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  grid-template-rows: repeat(2, minmax(58px, 1fr));
+  gap: 8px;
+}
+
+.court-venue-map__gap { min-width: 0; }
+
+.court-venue-map__court {
+  position: relative;
+  display: grid;
+  min-width: 0;
+  min-height: 58px;
+  place-items: center;
+  border: 1px solid var(--tg-sep);
+  border-radius: 10px;
+  background: var(--tg-bg);
+  color: var(--tg-subtitle);
+  font-size: 20px;
+  font-weight: 750;
+  font-variant-numeric: tabular-nums;
+  line-height: 1;
+}
+
+.court-venue-map__court.is-selected {
+  border-color: var(--co);
+  background: var(--co);
+  color: #fff;
+  box-shadow: 0 5px 12px rgba(225, 91, 67, 0.24);
+}
+
+.court-venue-map__selected-mark {
+  position: absolute;
+  inset-block-start: 7px;
+  inset-inline-end: 7px;
+  width: 16px;
+  height: 16px;
+}
+
+.court-venue-map__legend {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px 16px;
+  margin: 0;
+  padding: 0;
+  color: var(--tg-subtitle);
+  font-size: 12px;
+  line-height: 1.3;
+  list-style: none;
+}
+
+.court-venue-map__legend li { display: inline-flex; align-items: center; gap: 6px; }
+
+.court-venue-map__legend-mark {
+  width: 12px;
+  height: 12px;
+  border: 1px solid var(--tg-sep);
+  border-radius: 4px;
+  background: var(--tg-bg);
+}
+
+.court-venue-map__legend-mark--selected { border-color: var(--co); background: var(--co); }
+
+.court-venue-map__unassigned {
+  margin: -4px 0 0;
+  color: var(--tg-hint);
+  font-size: 13px;
+  line-height: 1.35;
+}
+
+@media (max-width: 350px) {
+  .court-venue-map__plan { padding: 10px; }
+  .court-venue-map__courts { gap: 6px; }
+  .court-venue-map__court { min-height: 50px; font-size: 18px; }
+  .cancel-sheet__actions { flex-direction: column; }
+}
