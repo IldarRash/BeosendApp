@@ -11,7 +11,15 @@ const CLIENT: Client = { id: "11111111-1111-1111-1111-111111111111", name: "Anya
 const PENDING: ClientRecord = { id: "court:22222222-2222-2222-2222-222222222222", kind: "court", entityId: "22222222-2222-2222-2222-222222222222", status: "pending", date: "2026-06-10", startTime: "18:00", endTime: "19:00", title: null, trainerName: null, trainingKind: null, levelName: null, trainingId: null, bookingId: null, groupSubscriptionId: null, courtNumbers: [], courtCount: 2, priceRsd: 6000, waitlistPosition: null, reason: null, actor: null, canCancel: false, nextAction: "wait" };
 const DECLINED: ClientRecord = { ...PENDING, id: "individual-request:33333333-3333-3333-3333-333333333333", kind: "individual-request", entityId: "33333333-3333-3333-3333-333333333333", status: "declined", title: "Индивидуальная тренировка", actor: "staff", reason: { code: "staff-unavailable", comment: "Тренер заболел" }, nextAction: "choose-another" };
 
-let api: { getMe: ReturnType<typeof vi.fn>; getClientByTelegramId: ReturnType<typeof vi.fn>; listClientRecords: ReturnType<typeof vi.fn>; cancelCourtRequest: ReturnType<typeof vi.fn> };
+interface FakeApi {
+  getMe: ReturnType<typeof vi.fn>;
+  getClientByTelegramId: ReturnType<typeof vi.fn>;
+  listClientRecords: ReturnType<typeof vi.fn>;
+  cancelCourtRequest: ReturnType<typeof vi.fn>;
+  getMyCourtRequest?: ReturnType<typeof vi.fn>;
+}
+
+let api: FakeApi;
 vi.mock("../api/ApiProvider", () => ({ useApiClient: () => api, useApi: () => ({ client: api, status: "ready", error: null }) }));
 vi.mock("../tg/buttons", () => ({ useMainButton: () => {}, useBackButton: () => {}, hapticSelection: () => {}, hapticSuccess: () => {}, hapticWarning: () => {} }));
 
@@ -32,7 +40,7 @@ describe("My bookings and requests", () => {
   });
 
   it("switches to terminal history", async () => {
-    api = { getMe: vi.fn().mockReturnValue(ME), getClientByTelegramId: vi.fn().mockResolvedValue(CLIENT), listClientRecords: vi.fn((query) => Promise.resolve(query.scope === "past" ? page([DECLINED]) : page([]))), cancelCourtRequest: vi.fn() };
+    api = { getMe: vi.fn().mockReturnValue(ME), getClientByTelegramId: vi.fn().mockResolvedValue(CLIENT), listClientRecords: vi.fn((query: { scope: string }) => Promise.resolve(query.scope === "past" ? page([DECLINED]) : page([]))), cancelCourtRequest: vi.fn() };
     renderScreen();
     fireEvent.click(await screen.findByRole("tab", { name: "История" }));
     await waitFor(() => expect(api.listClientRecords).toHaveBeenCalledWith({ scope: "past", offset: 0, limit: 30 }));
@@ -44,7 +52,7 @@ describe("My bookings and requests", () => {
     api = {
       getMe: vi.fn().mockReturnValue(ME),
       getClientByTelegramId: vi.fn().mockResolvedValue(CLIENT),
-      listClientRecords: vi.fn((query) => {
+      listClientRecords: vi.fn((query: { offset: number }) => {
         return Promise.resolve(query.offset === 0 ? page([PENDING], true, 1) : page([PENDING, second]));
       }),
       cancelCourtRequest: vi.fn()
@@ -59,7 +67,7 @@ describe("My bookings and requests", () => {
     let firstPageCalls = 0;
     const updated = { ...PENDING, status: "declined" as const, reason: { code: "unavailable" as const, comment: null }, nextAction: "choose-another" as const };
     const secondPageRecord = { ...PENDING, id: "waitlist:99999999-9999-9999-9999-999999999999", entityId: "99999999-9999-9999-9999-999999999999", kind: "waitlist" as const, status: "waitlisted" as const, title: "Mix" };
-    api = { getMe: vi.fn().mockReturnValue(ME), getClientByTelegramId: vi.fn().mockResolvedValue(CLIENT), listClientRecords: vi.fn((query) => {
+    api = { getMe: vi.fn().mockReturnValue(ME), getClientByTelegramId: vi.fn().mockResolvedValue(CLIENT), listClientRecords: vi.fn((query: { offset: number }) => {
       if (query.offset === 0) return Promise.resolve(page(++firstPageCalls === 1 ? [PENDING] : [updated], true, 1));
       return Promise.resolve(page([secondPageRecord]));
     }), cancelCourtRequest: vi.fn() };
@@ -69,7 +77,7 @@ describe("My bookings and requests", () => {
     await qc.invalidateQueries({ queryKey: ["client-records"] });
     expect(await screen.findByText("Заявка отклонена")).toBeTruthy();
     expect(screen.queryByText("Заявка получена — ожидает подтверждения")).toBeNull();
-    await waitFor(() => expect(api.listClientRecords.mock.calls.filter(([query]) => query.offset === 1)).toHaveLength(2));
+    await waitFor(() => expect(api.listClientRecords.mock.calls.filter((call: Array<{ offset: number }>) => call[0]?.offset === 1)).toHaveLength(2));
   });
 
   it("groups monthly records, shows confirmed courts, and keeps terminal cards read-only", () => {
@@ -84,26 +92,13 @@ describe("My bookings and requests", () => {
     expect(screen.getAllByRole("listitem")).toHaveLength(3);
   });
 
-  it("confirms an API-cancellable court request once and refreshes the unified records", async () => {
-    const cancellable = { ...PENDING, canCancel: true, status: "confirmed" as const };
-    api = { getMe: vi.fn().mockReturnValue(ME), getClientByTelegramId: vi.fn().mockResolvedValue(CLIENT), listClientRecords: vi.fn().mockResolvedValue(page([cancellable])), cancelCourtRequest: vi.fn().mockResolvedValue({}) };
+  it("opens a court detail from a records row even when that terminal row cannot be cancelled", async () => {
+    const terminal = { ...PENDING, status: "cancelled" as const, canCancel: false, courtNumbers: [] };
+    const detail = { id: terminal.entityId, date: terminal.date, startTime: terminal.startTime, endTime: terminal.endTime, durationHours: 1, priceRsd: terminal.priceRsd!, status: "cancelled" as const, courtCount: terminal.courtCount!, courtNumbers: [], canCancel: false };
+    api = { getMe: vi.fn().mockReturnValue(ME), getClientByTelegramId: vi.fn().mockResolvedValue(CLIENT), listClientRecords: vi.fn().mockResolvedValue(page([terminal])), getMyCourtRequest: vi.fn().mockResolvedValue(detail), cancelCourtRequest: vi.fn() };
     renderScreen();
-    fireEvent.click(await screen.findByRole("button", { name: "Отменить аренду" }));
-    expect(screen.getByText("Отменить аренду корта?")).toBeTruthy();
-    const confirm = within(screen.getByRole("dialog")).getByRole("button", { name: "Отменить аренду" });
-    fireEvent.click(confirm);
-    fireEvent.click(confirm);
-    await waitFor(() => expect(api.cancelCourtRequest).toHaveBeenCalledWith(cancellable.entityId));
-    expect(api.cancelCourtRequest).toHaveBeenCalledTimes(1);
-    await waitFor(() => expect(api.listClientRecords).toHaveBeenCalledTimes(2));
-  });
-
-  it("keeps the confirmation open and shows a stale-cancellation error", async () => {
-    const cancellable = { ...PENDING, canCancel: true, status: "confirmed" as const };
-    api = { getMe: vi.fn().mockReturnValue(ME), getClientByTelegramId: vi.fn().mockResolvedValue(CLIENT), listClientRecords: vi.fn().mockResolvedValue(page([cancellable])), cancelCourtRequest: vi.fn().mockRejectedValue(new Error("Заявка уже отменена.")) };
-    renderScreen();
-    fireEvent.click(await screen.findByRole("button", { name: "Отменить аренду" }));
-    fireEvent.click(within(screen.getByRole("dialog")).getByRole("button", { name: "Отменить аренду" }));
-    expect((await screen.findByRole("alert")).textContent).toContain("Заявка уже отменена.");
+    fireEvent.click(await screen.findByRole("button", { name: /Аренда корта/ }));
+    expect(await screen.findByText("Назначенных кортов нет.")).toBeTruthy();
+    expect(api.getMyCourtRequest).toHaveBeenCalledWith(terminal.entityId);
   });
 });

@@ -3,6 +3,7 @@ import type { ClientRecord } from "@beosand/types";
 import { useLayoutEffect, useRef } from "react";
 import { useT } from "../i18n/LanguageProvider";
 import { formatDayMonth, formatRsd, formatTimeRange } from "./format";
+import { Warning } from "./CancelSheet";
 
 type CancellableCourt = Pick<
   ClientRecord,
@@ -85,7 +86,7 @@ export function CourtCancelSheet({
                 </span>
               </div>
             </div>
-            <p className="note">{description}</p>
+            <p className="note"><Warning />{description}</p>
           </>
         ) : null}
         {errorMessage ? <div className="confirm-error" role="alert">{errorMessage}</div> : null}

@@ -454,8 +454,8 @@ export function myCourtRequestsQueryKey(clientId: string): readonly [string, str
  * server resolves the requester from the verified session (bridged Bearer →
  * `x-client-telegram-id`) and returns only their own requests — the Mini App sends no
  * identity in the call. Keyed by the resolved clientId so it caches per user and is
- * disabled until the client resolves. The contract carries NO court id, so a court
- * number can never reach the calendar.
+ * disabled until the client resolves. Court numbers are server-owned and are rendered
+ * only from the client-safe request projection.
  */
 export function useMyCourtRequests(): UseQueryResult<MyCourtRequestItem[]> {
   const apiClient = useApiClient();
@@ -464,6 +464,27 @@ export function useMyCourtRequests(): UseQueryResult<MyCourtRequestItem[]> {
     queryKey: myCourtRequestsQueryKey(clientId ?? ""),
     enabled: clientId != null,
     queryFn: () => apiClient.listMyCourtRequests()
+  });
+}
+
+/** A caller-scoped cache key for one court-rental detail. */
+export function myCourtRequestDetailQueryKey(
+  clientId: string,
+  requestId: string
+): readonly [string, string, string] {
+  return ["my-court-requests", clientId, requestId] as const;
+}
+
+/** Fetch one API-authorized court-rental detail for the selected calendar or records row. */
+export function useMyCourtRequestDetail(
+  requestId: string | null
+): UseQueryResult<MyCourtRequestItem> {
+  const apiClient = useApiClient();
+  const clientId = useResolvedClientId();
+  return useQuery<MyCourtRequestItem>({
+    queryKey: myCourtRequestDetailQueryKey(clientId ?? "", requestId ?? ""),
+    enabled: clientId != null && requestId != null,
+    queryFn: () => apiClient.getMyCourtRequest(requestId!)
   });
 }
 

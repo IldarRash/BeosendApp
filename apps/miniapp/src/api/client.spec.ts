@@ -847,6 +847,40 @@ describe("MiniappApiClient.listMyCourtRequestHistory", () => {
   });
 });
 
+describe("MiniappApiClient.getMyCourtRequest", () => {
+  const detail = {
+    id: "66666666-6666-6666-6666-666666666666",
+    date: "2026-06-10",
+    startTime: "18:00",
+    endTime: "19:30",
+    durationHours: 1.5,
+    priceRsd: 6000,
+    status: "confirmed",
+    courtCount: 2,
+    courtNumbers: [2, 3],
+    canCancel: true
+  } as const;
+
+  it("GETs an owner-scoped detail and validates the shared safe projection", async () => {
+    const fetchMock = vi.fn().mockResolvedValue(jsonResponse(200, detail));
+    vi.stubGlobal("fetch", fetchMock);
+    const client = new MiniappApiClient(BASE);
+
+    await expect(client.getMyCourtRequest(detail.id)).resolves.toEqual(detail);
+    expect(fetchMock.mock.calls[0][0]).toBe(`${BASE}/court-requests/mine/${detail.id}`);
+  });
+
+  it("rejects a malformed detail before it reaches the rental screen", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockResolvedValue(jsonResponse(200, { ...detail, canCancel: "yes" }))
+    );
+    const client = new MiniappApiClient(BASE);
+
+    await expect(client.getMyCourtRequest(detail.id)).rejects.toThrow();
+  });
+});
+
 const CLIENT_TRAINING_DETAIL: ClientTrainingDetail = {
   trainingId: SLOT.trainingId,
   date: "2026-06-10",

@@ -3,11 +3,9 @@ import {
   useEffect,
   useImperativeHandle,
   useMemo,
-  useRef,
   useState,
   type ForwardedRef
 } from "react";
-import { Button } from "@telegram-apps/telegram-ui";
 import type {
   BookingStatus,
   CourtRequestStatus,
@@ -18,7 +16,6 @@ import type {
   TrainingScheduleSlot
 } from "@beosand/types";
 import {
-  useCancelCourtRequest,
   useMyBookings,
   useMyCourtRequests,
   useTrainingSchedule
@@ -45,7 +42,7 @@ import {
 } from "../ui/format";
 import { ErrorState, LoadingState } from "../ui/StateView";
 import { TrainingDetailView } from "../ui/TrainingDetailView";
-import { CourtCancelSheet } from "../ui/CourtCancelSheet";
+import { CourtDetailView } from "../ui/CourtDetailView";
 import { useSlotBookingFlow } from "./useSlotBookingFlow";
 
 /** Monday-first weekday header keys (reusing the short weekday labels). */
@@ -221,13 +218,11 @@ function CalendarScreenContent(
   // can still clear the selection back to null.
   const [selectedDate, setSelectedDate] = useState<string | null>(openedDate);
   const [selectedTrainingId, setSelectedTrainingId] = useState<string | null>(null);
-  const [courtToCancel, setCourtToCancel] = useState<MyCourtRequestItem | null>(null);
-  const courtCancelInFlight = useRef(false);
+  const [selectedCourtRequestId, setSelectedCourtRequestId] = useState<string | null>(null);
 
   const upcoming = useMyBookings("upcoming");
   const past = useMyBookings("past");
   const courts = useMyCourtRequests();
-  const cancelCourt = useCancelCourtRequest();
 
   // Available bookable slots for the whole visible month (its first → last day). The
   // server owns availability over this window; the Mini App only produces the range.
@@ -330,6 +325,10 @@ function CalendarScreenContent(
       setSelectedTrainingId(null);
       return;
     }
+    if (selectedCourtRequestId) {
+      setSelectedCourtRequestId(null);
+      return;
+    }
     onBack?.();
   };
 
@@ -347,6 +346,9 @@ function CalendarScreenContent(
         onBack={() => setSelectedTrainingId(null)}
       />
     );
+  }
+  if (selectedCourtRequestId) {
+    return <CourtDetailView requestId={selectedCourtRequestId} onBack={() => setSelectedCourtRequestId(null)} />;
   }
 
   if (isLoading) {
@@ -463,27 +465,12 @@ function CalendarScreenContent(
             hapticSelection();
             setSelectedTrainingId(item.trainingId);
           }}
-          onCancelCourt={(item) => {
+          onOpenCourt={(item) => {
             hapticSelection();
-            cancelCourt.reset();
-            setCourtToCancel(item);
+            setSelectedCourtRequestId(item.id);
           }}
         />
       )}
-      <CourtCancelSheet
-        item={courtToCancel}
-        onOpenChange={(open) => { if (!open) { cancelCourt.reset(); setCourtToCancel(null); } }}
-        onConfirm={() => {
-          if (!courtToCancel || courtCancelInFlight.current) return;
-          courtCancelInFlight.current = true;
-          cancelCourt.mutate(courtToCancel.id, {
-            onSuccess: () => setCourtToCancel(null),
-            onSettled: () => { courtCancelInFlight.current = false; }
-          });
-        }}
-        submitting={cancelCourt.isPending}
-        errorMessage={cancelCourt.error instanceof Error ? cancelCourt.error.message : undefined}
-      />
     </div>
   );
 }
@@ -529,7 +516,7 @@ function DayAgenda({
   emptyVisible,
   onBook,
   onOpenTraining,
-  onCancelCourt
+  onOpenCourt
 }: {
   items: ReadonlyArray<CalendarItem>;
   emptyVisible: boolean;
@@ -537,7 +524,7 @@ function DayAgenda({
   onBook: (slot: SlotCard) => void;
   /** Open the participant-visible detail for a training the caller already joined. */
   onOpenTraining: (item: MyBookingItem) => void;
-  onCancelCourt: (item: MyCourtRequestItem) => void;
+  onOpenCourt: (item: MyCourtRequestItem) => void;
 }): JSX.Element | null {
   const t = useT();
 
@@ -558,7 +545,7 @@ function DayAgenda({
           case "training":
             return <TrainingRow key={item.id} item={item.booking} onOpen={onOpenTraining} />;
           case "court":
-            return <CourtRow key={item.id} item={item.court} onCancel={() => onCancelCourt(item.court)} />;
+            return <CourtRow key={item.id} item={item.court} onOpen={() => onOpenCourt(item.court)} />;
         }
       })}
     </div>
@@ -666,7 +653,7 @@ function TrainingRow({
  * confirmed client-facing court numbers when the API includes them. Pending responses
  * carry `courtNumbers: []`, so pending rows omit the court-number line.
  */
-function CourtRow({ item, onCancel }: { item: MyCourtRequestItem; onCancel: () => void }): JSX.Element {
+function CourtRow({ item, onOpen }: { item: MyCourtRequestItem; onOpen: () => void }): JSX.Element {
   const t = useT();
   const variant = courtVariant(item.status);
   const statusLabel = t(courtStatusKey(item.status));
@@ -680,10 +667,11 @@ function CourtRow({ item, onCancel }: { item: MyCourtRequestItem; onCancel: () =
       : undefined;
 
   return (
-    <div
-      className="lrow"
-      role="listitem"
-      aria-label={[
+    <div role="listitem">
+      <button
+        type="button"
+        className="lrow"
+        aria-label={[
         t("miniapp.calendar.kindCourt"),
         timeRange,
         statusLabel,
@@ -692,22 +680,24 @@ function CourtRow({ item, onCancel }: { item: MyCourtRequestItem; onCancel: () =
       ]
         .filter(Boolean)
         .join(". ")}
-    >
-      <div className="lrow__main">
-        <div className="cal-row__top">
-          <span className="cal-kind cal-kind--court">{t("miniapp.calendar.kindCourt")}</span>
-          <span className="lrow__title">{timeRange}</span>
+        onClick={onOpen}
+      >
+        <div className="lrow__main">
+          <div className="cal-row__top">
+            <span className="cal-kind cal-kind--court">{t("miniapp.calendar.kindCourt")}</span>
+            <span className="lrow__title">{timeRange}</span>
+          </div>
+          <div className="lrow__sub">{priceLabel}</div>
+          {courtsLabel && <div className="lrow__sub">{courtsLabel}</div>}
+          <div style={{ marginTop: 6 }}>
+            <span className={`schip schip--${variant}`}>
+              <span className="dot" aria-hidden="true" />
+              {statusLabel}
+            </span>
+          </div>
         </div>
-        <div className="lrow__sub">{priceLabel}</div>
-        {courtsLabel && <div className="lrow__sub">{courtsLabel}</div>}
-        <div style={{ marginTop: 6 }}>
-          <span className={`schip schip--${variant}`}>
-            <span className="dot" aria-hidden="true" />
-            {statusLabel}
-          </span>
-        </div>
-        {item.canCancel ? <Button size="m" mode="outline" onClick={onCancel}>{t("miniapp.records.cancelCourtAction")}</Button> : null}
-      </div>
+        <span className="chevron" aria-hidden="true">›</span>
+      </button>
     </div>
   );
 }

@@ -678,6 +678,14 @@ export class MiniappApiClient {
   }
 
   /**
+   * Reads one caller-owned court rental. The API resolves ownership from the verified
+   * session and returns the same client-safe projection used in the calendar feed.
+   */
+  getMyCourtRequest(requestId: string): Promise<MyCourtRequestItem> {
+    return this.request(`/court-requests/mine/${requestId}`, myCourtRequestItemSchema);
+  }
+
+  /**
    * The caller's scoped court-rental history for My bookings. This deliberately uses
    * a separate endpoint from the calendar feed: the API owns which terminal rows
    * belong in Past, while the calendar keeps its availability-safe semantics.
