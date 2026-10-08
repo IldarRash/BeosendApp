@@ -110,6 +110,27 @@ describe("CourtRequestsRepository.listHistoryForClient scope filter", () => {
   });
 });
 
+describe("CourtRequestsRepository.findMineById WHERE filter", () => {
+  it("scopes the request id to the owning client", async () => {
+    let where: unknown;
+    const builder = {
+      from: () => builder,
+      leftJoin: () => builder,
+      where: (predicate: unknown) => { where = predicate; return builder; },
+      groupBy: () => builder,
+      limit: async () => [] as unknown[]
+    };
+    const repo = new CourtRequestsRepository({ db: { select: () => builder } } as unknown as DatabaseService);
+
+    await repo.findMineById("11111111-1111-4111-8111-111111111111", "22222222-2222-4222-8222-222222222222");
+
+    const { sql, params } = new PgDialect().sqlToQuery(where as never);
+    expect(sql.toLowerCase()).toContain('"client_id" =');
+    expect(sql.toLowerCase()).toContain('"id" =');
+    expect(params).toEqual(["11111111-1111-4111-8111-111111111111", "22222222-2222-4222-8222-222222222222"]);
+  });
+});
+
 describe("CourtModerationTx.cancelConfirmed", () => {
   it("updates only the parent request status/decision fields and keeps court rows", async () => {
     let setValues: unknown;

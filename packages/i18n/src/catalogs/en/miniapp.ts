@@ -256,6 +256,26 @@ export const miniappEn: Record<string, string> = {
   "miniapp.court.pickAnotherTime": "Pick another time",
   "miniapp.court.conflict": "Couldn't send the request. This time may already be taken.",
 
+  // --- Court rental record detail ---
+  "miniapp.courtDetail.title": "Court rental",
+  "miniapp.courtDetail.back": "Back",
+  "miniapp.courtDetail.date": "Date",
+  "miniapp.courtDetail.time": "Time",
+  "miniapp.courtDetail.duration": "Duration",
+  "miniapp.courtDetail.count": "Courts",
+  "miniapp.courtDetail.price": "Price",
+  "miniapp.courtDetail.status": "Status",
+  "miniapp.courtDetail.courts": "Courts: {courts}",
+  "miniapp.courtDetail.mapTitle": "Court layout",
+  "miniapp.courtDetail.lockers": "Lockers",
+  "miniapp.courtDetail.entrance": "Entrance",
+  "miniapp.courtDetail.yourCourt": "Your court",
+  "miniapp.courtDetail.otherCourts": "Other courts",
+  "miniapp.courtDetail.unassigned": "Courts will be shown after confirmation.",
+  "miniapp.courtDetail.noAssignment": "No courts assigned.",
+  "miniapp.courtDetail.assignedCourts": "Assigned courts",
+  "miniapp.courtDetail.court": "Court {number}",
+
   // --- Month names (1 = January … 12 = December) ---
   "miniapp.month.1": "January",
   "miniapp.month.2": "February",

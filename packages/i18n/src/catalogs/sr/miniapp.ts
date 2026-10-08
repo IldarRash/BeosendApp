@@ -257,6 +257,26 @@ export const miniappSr: Record<string, string> = {
   "miniapp.court.pickAnotherTime": "Izaberi drugo vreme",
   "miniapp.court.conflict": "Slanje zahteva nije uspelo. Možda je ovo vreme već zauzeto.",
 
+  // --- Detalji iznajmljivanja terena ---
+  "miniapp.courtDetail.title": "Iznajmljivanje terena",
+  "miniapp.courtDetail.back": "Nazad",
+  "miniapp.courtDetail.date": "Datum",
+  "miniapp.courtDetail.time": "Vreme",
+  "miniapp.courtDetail.duration": "Trajanje",
+  "miniapp.courtDetail.count": "Tereni",
+  "miniapp.courtDetail.price": "Cena",
+  "miniapp.courtDetail.status": "Status",
+  "miniapp.courtDetail.courts": "Tereni: {courts}",
+  "miniapp.courtDetail.mapTitle": "Raspored terena",
+  "miniapp.courtDetail.lockers": "Svlačionice",
+  "miniapp.courtDetail.entrance": "Ulaz",
+  "miniapp.courtDetail.yourCourt": "Vaš teren",
+  "miniapp.courtDetail.otherCourts": "Ostali tereni",
+  "miniapp.courtDetail.unassigned": "Tereni će biti prikazani nakon potvrde.",
+  "miniapp.courtDetail.noAssignment": "Nema dodeljenih terena.",
+  "miniapp.courtDetail.assignedCourts": "Dodeljeni tereni",
+  "miniapp.courtDetail.court": "Teren {number}",
+
   // --- Month names (1 = Januar … 12 = Decembar) ---
   "miniapp.month.1": "Januar",
   "miniapp.month.2": "Februar",

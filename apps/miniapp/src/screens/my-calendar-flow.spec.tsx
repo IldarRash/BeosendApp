@@ -203,6 +203,7 @@ interface FakeApi {
   createSingleBooking: ReturnType<typeof vi.fn>;
   getTrainingParticipants: ReturnType<typeof vi.fn>;
   getClientTrainingDetail: ReturnType<typeof vi.fn>;
+  getMyCourtRequest: ReturnType<typeof vi.fn>;
   cancelCourtRequest: ReturnType<typeof vi.fn>;
 }
 
@@ -231,6 +232,7 @@ function makeApi(overrides: Partial<FakeApi> = {}): FakeApi {
       })
     ),
     getClientTrainingDetail: vi.fn().mockResolvedValue(TRAINING_DETAIL),
+    getMyCourtRequest: vi.fn().mockResolvedValue(MY_COURT),
     cancelCourtRequest: vi.fn().mockResolvedValue({}),
     ...overrides
   };
@@ -273,13 +275,14 @@ afterEach(() => {
 });
 
 describe("CalendarScreen merged feeds", () => {
-  it("offers cancellation only for a server-cancellable court and opens its confirmation", async () => {
-    const cancellableCourt = { ...MY_COURT, status: "confirmed" as const, canCancel: true };
-    api = makeApi({ listMyCourtRequests: vi.fn().mockResolvedValue([cancellableCourt]) });
+  it("opens court detail from the calendar for a server-cancellable court", async () => {
+    const cancellableCourt = { ...MY_COURT, status: "confirmed" as const, canCancel: true, courtNumbers: [2] };
+    api = makeApi({ listMyCourtRequests: vi.fn().mockResolvedValue([cancellableCourt]), getMyCourtRequest: vi.fn().mockResolvedValue(cancellableCourt) });
     renderWithProviders(<CalendarScreen />);
     fireEvent.click(await screen.findByRole("gridcell", { name: /^10 число/ }));
-    fireEvent.click(await screen.findByRole("button", { name: "Отменить аренду" }));
-    expect(screen.getByRole("dialog", { name: "Отменить аренду корта?" })).toBeTruthy();
+    fireEvent.click(await screen.findByRole("button", { name: /^Корт/ }));
+    expect(await screen.findByText("Аренда корта")).toBeTruthy();
+    expect(api.getMyCourtRequest).toHaveBeenCalledWith(cancellableCourt.id);
   });
 
   it("does not query a fully past month, then safely queries the next future month", async () => {
@@ -408,7 +411,7 @@ describe("CalendarScreen merged feeds", () => {
     // The booked 18:00 training appears as a booking, not as an available row.
     expect(screen.queryByRole("listitem", { name: /^Доступно.*18:00/ })).toBeNull();
     expect(screen.getByRole("listitem", { name: /^Тренировка/ })).toBeTruthy();
-    expect(screen.getByRole("listitem", { name: /^Корт/ })).toBeTruthy();
+    expect(screen.getByRole("button", { name: /^Корт/ })).toBeTruthy();
   });
 
   it("books from the available row via the shared booking flow", async () => {

@@ -121,6 +121,18 @@ export class CourtRequestsController {
     return this.service.listMineHistory(actorTelegramId, parsed.data.scope);
   }
 
+  /** A single caller-owned rental for the Mini App detail sheet. */
+  @Get("mine/:id")
+  async mineDetail(
+    @Headers("x-telegram-id") _rawTelegramIdHeader: string | undefined,
+    @Param("id") rawId: string,
+    @Headers("x-client-telegram-id") clientTelegramIdHeader?: string
+  ): Promise<MyCourtRequestItem> {
+    const id = parseRequestId(rawId);
+    const actorTelegramId = parseTelegramId(clientTelegramIdHeader, "x-client-telegram-id");
+    return this.service.getMineDetail(actorTelegramId, id);
+  }
+
   /**
    * C2 — server-computed price + availability for a desired slot. No write. Any
    * client-sent amount is ignored (price is computed server-side). The actor is

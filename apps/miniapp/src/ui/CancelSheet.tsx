@@ -106,7 +106,7 @@ export function CancelSheet({
 }
 
 /** Warning glyph for the `.note` line (inherits coral via the `.note svg` rule). */
-function Warning(): JSX.Element {
+export function Warning(): JSX.Element {
   return (
     <svg viewBox="0 0 24 24" fill="none" aria-hidden="true" focusable="false">
       <path

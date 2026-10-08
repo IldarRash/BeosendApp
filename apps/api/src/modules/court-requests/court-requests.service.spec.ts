@@ -1482,17 +1482,20 @@ describe("CourtRequestsService.listMine (client's own requests)", () => {
     repo: CourtRequestsRepository;
     listMineForClient: ReturnType<typeof vi.fn>;
     listHistoryForClient: ReturnType<typeof vi.fn>;
+    findMineById: ReturnType<typeof vi.fn>;
   } {
     const listMineForClient = vi.fn().mockResolvedValue(input.mine ?? []);
     const listHistoryForClient = vi.fn().mockResolvedValue(input.history ?? []);
+    const findMineById = vi.fn().mockResolvedValue(input.mine?.[0] ?? null);
     const repo = {
       findActiveClientByTelegramId: vi
         .fn()
         .mockResolvedValue(input.client === undefined ? { id: clientId } : input.client),
       listMineForClient,
-      listHistoryForClient
+      listHistoryForClient,
+      findMineById
     } as unknown as CourtRequestsRepository;
-    return { repo, listMineForClient, listHistoryForClient };
+    return { repo, listMineForClient, listHistoryForClient, findMineById };
   }
 
   it("returns the caller's own requests with their own court numbers, contract-valid", async () => {
@@ -1580,6 +1583,23 @@ describe("CourtRequestsService.listMine (client's own requests)", () => {
       ForbiddenException
     );
     expect(listHistoryForClient).not.toHaveBeenCalled();
+  });
+
+  it("returns one owned detail with the same redaction and server-derived action", async () => {
+    const { repo, findMineById } = makeMineRepo({ mine: [mineRow({ status: "pending", courtNumbers: [1, 3], date: "2099-06-10" })] });
+    const service = makeService(repo);
+
+    await expect(service.getMineDetail(clientTg, requestId)).resolves.toMatchObject({ status: "pending", courtNumbers: [], canCancel: true });
+    expect(findMineById).toHaveBeenCalledWith(clientId, requestId);
+  });
+
+  it("does not reveal a missing or foreign detail and rejects an inactive caller", async () => {
+    const missing = makeMineRepo({ mine: [] });
+    await expect(makeService(missing.repo).getMineDetail(clientTg, requestId)).rejects.toBeInstanceOf(NotFoundException);
+
+    const inactive = makeMineRepo({ client: null, mine: [mineRow()] });
+    await expect(makeService(inactive.repo).getMineDetail(clientTg, requestId)).rejects.toBeInstanceOf(ForbiddenException);
+    expect(inactive.findMineById).not.toHaveBeenCalled();
   });
 });
 
