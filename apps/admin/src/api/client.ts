@@ -10,6 +10,11 @@ import {
   webhookEndpointSchema,
   labelCatalogSchema,
   labelEntrySchema,
+  lateCancellationLiabilitySchema,
+  lateCancellationLiabilitiesPageSchema,
+  lateCancellationPolicySchema,
+  listLateCancellationLiabilitiesQuerySchema,
+  markStandaloneLateCancellationPaidSchema,
   managerContactSchema,
   managerSchema,
   monthlyScheduleActionResultSchema,
@@ -23,6 +28,7 @@ import {
   analyticsSummarySchema,
   businessAnalyticsSchema,
   bookingSchema,
+  bookingCancellationResultSchema,
   broadcastEffectivenessSchema,
   broadcastPreviewSchema,
   broadcastSchema,
@@ -89,6 +95,7 @@ import {
   updateCourtWorkingHoursMonthSchema,
   updateRequestLoggingSettingsSchema,
   updateSameDayFreedSlotAutomationSettingsSchema,
+  updateLateCancellationPolicySchema,
   waitlistAdminItemSchema,
   waitlistEntrySchema,
   deleteTrainingSeriesResultSchema,
@@ -171,6 +178,10 @@ import {
   type GroupMembers,
   type LabelCatalog,
   type LabelEntry,
+  type LateCancellationLiabilitiesPage,
+  type LateCancellationLiability,
+  type LateCancellationPolicy,
+  type ListLateCancellationLiabilitiesQuery,
   type Level,
   type CreateManagerInput,
   type CreateBroadcastTemplateInput,
@@ -223,6 +234,7 @@ import {
   type UpdateManagerInput,
   type UpdateRequestLoggingSettingsInput,
   type UpdateSameDayFreedSlotAutomationSettingsInput,
+  type UpdateLateCancellationPolicyInput,
   type UpdateBroadcastTemplateInput,
   type UpdateTrainerInput,
   type WaitlistAdminItem,
@@ -1140,10 +1152,10 @@ export class ApiClient {
    * validates the returned booking row.
    */
   cancelBooking(bookingId: string, reason: DecisionReason): Promise<Booking> {
-    return this.request(`/bookings/${bookingId}/cancel`, bookingSchema, {
+    return this.request(`/bookings/${bookingId}/cancel`, bookingCancellationResultSchema, {
       method: "POST",
       body: JSON.stringify(cancelBookingSchema.parse({ reason }))
-    });
+    }).then((result) => result.booking);
   }
 
   // ── Clients (M2) ──────────────────────────────────────────────────────────
@@ -1334,6 +1346,45 @@ export class ApiClient {
     return this.request(`/subscriptions/${id}/paid`, subscriptionSummarySchema, {
       method: "PATCH",
       body: JSON.stringify({ paid })
+    });
+  }
+
+  // ── Late-cancellation policy and liability ledger (admin) ─────────────────
+
+  /** Admin-only read of the global late-cancellation policy. */
+  getLateCancellationPolicy(): Promise<LateCancellationPolicy> {
+    return this.request("/settings/late-cancellation-policy", lateCancellationPolicySchema);
+  }
+
+  /** Save the server-validated enabled/hour policy. */
+  updateLateCancellationPolicy(
+    input: UpdateLateCancellationPolicyInput
+  ): Promise<LateCancellationPolicy> {
+    return this.request("/settings/late-cancellation-policy", lateCancellationPolicySchema, {
+      method: "PATCH",
+      body: JSON.stringify(updateLateCancellationPolicySchema.parse(input))
+    });
+  }
+
+  /** Admin ledger; filters and pagination are passed to the API without local derivation. */
+  listLateCancellationLiabilities(
+    query: Partial<ListLateCancellationLiabilitiesQuery> = {}
+  ): Promise<LateCancellationLiabilitiesPage> {
+    const parsed = listLateCancellationLiabilitiesQuerySchema.parse(query);
+    const params = new URLSearchParams({ offset: String(parsed.offset), limit: String(parsed.limit) });
+    if (parsed.paymentStatus) params.set("paymentStatus", parsed.paymentStatus);
+    if (parsed.billingKind) params.set("billingKind", parsed.billingKind);
+    if (parsed.clientId) params.set("clientId", parsed.clientId);
+    if (parsed.from) params.set("from", parsed.from);
+    if (parsed.to) params.set("to", parsed.to);
+    return this.request(`/late-cancellation-liabilities?${params.toString()}`, lateCancellationLiabilitiesPageSchema);
+  }
+
+  /** Update the payment stamp for a standalone liability only; the API rejects subscription rows. */
+  markStandaloneLateCancellationPaid(id: string, paid: boolean): Promise<LateCancellationLiability> {
+    return this.request(`/late-cancellation-liabilities/${id}/paid`, lateCancellationLiabilitySchema, {
+      method: "PATCH",
+      body: JSON.stringify(markStandaloneLateCancellationPaidSchema.parse({ paid }))
     });
   }
 

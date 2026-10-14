@@ -13,6 +13,11 @@ import type { Env } from "@beosand/config";
 import { isAdmin } from "@beosand/config";
 import type {
   Booking,
+  BookingCancellationPreview,
+  BookingCancellationResult,
+  LateCancellationLiabilitiesPage,
+  ListLateCancellationLiabilitiesQuery,
+  MarkStandaloneLateCancellationPaidInput,
   CancelBookingInput,
   CalendarExportMonthQuery,
   DeclineBookingInput,
@@ -38,6 +43,7 @@ import {
   recomputeTrainingStatus,
   singleBookingResultSchema,
   transferGroupResultSchema
+  , bookingCancellationPreviewSchema, bookingCancellationResultSchema, lateCancellationLiabilitySchema, zonedWallClockToUtc, BELGRADE_TZ
 } from "@beosand/types";
 import type { Database } from "@beosand/db";
 import { ENV } from "../../config/config.module";
@@ -46,14 +52,18 @@ import { ClientsRepository } from "../clients/clients.repository";
 import { renderTrainingIcs } from "../connectors/calendar/calendar-ics";
 import { DomainEventsService } from "../connectors/domain-events.service";
 import { captureRecordStatus, captureRecordStatuses } from "../record-status/record-status-capture";
+import { enqueueRecordStatus } from "../record-status/record-status.repository";
+import { escapeHtml } from "../record-status/record-status-renderer";
 import { GroupsRepository } from "../groups/groups.repository";
 import { NotificationsService } from "../notifications/notifications.service";
 import { sanitizeTelegramDiagnostic } from "../notifications/telegram-sender";
 import { type BookingPriceSnapshot } from "../training-pricing/training-pricing.repository";
 import { TrainingPricingService } from "../training-pricing/training-pricing.service";
 import { TrainersRepository } from "../trainers/trainers.repository";
+import { SettingsService } from "../settings/settings.service";
 import { type WaitlistPromotionOutcome, WaitlistService } from "../waitlist/waitlist.service";
 import { BookingsRepository, type TrainingLockRow } from "./bookings.repository";
+import { signLateCancellationToken, verifyLateCancellationToken } from "./late-cancellation-token";
 
 interface CreateSingleInput {
   clientId: string;
@@ -82,6 +92,7 @@ interface ClientOwnershipOptions {
   allowAdmin?: boolean;
   analyticsSessionId?: string;
   reason?: CancelBookingInput["reason"];
+  lateCancellationConfirmationToken?: string;
 }
 
 /**
@@ -113,7 +124,8 @@ export class BookingsService {
     private readonly domainEvents: DomainEventsService,
     @Inject(ENV) private readonly env: Env,
     @Optional() private readonly pricing?: TrainingPricingService,
-    @Optional() @Inject(BroadcastAutomationsService) private readonly automations?: unknown
+    @Optional() @Inject(BroadcastAutomationsService) private readonly automations?: unknown,
+    private readonly settings?: SettingsService
   ) {}
 
   async createSingle(
@@ -897,6 +909,21 @@ export class BookingsService {
     });
   }
 
+  async cancellationPreview(actorTelegramId: number, bookingId: string, options: ClientOwnershipOptions = {}): Promise<BookingCancellationPreview> {
+    return this.bookings.transaction(async (tx) => {
+      let booking = await this.bookings.findBookingCancellationForUpdate(tx, bookingId);
+      if (!booking) throw new NotFoundException(`Booking ${bookingId} not found`);
+      await this.assertOwnsClient(actorTelegramId, booking.clientId, options);
+      const training = await this.bookings.findTrainingForUpdate(tx, booking.trainingId);
+      if (!training) throw new NotFoundException(`Training ${booking.trainingId} not found`);
+      if (training.groupId && !await this.bookings.findGroupPriceForUpdate(tx, training.groupId)) throw new NotFoundException("Training group not found");
+      booking = await this.bookings.findBookingCancellationForUpdate(tx, bookingId);
+      if (!booking) throw new NotFoundException(`Booking ${bookingId} not found`);
+      const policy = await this.lateCancellationPolicy(tx);
+      return this.previewFor(actorTelegramId, booking, policy, new Date());
+    });
+  }
+
   /**
    * Cancel exactly one booking (T1.11) — one training, or one date of a monthly
    * group without dropping the rest. Invariants enforced here:
@@ -920,9 +947,9 @@ export class BookingsService {
     actorTelegramId: number,
     bookingId: string,
     options: ClientOwnershipOptions = {}
-  ): Promise<Booking> {
+  ): Promise<BookingCancellationResult> {
     const result = await this.bookings.transaction(async (tx) => {
-      const booking = await this.bookings.findBookingForUpdate(tx, bookingId);
+      let booking = await this.bookings.findBookingCancellationForUpdate(tx, bookingId);
       if (!booking) {
         throw new NotFoundException(`Booking ${bookingId} not found`);
       }
@@ -944,12 +971,57 @@ export class BookingsService {
         throw new ConflictException(`Booking is not cancellable (status ${booking.status})`);
       }
 
-      const training = await this.bookings.findTrainingForUpdate(tx, booking.trainingId);
+      // Lock the training before deriving dates/status. Re-read the join after
+      // that lock so a concurrent reschedule cannot be charged on stale facts.
+      const lockedTraining = await this.bookings.findTrainingForUpdate(tx, booking.trainingId);
+      if (!lockedTraining) throw new NotFoundException(`Training ${booking.trainingId} not found`);
+      if (lockedTraining.groupId && !await this.bookings.findGroupPriceForUpdate(tx, lockedTraining.groupId)) {
+        throw new NotFoundException("Training group not found");
+      }
+      booking = await this.bookings.findBookingCancellationForUpdate(tx, bookingId);
+      if (!booking) throw new NotFoundException(`Booking ${bookingId} not found`);
+
+      // Staff decisions never become a client withdrawal or a financial liability.
+      const policy = actor === "client"
+        ? await this.lateCancellationPolicy(tx)
+        : { enabled: false, hours: null, version: 1, effectiveFrom: null, updatedAt: null, updatedBy: null };
+      const preview = this.previewFor(actorTelegramId, booking, policy, new Date());
+      if (actor === "client" && !preview.cancellable) {
+        throw new ConflictException("Booking is no longer cancellable");
+      }
+      if (preview.kind === "liable") {
+        const expected = {
+          actorTelegramId, clientId: booking.clientId, bookingId: booking.id, trainingId: booking.trainingId,
+          trainingStartsAt: preview.trainingStartsAt, policyVersion: preview.policyVersion,
+          policyHours: preview.policyHours, cutoffAt: preview.cutoffAt, amountRsd: preview.amountRsd,
+          billingKind: preview.billingKind, paymentStatus: preview.paymentStatus
+        } as const;
+        if (!options.lateCancellationConfirmationToken || !verifyLateCancellationToken(options.lateCancellationConfirmationToken, expected, this.env.ADMIN_SESSION_SECRET)) {
+          throw new ConflictException({ code: "LATE_CANCELLATION_CONFIRMATION_REQUIRED", preview });
+        }
+      }
+
+      const training = lockedTraining;
       if (!training) {
         throw new NotFoundException(`Training ${booking.trainingId} not found`);
       }
 
       const updated = await this.bookings.markCancelled(tx, bookingId);
+
+      const cancelledAt = new Date();
+      const liability = preview.kind === "liable"
+        ? await this.bookings.createLateCancellationLiability(tx, {
+          bookingId: booking.id, clientId: booking.clientId, trainingId: booking.trainingId,
+          groupSubscriptionId: booking.groupSubscriptionId, trainerId: booking.trainerId,
+          clientName: booking.clientName, trainingLabel: preview.trainingLabel,
+          trainingDate: booking.trainingDate, trainingStartTime: booking.trainingStartTime,
+          trainingEndTime: booking.trainingEndTime, trainerName: booking.trainerName,
+          cancelledAt, confirmedAt: cancelledAt, policyHours: preview.policyHours,
+          policyVersion: preview.policyVersion, cutoffAt: new Date(preview.cutoffAt), amountRsd: preview.amountRsd,
+          amountSource: preview.billingKind === "subscription" ? "monthly-booking-snapshot" : "group-single-price",
+          billingKind: preview.billingKind
+        })
+        : null;
 
       const newCount = Math.max(0, training.bookedCount - 1);
       const newStatus = recomputeTrainingStatus({
@@ -964,12 +1036,35 @@ export class BookingsService {
         actor,
         ...(options.reason ? { reason: options.reason } : {})
       });
+      if (liability) {
+        await enqueueRecordStatus(tx, {
+          transitionKey: `late-cancellation:${liability.id}:coach:${booking.trainerTelegramId ?? "unlinked"}`,
+          snapshot: {
+            record: {
+              id: `booking:${booking.id}`, kind: "booking", entityId: booking.id, status: "cancelled",
+              date: booking.trainingDate, startTime: booking.trainingStartTime.slice(0, 5), endTime: booking.trainingEndTime.slice(0, 5),
+              title: preview.trainingLabel, trainerName: booking.trainerName, trainingKind: "group", levelName: null,
+              trainingId: booking.trainingId, bookingId: booking.id, groupSubscriptionId: booking.groupSubscriptionId,
+              courtNumbers: [], courtCount: null, priceRsd: liability.amountRsd,
+              lateCancellationLiability: { id: liability.id, amountRsd: liability.amountRsd, paymentStatus: booking.paymentStatus },
+              waitlistPosition: null, reason: null, actor: "client", canCancel: false, nextAction: "choose-another"
+            },
+            recipient: { clientId: booking.clientId, telegramId: booking.trainerTelegramId, locale: booking.trainerLanguage, audience: "staff" },
+            staffMessage: lateCancellationCoachMessage({
+              locale: booking.trainerLanguage, clientName: booking.clientName, trainingLabel: preview.trainingLabel,
+              date: booking.trainingDate, startTime: booking.trainingStartTime.slice(0, 5), cancelledAt,
+              amountRsd: liability.amountRsd, paymentStatus: booking.paymentStatus
+            })
+          }
+        });
+      }
 
       this.logger.log(
         `Cancelled booking ${bookingId} on training ${booking.trainingId} (${newCount}/${training.capacity}, ${newStatus})`
       );
       return {
         cancelled: updated,
+        liability,
         groupId: training.groupId,
         evidence: {
           cancelledBookingId: booking.id,
@@ -996,7 +1091,42 @@ export class BookingsService {
       );
     }
 
-    return bookingSchema.parse(withNullableSnapshotFields(result.cancelled));
+    const response = bookingCancellationResultSchema.parse({
+      booking: withNullableSnapshotFields(result.cancelled),
+      liability: result.liability ? toLateCancellationLiability(result.liability, result.cancelled) : null
+    });
+    return response;
+  }
+
+  /** Admin-only immutable ledger, with payment stamps projected from the linked booking. */
+  async listLateCancellationLiabilities(actorTelegramId: number, query: ListLateCancellationLiabilitiesQuery): Promise<LateCancellationLiabilitiesPage> {
+    this.assertAdmin(actorTelegramId);
+    const page = await this.bookings.listLateCancellationLiabilities(query);
+    return {
+      ...page,
+      items: page.items.map(({ liability, paymentStatus, paidAt, paidBy }) =>
+        toLateCancellationLiability(liability, { paymentStatus, paidAt, paidBy } as Booking)
+      )
+    };
+  }
+
+  /** Standalone charges use the booking stamp; subscription liabilities belong to their batch endpoint. */
+  async setStandaloneLateCancellationPaid(
+    actorTelegramId: number,
+    liabilityId: string,
+    input: MarkStandaloneLateCancellationPaidInput
+  ) {
+    this.assertAdmin(actorTelegramId);
+    return this.bookings.transaction(async (tx) => {
+      const found = await this.bookings.findLateCancellationLiabilityForUpdate(tx, liabilityId);
+      if (!found) throw new NotFoundException("Late-cancellation liability not found");
+      if (found.liability.billingKind !== "single") {
+        throw new ConflictException({ code: "LATE_CANCELLATION_SUBSCRIPTION_PAYMENT_MANAGED_BY_SUBSCRIPTION" });
+      }
+      const booking = await this.bookings.setStandaloneLateCancellationPaid(tx, found.liability.bookingId, input.paid, actorTelegramId);
+      if (!booking) throw new NotFoundException("Liability booking not found");
+      return toLateCancellationLiability(found.liability, booking);
+    });
   }
 
   /**
@@ -1557,6 +1687,77 @@ export class BookingsService {
       throw new ForbiddenException("Cannot book on behalf of another client");
     }
   }
+
+  private previewFor(
+    actorTelegramId: number,
+    booking: Awaited<ReturnType<BookingsRepository["findBookingCancellationForUpdate"]>> & {},
+    policy: import("@beosand/types").LateCancellationPolicy,
+    now: Date
+  ): BookingCancellationPreview {
+    if (!booking) throw new Error("Booking must exist");
+    const start = zonedWallClockToUtc(booking.trainingDate, booking.trainingStartTime.slice(0, 5), BELGRADE_TZ);
+    const common = {
+      bookingId: booking.id, trainingId: booking.trainingId, trainingStartsAt: start.toISOString(),
+      trainingLabel: booking.groupName ?? "Training", trainerName: booking.trainerName,
+      date: booking.trainingDate, startTime: booking.trainingStartTime.slice(0, 5), endTime: booking.trainingEndTime.slice(0, 5),
+      cancellable: (booking.status === "booked" || booking.status === "pending") && booking.trainingStatus !== "cancelled" && booking.trainingStatus !== "completed" && now < start
+    };
+    const policyHours = policy.hours;
+    const eligibleGroup = booking.trainingGroupId !== null && booking.status === "booked" && policy.enabled && policyHours !== null && common.cancellable;
+    if (!eligibleGroup) return bookingCancellationPreviewSchema.parse({ kind: "ordinary", ...common });
+    const cutoff = new Date(start.getTime() - policyHours! * 60 * 60 * 1000);
+    if (now < cutoff) return bookingCancellationPreviewSchema.parse({ kind: "ordinary", ...common });
+    if (booking.groupSubscriptionId && booking.priceSnapshotRsd === null) {
+      return bookingCancellationPreviewSchema.parse({ kind: "waived", ...common, policyHours: policyHours!, cutoffAt: cutoff.toISOString(), waiverReason: "missing-monthly-price-snapshot" });
+    }
+    const amountRsd = booking.groupSubscriptionId ? booking.priceSnapshotRsd : booking.groupPriceSingleRsd;
+    if (amountRsd === null || amountRsd <= 0) return bookingCancellationPreviewSchema.parse({ kind: "ordinary", ...common });
+    const billingKind = booking.groupSubscriptionId ? "subscription" as const : "single" as const;
+    const claims = { actorTelegramId, clientId: booking.clientId, bookingId: booking.id, trainingId: booking.trainingId,
+      trainingStartsAt: start.toISOString(), policyVersion: policy.version, policyHours: policyHours!,
+      cutoffAt: cutoff.toISOString(), amountRsd, billingKind, paymentStatus: booking.paymentStatus };
+    const token = signLateCancellationToken(claims, this.env.ADMIN_SESSION_SECRET);
+    return bookingCancellationPreviewSchema.parse({ kind: "liable", ...common, policyHours: policyHours!,
+      policyVersion: policy.version, cutoffAt: cutoff.toISOString(), amountRsd, billingKind,
+      paymentStatus: booking.paymentStatus, confirmationToken: token,
+      confirmationExpiresAt: new Date((Math.floor(Date.now() / 1000) + 15 * 60) * 1000).toISOString() });
+  }
+
+  private async lateCancellationPolicy(tx: Database): Promise<import("@beosand/types").LateCancellationPolicy> {
+    if (!this.settings) throw new Error("SettingsService is required for late-cancellation policy evaluation");
+    return this.settings.currentLateCancellationPolicyInTransaction(tx);
+  }
+
+}
+
+function toLateCancellationLiability(
+  row: typeof import("@beosand/db").tables.lateCancellationLiabilities.$inferSelect,
+  booking: Booking
+) {
+  return lateCancellationLiabilitySchema.parse({
+    ...row, trainingStartTime: row.trainingStartTime.slice(0, 5), trainingEndTime: row.trainingEndTime.slice(0, 5),
+    cancelledAt: row.cancelledAt.toISOString(), confirmedAt: row.confirmedAt.toISOString(), cutoffAt: row.cutoffAt.toISOString(),
+    createdAt: row.createdAt.toISOString(), paymentStatus: booking.paymentStatus,
+    paidAt: booking.paidAt, paidBy: booking.paidBy
+  });
+}
+
+function lateCancellationCoachMessage(input: {
+  locale: "ru" | "sr" | "en";
+  clientName: string;
+  trainingLabel: string;
+  date: string;
+  startTime: string;
+  cancelledAt: Date;
+  amountRsd: number;
+  paymentStatus: "paid" | "unpaid";
+}): string {
+  const cancelledAt = input.cancelledAt.toISOString();
+  const clientName = escapeHtml(input.clientName.slice(0, 80));
+  const trainingLabel = escapeHtml(input.trainingLabel.slice(0, 400));
+  if (input.locale === "ru") return `Поздняя отмена: ${clientName}\n${trainingLabel}, ${input.date} ${input.startTime}\nОтменено: ${cancelledAt}\nЗа клиентом сохранена полная финансовая ответственность: ${input.amountRsd} RSD (${input.paymentStatus === "paid" ? "оплачено" : "не оплачено"}).`;
+  if (input.locale === "sr") return `Kasno otkazivanje: ${clientName}\n${trainingLabel}, ${input.date} ${input.startTime}\nOtkazano: ${cancelledAt}\nKlijent zadržava punu finansijsku obavezu: ${input.amountRsd} RSD (${input.paymentStatus === "paid" ? "plaćeno" : "nije plaćeno"}).`;
+  return `Late cancellation: ${clientName}\n${trainingLabel}, ${input.date} ${input.startTime}\nCancelled: ${cancelledAt}\nThe client retains full financial liability: ${input.amountRsd} RSD (${input.paymentStatus === "paid" ? "paid" : "unpaid"}).`;
 }
 
 function applySnapshot(booking: Booking, snapshot: BookingPriceSnapshot): Booking {

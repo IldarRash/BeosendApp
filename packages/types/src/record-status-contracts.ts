@@ -59,6 +59,12 @@ export const clientRecordSchema = z.object({
   courtNumbers: z.array(z.number().int().positive()),
   courtCount: z.number().int().positive().nullable(),
   priceRsd: rsd.nullable(),
+  /** Immutable late-cancellation charge rendered with the cancelled booking. */
+  lateCancellationLiability: z.object({
+    id: uuid,
+    amountRsd: rsd,
+    paymentStatus: z.enum(["unpaid", "paid"])
+  }).strict().nullable().default(null),
   waitlistPosition: z.number().int().nullable(),
   reason: decisionReasonSchema.nullable(),
   actor: clientRecordActorSchema,
@@ -142,7 +148,7 @@ export const recordStatusDeliveryFailureSchema = z.object({
   clientName: z.string(),
   audience: z.enum(["client", "staff"]),
   records: z.array(clientRecordSchema).min(1),
-  outcome: z.enum(["failed", "ambiguous"]),
+  outcome: z.enum(["failed", "ambiguous", "skipped"]),
   attempts: z.number().int().nonnegative(),
   lastError: z.string().nullable(),
   createdAt: z.string().datetime(),

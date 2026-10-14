@@ -2,7 +2,8 @@ import { Injectable } from "@nestjs/common";
 import { type Database, tables } from "@beosand/db";
 import type { BookingSource, BookingStatus, TrainingStatus } from "@beosand/types";
 import { type Booking, bookingSource } from "@beosand/types";
-import { and, asc, desc, eq, gte, inArray, isNotNull, lt, lte, ne } from "drizzle-orm";
+import { and, asc, desc, eq, gte, inArray, isNotNull, lt, lte, ne, sql } from "drizzle-orm";
+import type { ListLateCancellationLiabilitiesQuery } from "@beosand/types";
 import { DatabaseService } from "../../db/database.service";
 
 type BookingRow = typeof tables.bookings.$inferSelect;
@@ -36,6 +37,30 @@ export interface BookingLockRow {
   trainingDate: string;
   trainingGroupId: string | null;
   status: BookingStatus;
+}
+
+export interface BookingCancellationLockRow extends BookingLockRow {
+  trainingStartTime: string;
+  trainingEndTime: string;
+  trainingStatus: TrainingStatus;
+  trainerId: string;
+  trainerName: string;
+  trainerTelegramId: number | null;
+  trainerLanguage: "ru" | "sr" | "en";
+  groupName: string | null;
+  groupPriceSingleRsd: number | null;
+  clientName: string;
+  paymentStatus: "unpaid" | "paid";
+  paidAt: Date | null;
+  paidBy: number | null;
+  priceSnapshotRsd: number | null;
+}
+
+export interface LateCancellationLiabilityLedgerRow {
+  liability: typeof tables.lateCancellationLiabilities.$inferSelect;
+  paymentStatus: "unpaid" | "paid";
+  paidAt: Date | null;
+  paidBy: number | null;
 }
 
 /** A month training instance locked FOR UPDATE, carrying its date for skip reporting. */
@@ -484,6 +509,75 @@ export class BookingsRepository {
       .limit(1)
       .for("update", { of: tables.bookings });
     return row;
+  }
+
+  async findBookingCancellationForUpdate(tx: Database, bookingId: string): Promise<BookingCancellationLockRow | undefined> {
+    const [row] = await tx.select({
+      id: tables.bookings.id, clientId: tables.bookings.clientId, trainingId: tables.bookings.trainingId,
+      groupSubscriptionId: tables.bookings.groupSubscriptionId, trainingDate: tables.trainings.date,
+      trainingGroupId: tables.trainings.groupId, status: tables.bookings.status,
+      trainingStartTime: tables.trainings.startTime, trainingEndTime: tables.trainings.endTime,
+      trainingStatus: tables.trainings.status, trainerId: tables.trainings.trainerId,
+      trainerName: tables.trainers.name, trainerTelegramId: tables.trainers.telegramId, trainerLanguage: tables.trainers.language,
+      groupName: tables.groups.name, groupPriceSingleRsd: tables.groups.priceSingleRsd,
+      clientName: tables.clients.name, paymentStatus: tables.bookings.paymentStatus,
+      paidAt: tables.bookings.paidAt, paidBy: tables.bookings.paidBy, priceSnapshotRsd: tables.bookings.priceSnapshotRsd
+    }).from(tables.bookings)
+      .innerJoin(tables.trainings, eq(tables.bookings.trainingId, tables.trainings.id))
+      .innerJoin(tables.trainers, eq(tables.trainings.trainerId, tables.trainers.id))
+      .innerJoin(tables.clients, eq(tables.bookings.clientId, tables.clients.id))
+      .leftJoin(tables.groups, eq(tables.trainings.groupId, tables.groups.id))
+      .where(eq(tables.bookings.id, bookingId)).limit(1).for("update", { of: tables.bookings });
+    return row;
+  }
+
+  /** Locks the group row before the cancellation path freezes a single-booking price. */
+  async findGroupPriceForUpdate(tx: Database, groupId: string): Promise<{ id: string; priceSingleRsd: number | null } | undefined> {
+    const [row] = await tx.select({ id: tables.groups.id, priceSingleRsd: tables.groups.priceSingleRsd })
+      .from(tables.groups).where(eq(tables.groups.id, groupId)).limit(1).for("update");
+    return row;
+  }
+
+  async createLateCancellationLiability(tx: Database, row: typeof tables.lateCancellationLiabilities.$inferInsert) {
+    const [created] = await tx.insert(tables.lateCancellationLiabilities).values(row).returning();
+    return created;
+  }
+
+  async listLateCancellationLiabilities(query: ListLateCancellationLiabilitiesQuery): Promise<{ items: LateCancellationLiabilityLedgerRow[]; total: number; hasMore: boolean; nextOffset: number | null }> {
+    const conditions = [
+      query.paymentStatus ? eq(tables.bookings.paymentStatus, query.paymentStatus) : undefined,
+      query.billingKind ? eq(tables.lateCancellationLiabilities.billingKind, query.billingKind) : undefined,
+      query.clientId ? eq(tables.lateCancellationLiabilities.clientId, query.clientId) : undefined,
+      query.from ? gte(tables.lateCancellationLiabilities.trainingDate, query.from) : undefined,
+      query.to ? lte(tables.lateCancellationLiabilities.trainingDate, query.to) : undefined
+    ].filter((value): value is NonNullable<typeof value> => value !== undefined);
+    const where = conditions.length ? and(...conditions) : undefined;
+    const [rows, countRows] = await Promise.all([
+      this.database.db.select({ liability: tables.lateCancellationLiabilities, paymentStatus: tables.bookings.paymentStatus, paidAt: tables.bookings.paidAt, paidBy: tables.bookings.paidBy })
+        .from(tables.lateCancellationLiabilities).innerJoin(tables.bookings, eq(tables.lateCancellationLiabilities.bookingId, tables.bookings.id))
+        .where(where).orderBy(desc(tables.lateCancellationLiabilities.cancelledAt), desc(tables.lateCancellationLiabilities.id))
+        .limit(query.limit + 1).offset(query.offset),
+      this.database.db.select({ total: sql<number>`count(*)::int` }).from(tables.lateCancellationLiabilities)
+        .innerJoin(tables.bookings, eq(tables.lateCancellationLiabilities.bookingId, tables.bookings.id)).where(where)
+    ]);
+    const items = rows.slice(0, query.limit).map(({ liability, paymentStatus, paidAt, paidBy }) => ({ liability, paymentStatus, paidAt, paidBy }));
+    return { items, total: countRows[0]?.total ?? 0, hasMore: rows.length > query.limit, nextOffset: rows.length > query.limit ? query.offset + query.limit : null };
+  }
+
+  async findLateCancellationLiabilityForUpdate(tx: Database, id: string) {
+    const [row] = await tx.select({ liability: tables.lateCancellationLiabilities, paymentStatus: tables.bookings.paymentStatus, paidAt: tables.bookings.paidAt, paidBy: tables.bookings.paidBy })
+      .from(tables.lateCancellationLiabilities).innerJoin(tables.bookings, eq(tables.lateCancellationLiabilities.bookingId, tables.bookings.id))
+      .where(eq(tables.lateCancellationLiabilities.id, id)).limit(1).for("update", { of: tables.lateCancellationLiabilities });
+    return row;
+  }
+
+  async setStandaloneLateCancellationPaid(tx: Database, bookingId: string, paid: boolean, actorTelegramId: number) {
+    const [row] = await tx.update(tables.bookings).set({
+      paymentStatus: paid ? "paid" : "unpaid",
+      paidAt: paid ? new Date() : null,
+      paidBy: paid ? actorTelegramId : null
+    }).where(eq(tables.bookings.id, bookingId)).returning();
+    return row ? toBooking(row) : undefined;
   }
 
   /**

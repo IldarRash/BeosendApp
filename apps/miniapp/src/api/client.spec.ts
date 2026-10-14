@@ -1006,20 +1006,19 @@ describe("MiniappApiClient.exportMyBookingsCalendar", () => {
 });
 
 describe("MiniappApiClient.cancelBooking", () => {
-  it("POSTs the cancel (no body) and validates the updated booking", async () => {
+  it("POSTs the cancel payload and validates the cancellation result", async () => {
     const cancelled: Booking = { ...BOOKING, status: "cancelled" };
-    const fetchMock = vi.fn().mockResolvedValue(jsonResponse(200, cancelled));
+    const fetchMock = vi.fn().mockResolvedValue(jsonResponse(200, { booking: cancelled, liability: null }));
     vi.stubGlobal("fetch", fetchMock);
     const client = new MiniappApiClient(BASE);
 
     const result = await client.cancelBooking(BOOKING.id);
 
-    expect(result).toEqual(cancelled);
+    expect(result).toEqual({ booking: cancelled, liability: null });
     const [url, init] = fetchMock.mock.calls[0];
     expect(url).toBe(`${BASE}/bookings/${BOOKING.id}/cancel`);
     expect((init as RequestInit).method).toBe("POST");
-    // No body — the booking id is in the path; the server cancels from the session.
-    expect((init as RequestInit).body).toBeUndefined();
+    expect((init as RequestInit).body).toBe("{}");
   });
 
   it("rejects a malformed booking response via the contract (unsafe path)", async () => {

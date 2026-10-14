@@ -517,6 +517,12 @@ function breakdownColumns(t: Translate): Column<SubscriptionPricingBreakdownRow>
       numeric: true,
       render: (row) => (row.priceSnapshotRsd === null ? "—" : formatRsd(row.priceSnapshotRsd))
     },
-    { key: "status", header: t("admin.subscriptions.breakdownColStatus"), render: (row) => row.status }
+    {
+      key: "status",
+      header: t("admin.subscriptions.breakdownColStatus"),
+      render: (row) => row.pricingCountReason === "late-cancellation-liability"
+        ? t("admin.subscriptions.lateCancellationCounted")
+        : row.status
+    }
   ];
 }

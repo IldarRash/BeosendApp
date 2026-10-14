@@ -48,9 +48,10 @@ export class SubscriptionsService {
   }
 
   /**
-   * Admin-only: mark every non-cancelled booking of a subscription paid/unpaid in
-   * one transaction, then return the re-aggregated summary. 404 when no
-   * non-cancelled booking matches the id. Seat counts / training status untouched.
+   * Admin-only: mark every billable booking of a subscription paid/unpaid in
+   * one transaction, then return the re-aggregated summary. Liability-backed
+   * cancelled rows are included because their debt remains on the booking. 404
+   * when no billable booking matches the id. Seat counts / training status untouched.
    */
   async setPaid(actor: number, groupSubscriptionId: string, paid: boolean): Promise<SubscriptionSummary> {
     this.assertAdmin(actor);
@@ -70,8 +71,8 @@ export class SubscriptionsService {
 
   /**
    * Derive a contract-validated summary from a raw aggregate row. Payment state
-   * remains based on non-cancelled rows; pricing totals come only from stored
-   * snapshots on booked/attended subscription bookings.
+   * and pricing include active rows plus a cancelled row only when an immutable
+   * late-cancellation liability exists; ordinary cancellations remain excluded.
    */
   private async toSummary(
     row: SubscriptionAggregateRow,
@@ -90,7 +91,7 @@ export class SubscriptionsService {
         : { pricingCountedBookingCount: row.dateCount, excludedBookingCount: 0 };
     const pricingBreakdown = breakdown.map(toPricingBreakdownRow);
     const missingSnapshots = pricingBreakdown.filter(
-      (booking) => isPricingCounted(booking.status) && booking.priceSnapshotRsd === null
+      (booking) => booking.pricingCounted && booking.priceSnapshotRsd === null
     );
     if (missingSnapshots.length > 0) {
       throw new ConflictException(
@@ -98,7 +99,7 @@ export class SubscriptionsService {
       );
     }
     const storedBookingPricesRsd = pricingBreakdown
-      .filter((booking) => isPricingCounted(booking.status) && booking.priceSnapshotRsd !== null)
+      .filter((booking) => booking.pricingCounted && booking.priceSnapshotRsd !== null)
       .map((booking) => booking.priceSnapshotRsd as number);
     const totalRsd = hasPricingBreakdown
       ? storedBookingPricesRsd.reduce((sum, price) => sum + price, 0)
@@ -125,6 +126,7 @@ export class SubscriptionsService {
         pricingCountedBookingCount: counts.pricingCountedBookingCount,
         excludedBookingCount: counts.excludedBookingCount,
         countedStatuses: ["booked", "attended"],
+        liabilityBackedCancelledBookingsCounted: true,
         excludedStatuses: ["cancelled", "no_show", "waitlist", "pending"],
         paymentStatusAffectsPricing: false
       },
@@ -155,15 +157,24 @@ function toPricingBreakdownRow(
     pricingTierMinTrainings: row.pricingTierMinTrainings,
     pricingTierMaxTrainings: row.pricingTierMaxTrainings,
     bookingOrdinalInMonth: row.bookingOrdinalInMonth,
-    priceSnapshotAt: row.priceSnapshotAt
+    priceSnapshotAt: row.priceSnapshotAt,
+    pricingCounted: isPricingCounted(row),
+    pricingCountReason: row.status === "cancelled" && row.hasLateCancellationLiability
+      ? "late-cancellation-liability"
+      : isPricingCounted(row)
+        ? "active-booking"
+        : null
   };
 }
 
-function isPricingCounted(status: SubscriptionPricingBreakdownRow["status"]): boolean {
-  return status === "booked" || status === "attended";
+function isPricingCounted(
+  row: Pick<SubscriptionPricingBreakdownRow, "status"> & { hasLateCancellationLiability?: boolean }
+): boolean {
+  return row.status === "booked" || row.status === "attended" ||
+    (row.status === "cancelled" && row.hasLateCancellationLiability === true);
 }
 
-/** "all paid" → paid, "none paid" → unpaid, otherwise partial (over non-cancelled). */
+/** "all paid" → paid, "none paid" → unpaid, otherwise partial (over billable rows). */
 function paymentStateOf(dateCount: number, paidCount: number): SubscriptionPaymentState {
   if (paidCount === 0) return "unpaid";
   if (paidCount >= dateCount) return "paid";

@@ -33,16 +33,18 @@ export class ClientRecordsRepository {
   }
 
   private async bookingRecords(clientId: string): Promise<ClientRecord[]> {
-    const rows = await this.database.db.select({ booking: tables.bookings, training: tables.trainings, group: tables.groups, trainer: tables.trainers, level: tables.levels })
+    const rows = await this.database.db.select({ booking: tables.bookings, training: tables.trainings, group: tables.groups, trainer: tables.trainers, level: tables.levels, liability: tables.lateCancellationLiabilities })
       .from(tables.bookings).innerJoin(tables.trainings, eq(tables.bookings.trainingId, tables.trainings.id))
       .innerJoin(tables.trainers, eq(tables.trainings.trainerId, tables.trainers.id))
       .leftJoin(tables.groups, eq(tables.trainings.groupId, tables.groups.id)).leftJoin(tables.levels, eq(tables.groups.levelId, tables.levels.id))
+      .leftJoin(tables.lateCancellationLiabilities, eq(tables.lateCancellationLiabilities.bookingId, tables.bookings.id))
       .where(eq(tables.bookings.clientId, clientId));
-    return rows.map(({ booking, training, group, trainer, level }) => base({
+    return rows.map(({ booking, training, group, trainer, level, liability }) => base({
       id: `booking:${booking.id}`, kind: "booking", entityId: booking.id, status: bookingRecordStatus(booking.status, training.status),
       date: training.date, startTime: short(training.startTime), endTime: short(training.endTime), title: group?.name ?? null, trainerName: trainer.name,
       trainingKind: training.clientId ? "individual" : "group", levelName: level?.name ?? null, trainingId: training.id, bookingId: booking.id,
       groupSubscriptionId: booking.groupSubscriptionId, priceRsd: booking.priceSnapshotRsd ?? training.priceSingleRsd ?? group?.priceSingleRsd ?? null,
+      lateCancellationLiability: liability ? { id: liability.id, amountRsd: liability.amountRsd, paymentStatus: booking.paymentStatus } : null,
       canCancel: booking.status === "booked" || booking.status === "pending", nextAction: nextAction(bookingRecordStatus(booking.status, training.status))
     }));
   }
@@ -93,8 +95,8 @@ export class ClientRecordsRepository {
   }
 }
 
-function base(value: Omit<ClientRecord, "courtNumbers" | "courtCount" | "waitlistPosition" | "reason" | "actor"> & Partial<Pick<ClientRecord, "courtNumbers" | "courtCount" | "waitlistPosition">>): ClientRecord {
-  return { ...value, courtNumbers: value.courtNumbers ?? [], courtCount: value.courtCount ?? null, waitlistPosition: value.waitlistPosition ?? null, reason: null, actor: null };
+function base(value: Omit<ClientRecord, "courtNumbers" | "courtCount" | "waitlistPosition" | "reason" | "actor" | "lateCancellationLiability"> & Partial<Pick<ClientRecord, "courtNumbers" | "courtCount" | "waitlistPosition" | "lateCancellationLiability">>): ClientRecord {
+  return { ...value, courtNumbers: value.courtNumbers ?? [], courtCount: value.courtCount ?? null, lateCancellationLiability: value.lateCancellationLiability ?? null, waitlistPosition: value.waitlistPosition ?? null, reason: null, actor: null };
 }
 function short(value: string): string { return value.slice(0, 5); }
 function endTime(start: string, hours: number): string { const minutes = Number(start.slice(0, 2)) * 60 + Number(start.slice(3, 5)) + hours * 60; return `${String(Math.floor((minutes % 1440) / 60)).padStart(2, "0")}:${String(minutes % 60).padStart(2, "0")}`; }

@@ -1710,6 +1710,7 @@ describe("subscriptionSummarySchema (admin payments view)", () => {
       pricingCountedBookingCount: 8,
       excludedBookingCount: 2,
       countedStatuses: ["booked", "attended"],
+      liabilityBackedCancelledBookingsCounted: true,
       excludedStatuses: ["cancelled", "no_show", "waitlist", "pending"],
       paymentStatusAffectsPricing: false
     },
@@ -1727,7 +1728,9 @@ describe("subscriptionSummarySchema (admin payments view)", () => {
         pricingTierMinTrainings: 4,
         pricingTierMaxTrainings: 7,
         bookingOrdinalInMonth: 4,
-        priceSnapshotAt: "2026-06-08T18:00:00.000Z"
+        priceSnapshotAt: "2026-06-08T18:00:00.000Z",
+        pricingCounted: true,
+        pricingCountReason: "active-booking"
       },
       {
         bookingId: "77777777-7777-4777-8777-777777777777",
@@ -1741,7 +1744,9 @@ describe("subscriptionSummarySchema (admin payments view)", () => {
         pricingTierMinTrainings: null,
         pricingTierMaxTrainings: null,
         bookingOrdinalInMonth: null,
-        priceSnapshotAt: null
+        priceSnapshotAt: null,
+        pricingCounted: false,
+        pricingCountReason: null
       }
     ]
   };
@@ -1803,6 +1808,30 @@ describe("subscriptionSummarySchema (admin payments view)", () => {
         }
       }).success
     ).toBe(false);
+  });
+
+  it("requires the liability-counted marker and permits its explicit cancelled-row reason", () => {
+    expect(
+      subscriptionSummarySchema.safeParse({
+        ...summary,
+        monthlyPricingCountContext: {
+          ...summary.monthlyPricingCountContext,
+          liabilityBackedCancelledBookingsCounted: false
+        }
+      }).success
+    ).toBe(false);
+    expect(
+      subscriptionSummarySchema.safeParse({
+        ...summary,
+        pricingBreakdown: [
+          {
+            ...summary.pricingBreakdown[0],
+            status: "cancelled",
+            pricingCountReason: "late-cancellation-liability"
+          }
+        ]
+      }).success
+    ).toBe(true);
   });
 
   it("rejects a fractional/negative count or out-of-range month", () => {

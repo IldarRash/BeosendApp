@@ -1,6 +1,7 @@
 import { ForbiddenException, GoneException, Inject, Injectable } from "@nestjs/common";
 import type { Env } from "@beosand/config";
 import { isAdmin } from "@beosand/config";
+import type { Database } from "@beosand/db";
 import {
   COURT_CLOSE_HOUR,
   COURT_OPEN_HOUR,
@@ -13,6 +14,7 @@ import {
   managerContactSchema,
   managerContactTelegramUrl,
   managerContactValueSchema,
+  lateCancellationPolicySchema,
   requestLoggingSettingsSchema,
   sameDayFreedSlotAutomationSettingsSchema,
   type CourtWorkingHours,
@@ -24,6 +26,7 @@ import {
   type CourtWorkingHoursMonthView,
   type CourtWorkingHoursWindow,
   type ManagerContact,
+  type LateCancellationPolicy,
   type RequestLoggingSettings,
   type SameDayFreedSlotAutomationSettings,
   type UpdateCourtWorkingHoursDay,
@@ -31,6 +34,7 @@ import {
   type UpdateRequestLoggingSettingsInput,
   type UpdateSameDayFreedSlotAutomationSettingsInput,
   type UpdateManagerContactInput
+  , type UpdateLateCancellationPolicyInput
 } from "@beosand/types";
 import { ENV } from "../../config/config.module";
 import { SettingsRepository, type AppSettingRow } from "./settings.repository";
@@ -38,6 +42,7 @@ import { SettingsRepository, type AppSettingRow } from "./settings.repository";
 const MANAGER_CONTACT_KEY = "manager_contact";
 const REQUEST_LOGGING_DETAILED_KEY = "request_logging_detailed";
 const SAME_DAY_FREED_SLOT_AUTOMATION_KEY = "same_day_freed_slot_automation";
+const LATE_CANCELLATION_POLICY_KEY = "group_training_late_cancellation_policy_v1";
 const REQUEST_LOGGING_DETAILED_CACHE_TTL_MS = 1_000;
 const COURT_HOURS_MONTH_KEY_PREFIX = "court_hours_month:";
 const COURT_HOURS_DAY_KEY_PREFIX = "court_hours_day:";
@@ -51,6 +56,10 @@ const DISABLED_SAME_DAY_FREED_SLOT_AUTOMATION: SameDayFreedSlotAutomationSetting
   enabled: false,
   audience: null
 };
+
+function disabledLateCancellationPolicy(): LateCancellationPolicy {
+  return { enabled: false, hours: null, version: 1, effectiveFrom: null, updatedAt: null, updatedBy: null };
+}
 
 /** Owns settings domain logic: env fallback, admin gate, and contact URL derivation. */
 @Injectable()
@@ -113,6 +122,36 @@ export class SettingsService {
     const settings = await this.currentRequestLoggingSettings();
     this.setRequestLoggingDetailedCache(settings.detailed);
     return settings.detailed;
+  }
+
+  async lateCancellationPolicy(actorTelegramId: number): Promise<LateCancellationPolicy> {
+    this.assertAdmin(actorTelegramId);
+    return this.currentLateCancellationPolicy();
+  }
+
+  async currentLateCancellationPolicy(): Promise<LateCancellationPolicy> {
+    return this.parseLateCancellationPolicy(await this.settings.findRow(LATE_CANCELLATION_POLICY_KEY));
+  }
+
+  /** Domain transactions hold the same policy lock through their own commit. */
+  async currentLateCancellationPolicyInTransaction(tx: Database): Promise<LateCancellationPolicy> {
+    await this.settings.lockKey(tx, LATE_CANCELLATION_POLICY_KEY);
+    return this.parseLateCancellationPolicy(await this.settings.findRowForUpdate(tx, LATE_CANCELLATION_POLICY_KEY));
+  }
+
+  async updateLateCancellationPolicy(actorTelegramId: number, input: UpdateLateCancellationPolicyInput): Promise<LateCancellationPolicy> {
+    this.assertAdmin(actorTelegramId);
+    return this.settings.transaction(async (tx) => {
+      await this.settings.lockKey(tx, LATE_CANCELLATION_POLICY_KEY);
+      const prior = this.parseLateCancellationPolicy(await this.settings.findRowForUpdate(tx, LATE_CANCELLATION_POLICY_KEY));
+      const now = new Date();
+      const next: LateCancellationPolicy = {
+        enabled: input.enabled, hours: input.enabled ? input.hours : null, version: prior.version + 1,
+        effectiveFrom: input.enabled ? now.toISOString() : null, updatedAt: now.toISOString(), updatedBy: actorTelegramId
+      };
+      await this.settings.upsertRowInTransaction(tx, LATE_CANCELLATION_POLICY_KEY, JSON.stringify(next), actorTelegramId);
+      return lateCancellationPolicySchema.parse(next);
+    });
   }
 
   async sameDayFreedSlotAutomationSettings(
@@ -251,6 +290,15 @@ export class SettingsService {
       contact,
       url: managerContactTelegramUrl(contact)
     });
+  }
+
+  private parseLateCancellationPolicy(row: AppSettingRow | undefined): LateCancellationPolicy {
+    if (!row) return disabledLateCancellationPolicy();
+    try {
+      return lateCancellationPolicySchema.parse(JSON.parse(row.value));
+    } catch {
+      return disabledLateCancellationPolicy();
+    }
   }
 
   private async currentRequestLoggingSettings(): Promise<RequestLoggingSettings> {

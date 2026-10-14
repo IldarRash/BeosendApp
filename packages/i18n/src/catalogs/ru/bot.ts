@@ -130,6 +130,12 @@ export const botRu: Record<string, string> = {
   "bot.myBookings.cancelConfirm":
     "Вы уверены, что хотите отменить запись? Место снова станет доступным для других.",
   "bot.myBookings.cancelDone": "✅ Запись отменена.",
+  "bot.myBookings.cancelDoneLiable": "✅ Запись отменена. Зафиксирована финансовая ответственность: {amount} RSD ({payment}).",
+  "bot.myBookings.cancelLateConfirm": "⚠️ {date}, {start} · {label}\nТренер: {trainer}\n\nДо тренировки осталось не более {hours} ч. Отмена освободит место, но вы несёте полную финансовую ответственность: {amount} RSD ({payment}). Подтвердите отмену, только если принимаете это обязательство.",
+  "bot.myBookings.cancelWaivedConfirm": "Запись будет отменена, а место станет доступным. Финансовая ответственность не будет начислена.",
+  "bot.myBookings.cancelRefreshRequired": "Условия отмены изменились. Откройте отмену ещё раз и подтвердите после нового предупреждения.",
+  "bot.myBookings.payment.paid": "уже оплачено, новой задолженности нет",
+  "bot.myBookings.payment.unpaid": "к оплате",
   "bot.myBookings.cancelConfirmButton": "✅ Да, отменить",
   "bot.myBookings.bookAgain": "🏐 Записаться снова",
   "bot.myBookings.moreUpcoming": "Показать ещё предстоящие",

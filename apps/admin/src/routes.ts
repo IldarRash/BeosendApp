@@ -38,6 +38,7 @@ export const NAV_ITEMS: readonly NavItem[] = [
   { path: "/court-load", labelKey: "admin.nav.courtLoad", live: true, group: "courts", iconKey: "courtLoad" },
   { path: "/clients", labelKey: "admin.nav.clients", live: true, group: "clientsMoney", iconKey: "clients" },
   { path: "/subscriptions", labelKey: "admin.nav.subscriptions", live: true, group: "clientsMoney", iconKey: "subscriptions" },
+  { path: "/late-cancellations", labelKey: "admin.nav.lateCancellations", live: true, group: "clientsMoney", iconKey: "lateCancellations" },
   { path: "/broadcasts", labelKey: "admin.nav.broadcasts", live: true, group: "comms", iconKey: "broadcasts" },
   { path: "/analytics", labelKey: "admin.nav.analytics", live: true, group: "comms", iconKey: "analytics" },
   { path: "/labels", labelKey: "admin.nav.labels", live: true, group: "comms", iconKey: "labels" },

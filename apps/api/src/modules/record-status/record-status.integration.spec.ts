@@ -27,7 +27,7 @@ function snapshot(clientId: string, entityId = randomUUID()): RecordStatusSingle
       id: `booking:${entityId}`, kind: "booking", entityId, status: "confirmed", date: "2026-09-25",
       startTime: "18:00", endTime: "19:00", title: "Status integration fixture", trainerName: null,
       trainingKind: null, levelName: null, trainingId: null, bookingId: entityId, groupSubscriptionId: null,
-      courtNumbers: [], courtCount: null, priceRsd: null, waitlistPosition: null, reason: null,
+      courtNumbers: [], courtCount: null, priceRsd: null, lateCancellationLiability: null, waitlistPosition: null, reason: null,
       actor: null, canCancel: false, nextAction: "attend"
     },
     recipient: { clientId, telegramId: 123_456_789, locale: "ru" }

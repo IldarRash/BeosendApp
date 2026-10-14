@@ -145,6 +145,11 @@ export const miniappSr: Record<string, string> = {
   "miniapp.myBookings.cancelConfirmBody":
     "Prijava za ovaj trening biće otkazana. Ova radnja se ne može poništiti.",
   "miniapp.myBookings.cancelConfirm": "Otkaži prijavu",
+  "miniapp.myBookings.cancelPreviewLoading": "Proveravamo uslove otkazivanja…",
+  "miniapp.myBookings.cancelLateConfirm": "Otkazivanje manje od {hours} h pre termina oslobađa mesto, ali znači da prihvatate punu finansijsku odgovornost: {amount} RSD ({payment}). Potvrdite samo ako prihvatate ovu obavezu.",
+  "miniapp.myBookings.payment.paid": "Plaćeno",
+  "miniapp.myBookings.payment.unpaid": "Nije plaćeno",
+  "miniapp.myBookings.cancelWaivedConfirm": "Prijava će biti otkazana, a mesto oslobođeno. Finansijska obaveza neće biti naplaćena.",
   "miniapp.myBookings.cancelKeep": "Zadrži",
   "miniapp.myBookings.cancelledTitle": "Prijava je otkazana",
   "miniapp.myBookings.cancelledBody": "Mesto je ponovo slobodno za druge.",

@@ -8,7 +8,7 @@ function record(overrides: Partial<ClientRecord> = {}): ClientRecord {
     id: `court:${ID}`, kind: "court", entityId: ID, status: "pending", date: "2026-09-25",
     startTime: "18:00", endTime: "19:00", title: "<Court & friends>", trainerName: null,
     trainingKind: null, levelName: null, trainingId: null, bookingId: null, groupSubscriptionId: null, courtNumbers: [], courtCount: 2,
-    priceRsd: 4000, waitlistPosition: null, reason: null, actor: null, canCancel: false, nextAction: "wait",
+    priceRsd: 4000, lateCancellationLiability: null, waitlistPosition: null, reason: null, actor: null, canCancel: false, nextAction: "wait",
     ...overrides
   };
 }

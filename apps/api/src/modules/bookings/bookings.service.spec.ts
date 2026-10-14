@@ -31,11 +31,13 @@ import type { BookingPriceSnapshot } from "../training-pricing/training-pricing.
 import type { TrainingPricingService } from "../training-pricing/training-pricing.service";
 import type { TrainersRepository } from "../trainers/trainers.repository";
 import type { WaitlistService } from "../waitlist/waitlist.service";
+import { enqueueRecordStatus } from "../record-status/record-status.repository";
 
 vi.mock("../record-status/record-status-capture", () => ({
   captureRecordStatus: vi.fn(async () => true),
   captureRecordStatuses: vi.fn(async () => [])
 }));
+vi.mock("../record-status/record-status.repository", () => ({ enqueueRecordStatus: vi.fn(async () => true) }));
 
 /** No-op notifications double: confirmation/pending sends are fire-and-forget here. */
 const fakeNotifications = {
@@ -263,6 +265,7 @@ class FakeBookingsRepository {
   training: FakeTraining | undefined;
   monthTrainings: FakeMonthTraining[] = [];
   bookings: Booking[] = [];
+  liabilities: Array<Record<string, unknown>> = [];
   /** When set, the next insertBooking throws to exercise transaction rollback. */
   failInsertOnTrainingId: string | undefined;
   /** When set, updateTrainingCount throws for this training to exercise cancel rollback. */
@@ -585,6 +588,28 @@ class FakeBookingsRepository {
       : undefined;
   }
 
+  async findBookingCancellationForUpdate(_tx: Database, bookingId: string) {
+    const booking = this.bookings.find((row) => row.id === bookingId);
+    const training = booking ? this.resolveTrainingFixture(booking.trainingId) : undefined;
+    if (!booking || !training) return undefined;
+    return {
+      ...await this.findBookingForUpdate(_tx, bookingId),
+      trainingStartTime: "18:00:00", trainingEndTime: "19:30:00", trainingStatus: training.status,
+      trainerId: training.trainerId ?? TRAINER_ID, trainerName: "Coach", trainerTelegramId: TRAINER_ID_TG, trainerLanguage: "ru" as const,
+      groupName: "Group", groupPriceSingleRsd: 1500, clientName: "Owner",
+      paymentStatus: booking.paymentStatus, paidAt: booking.paidAt ? new Date(booking.paidAt) : null, paidBy: booking.paidBy,
+      priceSnapshotRsd: booking.priceSnapshotRsd
+    };
+  }
+
+  async findGroupPriceForUpdate(_tx: Database, groupId: string) { return { id: groupId, priceSingleRsd: 1500 }; }
+
+  async createLateCancellationLiability(_tx: Database, row: Record<string, unknown>) {
+    const created = { id: `bbbbbbbb-bbbb-bbbb-bbbb-${String(this.liabilities.length + 1).padStart(12, "0")}`, createdAt: new Date(), ...row };
+    this.liabilities.push(created);
+    return created as never;
+  }
+
   /** Maps a trainingId to its trainerId/date for the attendance read. */
   trainingMeta: Record<string, { trainerId: string; date: string }> = {};
 
@@ -787,10 +812,14 @@ class FakeGroupsRepository {
   }
 }
 
-const env = { ADMIN_TELEGRAM_IDS: [String(ADMIN_ID)] } as unknown as Env;
+const env = { ADMIN_TELEGRAM_IDS: [String(ADMIN_ID)], ADMIN_SESSION_SECRET: "test-late-cancellation-secret" } as unknown as Env;
 // No admin configured: a client booking has nobody to confirm it, so it
 // auto-confirms (→ booked) and the confirmation send is what fires post-commit.
 const envNoAdmin = { ADMIN_TELEGRAM_IDS: [] as string[] } as unknown as Env;
+let lateCancellationPolicy = { enabled: false, hours: null as number | null, version: 1, effectiveFrom: null as string | null, updatedAt: null as string | null, updatedBy: null as number | null };
+const fakeLateCancellationSettings = {
+  currentLateCancellationPolicyInTransaction: async () => lateCancellationPolicy
+} as unknown as import("../settings/settings.service").SettingsService;
 
 describe("BookingsService.createSingle", () => {
   let bookingsRepo: FakeBookingsRepository;
@@ -799,6 +828,7 @@ describe("BookingsService.createSingle", () => {
   let service: BookingsService;
 
   beforeEach(() => {
+    lateCancellationPolicy = { enabled: false, hours: null, version: 1, effectiveFrom: null, updatedAt: null, updatedBy: null };
     bookingsRepo = new FakeBookingsRepository();
     clientsRepo = new FakeClientsRepository();
     waitlist = new FakeWaitlistService();
@@ -1747,7 +1777,7 @@ describe("BookingsService.cancelBooking", () => {
       fakeDomainEvents,
       env,
       fakePricing,
-      { enqueueEvent: automationEnqueue } as never
+      { enqueueEvent: automationEnqueue } as never, fakeLateCancellationSettings
     );
   });
 
@@ -1779,7 +1809,7 @@ describe("BookingsService.cancelBooking", () => {
       clientsRepo as unknown as ClientsRepository,
       new FakeGroupsRepository() as unknown as GroupsRepository,
       fakeNotifications, waitlist, new FakeTrainersRepository() as unknown as TrainersRepository,
-      fakeDomainEvents, env, fakePricing, { enqueueEvent: automationEnqueue } as never
+      fakeDomainEvents, env, fakePricing, { enqueueEvent: automationEnqueue } as never, fakeLateCancellationSettings
     );
     bookingsRepo.bookings = [booking()];
     bookingsRepo.training = { id: TRAINING_ID, capacity: 6, bookedCount: 6, status: "full" };
@@ -1798,7 +1828,7 @@ describe("BookingsService.cancelBooking", () => {
       clientsRepo as unknown as ClientsRepository,
       new FakeGroupsRepository() as unknown as GroupsRepository,
       fakeNotifications, waitlist, new FakeTrainersRepository() as unknown as TrainersRepository,
-      fakeDomainEvents, env, fakePricing, { enqueueEvent: automationEnqueue } as never
+      fakeDomainEvents, env, fakePricing, { enqueueEvent: automationEnqueue } as never, fakeLateCancellationSettings
     );
     bookingsRepo.bookings = [booking()];
     bookingsRepo.training = { id: TRAINING_ID, capacity: 6, bookedCount: 6, status: "full" };
@@ -1815,7 +1845,7 @@ describe("BookingsService.cancelBooking", () => {
       clientsRepo as unknown as ClientsRepository,
       new FakeGroupsRepository() as unknown as GroupsRepository,
       fakeNotifications, waitlist, new FakeTrainersRepository() as unknown as TrainersRepository,
-      fakeDomainEvents, env, fakePricing, { enqueueEvent: automationEnqueue } as never
+      fakeDomainEvents, env, fakePricing, { enqueueEvent: automationEnqueue } as never, fakeLateCancellationSettings
     );
     bookingsRepo.bookings = [booking()];
     bookingsRepo.training = { id: TRAINING_ID, groupId: null, capacity: 1, bookedCount: 1, status: "full" };
@@ -1831,7 +1861,7 @@ describe("BookingsService.cancelBooking", () => {
 
     const result = await service.cancelBooking(OWNER_ID, BOOKING_ID);
 
-    expect(result.status).toBe("cancelled");
+    expect(result.booking.status).toBe("cancelled");
     expect(bookingsRepo.training.bookedCount).toBe(5);
     expect(bookingsRepo.training.status).toBe("open");
     expect(promotedTrainings).toEqual([TRAINING_ID]);
@@ -1852,7 +1882,8 @@ describe("BookingsService.cancelBooking", () => {
     bookingsRepo.bookings = [booking()];
     bookingsRepo.training = { id: TRAINING_ID, capacity: 6, bookedCount: 6, status: "full" };
     await expect(service.cancelBooking(OWNER_ID, BOOKING_ID)).resolves.toMatchObject({
-      status: "cancelled"
+      booking: { status: "cancelled" },
+      liability: null
     });
 
     expect(bookingsRepo.training).toMatchObject({ bookedCount: 5, status: "open" });
@@ -1916,7 +1947,7 @@ describe("BookingsService.cancelBooking", () => {
     bookingsRepo.training = { id: TRAINING_ID, capacity: 6, bookedCount: 2, status: "open" };
 
     const result = await service.cancelBooking(ADMIN_ID, BOOKING_ID, { reason: { code: "unavailable", comment: null } });
-    expect(result.status).toBe("cancelled");
+    expect(result.booking.status).toBe("cancelled");
     expect(bookingsRepo.training.bookedCount).toBe(1);
     expect(automationEnqueue).not.toHaveBeenCalled();
   });
@@ -1948,7 +1979,7 @@ describe("BookingsService.cancelBooking", () => {
 
     const result = await service.cancelBooking(ADMIN_ID, BOOKING_ID, { allowAdmin: false });
 
-    expect(result.status).toBe("cancelled");
+    expect(result.booking.status).toBe("cancelled");
     expect(bookingsRepo.training.bookedCount).toBe(1);
     expect(automationEnqueue).not.toHaveBeenCalled();
   });
@@ -1978,6 +2009,103 @@ describe("BookingsService.cancelBooking", () => {
     await service.cancelBooking(OWNER_ID, BOOKING_ID);
     expect(bookingsRepo.training.bookedCount).toBe(0);
     expect(bookingsRepo.training.status).toBe("open");
+  });
+
+  it("requires a current owner confirmation token for a late charge, then records one immutable liability", async () => {
+    const tomorrow = new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString().slice(0, 10);
+    lateCancellationPolicy = { enabled: true, hours: 48, version: 7, effectiveFrom: new Date().toISOString(), updatedAt: new Date().toISOString(), updatedBy: ADMIN_ID };
+    bookingsRepo.bookings = [booking({ type: "group" })];
+    bookingsRepo.training = { id: TRAINING_ID, groupId: GROUP_ID, date: tomorrow, capacity: 6, bookedCount: 1, status: "open" };
+    const preview = await service.cancellationPreview(OWNER_ID, BOOKING_ID, { allowAdmin: false });
+    expect(preview.kind).toBe("liable");
+    await expect(service.cancelBooking(OWNER_ID, BOOKING_ID, { allowAdmin: false })).rejects.toBeInstanceOf(ConflictException);
+    expect(bookingsRepo.bookings[0]?.status).toBe("booked");
+    if (preview.kind !== "liable") throw new Error("expected liable preview");
+    const result = await service.cancelBooking(OWNER_ID, BOOKING_ID, { allowAdmin: false, lateCancellationConfirmationToken: preview.confirmationToken });
+    expect(result.liability).toMatchObject({ amountRsd: 1500, billingKind: "single", paymentStatus: "unpaid" });
+    expect(bookingsRepo.liabilities).toHaveLength(1);
+    expect(enqueueRecordStatus).toHaveBeenLastCalledWith(expect.any(Object), expect.objectContaining({
+      transitionKey: expect.stringContaining(`late-cancellation:${result.liability!.id}:coach:`),
+      snapshot: expect.objectContaining({
+        recipient: expect.objectContaining({ telegramId: TRAINER_ID_TG, audience: "staff" }),
+        staffMessage: expect.stringContaining("1500 RSD")
+      })
+    }));
+    await expect(service.cancelBooking(OWNER_ID, BOOKING_ID, {
+      lateCancellationConfirmationToken: preview.confirmationToken
+    })).rejects.toBeInstanceOf(ConflictException);
+    expect(bookingsRepo.liabilities).toHaveLength(1);
+  });
+
+  it("never charges a staff cancellation inside an enabled late window", async () => {
+    const tomorrow = new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString().slice(0, 10);
+    lateCancellationPolicy = { enabled: true, hours: 48, version: 7, effectiveFrom: new Date().toISOString(), updatedAt: new Date().toISOString(), updatedBy: ADMIN_ID };
+    bookingsRepo.bookings = [booking({ type: "group", clientId: OTHER_CLIENT_ID })];
+    bookingsRepo.training = { id: TRAINING_ID, groupId: GROUP_ID, date: tomorrow, capacity: 6, bookedCount: 1, status: "open" };
+    const result = await service.cancelBooking(ADMIN_ID, BOOKING_ID, { reason: { code: "unavailable", comment: null } });
+    expect(result.liability).toBeNull();
+    expect(bookingsRepo.liabilities).toHaveLength(0);
+  });
+
+  it("retains an already-paid late cancellation as paid without another debt", async () => {
+    const tomorrow = new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString().slice(0, 10);
+    lateCancellationPolicy = { enabled: true, hours: 48, version: 7, effectiveFrom: new Date().toISOString(), updatedAt: new Date().toISOString(), updatedBy: ADMIN_ID };
+    bookingsRepo.bookings = [booking({ paymentStatus: "paid", paidAt: new Date().toISOString(), paidBy: ADMIN_ID })];
+    bookingsRepo.training = { id: TRAINING_ID, groupId: GROUP_ID, date: tomorrow, capacity: 6, bookedCount: 1, status: "open" };
+    const preview = await service.cancellationPreview(OWNER_ID, BOOKING_ID, { allowAdmin: false });
+    if (preview.kind !== "liable") throw new Error("expected liable preview");
+    const result = await service.cancelBooking(OWNER_ID, BOOKING_ID, { lateCancellationConfirmationToken: preview.confirmationToken });
+    expect(result.liability).toMatchObject({ amountRsd: 1500, paymentStatus: "paid", paidBy: ADMIN_ID });
+    expect(result.booking.paymentStatus).toBe("paid");
+  });
+
+  it("waives a legacy monthly booking without a snapshot instead of guessing its charge", async () => {
+    const tomorrow = new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString().slice(0, 10);
+    lateCancellationPolicy = { enabled: true, hours: 48, version: 7, effectiveFrom: new Date().toISOString(), updatedAt: new Date().toISOString(), updatedBy: ADMIN_ID };
+    bookingsRepo.bookings = [booking({ type: "group", groupSubscriptionId: SUB_ID })];
+    bookingsRepo.training = { id: TRAINING_ID, groupId: GROUP_ID, date: tomorrow, capacity: 6, bookedCount: 1, status: "open" };
+    expect(await service.cancellationPreview(OWNER_ID, BOOKING_ID)).toMatchObject({ kind: "waived", waiverReason: "missing-monthly-price-snapshot" });
+    const result = await service.cancelBooking(OWNER_ID, BOOKING_ID);
+    expect(result.liability).toBeNull();
+    expect(result.booking.status).toBe("cancelled");
+    expect(bookingsRepo.training.bookedCount).toBe(0);
+    expect(bookingsRepo.liabilities).toHaveLength(0);
+  });
+
+  it("gates the financial ledger and prevents standalone writes to subscription liabilities", async () => {
+    const list = vi.fn(async () => ({ items: [], total: 0, hasMore: false, nextOffset: null }));
+    const find = vi.fn(async () => ({ liability: { billingKind: "subscription" } }));
+    const update = vi.fn();
+    Object.assign(bookingsRepo, {
+      listLateCancellationLiabilities: list,
+      findLateCancellationLiabilityForUpdate: find,
+      setStandaloneLateCancellationPaid: update
+    });
+    await expect(service.listLateCancellationLiabilities(OWNER_ID, { offset: 0, limit: 30 })).rejects.toBeInstanceOf(ForbiddenException);
+    await expect(service.setStandaloneLateCancellationPaid(OWNER_ID, BOOKING_ID, { paid: true })).rejects.toBeInstanceOf(ForbiddenException);
+    expect(list).not.toHaveBeenCalled();
+    expect(find).not.toHaveBeenCalled();
+    expect(await service.listLateCancellationLiabilities(ADMIN_ID, { offset: 0, limit: 30 })).toMatchObject({ items: [], total: 0 });
+    await expect(service.setStandaloneLateCancellationPaid(ADMIN_ID, BOOKING_ID, { paid: true })).rejects.toBeInstanceOf(ConflictException);
+    expect(update).not.toHaveBeenCalled();
+  });
+
+  it("requires a new warning if payment changes from paid to unpaid after the preview", async () => {
+    const tomorrow = new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString().slice(0, 10);
+    lateCancellationPolicy = { enabled: true, hours: 48, version: 7, effectiveFrom: new Date().toISOString(), updatedAt: new Date().toISOString(), updatedBy: ADMIN_ID };
+    bookingsRepo.bookings = [booking({ paymentStatus: "paid", paidAt: new Date().toISOString(), paidBy: ADMIN_ID })];
+    bookingsRepo.training = { id: TRAINING_ID, groupId: GROUP_ID, date: tomorrow, capacity: 6, bookedCount: 1, status: "open" };
+    const preview = await service.cancellationPreview(OWNER_ID, BOOKING_ID);
+    if (preview.kind !== "liable") throw new Error("expected liable preview");
+    bookingsRepo.bookings[0].paymentStatus = "unpaid";
+    bookingsRepo.bookings[0].paidAt = null;
+    bookingsRepo.bookings[0].paidBy = null;
+    await expect(service.cancelBooking(OWNER_ID, BOOKING_ID, {
+      lateCancellationConfirmationToken: preview.confirmationToken
+    })).rejects.toBeInstanceOf(ConflictException);
+    expect(bookingsRepo.bookings[0].status).toBe("booked");
+    expect(bookingsRepo.liabilities).toHaveLength(0);
+    expect(bookingsRepo.training.bookedCount).toBe(1);
   });
 });
 

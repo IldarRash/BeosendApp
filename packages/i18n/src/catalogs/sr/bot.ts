@@ -124,6 +124,12 @@ export const botSr: Record<string, string> = {
   "bot.myBookings.cancelConfirm":
     "Da li ste sigurni da želite da otkažete prijavu? Mesto će ponovo postati dostupno drugima.",
   "bot.myBookings.cancelDone": "✅ Prijava je otkazana.",
+  "bot.myBookings.cancelDoneLiable": "✅ Prijava je otkazana. Evidentirana je finansijska obaveza: {amount} RSD ({payment}).",
+  "bot.myBookings.cancelLateConfirm": "⚠️ {date}, {start} · {label}\nTrener: {trainer}\n\nTrening počinje u narednih {hours} sati. Otkazivanje oslobađa mesto, ali znači da prihvatate punu finansijsku odgovornost: {amount} RSD ({payment}). Potvrdite samo ako prihvatate ovu obavezu.",
+  "bot.myBookings.cancelWaivedConfirm": "Prijava će biti otkazana, a mesto oslobođeno. Finansijska obaveza neće biti naplaćena.",
+  "bot.myBookings.cancelRefreshRequired": "Uslovi otkazivanja su promenjeni. Ponovo otvorite otkazivanje i potvrdite posle novog upozorenja.",
+  "bot.myBookings.payment.paid": "već plaćeno, nema novog duga",
+  "bot.myBookings.payment.unpaid": "za plaćanje",
   "bot.myBookings.cancelConfirmButton": "✅ Da, otkaži",
   "bot.myBookings.bookAgain": "🏐 Prijavi se ponovo",
   "bot.myBookings.moreUpcoming": "Prikaži još predstojećih",

@@ -124,6 +124,12 @@ export const botEn: Record<string, string> = {
   "bot.myBookings.cancelConfirm":
     "Are you sure you want to cancel the booking? The seat will become available to others again.",
   "bot.myBookings.cancelDone": "✅ Booking cancelled.",
+  "bot.myBookings.cancelDoneLiable": "✅ Booking cancelled. Financial liability recorded: {amount} RSD ({payment}).",
+  "bot.myBookings.cancelLateConfirm": "⚠️ {date}, {start} · {label}\nCoach: {trainer}\n\nThe training starts within {hours} hours. Cancelling frees the seat, but means you accept full financial responsibility: {amount} RSD ({payment}). Confirm only if you accept this responsibility.",
+  "bot.myBookings.cancelWaivedConfirm": "The booking will be cancelled and the seat will be free. No financial liability will be charged.",
+  "bot.myBookings.cancelRefreshRequired": "Cancellation terms changed. Open cancellation again and confirm after the new warning.",
+  "bot.myBookings.payment.paid": "already paid, no new debt",
+  "bot.myBookings.payment.unpaid": "payable",
   "bot.myBookings.cancelConfirmButton": "✅ Yes, cancel",
   "bot.myBookings.bookAgain": "🏐 Book again",
   "bot.myBookings.moreUpcoming": "Show more upcoming",

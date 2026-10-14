@@ -307,7 +307,7 @@ export class CourtRequestsService {
       endTime: this.endTimeFor(request.startTime, parseDuration(request.durationHours)),
       title: "Court rental", trainerName: null, trainingKind: null, levelName: null,
       trainingId: null, bookingId: null, groupSubscriptionId: null, courtNumbers: [],
-      courtCount: request.courtCount, priceRsd: request.priceRsd, waitlistPosition: null,
+      courtCount: request.courtCount, priceRsd: request.priceRsd, lateCancellationLiability: null, waitlistPosition: null,
       reason: null, actor: "client" as const, canCancel: false, nextAction: "wait" as const
     };
     for (const message of messages) {

@@ -9,7 +9,8 @@ import {
 import type {
   AvailableSlotsQuery,
   BookableMonth,
-  Booking,
+  BookingCancellationPreview,
+  BookingCancellationResult,
   Client,
   ClientRecordsPage,
   ClientRecordsQuery,
@@ -517,11 +518,24 @@ export function useCancelCourtRequest(): UseMutationResult<CourtRequest, Error, 
  * cancellable) surfaces as a {@link ConflictError} so the screen shows the server
  * message verbatim; a 403 (not the owner) stays a generic error.
  */
-export function useCancelBooking(): UseMutationResult<Booking, Error, string> {
+export function bookingCancellationPreviewQueryKey(bookingId: string): readonly [string, string] {
+  return ["booking-cancellation-preview", bookingId] as const;
+}
+
+export function useBookingCancellationPreview(bookingId: string | null, enabled: boolean): UseQueryResult<BookingCancellationPreview> {
+  const apiClient = useApiClient();
+  return useQuery<BookingCancellationPreview>({
+    queryKey: bookingCancellationPreviewQueryKey(bookingId ?? "none"),
+    enabled: enabled && bookingId !== null,
+    queryFn: () => apiClient.getBookingCancellationPreview(bookingId!)
+  });
+}
+
+export function useCancelBooking(): UseMutationResult<BookingCancellationResult, Error, { bookingId: string; token?: string }> {
   const apiClient = useApiClient();
   const qc = useQueryClient();
-  return useMutation<Booking, Error, string>({
-    mutationFn: (bookingId) => apiClient.cancelBooking(bookingId),
+  return useMutation<BookingCancellationResult, Error, { bookingId: string; token?: string }>({
+    mutationFn: ({ bookingId, token }) => apiClient.cancelBooking(bookingId, token),
     onSettled: () => {
       void qc.invalidateQueries({ queryKey: [CLIENT_RECORDS_KEY_PREFIX] });
       void qc.invalidateQueries({ queryKey: [CLIENT_TRAINING_DETAIL_KEY_PREFIX] });

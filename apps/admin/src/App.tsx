@@ -14,6 +14,7 @@ import { Dashboard } from "./pages/Dashboard";
 import { Groups } from "./pages/Groups";
 import { Labels } from "./pages/Labels";
 import { Levels } from "./pages/Levels";
+import { LateCancellations } from "./pages/LateCancellations";
 import { Login } from "./pages/Login";
 import { Managers } from "./pages/Managers";
 import { NotificationTemplates } from "./pages/NotificationTemplates";
@@ -114,6 +115,14 @@ export function App(): JSX.Element {
                   element={
                     <RequireAuth>
                       <Subscriptions />
+                    </RequireAuth>
+                  }
+                />
+                <Route
+                  path="/late-cancellations"
+                  element={
+                    <RequireAuth>
+                      <LateCancellations />
                     </RequireAuth>
                   }
                 />

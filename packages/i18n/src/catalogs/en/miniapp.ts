@@ -143,6 +143,11 @@ export const miniappEn: Record<string, string> = {
   "miniapp.myBookings.cancelConfirmBody":
     "Your booking for this training will be cancelled. This action cannot be undone.",
   "miniapp.myBookings.cancelConfirm": "Cancel booking",
+  "miniapp.myBookings.cancelPreviewLoading": "Checking cancellation terms…",
+  "miniapp.myBookings.cancelLateConfirm": "Cancelling within {hours} hours frees the seat, but means you accept full financial responsibility: {amount} RSD ({payment}). Confirm only if you accept this responsibility.",
+  "miniapp.myBookings.payment.paid": "Paid",
+  "miniapp.myBookings.payment.unpaid": "Unpaid",
+  "miniapp.myBookings.cancelWaivedConfirm": "The booking will be cancelled and the seat will be free. No financial liability will be charged.",
   "miniapp.myBookings.cancelKeep": "Keep",
   "miniapp.myBookings.cancelledTitle": "Booking cancelled",
   "miniapp.myBookings.cancelledBody": "The seat is free for others again.",

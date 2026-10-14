@@ -4,6 +4,7 @@ import {
   desc,
   eq,
   inArray,
+  or,
   sql,
   tables,
   type Database
@@ -184,7 +185,13 @@ export class RecordStatusRepository {
       .from(tables.recordStatusDeliveries)
       .innerJoin(tables.recordStatusEvents, eq(tables.recordStatusEvents.id, tables.recordStatusDeliveries.eventId))
       .innerJoin(tables.clients, eq(tables.clients.id, tables.recordStatusEvents.recipientClientId))
-      .where(inArray(tables.recordStatusDeliveries.outcome, ["failed", "ambiguous"]))
+      .where(or(
+        inArray(tables.recordStatusDeliveries.outcome, ["failed", "ambiguous"]),
+        and(
+          eq(tables.recordStatusDeliveries.outcome, "skipped"),
+          sql`${tables.recordStatusEvents.snapshot}->'recipient'->>'audience' = 'staff'`
+        )
+      ))
       .orderBy(desc(tables.recordStatusDeliveries.updatedAt))
       .limit(Math.min(Math.max(limit, 1), 100));
     return rows.map((row) => {

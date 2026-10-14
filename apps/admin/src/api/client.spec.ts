@@ -56,6 +56,16 @@ describe("ApiClient.health", () => {
   });
 });
 
+describe("ApiClient late-cancellation admin contracts", () => {
+  afterEach(() => vi.unstubAllGlobals());
+
+  it("rejects a malformed late-cancellation policy before the UI can render it", async () => {
+    const calls = mockFetchOnce({ enabled: true, hours: null, version: 1, effectiveFrom: null, updatedAt: null, updatedBy: null });
+    await expect(new ApiClient("http://api.test").getLateCancellationPolicy()).rejects.toThrow();
+    expect(calls[0]?.url).toBe("http://api.test/settings/late-cancellation-policy");
+  });
+});
+
 describe("ApiClient monthly schedule conflicts", () => {
   afterEach(() => vi.unstubAllGlobals());
 
@@ -1804,6 +1814,7 @@ describe("ApiClient subscription payments", () => {
       pricingCountedBookingCount: 8,
       excludedBookingCount: 0,
       countedStatuses: ["booked", "attended"],
+      liabilityBackedCancelledBookingsCounted: true,
       excludedStatuses: ["cancelled", "no_show", "waitlist", "pending"],
       paymentStatusAffectsPricing: false
     },
@@ -1821,7 +1832,9 @@ describe("ApiClient subscription payments", () => {
         pricingTierMinTrainings: 4,
         pricingTierMaxTrainings: 7,
         bookingOrdinalInMonth: 4,
-        priceSnapshotAt: "2026-06-08T18:00:00.000Z"
+        priceSnapshotAt: "2026-06-08T18:00:00.000Z",
+        pricingCounted: true,
+        pricingCountReason: "active-booking"
       }
     ]
   };
@@ -2237,7 +2250,7 @@ describe("ApiClient waitlist admin tools", () => {
   };
 
   it("cancels a roster booking through the existing booking cancel path", async () => {
-    const calls = mockFetchOnce({ ...booking, status: "cancelled" });
+    const calls = mockFetchOnce({ booking: { ...booking, status: "cancelled" }, liability: null });
     const result = await new ApiClient("http://api.test").cancelBooking(BOOKING_ID, DECISION_REASON);
     expect(calls[0]?.url).toBe(`http://api.test/bookings/${BOOKING_ID}/cancel`);
     expect(calls[0]?.init?.method).toBe("POST");
@@ -2247,7 +2260,7 @@ describe("ApiClient waitlist admin tools", () => {
 
   it("rejects a malformed cancel-booking response (contract enforced)", async () => {
     const { paymentStatus: _omit, ...withoutPaymentStatus } = booking;
-    mockFetchOnce({ ...withoutPaymentStatus, status: "cancelled" });
+    mockFetchOnce({ booking: { ...withoutPaymentStatus, status: "cancelled" }, liability: null });
     await expect(new ApiClient("http://api.test").cancelBooking(BOOKING_ID, DECISION_REASON)).rejects.toThrow();
   });
 
