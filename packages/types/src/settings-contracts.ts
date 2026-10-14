@@ -42,6 +42,42 @@ export type UpdateRequestLoggingSettingsInput = z.infer<
   typeof updateRequestLoggingSettingsSchema
 >;
 
+const lateCancellationHours = z.number().int().min(1).max(168);
+
+/** Admin-owned global late-cancellation policy; no money amounts are configurable. */
+export const lateCancellationPolicySchema = z
+  .object({
+    enabled: z.boolean(),
+    hours: lateCancellationHours.nullable(),
+    version: z.number().int().positive(),
+    effectiveFrom: z.string().datetime().nullable(),
+    updatedAt: z.string().datetime().nullable(),
+    updatedBy: z.number().int().nullable()
+  })
+  .strict()
+  .superRefine((value, ctx) => {
+    if (value.enabled && value.hours === null) {
+      ctx.addIssue({ code: z.ZodIssueCode.custom, path: ["hours"], message: "hours is required when enabled" });
+    }
+    if (!value.enabled && value.hours !== null) {
+      ctx.addIssue({ code: z.ZodIssueCode.custom, path: ["hours"], message: "hours must be null when disabled" });
+    }
+  });
+export type LateCancellationPolicy = z.infer<typeof lateCancellationPolicySchema>;
+
+export const updateLateCancellationPolicySchema = z
+  .object({ enabled: z.boolean(), hours: lateCancellationHours.nullable() })
+  .strict()
+  .superRefine((value, ctx) => {
+    if (value.enabled && value.hours === null) {
+      ctx.addIssue({ code: z.ZodIssueCode.custom, path: ["hours"], message: "hours is required when enabled" });
+    }
+    if (!value.enabled && value.hours !== null) {
+      ctx.addIssue({ code: z.ZodIssueCode.custom, path: ["hours"], message: "hours must be null when disabled" });
+    }
+  });
+export type UpdateLateCancellationPolicyInput = z.infer<typeof updateLateCancellationPolicySchema>;
+
 const sameDayFreedSlotAutomationSettingsShape = {
   enabled: z.boolean(),
   audience: broadcastAudienceSchema.nullable()

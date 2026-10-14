@@ -1,7 +1,7 @@
 import { Injectable } from "@nestjs/common";
 import { type Database, tables } from "@beosand/db";
 import type { BookingStatus, PriceSnapshotSource } from "@beosand/types";
-import { type SQL, and, asc, count, eq, gte, inArray, isNotNull, lte, ne, sql } from "drizzle-orm";
+import { type SQL, and, asc, count, eq, exists, gte, inArray, isNotNull, lte, ne, or, sql } from "drizzle-orm";
 import { DatabaseService } from "../../db/database.service";
 
 /**
@@ -39,6 +39,7 @@ export interface SubscriptionPricingBookingRow {
   pricingTierMaxTrainings: number | null;
   bookingOrdinalInMonth: number | null;
   priceSnapshotAt: string | null;
+  hasLateCancellationLiability: boolean;
 }
 
 export interface MonthlyPricingCountsRow {
@@ -56,7 +57,8 @@ export class SubscriptionsRepository {
   }
 
   /**
-   * Aggregate every monthly subscription over its non-cancelled bookings: one row
+   * Aggregate every monthly subscription over active bookings plus cancelled rows
+   * backed by an immutable late-cancellation liability: one row
    * per (groupSubscriptionId, client, group), with dateCount = count of bookings,
    * paidCount = count where payment_status = 'paid', and minDate = the earliest
    * training date in the batch (year/month source). Walk-in/manual single bookings
@@ -65,7 +67,7 @@ export class SubscriptionsRepository {
   async aggregate(clientId?: string): Promise<SubscriptionAggregateRow[]> {
     const where = and(
       isNotNull(tables.bookings.groupSubscriptionId),
-      ne(tables.bookings.status, "cancelled"),
+      this.subscriptionBillableBookingPredicate(),
       clientId ? eq(tables.bookings.clientId, clientId) : undefined
     );
 
@@ -145,7 +147,7 @@ export class SubscriptionsRepository {
       .where(
         and(
           eq(tables.bookings.groupSubscriptionId, groupSubscriptionId),
-          ne(tables.bookings.status, "cancelled")
+          this.subscriptionBillableBookingPredicate()
         )
       )
       .groupBy(
@@ -191,7 +193,8 @@ export class SubscriptionsRepository {
         pricingTierMinTrainings: tables.bookings.pricingTierMinTrainings,
         pricingTierMaxTrainings: tables.bookings.pricingTierMaxTrainings,
         bookingOrdinalInMonth: tables.bookings.bookingOrdinalInMonth,
-        priceSnapshotAt: tables.bookings.priceSnapshotAt
+        priceSnapshotAt: tables.bookings.priceSnapshotAt,
+        hasLateCancellationLiability: this.lateCancellationLiabilityExists()
       })
       .from(tables.bookings)
       .innerJoin(tables.trainings, eq(tables.bookings.trainingId, tables.trainings.id))
@@ -200,7 +203,8 @@ export class SubscriptionsRepository {
 
     return rows.map((row) => ({
       ...row,
-      priceSnapshotAt: row.priceSnapshotAt?.toISOString() ?? null
+      priceSnapshotAt: row.priceSnapshotAt?.toISOString() ?? null,
+      hasLateCancellationLiability: Boolean(row.hasLateCancellationLiability)
     }));
   }
 
@@ -214,10 +218,11 @@ export class SubscriptionsRepository {
     const [row] = await db
       .select({
         counted: count(
-          sql`case when ${tables.bookings.status} in ('booked', 'attended') then 1 end`
+          sql`case when ${this.subscriptionPricingCountedPredicate()} then 1 end`
         ),
         excluded: count(
-          sql`case when ${tables.bookings.status} in ('cancelled', 'no_show', 'waitlist', 'pending') then 1 end`
+          sql`case when ${tables.bookings.status} in ('no_show', 'waitlist', 'pending')
+            or (${tables.bookings.status} = 'cancelled' and not ${this.lateCancellationLiabilityExists()}) then 1 end`
         )
       })
       .from(tables.bookings)
@@ -254,7 +259,8 @@ export class SubscriptionsRepository {
   }
 
   /**
-   * Set the payment flag on EVERY non-cancelled booking of one subscription inside
+   * Set the payment flag on every active booking and liability-backed cancelled
+   * booking of one subscription inside
    * the caller's transaction; returns how many rows were updated (0 ⇒ the service
    * raises 404). On mark-paid, paid_at/paid_by are stamped; on mark-unpaid cleared.
    */
@@ -274,11 +280,44 @@ export class SubscriptionsRepository {
       .where(
         and(
           eq(tables.bookings.groupSubscriptionId, groupSubscriptionId),
-          ne(tables.bookings.status, "cancelled")
+          this.subscriptionBillableBookingPredicate()
         )
       )
       .returning({ id: tables.bookings.id });
 
     return updated.length;
+  }
+
+  /**
+   * A liability is unique per booking. EXISTS keeps aggregates one-row-per-booking
+   * even if the liability table later gains non-unique reporting joins.
+   */
+  private lateCancellationLiabilityExists(): SQL {
+    return exists(
+      this.database.db
+        .select({ bookingId: tables.lateCancellationLiabilities.bookingId })
+        .from(tables.lateCancellationLiabilities)
+        .where(eq(tables.lateCancellationLiabilities.bookingId, tables.bookings.id))
+    );
+  }
+
+  private subscriptionBillableBookingPredicate(): SQL {
+    return or(
+      ne(tables.bookings.status, "cancelled"),
+      and(
+        eq(tables.bookings.status, "cancelled"),
+        this.lateCancellationLiabilityExists()
+      )
+    ) as SQL;
+  }
+
+  private subscriptionPricingCountedPredicate(): SQL {
+    return or(
+      inArray(tables.bookings.status, ["booked", "attended"]),
+      and(
+        eq(tables.bookings.status, "cancelled"),
+        this.lateCancellationLiabilityExists()
+      )
+    ) as SQL;
   }
 }

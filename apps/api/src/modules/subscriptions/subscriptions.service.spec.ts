@@ -15,7 +15,7 @@ const GROUP_ID = "33333333-3333-3333-3333-333333333333";
 
 const env = { ADMIN_TELEGRAM_IDS: [String(ADMIN_ID)] } as unknown as Env;
 
-/** One non-cancelled booking belonging to a subscription, for the fake to aggregate. */
+/** One subscription booking, including the immutable-liability relation when applicable. */
 interface FakeBooking {
   id: string;
   groupSubscriptionId: string;
@@ -38,11 +38,12 @@ interface FakeBooking {
   pricingTierMaxTrainings: number | null;
   bookingOrdinalInMonth: number | null;
   priceSnapshotAt: string | null;
+  hasLateCancellationLiability: boolean;
 }
 
 /**
  * In-memory stand-in for the repository: it aggregates exactly as the SQL does
- * (only non-cancelled bookings counted; paidCount over payment_status='paid';
+ * (active bookings plus liability-backed cancellations counted; paidCount over payment_status='paid';
  * minDate the earliest date) so the service's paymentState / totalRsd derivation
  * is what is actually under test. transaction() runs the work inline.
  */
@@ -53,13 +54,15 @@ class FakeSubscriptionsRepository {
     return work({} as Database);
   }
 
-  private active(): FakeBooking[] {
-    return this.bookings.filter((b) => b.status !== "cancelled");
+  private billable(): FakeBooking[] {
+    return this.bookings.filter(
+      (b) => b.status !== "cancelled" || b.hasLateCancellationLiability
+    );
   }
 
   private aggregateRows(subId?: string): SubscriptionAggregateRow[] {
     const groups = new Map<string, FakeBooking[]>();
-    for (const b of this.active()) {
+    for (const b of this.billable()) {
       if (subId && b.groupSubscriptionId !== subId) continue;
       const list = groups.get(b.groupSubscriptionId) ?? [];
       list.push(b);
@@ -98,7 +101,9 @@ class FakeSubscriptionsRepository {
     actorTelegramId: number
   ): Promise<number> {
     const targets = this.bookings.filter(
-      (b) => b.groupSubscriptionId === groupSubscriptionId && b.status !== "cancelled"
+      (b) =>
+        b.groupSubscriptionId === groupSubscriptionId &&
+        (b.status !== "cancelled" || b.hasLateCancellationLiability)
     );
     for (const b of targets) {
       b.paymentStatus = paid ? "paid" : "unpaid";
@@ -139,7 +144,8 @@ class FakeSubscriptionsRepository {
         pricingTierMinTrainings: b.pricingTierMinTrainings,
         pricingTierMaxTrainings: b.pricingTierMaxTrainings,
         bookingOrdinalInMonth: b.bookingOrdinalInMonth,
-        priceSnapshotAt: b.priceSnapshotAt
+        priceSnapshotAt: b.priceSnapshotAt,
+        hasLateCancellationLiability: b.hasLateCancellationLiability
       }));
   }
 
@@ -153,10 +159,14 @@ class FakeSubscriptionsRepository {
     );
     return {
       pricingCountedBookingCount: monthRows.filter(
-        (b) => b.status === "booked" || b.status === "attended"
+        (b) =>
+          b.status === "booked" ||
+          b.status === "attended" ||
+          (b.status === "cancelled" && b.hasLateCancellationLiability)
       ).length,
       excludedBookingCount: monthRows.filter((b) =>
-        ["cancelled", "no_show", "waitlist", "pending"].includes(b.status)
+        ["no_show", "waitlist", "pending"].includes(b.status) ||
+        (b.status === "cancelled" && !b.hasLateCancellationLiability)
       ).length
     };
   }
@@ -186,6 +196,7 @@ function makeBooking(overrides: Partial<FakeBooking> = {}): FakeBooking {
     pricingTierMaxTrainings: 3,
     bookingOrdinalInMonth: 1,
     priceSnapshotAt: "2026-06-01T12:00:00.000Z",
+    hasLateCancellationLiability: false,
     ...overrides
   };
 }
@@ -239,6 +250,46 @@ describe("SubscriptionsService.list — payment-state derivation", () => {
     expect(summary.dateCount).toBe(2);
     expect(summary.paidCount).toBe(2);
     expect(summary.paymentState).toBe("paid");
+  });
+
+  it("counts a liability-backed cancellation exactly once in total, payment state, and pricing breakdown", async () => {
+    repo.bookings = [
+      makeBooking({ date: "2026-06-03", paymentStatus: "paid", priceSnapshotRsd: 1500, bookingOrdinalInMonth: 1 }),
+      makeBooking({
+        date: "2026-06-10",
+        status: "cancelled",
+        paymentStatus: "unpaid",
+        priceSnapshotRsd: 1400,
+        bookingOrdinalInMonth: 2,
+        hasLateCancellationLiability: true
+      }),
+      makeBooking({
+        date: "2026-06-17",
+        status: "cancelled",
+        paymentStatus: "unpaid",
+        priceSnapshotRsd: 9999,
+        bookingOrdinalInMonth: 3
+      })
+    ];
+
+    const [summary] = await service.list(ADMIN_ID, {});
+
+    expect(summary.dateCount).toBe(2);
+    expect(summary.paidCount).toBe(1);
+    expect(summary.paymentState).toBe("partial");
+    expect(summary.totalRsd).toBe(2900);
+    expect(summary.storedBookingPricesRsd).toEqual([1500, 1400]);
+    expect(summary.monthlyPricingCountContext).toMatchObject({
+      pricingCountedBookingCount: 2,
+      excludedBookingCount: 1,
+      liabilityBackedCancelledBookingsCounted: true
+    });
+    expect(summary.pricingBreakdown.map((row) => [row.pricingCounted, row.pricingCountReason])).toEqual([
+      [true, "active-booking"],
+      [true, "late-cancellation-liability"],
+      [false, null]
+    ]);
+    expect(summary.pricingBreakdown.map((row) => row.bookingOrdinalInMonth)).toEqual([1, 2, 3]);
   });
 
   it("derives year/month from the earliest training date in the batch", async () => {
@@ -345,6 +396,26 @@ describe("SubscriptionsService.setPaid", () => {
     expect(cancelled.paymentStatus).toBe("unpaid");
     expect(cancelled.paidAt).toBeNull();
     expect(cancelled.paidBy).toBeNull();
+  });
+
+  it("marks a liability-backed cancellation paid without changing its frozen snapshot or ordinal", async () => {
+    const liableCancelled = makeBooking({
+      date: "2026-06-10",
+      status: "cancelled",
+      priceSnapshotRsd: 1400,
+      bookingOrdinalInMonth: 2,
+      hasLateCancellationLiability: true
+    });
+    repo.bookings = [makeBooking({ date: "2026-06-03", bookingOrdinalInMonth: 1 }), liableCancelled];
+
+    const summary = await service.setPaid(ADMIN_ID, SUB_ID, true);
+
+    expect(summary.paymentState).toBe("paid");
+    expect(summary.totalRsd).toBe(2900);
+    expect(liableCancelled.paymentStatus).toBe("paid");
+    expect(liableCancelled.paidBy).toBe(ADMIN_ID);
+    expect(liableCancelled.priceSnapshotRsd).toBe(1400);
+    expect(liableCancelled.bookingOrdinalInMonth).toBe(2);
   });
 
   it("clears paidAt/paidBy when marking the batch unpaid", async () => {

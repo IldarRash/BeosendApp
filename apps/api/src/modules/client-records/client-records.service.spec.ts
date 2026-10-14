@@ -3,7 +3,7 @@ import { describe, expect, it, vi } from "vitest";
 import type { ClientRecord } from "@beosand/types";
 import { ClientRecordsService } from "./client-records.service";
 
-const record = (id: string, date: string, status: ClientRecord["status"]): ClientRecord => ({ id: `booking:${id}`, kind: "booking", entityId: id, status, date, startTime: "10:00", endTime: "11:00", title: null, trainerName: null, trainingKind: "group", levelName: null, trainingId: null, bookingId: id, groupSubscriptionId: null, courtNumbers: [], courtCount: null, priceRsd: null, waitlistPosition: null, reason: null, actor: null, canCancel: status === "confirmed", nextAction: status === "confirmed" ? "attend" : "choose-another" });
+const record = (id: string, date: string, status: ClientRecord["status"]): ClientRecord => ({ id: `booking:${id}`, kind: "booking", entityId: id, status, date, startTime: "10:00", endTime: "11:00", title: null, trainerName: null, trainingKind: "group", levelName: null, trainingId: null, bookingId: id, groupSubscriptionId: null, courtNumbers: [], courtCount: null, priceRsd: null, lateCancellationLiability: null, waitlistPosition: null, reason: null, actor: null, canCancel: status === "confirmed", nextAction: status === "confirmed" ? "attend" : "choose-another" });
 
 describe("ClientRecordsService", () => {
   it("rejects an identity with no owned client row", async () => {

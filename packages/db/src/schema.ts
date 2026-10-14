@@ -37,6 +37,14 @@ export const bookingStatus = pgEnum("booking_status", [
   "waitlist"
 ]);
 export const paymentStatus = pgEnum("payment_status", ["unpaid", "paid"]);
+export const lateCancellationLiabilityAmountSource = pgEnum("late_cancellation_liability_amount_source", [
+  "monthly-booking-snapshot",
+  "group-single-price"
+]);
+export const lateCancellationLiabilityBillingKind = pgEnum("late_cancellation_liability_billing_kind", [
+  "single",
+  "subscription"
+]);
 export const priceSnapshotSource = pgEnum("price_snapshot_source", [
   "training_pricing_tier",
   "legacy_group_month_price"
@@ -443,6 +451,46 @@ export const bookings = pgTable("bookings", {
   bookingOrdinalInMonth: integer("booking_ordinal_in_month"),
   priceSnapshotAt: timestamp("price_snapshot_at", { withTimezone: true })
 });
+
+/**
+ * Immutable financial facts recorded only for a confirmed, chargeable late
+ * owner cancellation. Payment stamps stay on the linked booking so batch
+ * subscription payment can update its liability-backed cancellation exactly once.
+ */
+export const lateCancellationLiabilities = pgTable(
+  "late_cancellation_liabilities",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    bookingId: uuid("booking_id").notNull().references(() => bookings.id).unique(),
+    clientId: uuid("client_id").notNull().references(() => clients.id),
+    trainingId: uuid("training_id").notNull().references(() => trainings.id),
+    groupSubscriptionId: uuid("group_subscription_id"),
+    trainerId: uuid("trainer_id").notNull().references(() => trainers.id),
+    clientName: text("client_name").notNull(),
+    trainingLabel: text("training_label").notNull(),
+    trainingDate: date("training_date").notNull(),
+    trainingStartTime: time("training_start_time").notNull(),
+    trainingEndTime: time("training_end_time").notNull(),
+    trainerName: text("trainer_name").notNull(),
+    cancelledAt: timestamp("cancelled_at", { withTimezone: true }).notNull(),
+    confirmedAt: timestamp("confirmed_at", { withTimezone: true }).notNull(),
+    policyHours: integer("policy_hours").notNull(),
+    policyVersion: integer("policy_version").notNull(),
+    cutoffAt: timestamp("cutoff_at", { withTimezone: true }).notNull(),
+    amountRsd: integer("amount_rsd").notNull(),
+    amountSource: lateCancellationLiabilityAmountSource("amount_source").notNull(),
+    billingKind: lateCancellationLiabilityBillingKind("billing_kind").notNull(),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow()
+  },
+  (table) => ({
+    cancelledAtIdx: index("late_cancellation_liabilities_cancelled_at_idx").on(table.cancelledAt),
+    clientCancelledAtIdx: index("late_cancellation_liabilities_client_cancelled_at_idx").on(table.clientId, table.cancelledAt),
+    subscriptionIdx: index("late_cancellation_liabilities_subscription_idx").on(table.groupSubscriptionId),
+    amountPositive: check("late_cancellation_liabilities_amount_positive", sql`${table.amountRsd} > 0`),
+    policyHoursPositive: check("late_cancellation_liabilities_policy_hours_positive", sql`${table.policyHours} > 0`),
+    policyVersionPositive: check("late_cancellation_liabilities_policy_version_positive", sql`${table.policyVersion} > 0`)
+  })
+);
 
 export const sameDayFreedSlotEvents = pgTable("same_day_freed_slot_events", {
   id: uuid("id").primaryKey().defaultRandom(),
@@ -1168,6 +1216,7 @@ export const schema = {
   monthlyScheduleNotificationDeliveries,
   individualTrainingRequests,
   bookings,
+  lateCancellationLiabilities,
   sameDayFreedSlotEvents,
   sameDayFreedSlotDeliveries,
   waitlist,

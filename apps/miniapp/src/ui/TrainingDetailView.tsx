@@ -1,6 +1,7 @@
-import { useMemo, useState } from "react";
+import { useMemo, useRef, useState } from "react";
 import type { BookingStatus, ClientTrainingDetail } from "@beosand/types";
-import { useCancelBooking, useClientTrainingDetail } from "../api/hooks";
+import { useBookingCancellationPreview, useCancelBooking, useClientTrainingDetail } from "../api/hooks";
+import { LateCancellationConfirmationRequiredError } from "../api/client";
 import { resolveErrorMessage } from "../api/errors";
 import { useT } from "../i18n/LanguageProvider";
 import { hapticSelection, hapticSuccess, hapticWarning, useMainButton } from "../tg/buttons";
@@ -22,7 +23,10 @@ export function TrainingDetailView({ trainingId, onBack }: TrainingDetailViewPro
   const t = useT();
   const detail = useClientTrainingDetail(trainingId);
   const cancel = useCancelBooking();
+  const cancellationInFlight = useRef(false);
   const [confirmingCancel, setConfirmingCancel] = useState(false);
+  const [refreshedPreview, setRefreshedPreview] = useState<import("@beosand/types").BookingCancellationPreview | null>(null);
+  const cancellationPreview = useBookingCancellationPreview(detail.data?.bookingId ?? null, confirmingCancel);
 
   useMainButton({
     text: t("miniapp.calendar.backToAgenda"),
@@ -56,6 +60,7 @@ export function TrainingDetailView({ trainingId, onBack }: TrainingDetailViewPro
   }
 
   const cancelItem = toBookingItem(detail.data);
+  const preview = refreshedPreview ?? cancellationPreview.data ?? null;
   const cancelError = resolveErrorMessage(cancel.error, t, "miniapp.myBookings.cancelConflict");
 
   const openCancel = (): void => {
@@ -64,18 +69,30 @@ export function TrainingDetailView({ trainingId, onBack }: TrainingDetailViewPro
     }
     hapticWarning();
     cancel.reset();
+    cancellationInFlight.current = false;
+    setRefreshedPreview(null);
     setConfirmingCancel(true);
   };
 
   const confirmCancel = (): void => {
-    if (!cancelItem) {
+    if (!cancelItem || !preview || !preview.cancellable || cancel.isPending || cancellationInFlight.current) {
       return;
     }
-    cancel.mutate(cancelItem.bookingId, {
+    cancellationInFlight.current = true;
+    cancel.mutate({ bookingId: cancelItem.bookingId, token: preview?.kind === "liable" ? preview.confirmationToken : undefined }, {
       onSuccess: () => {
         hapticSuccess();
         setConfirmingCancel(false);
         void detail.refetch();
+      },
+      onError: (error) => {
+        if (error instanceof LateCancellationConfirmationRequiredError) {
+          setRefreshedPreview(error.preview);
+          cancel.reset();
+        }
+      },
+      onSettled: () => {
+        cancellationInFlight.current = false;
       }
     });
   };
@@ -94,6 +111,9 @@ export function TrainingDetailView({ trainingId, onBack }: TrainingDetailViewPro
         }}
         onConfirm={confirmCancel}
         submitting={cancel.isPending}
+        preview={preview}
+        previewLoading={cancellationPreview.isFetching && !refreshedPreview}
+        previewError={cancellationPreview.error instanceof Error ? cancellationPreview.error.message : undefined}
         errorMessage={cancelError}
       />
     </div>

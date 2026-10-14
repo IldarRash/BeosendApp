@@ -99,6 +99,7 @@ const CLIENT: Client = {
   bonusTrainingCredits: 0
 };
 const RECORD: ClientRecord = {
+  lateCancellationLiability: null,
   id: "court:11111111-1111-4111-8111-111111111111",
   kind: "court",
   entityId: "11111111-1111-4111-8111-111111111111",

@@ -7,7 +7,7 @@ import type { DatabaseService } from "../../db/database.service";
 
 const ID = "11111111-1111-4111-8111-111111111111";
 const snapshot: RecordStatusEventSnapshot = {
-  record: { id: `booking:${ID}`, kind: "booking", entityId: ID, status: "confirmed", date: "2026-09-25", startTime: "18:00", endTime: "19:00", title: null, trainerName: null, trainingKind: null, levelName: null, trainingId: ID, bookingId: ID, groupSubscriptionId: null, courtNumbers: [], courtCount: null, priceRsd: null, waitlistPosition: null, reason: null, actor: null, canCancel: false, nextAction: "attend" },
+  record: { id: `booking:${ID}`, kind: "booking", entityId: ID, status: "confirmed", date: "2026-09-25", startTime: "18:00", endTime: "19:00", title: null, trainerName: null, trainingKind: null, levelName: null, trainingId: ID, bookingId: ID, groupSubscriptionId: null, courtNumbers: [], courtCount: null, priceRsd: null, lateCancellationLiability: null, waitlistPosition: null, reason: null, actor: null, canCancel: false, nextAction: "attend" },
   recipient: { clientId: ID, telegramId: 12345, locale: "ru" }
 };
 

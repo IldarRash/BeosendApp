@@ -59,6 +59,7 @@ const partial: SubscriptionSummary = {
     pricingCountedBookingCount: 8,
     excludedBookingCount: 0,
     countedStatuses: ["booked", "attended"],
+    liabilityBackedCancelledBookingsCounted: true,
     excludedStatuses: ["cancelled", "no_show", "waitlist", "pending"],
     paymentStatusAffectsPricing: false
   },
@@ -270,7 +271,9 @@ describe("Subscriptions page", () => {
           pricingTierMinTrainings: 4,
           pricingTierMaxTrainings: 7,
           bookingOrdinalInMonth: 4,
-          priceSnapshotAt: "2026-06-08T18:00:00.000Z"
+          priceSnapshotAt: "2026-06-08T18:00:00.000Z",
+          pricingCounted: true,
+          pricingCountReason: "active-booking"
         }
       ]
     };

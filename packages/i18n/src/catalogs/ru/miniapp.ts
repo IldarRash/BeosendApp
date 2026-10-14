@@ -318,6 +318,11 @@ export const miniappRu: Record<string, string> = {
   "miniapp.myBookings.cancelConfirmBody":
     "Запись на эту тренировку будет отменена. Это действие нельзя отменить.",
   "miniapp.myBookings.cancelConfirm": "Отменить запись",
+  "miniapp.myBookings.cancelPreviewLoading": "Проверяем условия отмены…",
+  "miniapp.myBookings.cancelLateConfirm": "Отмена менее чем за {hours} ч. освободит место, но означает ваше полное финансовое обязательство: {amount} RSD ({payment}). Подтвердите отмену, только если принимаете это обязательство.",
+  "miniapp.myBookings.payment.paid": "Оплачено",
+  "miniapp.myBookings.payment.unpaid": "Не оплачено",
+  "miniapp.myBookings.cancelWaivedConfirm": "Запись будет отменена, а место станет доступным. Финансовая ответственность не будет начислена.",
   "miniapp.myBookings.cancelKeep": "Оставить",
   // Success + conflict.
   "miniapp.myBookings.cancelledTitle": "Запись отменена",

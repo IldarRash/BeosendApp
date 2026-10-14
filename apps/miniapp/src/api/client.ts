@@ -1,6 +1,8 @@
 import { z } from "zod";
 import {
-  bookingSchema,
+  bookingCancellationPreviewSchema,
+  bookingCancellationResultSchema,
+  cancelBookingSchema,
   bookableMonthsSchema,
   cancelOwnCourtRequestSchema,
   clientSchema,
@@ -35,7 +37,8 @@ import {
   waitlistEntrySchema,
   type AvailableSlotsQuery,
   type BookableMonth,
-  type Booking,
+  type BookingCancellationPreview,
+  type BookingCancellationResult,
   type Client,
   type ClientRecordsPage,
   type ClientRecordsQuery,
@@ -133,6 +136,14 @@ export class ConflictError extends Error {
   constructor(message = "Conflict") {
     super(message);
     this.name = "ConflictError";
+  }
+}
+
+/** A server-recomputed late-cancellation warning which needs a new explicit tap. */
+export class LateCancellationConfirmationRequiredError extends ConflictError {
+  constructor(readonly preview: BookingCancellationPreview) {
+    super("Late cancellation confirmation is required");
+    this.name = "LateCancellationConfirmationRequiredError";
   }
 }
 
@@ -515,10 +526,24 @@ export class MiniappApiClient {
    * cancellable) surfaces as {@link ConflictError} so the screen shows the server
    * message verbatim and refetches; a 403 (not the owner) surfaces as a generic error.
    */
-  cancelBooking(bookingId: string): Promise<Booking> {
-    return this.request(`/bookings/${bookingId}/cancel`, bookingSchema, {
-      method: "POST"
+  getBookingCancellationPreview(bookingId: string): Promise<BookingCancellationPreview> {
+    return this.request(`/bookings/${bookingId}/cancellation-preview`, bookingCancellationPreviewSchema);
+  }
+
+  async cancelBooking(bookingId: string, lateCancellationConfirmationToken?: string): Promise<BookingCancellationResult> {
+    const path = `/bookings/${bookingId}/cancel`;
+    const res = await this.fetchWithAuth(path, {
+      method: "POST",
+      body: JSON.stringify(cancelBookingSchema.parse(lateCancellationConfirmationToken ? { lateCancellationConfirmationToken } : {}))
     });
+    if (res.status === 409) {
+      const body: unknown = await res.json();
+      if (body && typeof body === "object" && "code" in body && (body as { code?: unknown }).code === "LATE_CANCELLATION_CONFIRMATION_REQUIRED" && "preview" in body) {
+        throw new LateCancellationConfirmationRequiredError(bookingCancellationPreviewSchema.parse((body as { preview: unknown }).preview));
+      }
+      throw new ConflictError(readErrorBodyMessage(body, `API ${path} failed: 409`));
+    }
+    return this.handle(res, path, bookingCancellationResultSchema);
   }
 
   /**
@@ -755,6 +780,15 @@ function toQueryString(query: AvailableSlotsQuery | TrainingScheduleQuery): stri
 async function errorFromResponse(res: Response, path: string): Promise<Error> {
   const message = await readErrorMessage(res, `API ${path} failed: ${res.status}`);
   return res.status === 409 ? new ConflictError(message) : new Error(message);
+}
+
+function readErrorBodyMessage(body: unknown, fallback: string): string {
+  if (body && typeof body === "object" && "message" in body) {
+    const message = (body as { message?: unknown }).message;
+    if (typeof message === "string" && message.length > 0) return message;
+    if (Array.isArray(message) && message.length > 0) return message.join("; ");
+  }
+  return fallback;
 }
 
 /** Extract a NestJS `{ message }` (string or string[]) from a body, or fall back. */

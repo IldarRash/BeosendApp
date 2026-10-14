@@ -1,7 +1,7 @@
 import { Injectable } from "@nestjs/common";
 import { type Database, tables } from "@beosand/db";
 import type { ReplaceTrainingPricingTierRow, TrainingPricingTier } from "@beosand/types";
-import { and, asc, count, eq, gte, inArray, isNotNull, isNull, lte, notInArray, sql } from "drizzle-orm";
+import { and, asc, count, eq, exists, gte, inArray, isNotNull, isNull, lte, notInArray, or, sql } from "drizzle-orm";
 import { DatabaseService } from "../../db/database.service";
 
 type TrainingPricingTierRow = typeof tables.trainingPricingTiers.$inferSelect;
@@ -92,7 +92,18 @@ export class TrainingPricingRepository {
           eq(tables.bookings.clientId, params.clientId),
           isNotNull(tables.bookings.groupSubscriptionId),
           isNotNull(tables.trainings.groupId),
-          inArray(tables.bookings.status, ["booked", "attended"]),
+          or(
+            inArray(tables.bookings.status, ["booked", "attended"]),
+            and(
+              eq(tables.bookings.status, "cancelled"),
+              exists(
+                tx
+                  .select({ bookingId: tables.lateCancellationLiabilities.bookingId })
+                  .from(tables.lateCancellationLiabilities)
+                  .where(eq(tables.lateCancellationLiabilities.bookingId, tables.bookings.id))
+              )
+            )
+          ),
           gte(tables.trainings.date, params.from),
           lte(tables.trainings.date, params.to),
           params.excludeBookingIds.length > 0

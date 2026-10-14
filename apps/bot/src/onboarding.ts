@@ -42,6 +42,8 @@ export interface SessionData {
   individualRequest?: PendingIndividualRequest;
   /** Pending staff decline is interaction state only; the API owns the decision. */
   trainerDecline?: PendingTrainerDecline;
+  /** Short-lived server-issued consent token; never put the token in Telegram callback data. */
+  cancellationConfirmation?: { bookingId: string; token?: string; nonce: string; submitting?: boolean };
 }
 
 export type BotContext = Context & SessionFlavor<SessionData>;

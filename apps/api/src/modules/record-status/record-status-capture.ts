@@ -47,14 +47,15 @@ async function capture(tx: Database, input: CaptureRecordStatusInput) {
     const status: ClientRecordStatus = input.status ?? (row.request.status === "rejected" ? "declined" : row.request.status);
     const startTime = row.request.startTime.slice(0, 5);
     const endTime = timeOfMinutes(minutesOfDay(startTime) + Number(row.request.durationHours) * 60);
-    return snapshot(row.client, { id: `court:${row.request.id}`, kind: "court", entityId: row.request.id, status, date: row.request.date, startTime, endTime, title: null, trainerName: null, trainingKind: null, levelName: null, trainingId: null, bookingId: null, groupSubscriptionId: null, courtNumbers: row.request.status === "confirmed" ? courts.map((court) => court.number) : [], courtCount: row.request.courtCount, priceRsd: row.request.priceRsd, waitlistPosition: null, reason: input.reason ?? null, actor: input.actor ?? null, canCancel: false, nextAction: nextAction(status) });
+    return snapshot(row.client, { id: `court:${row.request.id}`, kind: "court", entityId: row.request.id, status, date: row.request.date, startTime, endTime, title: null, trainerName: null, trainingKind: null, levelName: null, trainingId: null, bookingId: null, groupSubscriptionId: null, courtNumbers: row.request.status === "confirmed" ? courts.map((court) => court.number) : [], courtCount: row.request.courtCount, priceRsd: row.request.priceRsd, lateCancellationLiability: null, waitlistPosition: null, reason: input.reason ?? null, actor: input.actor ?? null, canCancel: false, nextAction: nextAction(status) });
   }
   if (input.kind === "booking") {
-    const [row] = await tx.select({ booking: tables.bookings, training: tables.trainings, group: tables.groups, trainer: tables.trainers, level: tables.levels, client: tables.clients })
+    const [row] = await tx.select({ booking: tables.bookings, training: tables.trainings, group: tables.groups, trainer: tables.trainers, level: tables.levels, client: tables.clients, liability: tables.lateCancellationLiabilities })
       .from(tables.bookings).innerJoin(tables.trainings, eq(tables.bookings.trainingId, tables.trainings.id)).innerJoin(tables.clients, eq(tables.bookings.clientId, tables.clients.id))
       .innerJoin(tables.trainers, eq(tables.trainings.trainerId, tables.trainers.id))
       .leftJoin(tables.groups, eq(tables.trainings.groupId, tables.groups.id))
       .leftJoin(tables.levels, eq(tables.groups.levelId, tables.levels.id))
+      .leftJoin(tables.lateCancellationLiabilities, eq(tables.lateCancellationLiabilities.bookingId, tables.bookings.id))
       .where(eq(tables.bookings.id, input.entityId)).limit(1);
     if (!row) throw new Error("Booking not found for status capture");
     const status = input.status ?? bookingRecordStatus(row.booking.status, row.training.status);
@@ -65,6 +66,7 @@ async function capture(tx: Database, input: CaptureRecordStatusInput) {
       levelName: row.level?.name ?? null, trainingId: row.training.id,
       bookingId: row.booking.id, groupSubscriptionId: row.booking.groupSubscriptionId, courtNumbers: [], courtCount: null,
       priceRsd: row.booking.priceSnapshotRsd ?? row.training.priceSingleRsd ?? row.group?.priceSingleRsd ?? null, waitlistPosition: null,
+      lateCancellationLiability: row.liability ? { id: row.liability.id, amountRsd: row.liability.amountRsd, paymentStatus: row.booking.paymentStatus } : null,
       reason: input.reason ?? null, actor: input.actor ?? null, canCancel: (row.booking.status === "booked" || row.booking.status === "pending") && !["cancelled", "completed", "attended", "no_show"].includes(status), nextAction: nextAction(status)
     });
   }
@@ -76,7 +78,7 @@ async function capture(tx: Database, input: CaptureRecordStatusInput) {
     const waiting = await tx.select({ id: tables.waitlist.id, position: tables.waitlist.position, addedAt: tables.waitlist.addedAt, status: tables.waitlist.status }).from(tables.waitlist).where(eq(tables.waitlist.trainingId, row.entry.trainingId));
     const active = waiting.filter((entry) => entry.status === "waiting" || entry.status === "notified").sort((a, b) => a.position - b.position || a.addedAt.getTime() - b.addedAt.getTime() || a.id.localeCompare(b.id));
     const rank = status === "waitlisted" ? active.findIndex((entry) => entry.id === row.entry.id) + 1 : null;
-    return snapshot(row.client, { id: `waitlist:${row.entry.id}`, kind: "waitlist", entityId: row.entry.id, status, date: row.training.date, startTime: row.training.startTime.slice(0, 5), endTime: row.training.endTime.slice(0, 5), title: row.group?.name ?? null, trainerName: row.trainer.name, trainingKind: row.training.clientId ? "individual" : "group", levelName: row.level?.name ?? null, trainingId: row.training.id, bookingId: null, groupSubscriptionId: row.entry.groupSubscriptionId, courtNumbers: [], courtCount: null, priceRsd: null, waitlistPosition: rank && rank > 0 ? rank : null, reason: input.reason ?? null, actor: input.actor ?? null, canCancel: false, nextAction: nextAction(status) });
+    return snapshot(row.client, { id: `waitlist:${row.entry.id}`, kind: "waitlist", entityId: row.entry.id, status, date: row.training.date, startTime: row.training.startTime.slice(0, 5), endTime: row.training.endTime.slice(0, 5), title: row.group?.name ?? null, trainerName: row.trainer.name, trainingKind: row.training.clientId ? "individual" : "group", levelName: row.level?.name ?? null, trainingId: row.training.id, bookingId: null, groupSubscriptionId: row.entry.groupSubscriptionId, courtNumbers: [], courtCount: null, priceRsd: null, lateCancellationLiability: null, waitlistPosition: rank && rank > 0 ? rank : null, reason: input.reason ?? null, actor: input.actor ?? null, canCancel: false, nextAction: nextAction(status) });
   }
   if (input.kind === "individual-request") {
     const [row] = await tx.select({ request: tables.individualTrainingRequests, client: tables.clients, trainer: tables.trainers })
@@ -90,7 +92,7 @@ async function capture(tx: Database, input: CaptureRecordStatusInput) {
       id: `individual-request:${row.request.id}`, kind: "individual-request", entityId: row.request.id, status,
       date: row.request.date, startTime: row.request.startTime.slice(0, 5), endTime: row.request.endTime.slice(0, 5),
       title: null, trainerName: row.trainer.name, trainingKind: "individual", levelName: null, trainingId: row.request.trainingId,
-      bookingId: null, groupSubscriptionId: null, courtNumbers: [], courtCount: null, priceRsd: null, waitlistPosition: null,
+      bookingId: null, groupSubscriptionId: null, courtNumbers: [], courtCount: null, priceRsd: null, lateCancellationLiability: null, waitlistPosition: null,
       reason: input.reason ?? null, actor: input.actor ?? null, canCancel: false, nextAction: nextAction(status)
     });
   }

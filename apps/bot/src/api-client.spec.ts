@@ -255,9 +255,9 @@ describe("ApiClient.cancelBooking", () => {
 
   it("POSTs /bookings/:id/cancel with the caller's telegram header and returns the cancelled booking", async () => {
     const cancelled: Booking = { ...booking, status: "cancelled" };
-    const fetchMock = mockFetch(cancelled);
+    const fetchMock = mockFetch({ booking: cancelled, liability: null });
     const result = await new ApiClient("http://api.test").cancelBooking(booking.id, 999);
-    expect(result).toEqual(cancelled);
+    expect(result).toEqual({ booking: cancelled, liability: null });
     const [url, init] = fetchMock.mock.calls[0] as [string, RequestInit];
     expect(url).toBe(`http://api.test/bookings/${booking.id}/cancel`);
     expect(init.method).toBe("POST");

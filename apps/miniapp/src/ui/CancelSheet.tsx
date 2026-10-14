@@ -1,6 +1,7 @@
 import { Button, Modal } from "@telegram-apps/telegram-ui";
 import { useT } from "../i18n/LanguageProvider";
-import { formatDayMonth, formatTimeRange, weekdayFullKey } from "./format";
+import { formatDayMonth, formatRsd, formatTimeRange, weekdayFullKey } from "./format";
+import type { BookingCancellationPreview } from "@beosand/types";
 
 interface CancelSheetProps {
   /** The booking being cancelled; `null` keeps the sheet closed. */
@@ -10,6 +11,9 @@ interface CancelSheetProps {
   onConfirm: () => void;
   /** True while the cancel POST is in flight (drives the primary button loader). */
   submitting: boolean;
+  preview: BookingCancellationPreview | null;
+  previewLoading: boolean;
+  previewError?: string;
   /** A 409/error message to surface verbatim above the actions, if any. */
   errorMessage?: string;
 }
@@ -42,6 +46,9 @@ export function CancelSheet({
   onOpenChange,
   onConfirm,
   submitting,
+  preview,
+  previewLoading,
+  previewError,
   errorMessage
 }: CancelSheetProps): JSX.Element {
   const t = useT();
@@ -81,14 +88,22 @@ export function CancelSheet({
 
             <p className="note">
               <Warning />
-              {t("miniapp.myBookings.cancelConfirmBody")}
+              {previewLoading ? t("miniapp.myBookings.cancelPreviewLoading") : preview?.kind === "liable"
+                ? t("miniapp.myBookings.cancelLateConfirm", {
+                  amount: formatRsd(preview.amountRsd),
+                  hours: preview.policyHours,
+                  payment: t(`miniapp.myBookings.payment.${preview.paymentStatus}`)
+                })
+                : preview?.kind === "waived"
+                  ? t("miniapp.myBookings.cancelWaivedConfirm")
+                  : t("miniapp.myBookings.cancelConfirmBody")}
             </p>
           </>
         )}
 
-        {errorMessage && (
+        {(previewError ?? errorMessage) && (
           <div className="confirm-error" role="alert">
-            {errorMessage}
+            {previewError ?? errorMessage}
           </div>
         )}
 
@@ -96,7 +111,7 @@ export function CancelSheet({
           <Button size="l" mode="plain" stretched onClick={() => onOpenChange(false)}>
             {t("miniapp.myBookings.cancelKeep")}
           </Button>
-          <Button size="l" mode="outline" stretched loading={submitting} onClick={onConfirm}>
+          <Button size="l" mode="outline" stretched loading={submitting} disabled={submitting || previewLoading || !preview || !preview.cancellable} onClick={onConfirm}>
             {t("miniapp.myBookings.cancelConfirm")}
           </Button>
         </div>

@@ -99,6 +99,14 @@ const ICONS: Record<string, JSX.Element> = {
       <path d="M9 8h6M9 12h6M9 16h3" />
     </Icon>
   ),
+  lateCancellations: (
+    <Icon>
+      <path d="M5 4h11l3 3v13H5V4z" />
+      <path d="M9 10h6M9 14h3" />
+      <path d="M4 8a8 8 0 1 0 2-4.8" />
+      <path d="M4 3v5h5" />
+    </Icon>
+  ),
   // Courts group
   courtRequests: (
     <Icon>

@@ -153,14 +153,25 @@ export class BookingsController {
     @Param("id") id: string,
     @Headers("x-client-telegram-id") clientTelegramIdHeader?: string,
     @Body() body: unknown = {}
-  ): Promise<Booking> {
+  ): Promise<import("@beosand/types").BookingCancellationResult> {
     const actor = resolveClientActor(telegramIdHeader, clientTelegramIdHeader);
     const bookingId = validate(uuid, id);
     const input = validate(cancelBookingSchema, body ?? {});
     return this.bookings.cancelBooking(actor.telegramId, bookingId, {
       reason: input.reason,
+      lateCancellationConfirmationToken: input.lateCancellationConfirmationToken,
       allowAdmin: actor.allowAdmin
     });
+  }
+
+  @Get(":id/cancellation-preview")
+  cancellationPreview(
+    @Headers("x-telegram-id") telegramIdHeader: string | undefined,
+    @Param("id") id: string,
+    @Headers("x-client-telegram-id") clientTelegramIdHeader?: string
+  ) {
+    const actor = resolveClientActor(telegramIdHeader, clientTelegramIdHeader);
+    return this.bookings.cancellationPreview(actor.telegramId, validate(uuid, id), { allowAdmin: false });
   }
 
   /**

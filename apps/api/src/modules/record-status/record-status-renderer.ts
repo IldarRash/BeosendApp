@@ -13,7 +13,7 @@ export function renderRecordStatus(record: ClientRecord, locale: Locale, overrid
   const reason = record.reason
     ? `\n${copy.reason}: ${escapeHtml(reasonLabel(record.reason.code, locale))}${record.reason.comment ? ` — ${escapeHtml(record.reason.comment)}` : ""}`
     : "";
-  const cancellation = record.status === "cancelled" ? `\n${record.actor === "client" ? copy.cancelledByClient : record.actor === "staff" ? copy.cancelledByStaff : ""}` : "";
+  const cancellation = record.status === "cancelled" ? `\n${record.actor === "client" ? copy.cancelledByClient : record.actor === "staff" ? copy.cancelledByStaff : ""}${liabilityLine(record, locale)}` : "";
   const authoritative = `${copy.heading}${title}\n${escapeHtml(record.date)} ${escapeHtml(record.startTime)}–${escapeHtml(record.endTime)}${trainer}${details}${reason}${cancellation}\n${actionFor(record.nextAction, copy)}`;
   if (!override) return authoritative;
   const editable = renderNotificationTemplate(override, {
@@ -69,6 +69,14 @@ function reasonLabel(code: "unavailable" | "schedule-change" | "staff-unavailabl
     : locale === "sr" ? ["Nije dostupno", "Raspored je promenjen", "Osoblje nije dostupno", "Drugo"]
       : ["Недоступно", "Расписание изменилось", "Сотрудник недоступен", "Другое"];
   return labels[["unavailable", "schedule-change", "staff-unavailable", "other"].indexOf(code)];
+}
+
+function liabilityLine(record: ClientRecord, locale: Locale): string {
+  if (!record.lateCancellationLiability) return "";
+  const { amountRsd, paymentStatus } = record.lateCancellationLiability;
+  if (locale === "ru") return `\nСохранена полная финансовая ответственность: ${amountRsd} RSD (${paymentStatus === "paid" ? "оплачено" : "не оплачено"}).`;
+  if (locale === "sr") return `\nZadržana je puna finansijska obaveza: ${amountRsd} RSD (${paymentStatus === "paid" ? "plaćeno" : "nije plaćeno"}).`;
+  return `\nFull financial liability was recorded: ${amountRsd} RSD (${paymentStatus}).`;
 }
 
 export function escapeHtml(value: string): string {

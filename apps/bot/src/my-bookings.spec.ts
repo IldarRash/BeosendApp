@@ -1,9 +1,9 @@
 import { describe, expect, it, vi } from "vitest";
-import type { Booking, ClientRecord } from "@beosand/types";
+import type { Booking, BookingCancellationPreview, ClientRecord } from "@beosand/types";
+import { LateCancellationConfirmationRequiredError } from "./api-client";
 import { getStaticCatalog } from "@beosand/i18n";
 import { MENU_ACTIONS, NAV_ACTIONS } from "./menu";
 import { cancelBookingData, cancelConfirmKeyboard, cancelDoneKeyboard, clientRecordMessages, clientRecordsKeyboard, confirmCancelData, formatClientRecord, handleCancelConfirm, handleMyBookings, parseBookingCancel, parseBookingCancelConfirm, parseMoreRecords, type CancelBookingApi, type MyBookingsApi } from "./my-bookings";
-import type { MenuReplyCtx } from "./navigation";
 
 const ru = getStaticCatalog("ru");
 const ID = "33333333-3333-3333-3333-333333333333";
@@ -13,7 +13,7 @@ const record = (over: Partial<ClientRecord> = {}): ClientRecord => ({
   id: `booking:${ID}`, kind: "booking", entityId: ID, status: "confirmed", date: "2026-06-10", startTime: "18:00", endTime: "19:30",
   title: "Group", trainerName: "Марко", levelName: "Начинающий", trainingKind: "group", trainingId: "11111111-1111-1111-1111-111111111111",
   bookingId: ID, groupSubscriptionId: null, courtNumbers: [], courtCount: null, priceRsd: null, waitlistPosition: null,
-  reason: null, actor: null, canCancel: true, nextAction: "attend", ...over
+  reason: null, actor: null, canCancel: true, nextAction: "attend", lateCancellationLiability: null, ...over
 });
 const callbacksOf = (keyboard: { inline_keyboard: unknown[][] }) => keyboard.inline_keyboard.flat().flatMap((button) => typeof button === "object" && button !== null && "callback_data" in button ? [(button as { callback_data: string }).callback_data] : []);
 
@@ -22,7 +22,7 @@ describe("record callbacks", () => {
     expect(Buffer.byteLength(cancelBookingData(ID), "utf8")).toBeLessThanOrEqual(64);
     expect(Buffer.byteLength(confirmCancelData(ID), "utf8")).toBeLessThanOrEqual(64);
     expect(parseBookingCancel(cancelBookingData(ID))).toBe(ID);
-    expect(parseBookingCancelConfirm(confirmCancelData(ID))).toBe(ID);
+    expect(parseBookingCancelConfirm(confirmCancelData(ID, "nonce"))).toEqual({ bookingId: ID, nonce: "nonce" });
     expect(parseMoreRecords("records:more:past:30")).toEqual({ scope: "past", offset: 30 });
   });
 });
@@ -67,16 +67,66 @@ describe("record handlers", () => {
 });
 
 describe("cancellation", () => {
+  const preview: BookingCancellationPreview = {
+    kind: "liable", bookingId: ID, trainingId: "11111111-1111-1111-1111-111111111111",
+    trainingStartsAt: "2026-10-15T16:00:00.000Z", trainingLabel: "Group", trainerName: "Марко",
+    date: "2026-10-15", startTime: "18:00", endTime: "19:30", cancellable: true,
+    policyHours: 24, policyVersion: 2, cutoffAt: "2026-10-14T16:00:00.000Z", amountRsd: 1500,
+    billingKind: "single", paymentStatus: "unpaid", confirmationToken: "new-confirmation-token",
+    confirmationExpiresAt: "2026-10-14T17:00:00.000Z"
+  };
   it("keeps confirmation and completion paths to bookings and home", () => {
     expect(callbacksOf(cancelConfirmKeyboard(ru, ID))).toEqual([confirmCancelData(ID), MENU_ACTIONS.myBookings, NAV_ACTIONS.home]);
     expect(callbacksOf(cancelDoneKeyboard(ru))).toEqual([MENU_ACTIONS.availableTrainings, MENU_ACTIONS.myBookings, NAV_ACTIONS.home]);
   });
 
   it("forwards cancellation to the API with caller identity", async () => {
-    const cancelBooking = vi.fn().mockResolvedValue({} as Booking);
-    const api: CancelBookingApi = { cancelBooking };
+    const cancelBooking = vi.fn().mockResolvedValue({ booking: {} as Booking, liability: null });
+    const getBookingCancellationPreview = vi.fn();
+    const api: CancelBookingApi = { cancelBooking, getBookingCancellationPreview };
     const reply = vi.fn().mockResolvedValue(undefined);
-    await handleCancelConfirm({ reply } as MenuReplyCtx, api, ru, 999, ID);
-    expect(cancelBooking).toHaveBeenCalledWith(ID, 999);
+    await handleCancelConfirm({ reply, session: { cancellationConfirmation: { bookingId: ID, nonce: "nonce" } } } as never, api, ru, 999, { bookingId: ID, nonce: "nonce" });
+    expect(cancelBooking).toHaveBeenCalledWith(ID, 999, undefined);
+  });
+
+  it("does not send a stale warning callback with the newly stored token", async () => {
+    const api: CancelBookingApi = { cancelBooking: vi.fn(), getBookingCancellationPreview: vi.fn() };
+    const ctx = { reply: vi.fn(), session: { cancellationConfirmation: { bookingId: ID, nonce: "new", token: "new-token" } } };
+    await handleCancelConfirm(ctx as never, api, ru, 999, { bookingId: ID, nonce: "old" });
+    expect(api.cancelBooking).not.toHaveBeenCalled();
+    expect(ctx.reply).toHaveBeenCalled();
+  });
+
+  it("refreshes a stale financial preview and requires a new explicit callback", async () => {
+    const cancelBooking = vi.fn().mockRejectedValueOnce(new LateCancellationConfirmationRequiredError(preview))
+      .mockResolvedValueOnce({ booking: {} as Booking, liability: null });
+    const api: CancelBookingApi = { cancelBooking, getBookingCancellationPreview: vi.fn() };
+    const ctx = { reply: vi.fn(), session: { cancellationConfirmation: { bookingId: ID, nonce: "old", token: "old-token" } } };
+    await handleCancelConfirm(ctx as never, api, ru, 999, { bookingId: ID, nonce: "old" });
+    expect(cancelBooking).toHaveBeenCalledTimes(1);
+    expect(ctx.reply.mock.calls[0]?.[0]).toContain("1500");
+    expect(ctx.session.cancellationConfirmation.token).toBe(preview.confirmationToken);
+    const nonce = ctx.session.cancellationConfirmation.nonce;
+    expect(nonce).not.toBe("old");
+    await handleCancelConfirm(ctx as never, api, ru, 999, { bookingId: ID, nonce: "old" });
+    expect(cancelBooking).toHaveBeenCalledTimes(1);
+    await handleCancelConfirm(ctx as never, api, ru, 999, { bookingId: ID, nonce });
+    expect(cancelBooking).toHaveBeenLastCalledWith(ID, 999, preview.confirmationToken);
+  });
+
+  it("blocks duplicate submission and allows retry after a transport failure", async () => {
+    let reject!: (error: Error) => void;
+    const cancelBooking = vi.fn().mockImplementationOnce(() => new Promise((_resolve, fail) => { reject = fail; }))
+      .mockResolvedValueOnce({ booking: {} as Booking, liability: null });
+    const api: CancelBookingApi = { cancelBooking, getBookingCancellationPreview: vi.fn() };
+    const ctx = { reply: vi.fn(), session: { cancellationConfirmation: { bookingId: ID, nonce: "current", token: "token" } } };
+    const confirmation = { bookingId: ID, nonce: "current" };
+    const first = handleCancelConfirm(ctx as never, api, ru, 999, confirmation);
+    await handleCancelConfirm(ctx as never, api, ru, 999, confirmation);
+    expect(cancelBooking).toHaveBeenCalledTimes(1);
+    reject(new Error("Network unavailable"));
+    await expect(first).rejects.toThrow("Network unavailable");
+    await handleCancelConfirm(ctx as never, api, ru, 999, confirmation);
+    expect(cancelBooking).toHaveBeenCalledTimes(2);
   });
 });

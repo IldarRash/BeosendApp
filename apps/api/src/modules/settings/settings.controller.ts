@@ -18,6 +18,7 @@ import {
   updateCourtWorkingHoursDaySchema,
   updateCourtWorkingHoursMonthSchema,
   updateRequestLoggingSettingsSchema,
+  updateLateCancellationPolicySchema,
   updateSameDayFreedSlotAutomationSettingsSchema,
   type CourtWorkingHoursDayOverride,
   type CourtWorkingHoursDayView,
@@ -25,6 +26,7 @@ import {
   type CourtWorkingHoursMonthView,
   type ManagerContact,
   type RequestLoggingSettings,
+  type LateCancellationPolicy,
   type SameDayFreedSlotAutomationSettings
 } from "@beosand/types";
 import type { ZodSchema } from "zod";
@@ -70,6 +72,22 @@ export class SettingsController {
     const actorTelegramId = parseTelegramId(telegramIdHeader);
     const input = validate(updateRequestLoggingSettingsSchema, body ?? {});
     return this.settings.updateRequestLoggingSettings(actorTelegramId, input);
+  }
+
+  @Get("late-cancellation-policy")
+  lateCancellationPolicy(@Headers("x-telegram-id") header: string | undefined): Promise<LateCancellationPolicy> {
+    return this.settings.lateCancellationPolicy(parseTelegramId(header));
+  }
+
+  @Patch("late-cancellation-policy")
+  updateLateCancellationPolicy(
+    @Headers("x-telegram-id") header: string | undefined,
+    @Body() body: unknown
+  ): Promise<LateCancellationPolicy> {
+    return this.settings.updateLateCancellationPolicy(
+      parseTelegramId(header),
+      validate(updateLateCancellationPolicySchema, body ?? {})
+    );
   }
 
   /** Admin-only read of the global same-day freed-slot automation policy. */

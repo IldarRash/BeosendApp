@@ -715,6 +715,8 @@ export const monthlyPricingCountContextSchema = z
     pricingCountedBookingCount: z.number().int().nonnegative(),
     excludedBookingCount: z.number().int().nonnegative(),
     countedStatuses: z.tuple([z.literal("booked"), z.literal("attended")]),
+    /** A cancelled booking is counted only when it has an immutable late-cancellation liability. */
+    liabilityBackedCancelledBookingsCounted: z.literal(true),
     excludedStatuses: z.tuple([
       z.literal("cancelled"),
       z.literal("no_show"),
@@ -739,7 +741,11 @@ export const subscriptionPricingBreakdownRowSchema = z
     pricingTierMinTrainings: positiveTrainingOrdinal.nullable(),
     pricingTierMaxTrainings: positiveTrainingOrdinal.nullable(),
     bookingOrdinalInMonth: positiveTrainingOrdinal.nullable(),
-    priceSnapshotAt: z.string().datetime().nullable()
+    priceSnapshotAt: z.string().datetime().nullable(),
+    /** Whether this individual row contributes to the locked monthly price. */
+    pricingCounted: z.boolean(),
+    /** Makes the exceptional counted-cancelled case explicit to API consumers. */
+    pricingCountReason: z.enum(["active-booking", "late-cancellation-liability"]).nullable()
   })
   .strict();
 export type SubscriptionPricingBreakdownRow = z.infer<
@@ -1087,10 +1093,6 @@ export type ConfirmBookingInput = z.infer<typeof confirmBookingSchema>;
  */
 export const declineBookingSchema = z.object({ reason: decisionReasonSchema }).strict();
 export type DeclineBookingInput = z.infer<typeof declineBookingSchema>;
-
-/** Client cancellations need no reason; the service requires one for a staff actor. */
-export const cancelBookingSchema = z.object({ reason: decisionReasonSchema.optional() }).strict();
-export type CancelBookingInput = z.infer<typeof cancelBookingSchema>;
 
 /** Every organiser cancellation of a training/series requires a durable reason. */
 export const cancelTrainingSchema = z.object({ reason: decisionReasonSchema }).strict();

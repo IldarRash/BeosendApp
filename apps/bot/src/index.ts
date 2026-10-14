@@ -274,7 +274,7 @@ async function main(): Promise<void> {
     // decides ownership or cancellability — the API owns both.
     const cancelBookingId = parseBookingCancel(ctx.callbackQuery.data);
     if (cancelBookingId !== undefined) {
-      await handleCancelPrompt(ctx, catalog, cancelBookingId);
+      await handleCancelPrompt(ctx, api, catalog, cancelBookingId, ctx.from.id);
       return;
     }
     const confirmCancelId = parseBookingCancelConfirm(ctx.callbackQuery.data);

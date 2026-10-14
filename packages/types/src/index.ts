@@ -15,4 +15,5 @@ export * from "./webhook-contracts";
 export * from "./calendar-contracts";
 export * from "./settings-contracts";
 export * from "./record-status-contracts";
+export * from "./late-cancellation-contracts";
 export * from "./helpers";

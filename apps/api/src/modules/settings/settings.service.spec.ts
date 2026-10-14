@@ -1,12 +1,52 @@
 import { ForbiddenException, GoneException } from "@nestjs/common";
 import type { Env } from "@beosand/config";
 import { describe, expect, it, vi } from "vitest";
-import { SettingsRepository } from "./settings.repository";
+import { SettingsRepository, type AppSettingRow } from "./settings.repository";
+import type { Database } from "@beosand/db";
 import { SettingsService } from "./settings.service";
 
 const ADMIN_ID = 111;
 const NON_ADMIN_ID = 222;
 const NOW = new Date("2026-07-02T10:00:00.000Z");
+
+describe("global late-cancellation policy", () => {
+  it("defaults to disabled, including malformed stored data", async () => {
+    const repository = repo();
+    const service = new SettingsService(repository, env());
+    expect(await service.lateCancellationPolicy(ADMIN_ID)).toMatchObject({ enabled: false, hours: null });
+    vi.mocked(repository.findRow).mockResolvedValue({ key: "policy", value: "invalid", updatedAt: NOW, updatedBy: ADMIN_ID });
+    expect(await service.lateCancellationPolicy(ADMIN_ID)).toMatchObject({ enabled: false, hours: null });
+  });
+
+  it("serializes updates, advances the policy version, and retains no old liability state", async () => {
+    const repository = repo();
+    let stored: AppSettingRow | undefined;
+    const tx = {} as Database;
+    repository.transaction = async (work) => work(tx);
+    repository.lockKey = vi.fn(async () => undefined);
+    repository.findRowForUpdate = vi.fn(async () => stored);
+    repository.upsertRowInTransaction = vi.fn(async (_tx, key, value, updatedBy) => {
+      stored = { key, value, updatedBy, updatedAt: NOW };
+      return stored;
+    });
+    const service = new SettingsService(repository, env());
+    const enabled = await service.updateLateCancellationPolicy(ADMIN_ID, { enabled: true, hours: 24 });
+    const disabled = await service.updateLateCancellationPolicy(ADMIN_ID, { enabled: false, hours: null });
+    expect(enabled).toMatchObject({ enabled: true, hours: 24, version: 2, updatedBy: ADMIN_ID });
+    expect(enabled.effectiveFrom).not.toBeNull();
+    expect(disabled).toMatchObject({ enabled: false, hours: null, version: 3, effectiveFrom: null });
+    expect(repository.lockKey).toHaveBeenCalledTimes(2);
+    expect(repository.lockKey).toHaveBeenCalledWith(tx, "group_training_late_cancellation_policy_v1");
+  });
+
+  it("rejects unauthorized policy reads and writes before repository access", async () => {
+    const repository = repo();
+    const service = new SettingsService(repository, env());
+    await expect(service.lateCancellationPolicy(NON_ADMIN_ID)).rejects.toBeInstanceOf(ForbiddenException);
+    await expect(service.updateLateCancellationPolicy(NON_ADMIN_ID, { enabled: true, hours: 24 })).rejects.toBeInstanceOf(ForbiddenException);
+    expect(repository.findRow).not.toHaveBeenCalled();
+  });
+});
 
 function env(managerContact = "@env_manager"): Env {
   return {

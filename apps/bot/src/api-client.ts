@@ -1,6 +1,9 @@
 import {
   bookableMonthsSchema,
   bookingSchema,
+  bookingCancellationPreviewSchema,
+  bookingCancellationResultSchema,
+  cancelBookingSchema,
   clientSchema,
   clientRecordsPageSchema,
   decisionReasonSchema,
@@ -24,6 +27,8 @@ import {
   type AvailableSlotsQuery,
   type BookableMonth,
   type Booking,
+  type BookingCancellationPreview,
+  type BookingCancellationResult,
   type Client,
   type ClientRecordsPage,
   type DecisionReason,
@@ -76,6 +81,14 @@ export type RequestIndividualSessionResult =
 export type JoinWaitlistResult =
   | { ok: true; entry: WaitlistEntry }
   | { ok: false; reason: "conflict" };
+
+/** A late-cancellation confirmation became stale; retry only after the user taps again. */
+export class LateCancellationConfirmationRequiredError extends Error {
+  constructor(readonly preview: BookingCancellationPreview) {
+    super("Late cancellation confirmation is required");
+    this.name = "LateCancellationConfirmationRequiredError";
+  }
+}
 
 /**
  * Outcome of a trainer confirm/decline action (trainer-confirmation). `ok` maps
@@ -415,11 +428,28 @@ export class ApiClient {
    * a monthly group leaves the sibling bookings intact — the API targets the id
    * only. The bot only forwards the id and renders the cancelled booking.
    */
-  cancelBooking(bookingId: string, actorTelegramId: number): Promise<Booking> {
-    return this.request(`/bookings/${bookingId}/cancel`, bookingSchema, {
-      method: "POST",
+  getBookingCancellationPreview(bookingId: string, actorTelegramId: number): Promise<BookingCancellationPreview> {
+    return this.request(`/bookings/${bookingId}/cancellation-preview`, bookingCancellationPreviewSchema, {
       headers: { "x-telegram-id": String(actorTelegramId) }
     });
+  }
+
+  async cancelBooking(bookingId: string, actorTelegramId: number, lateCancellationConfirmationToken?: string): Promise<BookingCancellationResult> {
+    const path = `/bookings/${bookingId}/cancel`;
+    const res = await fetch(`${this.baseUrl}${path}`, {
+      method: "POST",
+      headers: { "content-type": "application/json", "x-telegram-id": String(actorTelegramId) },
+      body: JSON.stringify(cancelBookingSchema.parse(lateCancellationConfirmationToken ? { lateCancellationConfirmationToken } : {}))
+    });
+    if (res.status === 409) {
+      const body: unknown = await res.json();
+      if (body && typeof body === "object" && "code" in body && (body as { code?: unknown }).code === "LATE_CANCELLATION_CONFIRMATION_REQUIRED" && "preview" in body) {
+        throw new LateCancellationConfirmationRequiredError(bookingCancellationPreviewSchema.parse((body as { preview: unknown }).preview));
+      }
+      throw new Error(`API ${path} failed: 409`);
+    }
+    if (!res.ok) throw new Error(`API ${path} failed: ${res.status}`);
+    return bookingCancellationResultSchema.parse(await res.json());
   }
 
   /**

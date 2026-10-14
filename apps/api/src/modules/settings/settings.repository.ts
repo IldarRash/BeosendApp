@@ -1,5 +1,5 @@
 import { Injectable } from "@nestjs/common";
-import { tables } from "@beosand/db";
+import { type Database, tables } from "@beosand/db";
 import { eq, like, sql } from "drizzle-orm";
 import { DatabaseService } from "../../db/database.service";
 
@@ -33,6 +33,21 @@ export class SettingsRepository {
     return row;
   }
 
+  transaction<T>(work: (tx: Database) => Promise<T>): Promise<T> {
+    return this.database.db.transaction(work);
+  }
+
+  async findRowForUpdate(tx: Database, key: string): Promise<AppSettingRow | undefined> {
+    const [row] = await tx.select(settingColumns).from(tables.appSettings)
+      .where(eq(tables.appSettings.key, key)).limit(1).for("update");
+    return row;
+  }
+
+  /** Serializes first creation as well as updates, since a missing row cannot be FOR UPDATE locked. */
+  async lockKey(tx: Database, key: string): Promise<void> {
+    await tx.execute(sql`select pg_advisory_xact_lock(hashtext('app-settings'), hashtext(${key}))`);
+  }
+
   async findRowsByPrefix(prefix: string): Promise<AppSettingRow[]> {
     return this.database.db
       .select(settingColumns)
@@ -47,7 +62,11 @@ export class SettingsRepository {
   }
 
   async upsertRow(key: string, value: string, updatedBy: number): Promise<AppSettingRow> {
-    const [row] = await this.database.db
+    return this.upsertRowInTransaction(this.database.db, key, value, updatedBy);
+  }
+
+  async upsertRowInTransaction(db: Database, key: string, value: string, updatedBy: number): Promise<AppSettingRow> {
+    const [row] = await db
       .insert(tables.appSettings)
       .values({ key, value, updatedBy })
       .onConflictDoUpdate({

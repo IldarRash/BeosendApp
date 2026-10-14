@@ -1,6 +1,8 @@
 import { InlineKeyboard } from "grammy";
 import { formatDayMonth, type ClientRecord } from "@beosand/types";
-import type { ApiClient } from "./api-client";
+import { LateCancellationConfirmationRequiredError, type ApiClient } from "./api-client";
+import type { BookingCancellationPreview } from "@beosand/types";
+import type { BotContext } from "./onboarding";
 import { backHomeKeyboard, MENU_ACTIONS, NAV_ACTIONS } from "./menu";
 import { showMainMenu, type MenuReplyCtx } from "./navigation";
 import { t, type Catalog } from "./i18n";
@@ -65,6 +67,10 @@ export function formatClientRecord(catalog: Catalog, record: ClientRecord): stri
     details.join(" · ") || undefined,
     courts,
     price,
+    record.lateCancellationLiability ? t(catalog, "bot.myBookings.cancelDoneLiable", {
+      amount: record.lateCancellationLiability.amountRsd,
+      payment: t(catalog, `bot.myBookings.payment.${record.lateCancellationLiability.paymentStatus}`)
+    }) : undefined,
     position,
     reason,
     next
@@ -123,8 +129,8 @@ export function cancelBookingData(bookingId: string): string {
   return `${MY_BOOKINGS_ACTIONS.cancelPrefix}${bookingId}`;
 }
 
-export function confirmCancelData(bookingId: string): string {
-  return `${MY_BOOKINGS_ACTIONS.confirmPrefix}${bookingId}`;
+export function confirmCancelData(bookingId: string, nonce = "pending"): string {
+  return `${MY_BOOKINGS_ACTIONS.confirmPrefix}${bookingId}:${nonce}`;
 }
 
 /** Resolve a callback to the bookingId, or undefined if it's not a cancel action. */
@@ -136,11 +142,12 @@ export function parseBookingCancel(data: string | undefined): string | undefined
 }
 
 /** Resolve a callback to the bookingId for the confirm step, or undefined. */
-export function parseBookingCancelConfirm(data: string | undefined): string | undefined {
+export function parseBookingCancelConfirm(data: string | undefined): { bookingId: string; nonce: string } | undefined {
   if (data === undefined || !data.startsWith(MY_BOOKINGS_ACTIONS.confirmPrefix)) {
     return undefined;
   }
-  return data.slice(MY_BOOKINGS_ACTIONS.confirmPrefix.length);
+  const [bookingId, nonce] = data.slice(MY_BOOKINGS_ACTIONS.confirmPrefix.length).split(":");
+  return bookingId && nonce ? { bookingId, nonce } : undefined;
 }
 
 
@@ -250,9 +257,9 @@ export async function handleMoreRecords(ctx: MenuReplyCtx, api: Pick<ApiClient, 
  * The "Вы уверены?" prompt keyboard: confirm (carrying the bookingId) plus a way
  * back to the bookings list. No domain logic — the write happens only on confirm.
  */
-export function cancelConfirmKeyboard(catalog: Catalog, bookingId: string): InlineKeyboard {
+export function cancelConfirmKeyboard(catalog: Catalog, bookingId: string, nonce = "pending"): InlineKeyboard {
   return new InlineKeyboard()
-    .text(t(catalog, "bot.myBookings.cancelConfirmButton"), confirmCancelData(bookingId))
+    .text(t(catalog, "bot.myBookings.cancelConfirmButton"), confirmCancelData(bookingId, nonce))
     .row()
     .text(t(catalog, "bot.nav.back"), MENU_ACTIONS.myBookings)
     .row()
@@ -270,19 +277,24 @@ export function cancelDoneKeyboard(catalog: Catalog): InlineKeyboard {
 }
 
 /** The slice of ApiClient the cancellation confirm handler needs. */
-export type CancelBookingApi = Pick<ApiClient, "cancelBooking">;
+export type CancelBookingApi = Pick<ApiClient, "getBookingCancellationPreview" | "cancelBooking">;
 
 /**
  * Step 1: show the confirmation prompt for a tapped cancel button. No write yet —
  * the bot only renders the "are you sure?" screen carrying the bookingId.
  */
 export async function handleCancelPrompt(
-  ctx: MenuReplyCtx,
+  ctx: BotContext,
+  api: CancelBookingApi,
   catalog: Catalog,
-  bookingId: string
+  bookingId: string,
+  telegramId: number
 ): Promise<void> {
-  await ctx.reply(t(catalog, "bot.myBookings.cancelConfirm"), {
-    reply_markup: cancelConfirmKeyboard(catalog, bookingId)
+  const preview = await api.getBookingCancellationPreview(bookingId, telegramId);
+  const nonce = createConfirmationNonce();
+  ctx.session.cancellationConfirmation = { bookingId, token: preview.kind === "liable" ? preview.confirmationToken : undefined, nonce };
+  await ctx.reply(cancelPromptText(catalog, preview), {
+    reply_markup: cancelConfirmKeyboard(catalog, bookingId, nonce)
   });
 }
 
@@ -293,18 +305,47 @@ export async function handleCancelPrompt(
  * sent back to the menu.
  */
 export async function handleCancelConfirm(
-  ctx: MenuReplyCtx,
+  ctx: BotContext,
   api: CancelBookingApi,
   catalog: Catalog,
   telegramId: number | undefined,
-  bookingId: string
+  confirmation: { bookingId: string; nonce: string }
 ): Promise<void> {
   if (telegramId === undefined) {
     await showMainMenu(ctx, catalog);
     return;
   }
-  await api.cancelBooking(bookingId, telegramId);
-  await ctx.reply(t(catalog, "bot.myBookings.cancelDone"), {
-    reply_markup: cancelDoneKeyboard(catalog)
-  });
+  const pending = ctx.session.cancellationConfirmation;
+  if (!pending || pending.bookingId !== confirmation.bookingId || pending.nonce !== confirmation.nonce || pending.submitting) {
+    await ctx.reply(t(catalog, "bot.myBookings.cancelRefreshRequired"), { reply_markup: backHomeKeyboard(catalog) });
+    return;
+  }
+  pending.submitting = true;
+  try {
+    const result = await api.cancelBooking(confirmation.bookingId, telegramId, pending.token);
+    ctx.session.cancellationConfirmation = undefined;
+    const done = result.liability
+      ? t(catalog, "bot.myBookings.cancelDoneLiable", { amount: result.liability.amountRsd, payment: t(catalog, `bot.myBookings.payment.${result.liability.paymentStatus}`) })
+      : t(catalog, "bot.myBookings.cancelDone");
+    await ctx.reply(done, { reply_markup: cancelDoneKeyboard(catalog) });
+  } catch (error) {
+    if (!(error instanceof LateCancellationConfirmationRequiredError)) throw error;
+    const nonce = createConfirmationNonce();
+    ctx.session.cancellationConfirmation = { bookingId: confirmation.bookingId, token: error.preview.kind === "liable" ? error.preview.confirmationToken : undefined, nonce };
+    await ctx.reply(cancelPromptText(catalog, error.preview), { reply_markup: cancelConfirmKeyboard(catalog, confirmation.bookingId, nonce) });
+  } finally {
+    pending.submitting = false;
+  }
+}
+
+function createConfirmationNonce(): string {
+  return Math.random().toString(36).slice(2, 10);
+}
+
+function cancelPromptText(catalog: Catalog, preview: BookingCancellationPreview): string {
+  if (preview.kind === "liable") {
+    return t(catalog, "bot.myBookings.cancelLateConfirm", { label: preview.trainingLabel, date: preview.date, start: preview.startTime, trainer: preview.trainerName, hours: preview.policyHours, amount: preview.amountRsd, payment: t(catalog, `bot.myBookings.payment.${preview.paymentStatus}`) });
+  }
+  if (preview.kind === "waived") return t(catalog, "bot.myBookings.cancelWaivedConfirm");
+  return t(catalog, "bot.myBookings.cancelConfirm");
 }
